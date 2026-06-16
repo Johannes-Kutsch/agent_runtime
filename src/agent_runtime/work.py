@@ -18,10 +18,14 @@ from .execution_contracts import (
     SetupFailureTranslator,
     TextOutputAdapter,
     WorkExecutionAdapter,
+    WorkExecutionDependencies,
+    WorkFailureHandling,
     WorkInvocationDependencies,
+    WorkInvocationPresentation,
     WorkInvocationRequest,
     WorkModelDisplayMetadata,
     WorkOutputAdapter,
+    WorkPresentationDependencies,
     WorkResultT,
     WorkStatusDisplay,
     WorkStatusRow,
@@ -302,22 +306,23 @@ def _ensure_timeout_context(
 async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResultT:
     status_display = request.status_display
     if status_display is None:
-        status_display = request.dependencies.status_display_factory()
+        status_display = request.dependencies.presentation.status_display_factory()
 
     token = request.token if request.token is not None else CancellationToken()
     if token.is_cancelled:
         raise UsageLimitError(
             reset_time=None,
-            stage_key=request.dependencies.stage_key_for_role(request.role),
+            stage_key=request.dependencies.failure_handling.stage_key_for_role(
+                request.role
+            ),
         )
 
     run_session = request.run_session
-    assert run_session is not None
-    prepared_session = request.dependencies.prepare_session(run_session)
+    prepared_session = request.dependencies.execution.prepare_session(run_session)
     non_typed_retry_done = False
     initial_attempt = True
 
-    async with request.dependencies.status_row_factory(
+    async with request.dependencies.presentation.status_row_factory(
         status_display,
         request.name,
         kind="agent",
@@ -326,21 +331,22 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
         color_key=request.color_key,
         model_display=_build_model_display_metadata(request),
     ) as row:
-        session = request.dependencies.build_session(
+        session = request.dependencies.execution.build_session(
             request.mount_path,
             request.service,
             prepared_session.provider_state_dir_container_path,
         )
-        runner = request.dependencies.build_runner(session, status_display)
+        runner = request.dependencies.execution.build_runner(session, status_display)
         try:
-            git_name, git_email = request.dependencies.get_git_identity()
+            git_name, git_email = request.dependencies.execution.get_git_identity()
             try:
                 await runner.setup(git_name, git_email, request.work_body)
             except Exception as exc:
-                if request.dependencies.translate_setup_failure is not None:
-                    translated = request.dependencies.translate_setup_failure(
-                        request.role, exc
-                    )
+                translator = (
+                    request.dependencies.failure_handling.translate_setup_failure
+                )
+                if translator is not None:
+                    translated = translator(request.role, exc)
                     if translated is not None:
                         raise translated from exc
                 raise
@@ -351,7 +357,7 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
             async def container_exec(cmd: str) -> str:
                 return await loop.run_in_executor(None, session.exec_simple, cmd)
 
-            retries_left = request.dependencies.timeout_retries
+            retries_left = request.dependencies.failure_handling.timeout_retries
             while True:
                 provider_run_session = (
                     prepared_session.initial_provider_run_session()
@@ -391,21 +397,27 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                     if retries_left <= 0:
                         raise
                     restart_num = (
-                        request.dependencies.timeout_retries - retries_left + 1
+                        request.dependencies.failure_handling.timeout_retries
+                        - retries_left
+                        + 1
                     )
                     status_display.print(
                         request.name,
                         "Timeout — restarting"
-                        f" (attempt {restart_num}/{request.dependencies.timeout_retries})",
+                        " "
+                        f"(attempt {restart_num}/"
+                        f"{request.dependencies.failure_handling.timeout_retries})",
                     )
                     retries_left -= 1
                     initial_attempt = False
                 except UsageLimitError as err:
                     if err.stage_key is None:
-                        err.stage_key = request.dependencies.stage_key_for_role(
-                            request.role
+                        err.stage_key = (
+                            request.dependencies.failure_handling.stage_key_for_role(
+                                request.role
+                            )
                         )
-                    request.dependencies.handle_provider_account_exhaustion(
+                    request.dependencies.failure_handling.handle_provider_account_exhaustion(
                         request.service,
                         err,
                     )
@@ -413,10 +425,13 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                     raise
                 except TransientAgentError as err:
                     token.cancel()
-                    if request.dependencies.transient_status_message is not None:
+                    transient_status_message = (
+                        request.dependencies.failure_handling.transient_status_message
+                    )
+                    if transient_status_message is not None:
                         status_display.print(
                             request.name,
-                            request.dependencies.transient_status_message(err),
+                            transient_status_message(err),
                         )
                     raise
                 except AgentCredentialFailureError as err:
@@ -503,13 +518,16 @@ async def _invoke_work_attempt(
 def _build_model_display_metadata(
     request: WorkInvocationRequest[Any],
 ) -> WorkModelDisplayMetadata | None:
-    if request.dependencies.build_model_display_metadata is None:
+    build_model_display_metadata = (
+        request.dependencies.presentation.build_model_display_metadata
+    )
+    if build_model_display_metadata is None:
         return WorkModelDisplayMetadata(
             service=request.service.name,
             model=request.model,
             effort=request.effort,
         )
-    return request.dependencies.build_model_display_metadata(
+    return build_model_display_metadata(
         request.service.name,
         request.model,
         request.effort,
@@ -528,10 +546,14 @@ __all__ = [
     "TextOutputAdapter",
     "WorkModelDisplayMetadata",
     "WorkExecutionAdapter",
+    "WorkExecutionDependencies",
+    "WorkFailureHandling",
     "WorkStatusDisplay",
     "WorkStatusRow",
     "WorkInvocationDependencies",
+    "WorkInvocationPresentation",
     "WorkInvocationRequest",
     "WorkOutputAdapter",
+    "WorkPresentationDependencies",
     "invoke_work",
 ]

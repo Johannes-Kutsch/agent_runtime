@@ -11,6 +11,7 @@ from .execution_contracts import (
     PromptRuntimeExecutionAdapter as _PromptRuntimeExecutionAdapter,
     RunSessionPlan,
     TextOutputAdapter,
+    WorkInvocationPresentation,
     WorkInvocationRequest,
     WorktreeMount,
 )
@@ -96,19 +97,16 @@ class ResidentRunRequest:
 
 @dataclasses.dataclass(frozen=True)
 class _RuntimeIntent:
-    name: str
-    mount_path: Any
-    role: AgentRole
-    service: Any
+    run_session: RunSessionPlan
     model: str
     effort: str
     output_adapter: Any = dataclasses.field(repr=False)
     dependencies: Any = dataclasses.field(repr=False)
-    session_namespace: str = ""
-    run_session: RunSessionPlan | None = None
-    status_display: Any = None
+    presentation: WorkInvocationPresentation = dataclasses.field(
+        default_factory=WorkInvocationPresentation
+    )
     token: CancellationToken | None = None
-    work_body: str = ""
+    allow_non_typed_resume_retry: bool = False
 
 
 def _selected_service_path(
@@ -166,19 +164,14 @@ def _build_run_session(
 async def _invoke_runtime_intent(intent: _RuntimeIntent) -> Any:
     return await invoke_work(
         WorkInvocationRequest(
-            name=intent.name,
-            mount_path=intent.mount_path,
-            role=intent.role,
-            service=intent.service,
+            run_session=intent.run_session,
             model=intent.model,
             effort=intent.effort,
             output_adapter=intent.output_adapter,
             dependencies=intent.dependencies,
-            status_display=intent.status_display,
+            presentation=intent.presentation,
             token=intent.token,
-            work_body=intent.work_body,
-            session_namespace=intent.session_namespace,
-            run_session=intent.run_session,
+            allow_non_typed_resume_retry=intent.allow_non_typed_resume_retry,
         )
     )
 
@@ -328,27 +321,25 @@ async def _run_prompt(
     )
     return await _invoke_runtime_intent(
         _RuntimeIntent(
-            name=request.name,
-            mount_path=request.mount_path,
-            role=role,
-            service=resolved_service,
+            run_session=_build_run_session(
+                mount_path=request.mount_path,
+                role=role,
+                session_namespace=request.session_namespace,
+                service=resolved_service,
+                container_workspace=dependencies.execution.container_workspace,
+            ),
             model=resolved_override.model,
             effort=resolved_override.effort,
             output_adapter=TextOutputAdapter(
                 prompt=request.prompt, tool_policy=request.tool_policy
             ),
             dependencies=dependencies,
-            status_display=request.status_display,
-            token=request.token,
-            work_body=request.work_body,
-            session_namespace=request.session_namespace,
-            run_session=_build_run_session(
-                mount_path=request.mount_path,
-                role=role,
-                session_namespace=request.session_namespace,
-                service=resolved_service,
-                container_workspace=dependencies.container_workspace,
+            presentation=WorkInvocationPresentation(
+                name=request.name,
+                status_display=request.status_display,
+                work_body=request.work_body,
             ),
+            token=request.token,
         )
     )
 
@@ -411,25 +402,23 @@ async def _run_one_shot(
         try:
             raw_output = await _invoke_runtime_intent(
                 _RuntimeIntent(
-                    name=request.name,
-                    mount_path=request.mount_path,
-                    role=role,
-                    service=resolved_service,
-                    model=resolved_override.model,
-                    effort=resolved_override.effort,
-                    output_adapter=output_adapter,
-                    dependencies=dependencies,
-                    status_display=request.status_display,
-                    token=attempt_token,
-                    work_body=request.work_body,
-                    session_namespace=request.session_namespace,
                     run_session=_build_run_session(
                         mount_path=request.mount_path,
                         role=role,
                         session_namespace=request.session_namespace,
                         service=resolved_service,
-                        container_workspace=dependencies.container_workspace,
+                        container_workspace=dependencies.execution.container_workspace,
                     ),
+                    model=resolved_override.model,
+                    effort=resolved_override.effort,
+                    output_adapter=output_adapter,
+                    dependencies=dependencies,
+                    presentation=WorkInvocationPresentation(
+                        name=request.name,
+                        status_display=request.status_display,
+                        work_body=request.work_body,
+                    ),
+                    token=attempt_token,
                 )
             )
         except Exception as exc:
@@ -477,32 +466,32 @@ async def _run_resident_prompt(
     def _prepare_session(run_session: RunSessionPlan) -> Any:
         nonlocal prepared_session
         if prepared_session is None:
-            prepared_session = dependencies.prepare_session(run_session)
+            prepared_session = dependencies.execution.prepare_session(run_session)
         return prepared_session
 
     resident_dependencies = dataclasses.replace(
         dependencies,
-        prepare_session=_prepare_session,
+        execution=dataclasses.replace(
+            dependencies.execution,
+            prepare_session=_prepare_session,
+        ),
     )
     run_session = _build_run_session(
         mount_path=plan.worktree,
         role=plan.role,
         session_namespace=plan.namespace,
         service=plan.service,
-        container_workspace=dependencies.container_workspace,
+        container_workspace=dependencies.execution.container_workspace,
         run_kind=plan.run_kind,
         provider_session_id=plan.provider_session_id,
         provider_state_dir_container_path=plan.provider_state_dir_container_path(
-            dependencies.container_workspace
+            dependencies.execution.container_workspace
         ),
         exact_transcript_match=plan.exact_transcript_match,
     )
     output = await _invoke_runtime_intent(
         _RuntimeIntent(
-            name=request.name,
-            mount_path=plan.worktree,
-            role=plan.role,
-            service=plan.service,
+            run_session=run_session,
             model=request.model,
             effort=request.effort,
             output_adapter=TextOutputAdapter(
@@ -510,15 +499,16 @@ async def _run_resident_prompt(
                 tool_policy=request.tool_policy,
             ),
             dependencies=resident_dependencies,
-            status_display=request.status_display,
+            presentation=WorkInvocationPresentation(
+                name=request.name,
+                status_display=request.status_display,
+                work_body=request.work_body,
+            ),
             token=request.token,
-            work_body=request.work_body,
-            session_namespace=plan.namespace,
-            run_session=run_session,
         )
     )
     if prepared_session is None:
-        prepared_session = resident_dependencies.prepare_session(run_session)
+        prepared_session = resident_dependencies.execution.prepare_session(run_session)
     provider_run_session = prepared_session.initial_provider_run_session()
     return ResidentRunResult(
         output=output,
