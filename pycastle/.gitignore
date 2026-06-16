@@ -1,0 +1,6 @@
+.env
+.worktrees/
+logs/
+config.py
+config.py.example
+setup/
