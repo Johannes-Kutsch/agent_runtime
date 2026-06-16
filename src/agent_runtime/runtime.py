@@ -7,9 +7,8 @@ from . import _time as _time_module
 from .contracts import ToolPolicy
 from .execution_contracts import (
     CancellationToken,
-    PromptRunRequest,
-    PromptRunSession,
-    PromptRuntimeExecutionAdapter,
+    PromptRunRequest as _PromptRunRequest,
+    PromptRuntimeExecutionAdapter as _PromptRuntimeExecutionAdapter,
     RunSessionPlan,
     TextOutputAdapter,
     WorkInvocationRequest,
@@ -35,20 +34,13 @@ __all__ = [
     "ResidentRuntime",
     "ResidentRuntimeExecutionAdapter",
     "ResidentRuntimeMetadata",
-    "PromptRunRequest",
-    "PromptRunSession",
-    "PromptRuntime",
-    "PromptRuntimeExecutionAdapter",
     "ToolPolicy",
     "WorktreeMount",
-    "run_one_shot",
-    "run_prompt",
-    "run_resident_prompt",
 ]
 
-OneShotRunRequest = PromptRunRequest
-OneShotRuntimeExecutionAdapter = PromptRuntimeExecutionAdapter
-ResidentRuntimeExecutionAdapter = PromptRuntimeExecutionAdapter
+OneShotRunRequest = _PromptRunRequest
+OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
+ResidentRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 
 
 @dataclasses.dataclass(frozen=True)
@@ -135,7 +127,7 @@ def _selected_service_path(
 
 
 def _require_execution_adapter_method(
-    adapter: PromptRuntimeExecutionAdapter,
+    adapter: _PromptRuntimeExecutionAdapter,
     method_name: str,
 ) -> Any:
     method = getattr(adapter, method_name, None)
@@ -189,29 +181,6 @@ async def _invoke_runtime_intent(intent: _RuntimeIntent) -> Any:
             run_session=intent.run_session,
         )
     )
-
-
-class PromptRuntime:
-    def __init__(
-        self,
-        *,
-        execution_adapter: PromptRuntimeExecutionAdapter,
-        service_registry: ServiceRegistry | dict[str, Any] | None = None,
-    ) -> None:
-        registry = (
-            service_registry
-            if isinstance(service_registry, ServiceRegistry)
-            else ServiceRegistry(service_registry or {})
-        )
-        self._service_registry = registry
-        self._execution_adapter = execution_adapter
-
-    async def run_prompt(self, request: PromptRunRequest) -> str:
-        return await run_prompt(
-            runner=self._execution_adapter,
-            service_registry=self._service_registry,
-            request=request,
-        )
 
 
 class _OneShotOutputAdapter:
@@ -309,7 +278,7 @@ class OneShotRuntime:
         self._execution_adapter = execution_adapter
 
     async def run_one_shot(self, request: OneShotRunRequest) -> OneShotRunResult:
-        return await run_one_shot(
+        return await _run_one_shot(
             runner=self._execution_adapter,
             service_registry=self._service_registry,
             request=request,
@@ -328,17 +297,17 @@ class ResidentRuntime:
         self,
         request: ResidentRunRequest,
     ) -> ResidentRunResult:
-        return await run_resident_prompt(
+        return await _run_resident_prompt(
             runner=self._execution_adapter,
             request=request,
         )
 
 
-async def run_prompt(
+async def _run_prompt(
     *,
-    runner: PromptRuntimeExecutionAdapter,
+    runner: _PromptRuntimeExecutionAdapter,
     service_registry: ServiceRegistry,
-    request: PromptRunRequest,
+    request: _PromptRunRequest,
 ) -> str:
     resolved_override = service_registry.resolve(
         request.override,
@@ -384,7 +353,7 @@ async def run_prompt(
     )
 
 
-async def run_one_shot(
+async def _run_one_shot(
     *,
     runner: OneShotRuntimeExecutionAdapter,
     service_registry: ServiceRegistry,
@@ -487,7 +456,7 @@ async def run_one_shot(
         )
 
 
-async def run_resident_prompt(
+async def _run_resident_prompt(
     *,
     runner: ResidentRuntimeExecutionAdapter,
     request: ResidentRunRequest,
