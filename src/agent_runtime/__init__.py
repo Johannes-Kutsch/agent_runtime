@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -9,12 +9,16 @@ from .contracts import (
     AgentService,
     AssistantTurn,
     CredentialFailure,
+    ExecutionProvider,
     HardError,
     ParsedTurn,
     PromptTokens,
     ProviderSessionRecordingStore,
     ProviderStatePreparationAction,
+    ResidentExecutionProvider,
     Result,
+    ServiceSelectionProvider,
+    SessionPlanningProvider,
     ToolPolicy,
     TransientError,
     UnsupportedTokens,
@@ -84,6 +88,7 @@ __all__ = [
     "AgentRole",
     "AgentTimeoutError",
     "AssistantTurn",
+    "ExecutionProvider",
     "CancellationToken",
     "ChainEntry",
     "ConfiguredCandidateChain",
@@ -102,6 +107,7 @@ __all__ = [
     "ProviderSessionStateRequest",
     "ProviderStatePreparationAction",
     "PromptTokens",
+    "ResidentExecutionProvider",
     "PromptRunRequest",
     "PromptRunSession",
     "PromptRuntime",
@@ -115,6 +121,7 @@ __all__ = [
     "ResidentSessionPlan",
     "ResidentSessionPlanRequest",
     "ServiceRegistry",
+    "ServiceSelectionProvider",
     "SleepUntil",
     "Stop",
     "StageOverride",
@@ -147,6 +154,7 @@ __all__ = [
     "UnsupportedTokens",
     "UsageLimit",
     "UsageLimitError",
+    "SessionPlanningProvider",
     "validation_labels",
     "decide_usage_limit_continuation",
     "WorkInvocationDependencies",
@@ -273,4 +281,3 @@ def __getattr__(name: str):
 
 
 assert_runtime_import_isolation(importer=__name__)
-
