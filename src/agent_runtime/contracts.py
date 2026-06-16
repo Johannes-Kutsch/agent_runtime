@@ -158,22 +158,7 @@ class SessionPlanningProvider(
     def name(self) -> str: ...
 
 
-class AgentService(
-    ServiceSelectionProvider,
-    ResidentExecutionProvider,
-    Protocol,
-):
-    def state_dir_relpath(self, role: AgentRole, namespace: str = "") -> str | None: ...
-
-    def is_resumable(self, state_dir: Path) -> bool: ...
-
-    def valid_models(self) -> frozenset[str]: ...
-
-    def valid_efforts(self) -> frozenset[str]: ...
-
-
 __all__ = [
-    "AgentService",
     "AssistantTurn",
     "CredentialFailure",
     "ExecutionService",
