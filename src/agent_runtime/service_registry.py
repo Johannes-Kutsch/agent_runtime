@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import datetime
 
 from .contracts import ServiceSelectionProvider
@@ -9,8 +9,6 @@ from .stage_priority_chain import (
     select_configured_candidate_chain,
 )
 from .types import StageOverride
-
-ServiceSummaryRenderer = Callable[[str, ServiceSelectionProvider], str | None]
 
 
 class ServiceRegistry:
@@ -96,9 +94,7 @@ class ServiceRegistry:
             return None
         return min(service.next_wake_time() for service in exhausted)
 
-    def mark_exhausted(
-        self, service_name: str, *, reset_time: datetime | None
-    ) -> None:
+    def mark_exhausted(self, service_name: str, *, reset_time: datetime | None) -> None:
         service = self._services.get(service_name)
         if service is None:
             return
@@ -106,15 +102,3 @@ class ServiceRegistry:
 
     def __getitem__(self, key: str) -> ServiceSelectionProvider | None:
         return self._services.get(key)
-
-    def summary_lines(
-        self,
-        render_summary_line: ServiceSummaryRenderer,
-    ) -> list[str]:
-        lines = []
-        for name, svc in self._services.items():
-            line = render_summary_line(name, svc)
-            if line is None:
-                continue
-            lines.append(line)
-        return lines
