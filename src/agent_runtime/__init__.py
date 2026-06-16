@@ -8,6 +8,7 @@ from .agent_log import AgentInvocationLog, LogicalAgentInvocationLog, WorkInvoca
 from .contracts import (
     AgentService,
     AssistantTurn,
+    ExecutionService,
     CredentialFailure,
     ExecutionProvider,
     HardError,
@@ -88,6 +89,7 @@ __all__ = [
     "AgentRole",
     "AgentTimeoutError",
     "AssistantTurn",
+    "ExecutionService",
     "ExecutionProvider",
     "CancellationToken",
     "ChainEntry",

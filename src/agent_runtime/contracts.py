@@ -111,7 +111,7 @@ class SessionPlanningProvider(Protocol):
     def is_resumable(self, state_dir: Path) -> bool: ...
 
 
-class ExecutionProvider(Protocol):
+class ExecutionService(Protocol):
     @property
     def name(self) -> str: ...
 
@@ -141,9 +141,13 @@ class ExecutionProvider(Protocol):
     def mark_exhausted(self, reset_time: datetime | None) -> None: ...
 
 
+class ExecutionProvider(ExecutionService, Protocol):
+    """Compatibility alias for the focused execution service seam."""
+
+
 class ResidentExecutionProvider(
     SessionPlanningProvider,
-    ExecutionProvider,
+    ExecutionService,
     Protocol,
 ):
     pass
@@ -167,6 +171,7 @@ __all__ = [
     "AgentService",
     "AssistantTurn",
     "CredentialFailure",
+    "ExecutionService",
     "ExecutionProvider",
     "HardError",
     "ParsedTurn",
