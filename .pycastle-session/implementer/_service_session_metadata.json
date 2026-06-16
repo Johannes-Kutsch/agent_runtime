@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 {"codex": {"provider_session_id": "019ed1b4-c8a0-76f3-b36a-aaa4a426fd96", "service": "codex"}}
+=======
+{"codex": {"provider_session_id": "019ed1b4-cd9e-7ae0-b1a9-bd4205aa14e2", "service": "codex"}}
+>>>>>>> pycastle/issue-18

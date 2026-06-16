@@ -25,6 +25,10 @@ from agent_runtime.contracts import (
     UnsupportedTokens,
     UsageLimit,
 )
+from agent_runtime.provider_session_adapter import (
+    ProviderSessionPlanningFacts,
+    ProviderSessionPlanningRequest,
+)
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     AgentFailedError,
@@ -61,6 +65,11 @@ from agent_runtime.stage_priority_chain import (
     select_configured_candidate_chain,
 )
 from agent_runtime.session_planning import ResidentSessionPlan
+from agent_runtime.session_planning import (
+    AuthSeedingRequirement,
+    ResidentSessionPlanRequest,
+    plan_resident_session,
+)
 from agent_runtime.work import reduce_text_output_events
 
 
@@ -170,6 +179,15 @@ class _RoleSession:
 
     def exact_transcript_service_name(self) -> str | None:
         return self.exact_transcript_service
+
+    def record_successful_provider_session_metadata(
+        self,
+        service_name: str,
+        provider_session_id: str | None,
+    ) -> None:
+        self.service_metadata[service_name] = {
+            "provider_session_id": provider_session_id or ""
+        }
 
 
 @dataclass
@@ -436,6 +454,71 @@ class _ResidentSeamExecutionAdapter:
         )
 
 
+class _ResidentPlanningProviderSessionAdapter:
+    @property
+    def service_name(self) -> str:
+        return "codex"
+
+    def provider_session_planning_facts(
+        self,
+        request: ProviderSessionPlanningRequest,
+    ) -> ProviderSessionPlanningFacts:
+        del request
+        return ProviderSessionPlanningFacts(
+            state_dir_relpath="state/",
+            provider_state_dir=Path("state"),
+            has_resumable_provider_state=True,
+        )
+
+    def provider_session_preferences(self, request: Any) -> Any:
+        del request
+        return runtime.ProviderSessionPreferences(
+            preferred_provider_session_id="recovered-session"
+        )
+
+    def provider_session_state(self, request: Any) -> Any:
+        del request
+        return runtime.ProviderSessionState(
+            run_kind=RunKind.RESUME,
+            provider_session_id="recovered-session",
+            state_dir_relpath="state/",
+            state_dir_path=Path("state"),
+        )
+
+    def prepare_local_provider_run_state(
+        self,
+        provider_state_dir: Path | None,
+        auth_seed_action: Any | None = None,
+    ) -> None:
+        del provider_state_dir, auth_seed_action
+
+    def record_provider_session_id(
+        self,
+        *,
+        role_session: Any,
+        provider_session_id: str,
+        service_state_dir: Path | None = None,
+    ) -> None:
+        del service_state_dir
+        role_session.save_service_session_id("codex", provider_session_id)
+
+    def recover_provider_session_id(
+        self,
+        provider_state_dir: Path | None,
+    ) -> str | None:
+        del provider_state_dir
+        return "recovered-session"
+
+    def is_exact_resumable_provider_session(
+        self,
+        *,
+        provider_session_id: str | None,
+        provider_state_dir: Path | None,
+    ) -> bool:
+        del provider_session_id, provider_state_dir
+        return False
+
+
 def test_package_exports_runtime_surface() -> None:
     assert runtime.__all__ == [
         "AgentCredentialFailureError",
@@ -631,6 +714,31 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
 def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam() -> (
     None
 ):
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resident_session(
+        ResidentSessionPlanRequest(
+            worktree=Path("."),
+            role=AgentRole.IMPLEMENTER,
+            namespace="main",
+            service=service,
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+        )
+    )
+
+    assert session_plan == ResidentSessionPlan(
+        role=AgentRole.IMPLEMENTER,
+        worktree=Path("."),
+        namespace="main",
+        service=service,
+        run_kind=RunKind.RESUME,
+        service_state_dir=Path("state"),
+        provider_state_dir_relpath="state/",
+        host_provider_state_dir=Path("state"),
+        provider_session_id="recovered-session",
+        auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+    )
+
     result = asyncio.run(
         prompt_runtime.ResidentRuntime(
             execution_adapter=_ResidentSeamExecutionAdapter()
@@ -640,18 +748,7 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
                 effort="medium",
-                session_plan=ResidentSessionPlan(
-                    role=AgentRole.IMPLEMENTER,
-                    worktree=Path("."),
-                    namespace="main",
-                    service=cast(ExecutionProvider, _ExecutionService("codex")),
-                    run_kind=RunKind.RESUME,
-                    service_state_dir=Path("state"),
-                    provider_state_dir_relpath="state/",
-                    host_provider_state_dir=Path("state"),
-                    provider_session_id="recovered-session",
-                    auth_seeding_requirement=cast(Any, object()),
-                ),
+                session_plan=session_plan,
             )
         )
     )
