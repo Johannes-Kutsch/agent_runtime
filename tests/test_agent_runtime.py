@@ -30,6 +30,7 @@ from agent_runtime.errors import (
 )
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import AgentRole
+from agent_runtime.service_registry import ServiceRegistry
 from agent_runtime.session import (
     ProviderSessionSelection,
     is_exact_resumable_service_session,
@@ -103,7 +104,8 @@ class _RoleSession:
 def test_package_exports_runtime_surface() -> None:
     assert runtime.StageOverride.__module__.startswith("agent_runtime")
     assert runtime.AgentRuntimeError is AgentRuntimeError
-    assert runtime.ServiceRegistry.__module__.startswith("agent_runtime")
+    assert not hasattr(runtime, "run_prompt")
+    assert not hasattr(runtime, "ServiceRegistry")
 
 
 def test_import_isolation_helper_reports_forbidden_modules() -> None:
@@ -173,7 +175,7 @@ def test_service_registry_resolve_and_wake_time() -> None:
             ),
         ),
     }
-    registry = runtime.ServiceRegistry(services)
+    registry = ServiceRegistry(services)
     override = runtime.StageOverride(
         service="codex",
         model="gpt-5.4",
