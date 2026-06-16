@@ -15,9 +15,12 @@ from agent_runtime._import_isolation import assert_runtime_import_isolation
 from agent_runtime.contracts import (
     AssistantTurn,
     CredentialFailure,
+    ExecutionService,
+    ExecutionProvider,
     HardError,
     PromptTokens,
     Result,
+    ServiceSelectionProvider,
     TransientError,
     UnsupportedTokens,
     UsageLimit,
@@ -125,7 +128,7 @@ class _ExecutionService:
         self,
         lines: Iterable[str],
         on_provider_session_id: Any = None,
-    ) -> Iterator[runtime.ParsedTurn]:
+    ) -> Iterator[Result]:
         del lines, on_provider_session_id
         return iter(())
 
@@ -288,7 +291,7 @@ class _OneShotExecutionAdapter:
         self._invocation_order = invocation_order
         self._attempts_by_service = attempts_by_service
 
-    def resolve_service(self, service_name: str = "") -> runtime.ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionService:
         return _ExecutionService(service_name)
 
     def build_work_dependencies(
@@ -297,7 +300,7 @@ class _OneShotExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: runtime.ExecutionService,
+        service: ExecutionService,
     ) -> WorkInvocationDependencies:
         del name, model, effort
         execution_service = cast(_ExecutionService, service)
@@ -383,7 +386,7 @@ class _ResidentSeamRunner:
 
 
 class _ResidentSeamExecutionAdapter:
-    def resolve_service(self, service_name: str = "") -> runtime.ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionService:
         return _ExecutionService(service_name)
 
     def build_work_dependencies(
@@ -392,7 +395,7 @@ class _ResidentSeamExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: runtime.ExecutionService,
+        service: ExecutionService,
     ) -> WorkInvocationDependencies:
         del name, model, effort, service
 
@@ -419,10 +422,36 @@ class _ResidentSeamExecutionAdapter:
 
 
 def test_package_exports_runtime_surface() -> None:
+    assert runtime.__all__ == [
+        "AgentCredentialFailureError",
+        "AgentFailedError",
+        "AgentRuntimeError",
+        "AgentRole",
+        "AgentTimeoutError",
+        "HardAgentError",
+        "ExecutionProvider",
+        "ProviderSessionAdapter",
+        "ProviderSessionPreferences",
+        "ProviderSessionPreferencesRequest",
+        "ProviderSessionState",
+        "ProviderSessionStateRequest",
+        "RuntimeConfigurationError",
+        "RunKind",
+        "StageOverride",
+        "ToolPolicy",
+        "TransientAgentError",
+        "UsageLimitError",
+    ]
     assert runtime.StageOverride.__module__.startswith("agent_runtime")
     assert runtime.AgentRuntimeError is AgentRuntimeError
     assert not hasattr(runtime, "run_prompt")
     assert not hasattr(runtime, "ServiceRegistry")
+    assert not hasattr(prompt_runtime, "PromptRuntime")
+    assert not hasattr(prompt_runtime, "PromptRunRequest")
+    assert not hasattr(prompt_runtime, "PromptRuntimeExecutionAdapter")
+    assert not hasattr(prompt_runtime, "run_one_shot")
+    assert not hasattr(prompt_runtime, "run_prompt")
+    assert not hasattr(prompt_runtime, "run_resident_prompt")
 
 
 def test_import_isolation_helper_reports_forbidden_modules() -> None:
@@ -474,9 +503,9 @@ def test_stage_chain_resolution_prefers_first_available_configured_service() -> 
 
 
 def test_service_registry_resolve_and_wake_time() -> None:
-    services: dict[str, runtime.ServiceSelectionProvider] = {
+    services: dict[str, ServiceSelectionProvider] = {
         "codex": cast(
-            runtime.ServiceSelectionProvider,
+            ServiceSelectionProvider,
             _Service(
                 "codex",
                 available=False,
@@ -484,7 +513,7 @@ def test_service_registry_resolve_and_wake_time() -> None:
             ),
         ),
         "claude": cast(
-            runtime.ServiceSelectionProvider,
+            ServiceSelectionProvider,
             _Service(
                 "claude",
                 available=True,
@@ -525,7 +554,7 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
     registry = ServiceRegistry(
         {
             "codex": cast(
-                runtime.ServiceSelectionProvider,
+                ServiceSelectionProvider,
                 _Service(
                     "codex",
                     available=True,
@@ -533,7 +562,7 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
                 ),
             ),
             "claude": cast(
-                runtime.ServiceSelectionProvider,
+                ServiceSelectionProvider,
                 _Service(
                     "claude",
                     available=True,
@@ -600,7 +629,7 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
                     role=AgentRole.IMPLEMENTER,
                     worktree=Path("."),
                     namespace="main",
-                    service=cast(runtime.ExecutionProvider, _ExecutionService("codex")),
+                    service=cast(ExecutionProvider, _ExecutionService("codex")),
                     run_kind=RunKind.RESUME,
                     service_state_dir=Path("state"),
                     provider_state_dir_relpath="state/",
