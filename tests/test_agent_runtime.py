@@ -9,7 +9,16 @@ import pytest
 
 import agent_runtime as runtime
 from agent_runtime._import_isolation import assert_runtime_import_isolation
-from agent_runtime.contracts import AssistantTurn, CredentialFailure, HardError, PromptTokens, Result, TransientError, UnsupportedTokens, UsageLimit
+from agent_runtime.contracts import (
+    AssistantTurn,
+    CredentialFailure,
+    HardError,
+    PromptTokens,
+    Result,
+    TransientError,
+    UnsupportedTokens,
+    UsageLimit,
+)
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     AgentFailedError,
@@ -29,7 +38,11 @@ from agent_runtime.session import (
     provider_state_session_id_path,
     select_resumable_provider_session_id,
 )
-from agent_runtime.stage_priority_chain import chain_entries, render_chain_label, select_configured_candidate_chain
+from agent_runtime.stage_priority_chain import (
+    chain_entries,
+    render_chain_label,
+    select_configured_candidate_chain,
+)
 from agent_runtime.work import reduce_text_output_events
 
 
@@ -142,9 +155,9 @@ def test_stage_chain_resolution_prefers_first_available_configured_service() -> 
 
 
 def test_service_registry_resolve_and_wake_time() -> None:
-    services: dict[str, runtime.AgentService] = {
+    services: dict[str, runtime.ServiceSelectionProvider] = {
         "codex": cast(
-            runtime.AgentService,
+            runtime.ServiceSelectionProvider,
             _Service(
                 "codex",
                 available=False,
@@ -152,7 +165,7 @@ def test_service_registry_resolve_and_wake_time() -> None:
             ),
         ),
         "claude": cast(
-            runtime.AgentService,
+            runtime.ServiceSelectionProvider,
             _Service(
                 "claude",
                 available=True,
@@ -160,9 +173,7 @@ def test_service_registry_resolve_and_wake_time() -> None:
             ),
         ),
     }
-    registry = runtime.ServiceRegistry(
-        services
-    )
+    registry = runtime.ServiceRegistry(services)
     override = runtime.StageOverride(
         service="codex",
         model="gpt-5.4",
@@ -182,25 +193,33 @@ def test_service_registry_resolve_and_wake_time() -> None:
         effort="high",
     )
     assert registry.has_available(datetime(2026, 1, 1, tzinfo=timezone.utc)) is True
-    assert registry.next_wake_time(datetime(2026, 1, 1, tzinfo=timezone.utc)) == datetime(
-        2026, 1, 1, tzinfo=timezone.utc
-    )
+    assert registry.next_wake_time(
+        datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ) == datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_path() -> None:
+def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_path() -> (
+    None
+):
     legacy = ".runtime-session/implementer/main/codex/"
 
-    assert provider_state_relpath(
-        AgentRole.IMPLEMENTER,
-        "codex",
-        session_root=".runtime-session",
-    ) == ".runtime-session/implementer/codex/"
-    assert normalize_state_dir_relpath(
-        AgentRole.IMPLEMENTER,
-        "main",
-        "codex",
-        legacy,
-    ) == ".runtime-session/implementer/main/codex/"
+    assert (
+        provider_state_relpath(
+            AgentRole.IMPLEMENTER,
+            "codex",
+            session_root=".runtime-session",
+        )
+        == ".runtime-session/implementer/codex/"
+    )
+    assert (
+        normalize_state_dir_relpath(
+            AgentRole.IMPLEMENTER,
+            "main",
+            "codex",
+            legacy,
+        )
+        == ".runtime-session/implementer/main/codex/"
+    )
     assert provider_state_session_id_path(Path("state"), "codex") == Path(
         "state/thread_id"
     )
@@ -218,7 +237,9 @@ def test_select_resumable_provider_session_id_recovers_and_persists_state() -> N
         "codex",
         provider_state_dir=state_dir,
         has_resumable_provider_state=True,
-        recover_provider_session_id=lambda path: "provider-session" if path == state_dir else None,
+        recover_provider_session_id=lambda path: (
+            "provider-session" if path == state_dir else None
+        ),
     )
 
     assert selection == ProviderSessionSelection(
@@ -228,33 +249,46 @@ def test_select_resumable_provider_session_id_recovers_and_persists_state() -> N
     assert role_session.service_session_id("codex") == "provider-session"
 
 
-def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher() -> None:
+def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher() -> (
+    None
+):
     role_session = _RoleSession(
         service_sessions={"codex": "provider-session"},
         service_metadata={"codex": {"provider_session_id": "provider-session"}},
         exact_transcript_service="codex",
     )
 
-    assert is_exact_resumable_service_session(
-        role_session,
-        "codex",
-        provider_session_id="provider-session",
-        provider_state_dir=Path("state"),
-    ) is True
-    assert is_exact_resumable_service_session(
-        role_session,
-        "codex",
-        provider_session_id="provider-session",
-        provider_state_dir=Path("state"),
-        exact_provider_session_matcher=lambda *_args: False,
-    ) is False
+    assert (
+        is_exact_resumable_service_session(
+            role_session,
+            "codex",
+            provider_session_id="provider-session",
+            provider_state_dir=Path("state"),
+        )
+        is True
+    )
+    assert (
+        is_exact_resumable_service_session(
+            role_session,
+            "codex",
+            provider_session_id="provider-session",
+            provider_state_dir=Path("state"),
+            exact_provider_session_matcher=lambda *_args: False,
+        )
+        is False
+    )
 
 
 def test_reduce_text_output_events_returns_result_and_maps_errors() -> None:
     token_counts: list[int] = []
     turns: list[str] = []
     result = reduce_text_output_events(
-        [PromptTokens(2), UnsupportedTokens(3, "source"), AssistantTurn("hello"), Result("done")],
+        [
+            PromptTokens(2),
+            UnsupportedTokens(3, "source"),
+            AssistantTurn("hello"),
+            Result("done"),
+        ],
         turns.append,
         token_counts.append,
         provider="codex",
@@ -270,14 +304,34 @@ def test_reduce_text_output_events_returns_result_and_maps_errors() -> None:
         source_stream="stderr",
     )
     with pytest.raises(UsageLimitError):
-        reduce_text_output_events([UsageLimit(reset_time=None)], turns.append, provider="codex")
+        reduce_text_output_events(
+            [UsageLimit(reset_time=None)], turns.append, provider="codex"
+        )
     with pytest.raises(TransientAgentError):
-        reduce_text_output_events([TransientError(status_code=503, raw_message="retry")], turns.append, provider="codex")
+        reduce_text_output_events(
+            [TransientError(status_code=503, raw_message="retry")],
+            turns.append,
+            provider="codex",
+        )
     with pytest.raises(HardAgentError):
-        reduce_text_output_events([HardError(status_code=400, raw_message="bad", observations=(observation,))], turns.append, provider="codex")
+        reduce_text_output_events(
+            [
+                HardError(
+                    status_code=400, raw_message="bad", observations=(observation,)
+                )
+            ],
+            turns.append,
+            provider="codex",
+        )
     with pytest.raises(AgentCredentialFailureError):
         reduce_text_output_events(
-            [CredentialFailure(raw_message="missing auth", service_name="codex", source_observations=(observation,))],
+            [
+                CredentialFailure(
+                    raw_message="missing auth",
+                    service_name="codex",
+                    source_observations=(observation,),
+                )
+            ],
             turns.append,
             provider="codex",
         )

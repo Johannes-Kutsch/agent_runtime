@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol, cast
 
-from .contracts import ResidentExecutionProvider, SessionPlanningProvider
+from .contracts import ExecutionProvider, ResumabilityProvider
 from .errors import AgentCredentialFailureError
 from .provider_session_adapter import (
     ProviderSessionAdapter,
@@ -136,7 +136,7 @@ class ProviderRunStatePlanRequest:
     worktree: Path
     role: AgentRole
     namespace: str
-    service: SessionPlanningProvider
+    resumability_service: ResumabilityProvider
     role_session: RoleSessionLike
     provider_session_adapter: ProviderSessionAdapter
 
@@ -236,9 +236,10 @@ class ResidentSessionPlanRequest:
     worktree: Path
     role: AgentRole
     namespace: str
-    service: ResidentExecutionProvider
+    service: ExecutionProvider
     role_session: RoleSessionLike
     provider_session_adapter: ProviderSessionAdapter
+    resumability_service: ResumabilityProvider | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -246,7 +247,7 @@ class ResidentSessionPlan:
     role: AgentRole
     worktree: Path
     namespace: str
-    service: ResidentExecutionProvider
+    service: ExecutionProvider
     run_kind: RunKind
     service_state_dir: Path | None
     provider_state_dir_relpath: str | None
@@ -331,7 +332,7 @@ def plan_resident_session(
             worktree=request.worktree,
             role=request.role,
             namespace=request.namespace,
-            service=request.service,
+            resumability_service=_resident_resumability_service(request),
             role_session=request.role_session,
             provider_session_adapter=request.provider_session_adapter,
         )
@@ -388,7 +389,8 @@ def plan_provider_run_state(
     if state_dir_relpath != provider_session_planning_facts.state_dir_relpath:
         host_state_dir = _host_state_dir(request.worktree, state_dir_relpath)
         has_resumable_provider_state = (
-            host_state_dir is not None and request.service.is_resumable(host_state_dir)
+            host_state_dir is not None
+            and request.resumability_service.is_resumable(host_state_dir)
         )
     provider_session_preferences = (
         provider_session_adapter.provider_session_preferences(
@@ -448,6 +450,15 @@ def _host_state_dir(worktree: Path, state_dir_relpath: str | None) -> Path | Non
     if state_dir_relpath is None:
         return None
     return worktree / state_dir_relpath.rstrip("/")
+
+
+def _resident_resumability_service(
+    request: ResidentSessionPlanRequest,
+) -> ResumabilityProvider:
+    resumability_service = request.resumability_service
+    if resumability_service is not None:
+        return resumability_service
+    return cast(ResumabilityProvider, request.service)
 
 
 __all__ = [
