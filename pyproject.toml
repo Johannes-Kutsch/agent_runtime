@@ -1,5 +1,5 @@
 [project]
-name = "agent-runtime"
+name = "ruhken-agent-runtime"
 dynamic = ["version"]
 description = "Reusable agent runtime package boundary"
 license = "MIT"

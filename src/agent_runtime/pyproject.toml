@@ -1,5 +1,5 @@
 ﻿[project]
-name = "agent-runtime"
+name = "ruhken-agent-runtime"
 dynamic = ["version"]
 description = "Reusable runtime contracts and execution helpers"
 requires-python = ">=3.11.3"
