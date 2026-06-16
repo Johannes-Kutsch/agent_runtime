@@ -1,0 +1,51 @@
+[project]
+name = "agent-runtime"
+dynamic = ["version"]
+description = "Reusable agent runtime package boundary"
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.11.3"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "mypy",
+    "ruff",
+    "setuptools>=68",
+    "setuptools-scm>=8",
+]
+
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
+version_scheme = "guess-next-dev"
+fallback_version = "0.0.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["agent_runtime", "agent_runtime.*"]
+
+[tool.setuptools.package-data]
+agent_runtime = [
+    "py.typed",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
