@@ -265,17 +265,32 @@ class ResidentSessionPlan:
 
     def provider_state_dir_container_path(self, container_workspace: str) -> str | None:
         provider_run_state_plan = self._provider_run_state_plan
-        if provider_run_state_plan is None:
+        if provider_run_state_plan is not None:
+            return provider_run_state_plan.provider_state_dir_container_path(
+                worktree=self.worktree,
+                container_workspace=container_workspace,
+            )
+        container_state_dir = self.host_provider_state_dir
+        if (
+            self.use_service_state_dir_for_container
+            and self.service_state_dir is not None
+        ):
+            container_state_dir = self.service_state_dir
+        if container_state_dir is not None:
+            try:
+                container_relpath = container_state_dir.relative_to(self.worktree)
+            except ValueError:
+                pass
+            else:
+                return f"{container_workspace}/{container_relpath.as_posix()}/"
+        if self.provider_state_dir_relpath is None:
             return None
-        return provider_run_state_plan.provider_state_dir_container_path(
-            worktree=self.worktree,
-            container_workspace=container_workspace,
-        )
+        return f"{container_workspace}/{self.provider_state_dir_relpath}"
 
     def prepared_provider_session_id(self) -> str | None:
         provider_run_state_plan = self._provider_run_state_plan
         if provider_run_state_plan is None:
-            return None
+            return self.provider_session_id
         provider_session_id = provider_run_state_plan.prepared_provider_session_id()
         object.__setattr__(self, "provider_session_id", provider_session_id)
         return provider_session_id
