@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -21,12 +22,7 @@ from agent_runtime.errors import (
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import AgentRole
 from agent_runtime.session import (
-    ProviderSessionPreferences,
-    ProviderSessionPreferencesRequest,
     ProviderSessionSelection,
-    ProviderSessionState,
-    ProviderSessionStateRequest,
-    RunKind,
     is_exact_resumable_service_session,
     normalize_state_dir_relpath,
     provider_state_relpath,
@@ -146,19 +142,26 @@ def test_stage_chain_resolution_prefers_first_available_configured_service() -> 
 
 
 def test_service_registry_resolve_and_wake_time() -> None:
-    registry = runtime.ServiceRegistry(
-        {
-            "codex": _Service(
+    services: dict[str, runtime.AgentService] = {
+        "codex": cast(
+            runtime.AgentService,
+            _Service(
                 "codex",
                 available=False,
                 wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
             ),
-            "claude": _Service(
+        ),
+        "claude": cast(
+            runtime.AgentService,
+            _Service(
                 "claude",
                 available=True,
                 wake_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
             ),
-        }
+        ),
+    }
+    registry = runtime.ServiceRegistry(
+        services
     )
     override = runtime.StageOverride(
         service="codex",
