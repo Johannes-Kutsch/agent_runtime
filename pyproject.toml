@@ -45,6 +45,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py311"
+extend-exclude = [".pycastle-session"]
 
 [tool.mypy]
 python_version = "3.11"
