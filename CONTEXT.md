@@ -8,7 +8,7 @@
 
 | Term | Meaning |
 | --- | --- |
-| `agent_runtime` | The reusable runtime package and its public surface. |
+| `agent_runtime` | The reusable runtime package and its stable core public surface. |
 | `StageOverride` | A single stage selection node containing service, model, effort, and optional fallback. |
 | `ServiceRegistry` | The runtime-owned resolver that maps configured services and stage chains to an executable candidate. |
 | `AgentService` | The protocol implemented by provider adapters for execution behavior. |
@@ -23,6 +23,7 @@
 - The runtime package must remain importable without application modules.
 - Application-specific prompt rendering, CLI wiring, issue orchestration, and output parsing belong outside the runtime boundary.
 - The runtime/request seam stays a single vertical flow from caller intent through session planning to work invocation.
+- The package root should stay a narrow compatibility entrypoint, not a catch-all export surface.
 - Runtime-owned selection, availability, and resumability policy stay in the runtime boundary.
 - Provider execution behavior stays behind focused adapter contracts.
 - Provider-specific session details must stay behind explicit adapter contracts.
@@ -33,6 +34,7 @@
 - One-shot prompt execution for already-rendered prompts.
 - Resident execution for resumable sessions.
 - Caller intent through session planning and work invocation remains one vertical flow.
+- Package-root imports stay narrow while behaviorful entrypoints live under focused modules.
 - Service selection across nested `StageOverride` chains.
 - Provider execution behind adapter contracts.
 - Provider session planning and state recovery.
