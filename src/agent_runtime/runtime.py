@@ -517,6 +517,10 @@ async def run_one_shot(
             )
         except Exception as exc:
             if isinstance(exc, UsageLimitError):
+                service_registry.mark_exhausted(
+                    resolved_override.service,
+                    reset_time=exc.reset_time,
+                )
                 continue
             raise
 

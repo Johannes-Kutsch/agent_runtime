@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.runtime as prompt_runtime
 from agent_runtime._import_isolation import assert_runtime_import_isolation
 from agent_runtime.contracts import (
     AssistantTurn,
@@ -28,11 +31,18 @@ from agent_runtime.errors import (
     TransientAgentError,
     UsageLimitError,
 )
+from agent_runtime.execution_contracts import (
+    PreparedRunSessionState,
+    WorkExecutionAdapter,
+    WorkInvocationDependencies,
+    WorktreeMount,
+)
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import AgentRole
 from agent_runtime.service_registry import ServiceRegistry
 from agent_runtime.session import (
     ProviderSessionSelection,
+    RunKind,
     is_exact_resumable_service_session,
     normalize_state_dir_relpath,
     provider_state_relpath,
@@ -62,7 +72,61 @@ class _Service:
         return self._wake_time
 
     def mark_exhausted(self, reset_time: datetime | None) -> None:
-        del reset_time
+        self._available = False
+        if reset_time is not None:
+            self._wake_time = reset_time
+
+    def state_dir_relpath(self, role: AgentRole, namespace: str = "") -> str | None:
+        del role, namespace
+        return None
+
+    def is_resumable(self, state_dir: Path) -> bool:
+        del state_dir
+        return False
+
+    def valid_models(self) -> frozenset[str]:
+        return frozenset()
+
+    def valid_efforts(self) -> frozenset[str]:
+        return frozenset()
+
+
+class _ExecutionService:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.exhausted_reset_times: list[datetime | None] = []
+
+    def mark_exhausted(self, reset_time: datetime | None) -> None:
+        self.exhausted_reset_times.append(reset_time)
+
+    def build_command(
+        self,
+        role: AgentRole,
+        model: str,
+        effort: str,
+        run_kind: RunKind,
+        session_uuid: str | None,
+        *,
+        tool_policy: Any | None = None,
+    ) -> str:
+        del role, model, effort, run_kind, session_uuid, tool_policy
+        return ""
+
+    def build_env(
+        self,
+        state_dir_container_path: str | None = None,
+        token: str | None = None,
+    ) -> dict[str, str]:
+        del state_dir_container_path, token
+        return {}
+
+    def run(
+        self,
+        lines: Iterable[str],
+        on_provider_session_id: Any = None,
+    ) -> Iterator[runtime.ParsedTurn]:
+        del lines, on_provider_session_id
+        return iter(())
 
     def state_dir_relpath(self, role: AgentRole, namespace: str = "") -> str | None:
         del role, namespace
@@ -99,6 +163,158 @@ class _RoleSession:
 
     def exact_transcript_service_name(self) -> str | None:
         return self.exact_transcript_service
+
+
+@dataclass
+class _ProviderRunSession:
+    run_kind: RunKind = RunKind.FRESH
+    provider_session_id: str | None = None
+
+    def record_provider_session_id(self, provider_session_id: str) -> None:
+        self.provider_session_id = provider_session_id
+
+    def record_successful_run(self) -> None:
+        return None
+
+
+class _PreparedRunSession:
+    provider_state_dir_container_path: str | None = None
+
+    def __init__(self) -> None:
+        self._provider_run_session = _ProviderRunSession()
+
+    def prepare_for_run(self) -> None:
+        return None
+
+    def initial_provider_run_session(self) -> _ProviderRunSession:
+        return self._provider_run_session
+
+    def resumable_provider_run_session(self) -> _ProviderRunSession:
+        return self._provider_run_session
+
+    def protocol_reprompt_provider_run_session(self) -> None:
+        return None
+
+
+class _Session:
+    def __enter__(self) -> _Session:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        del exc_type, exc, tb
+
+    def exec_simple(self, cmd: str) -> str:
+        del cmd
+        return ""
+
+
+class _OneShotWorkRunner:
+    def __init__(
+        self,
+        service: _ExecutionService,
+        *,
+        invocation_order: list[str],
+        attempts_by_service: dict[str, int],
+    ) -> None:
+        self._service = service
+        self._invocation_order = invocation_order
+        self._attempts_by_service = attempts_by_service
+
+    async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
+        del git_name, git_email, work_body
+
+    async def work(
+        self,
+        role: AgentRole,
+        prompt: str,
+        *,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> dict[str, str]:
+        assert role is AgentRole.IMPLEMENTER
+        assert run_kind is RunKind.FRESH
+        assert session_uuid is None
+
+        service_name = self._service.name
+        self._invocation_order.append(service_name)
+        attempt_count = self._attempts_by_service.get(service_name, 0) + 1
+        self._attempts_by_service[service_name] = attempt_count
+
+        if service_name == "codex":
+            if attempt_count > 1:
+                raise AssertionError("one-shot retried the exhausted primary service")
+            raise UsageLimitError(
+                reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                provider=service_name,
+            )
+
+        assert callable(on_provider_session_id)
+        on_provider_session_id(f"provider-{service_name}")
+        return {"service": service_name, "prompt": prompt}
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: AgentRole = AgentRole.IMPLEMENTER,
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del tool_policy
+        result = await self.work(
+            role,
+            prompt,
+            run_kind=run_kind,
+            session_uuid=session_uuid,
+            on_provider_session_id=on_provider_session_id,
+        )
+        return str(result)
+
+
+class _OneShotExecutionAdapter:
+    def __init__(
+        self,
+        *,
+        invocation_order: list[str],
+        attempts_by_service: dict[str, int],
+    ) -> None:
+        self._invocation_order = invocation_order
+        self._attempts_by_service = attempts_by_service
+
+    def resolve_service(self, service_name: str = "") -> runtime.ExecutionService:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: runtime.ExecutionService,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort
+        execution_service = cast(_ExecutionService, service)
+        return WorkInvocationDependencies(
+            container_workspace="/workspace",
+            timeout_retries=0,
+            stage_key_for_role=lambda role: role.value,
+            prepare_session=lambda _run_session: cast(
+                PreparedRunSessionState, _PreparedRunSession()
+            ),
+            build_session=lambda mount_path, service, provider_state_dir: _Session(),
+            build_runner=lambda session, status_display: cast(
+                WorkExecutionAdapter,
+                _OneShotWorkRunner(
+                    execution_service,
+                    invocation_order=self._invocation_order,
+                    attempts_by_service=self._attempts_by_service,
+                ),
+            ),
+            get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+        )
 
 
 def test_package_exports_runtime_surface() -> None:
@@ -198,6 +414,73 @@ def test_service_registry_resolve_and_wake_time() -> None:
     assert registry.next_wake_time(
         datetime(2026, 1, 1, tzinfo=timezone.utc)
     ) == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolution() -> (
+    None
+):
+    invocation_order: list[str] = []
+    attempts_by_service: dict[str, int] = {}
+    registry = ServiceRegistry(
+        {
+            "codex": cast(
+                runtime.ServiceSelectionProvider,
+                _Service(
+                    "codex",
+                    available=True,
+                    wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                ),
+            ),
+            "claude": cast(
+                runtime.ServiceSelectionProvider,
+                _Service(
+                    "claude",
+                    available=True,
+                    wake_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                ),
+            ),
+        }
+    )
+
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_OneShotExecutionAdapter(
+                invocation_order=invocation_order,
+                attempts_by_service=attempts_by_service,
+            ),
+            service_registry=registry,
+        ).run_one_shot(
+            prompt_runtime.OneShotRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                override=runtime.StageOverride(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                    fallback=runtime.StageOverride(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                ),
+            )
+        )
+    )
+
+    assert result == prompt_runtime.OneShotRunResult(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="high",
+        used_fallback=True,
+        selected_service_path=("codex", "claude"),
+        raw_output={"service": "claude", "prompt": "already rendered prompt"},
+        runtime_metadata=prompt_runtime.OneShotRuntimeMetadata(
+            provider_session_id="provider-claude",
+            run_kind=RunKind.FRESH,
+            session_namespace="",
+        ),
+    )
+    assert invocation_order == ["codex", "claude"]
 
 
 def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_path() -> (
