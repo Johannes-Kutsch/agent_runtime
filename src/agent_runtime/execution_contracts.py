@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
-from .contracts import ExecutionProvider, ToolPolicy
+from .contracts import ExecutionService, ToolPolicy
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import AgentRole
 from .session import RunKind
@@ -28,7 +28,7 @@ class PromptRunSession:
 
 
 class PromptRuntimeExecutionAdapter(Protocol):
-    def resolve_service(self, service_name: str = "") -> ExecutionProvider: ...
+    def resolve_service(self, service_name: str = "") -> ExecutionService: ...
 
     def build_work_dependencies(
         self,
@@ -36,7 +36,7 @@ class PromptRuntimeExecutionAdapter(Protocol):
         name: str,
         model: str,
         effort: str,
-        service: ExecutionProvider,
+        service: ExecutionService,
     ) -> WorkInvocationDependencies: ...
 
 
@@ -70,7 +70,7 @@ class RunSessionPlan:
     mount_path: Path
     role: AgentRole
     session_namespace: str
-    service: ExecutionProvider
+    service: ExecutionService
     container_workspace: str
     run_session_plan: Any = None
 
@@ -322,12 +322,12 @@ PreparedSession = PreparedRunSessionState
 PrepareSessionAdapter = Callable[[RunSessionPlan], PreparedRunSessionState]
 StatusRowFactory = Callable[..., AbstractAsyncContextManager[Any]]
 SetupFailureTranslator = Callable[[AgentRole, BaseException], BaseException | None]
-ProviderAccountExhaustionHandler = Callable[[ExecutionProvider, Any], None]
+ProviderAccountExhaustionHandler = Callable[[ExecutionService, Any], None]
 StatusDisplayFactory = Callable[[], WorkStatusDisplay]
 
 
 def _default_provider_account_exhaustion_handler(
-    service: ExecutionProvider,
+    service: ExecutionService,
     error: Any,
 ) -> None:
     service.mark_exhausted(error.reset_time)
@@ -422,7 +422,7 @@ class WorkInvocationDependencies:
     timeout_retries: int
     stage_key_for_role: Callable[[AgentRole], str | None]
     prepare_session: PrepareSessionAdapter
-    build_session: Callable[[Path, ExecutionProvider, str | None], Any]
+    build_session: Callable[[Path, ExecutionService, str | None], Any]
     build_runner: Callable[[Any, Any], WorkExecutionAdapter]
     get_git_identity: Callable[[], tuple[str, str]]
     status_display_factory: StatusDisplayFactory = _default_status_display_factory
@@ -440,7 +440,7 @@ class WorkInvocationRequest(Generic[WorkResultT]):
     name: str
     mount_path: Path
     role: AgentRole
-    service: ExecutionProvider
+    service: ExecutionService
     model: str
     effort: str
     output_adapter: WorkOutputAdapter[WorkResultT] = dataclasses.field(repr=False)
