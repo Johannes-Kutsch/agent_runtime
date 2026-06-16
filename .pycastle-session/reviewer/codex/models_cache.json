@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "fetched_at": "2026-06-16T18:28:01.283069435Z",
+=======
+  "fetched_at": "2026-06-16T18:26:08.386212248Z",
+>>>>>>> pycastle/issue-16
   "etag": "W/\"48697f5612b3bb697292963efc1da302\"",
   "client_version": "0.134.0",
   "models": [
