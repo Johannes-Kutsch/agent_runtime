@@ -37,7 +37,10 @@ from agent_runtime.errors import (
 from agent_runtime.execution_contracts import (
     PreparedRunSessionState,
     WorkExecutionAdapter,
+    WorkExecutionDependencies,
+    WorkFailureHandling,
     WorkInvocationDependencies,
+    WorkPresentationDependencies,
     WorktreeMount,
 )
 from agent_runtime.provider_errors import ProviderErrorObservation
@@ -305,22 +308,29 @@ class _OneShotExecutionAdapter:
         del name, model, effort
         execution_service = cast(_ExecutionService, service)
         return WorkInvocationDependencies(
-            container_workspace="/workspace",
-            timeout_retries=0,
-            stage_key_for_role=lambda role: role.value,
-            prepare_session=lambda _run_session: cast(
-                PreparedRunSessionState, _PreparedRunSession()
-            ),
-            build_session=lambda mount_path, service, provider_state_dir: _Session(),
-            build_runner=lambda session, status_display: cast(
-                WorkExecutionAdapter,
-                _OneShotWorkRunner(
-                    execution_service,
-                    invocation_order=self._invocation_order,
-                    attempts_by_service=self._attempts_by_service,
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
                 ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _OneShotWorkRunner(
+                        execution_service,
+                        invocation_order=self._invocation_order,
+                        attempts_by_service=self._attempts_by_service,
+                    ),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
-            get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            failure_handling=WorkFailureHandling(
+                timeout_retries=0,
+                stage_key_for_role=lambda role: role.value,
+            ),
+            presentation=WorkPresentationDependencies(),
         )
 
 
@@ -407,17 +417,22 @@ class _ResidentSeamExecutionAdapter:
             )
 
         return WorkInvocationDependencies(
-            container_workspace="/workspace",
-            timeout_retries=0,
-            stage_key_for_role=lambda role: role.value,
-            prepare_session=cast(Any, _prepare_session),
-            build_session=lambda mount_path, service, provider_state_dir: _Session(
-                provider_state_dir
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter, _ResidentSeamRunner(cast(_Session, session))
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
-            build_runner=lambda session, status_display: cast(
-                WorkExecutionAdapter, _ResidentSeamRunner(cast(_Session, session))
+            failure_handling=WorkFailureHandling(
+                timeout_retries=0,
+                stage_key_for_role=lambda role: role.value,
             ),
-            get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            presentation=WorkPresentationDependencies(),
         )
 
 

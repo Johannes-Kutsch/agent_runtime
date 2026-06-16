@@ -421,18 +421,19 @@ class WorkOutputAdapter(Protocol[WorkResultT]):
 
 
 @dataclasses.dataclass(frozen=True)
-class WorkInvocationDependencies:
+class WorkExecutionDependencies:
     container_workspace: str
-    timeout_retries: int
-    stage_key_for_role: Callable[[AgentRole], str | None]
     prepare_session: PrepareSessionAdapter
     build_session: Callable[[Path, ExecutionService, str | None], Any]
     build_runner: Callable[[Any, Any], WorkExecutionAdapter]
     get_git_identity: Callable[[], tuple[str, str]]
-    status_display_factory: StatusDisplayFactory = _default_status_display_factory
-    status_row_factory: StatusRowFactory = _default_status_row_factory
+
+
+@dataclasses.dataclass(frozen=True)
+class WorkFailureHandling:
+    timeout_retries: int
+    stage_key_for_role: Callable[[AgentRole], str | None]
     translate_setup_failure: SetupFailureTranslator | None = None
-    build_model_display_metadata: Callable[[str, str, str], Any | None] | None = None
     handle_provider_account_exhaustion: ProviderAccountExhaustionHandler = (
         _default_provider_account_exhaustion_handler
     )
@@ -440,41 +441,73 @@ class WorkInvocationDependencies:
 
 
 @dataclasses.dataclass(frozen=True)
+class WorkPresentationDependencies:
+    status_display_factory: StatusDisplayFactory = _default_status_display_factory
+    status_row_factory: StatusRowFactory = _default_status_row_factory
+    build_model_display_metadata: Callable[[str, str, str], Any | None] | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class WorkInvocationDependencies:
+    execution: WorkExecutionDependencies
+    failure_handling: WorkFailureHandling
+    presentation: WorkPresentationDependencies = dataclasses.field(
+        default_factory=WorkPresentationDependencies
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class WorkInvocationPresentation:
+    name: str = "Runtime Agent"
+    status_display: Any = None
+    work_body: str = ""
+    color_key: int | None = None
+
+
+@dataclasses.dataclass(frozen=True)
 class WorkInvocationRequest(Generic[WorkResultT]):
-    name: str
-    mount_path: Path
-    role: AgentRole
-    service: ExecutionService
+    run_session: RunSessionPlan
     model: str
     effort: str
     output_adapter: WorkOutputAdapter[WorkResultT] = dataclasses.field(repr=False)
     dependencies: WorkInvocationDependencies = dataclasses.field(repr=False)
-    status_display: Any = None
+    presentation: WorkInvocationPresentation = dataclasses.field(
+        default_factory=WorkInvocationPresentation
+    )
     token: CancellationToken | None = None
-    work_body: str = ""
-    session_namespace: str = ""
-    run_session_plan: Any = None
-    run_session: RunSessionPlan | None = None
-    color_key: int | None = None
     allow_non_typed_resume_retry: bool = False
 
-    def __post_init__(self) -> None:
-        run_session = self.run_session
-        if run_session is None:
-            run_session = RunSessionPlan(
-                mount_path=self.mount_path,
-                role=self.role,
-                session_namespace=self.session_namespace,
-                service=self.service,
-                container_workspace=self.dependencies.container_workspace,
-                run_session_plan=self.run_session_plan,
-            )
-        object.__setattr__(self, "run_session", run_session)
-        object.__setattr__(self, "mount_path", run_session.mount_path)
-        object.__setattr__(self, "role", run_session.role)
-        object.__setattr__(self, "service", run_session.service)
-        object.__setattr__(self, "session_namespace", run_session.session_namespace)
-        object.__setattr__(self, "run_session_plan", run_session.run_session_plan)
+    @property
+    def name(self) -> str:
+        return self.presentation.name
+
+    @property
+    def status_display(self) -> Any:
+        return self.presentation.status_display
+
+    @property
+    def work_body(self) -> str:
+        return self.presentation.work_body
+
+    @property
+    def color_key(self) -> int | None:
+        return self.presentation.color_key
+
+    @property
+    def mount_path(self) -> Path:
+        return self.run_session.mount_path
+
+    @property
+    def role(self) -> AgentRole:
+        return self.run_session.role
+
+    @property
+    def service(self) -> ExecutionService:
+        return self.run_session.service
+
+    @property
+    def session_namespace(self) -> str:
+        return self.run_session.session_namespace
 
 
 @dataclasses.dataclass(frozen=True)
@@ -554,10 +587,14 @@ __all__ = [
     "StatusRowFactory",
     "TextOutputAdapter",
     "WorkExecutionAdapter",
+    "WorkExecutionDependencies",
+    "WorkFailureHandling",
     "WorkInvocationDependencies",
+    "WorkInvocationPresentation",
     "WorkInvocationRequest",
     "WorkModelDisplayMetadata",
     "WorkOutputAdapter",
+    "WorkPresentationDependencies",
     "WorkResultT",
     "WorkStatusDisplay",
     "WorkStatusRow",
