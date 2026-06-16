@@ -11,7 +11,7 @@
 | `agent_runtime` | The reusable runtime package and its stable core public surface. |
 | `StageOverride` | A single stage selection node containing service, model, effort, and optional fallback. |
 | `ServiceRegistry` | The runtime-owned resolver that maps configured services and stage chains to an executable candidate. |
-| `AgentService` | The protocol implemented by provider adapters for execution behavior. |
+| `ExecutionProvider` | The focused protocol implemented by provider adapters for execution behavior. |
 | `RunKind` | The runtime mode for a service invocation, such as fresh or resumable. |
 | `ProviderSessionState` | The provider-owned session state that records how a run should start or resume. |
 | `ProviderSessionAdapter` | The narrow adapter seam that owns provider-specific session policy. |

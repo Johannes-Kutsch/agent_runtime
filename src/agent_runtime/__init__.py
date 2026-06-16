@@ -6,7 +6,6 @@ from ._import_isolation import assert_runtime_import_isolation
 
 from .agent_log import AgentInvocationLog, LogicalAgentInvocationLog, WorkInvocationLog
 from .contracts import (
-    AgentService,
     AssistantTurn,
     ExecutionService,
     CredentialFailure,
@@ -86,7 +85,6 @@ __all__ = [
     "AgentInvocationLog",
     "AgentFailedError",
     "AgentRuntimeError",
-    "AgentService",
     "AgentRole",
     "AgentTimeoutError",
     "AssistantTurn",
