@@ -104,10 +104,7 @@ class ServiceSelectionProvider(Protocol):
     def next_wake_time(self) -> datetime: ...
 
 
-class SessionPlanningProvider(Protocol):
-    @property
-    def name(self) -> str: ...
-
+class ResumabilityProvider(Protocol):
     def is_resumable(self, state_dir: Path) -> bool: ...
 
 
@@ -142,11 +139,19 @@ class ExecutionProvider(Protocol):
 
 
 class ResidentExecutionProvider(
-    SessionPlanningProvider,
+    ResumabilityProvider,
     ExecutionProvider,
     Protocol,
 ):
     pass
+
+
+class SessionPlanningProvider(
+    ResumabilityProvider,
+    Protocol,
+):
+    @property
+    def name(self) -> str: ...
 
 
 class AgentService(
@@ -175,6 +180,7 @@ __all__ = [
     "ProviderSessionRecordingStore",
     "ProviderStatePreparationAction",
     "Result",
+    "ResumabilityProvider",
     "ServiceSelectionProvider",
     "SessionPlanningProvider",
     "ToolPolicy",
