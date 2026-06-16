@@ -257,19 +257,8 @@ class ResidentSessionPlan:
     auth_seed_action: LocalAuthSeedAction | None = None
     exact_transcript_match: bool = False
     use_service_state_dir_for_container: bool = False
-    _provider_run_state_plan: ProviderRunStatePlan | None = dataclasses.field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
 
     def provider_state_dir_container_path(self, container_workspace: str) -> str | None:
-        provider_run_state_plan = self._provider_run_state_plan
-        if provider_run_state_plan is not None:
-            return provider_run_state_plan.provider_state_dir_container_path(
-                worktree=self.worktree,
-                container_workspace=container_workspace,
-            )
         container_state_dir = self.host_provider_state_dir
         if (
             self.use_service_state_dir_for_container
@@ -286,38 +275,6 @@ class ResidentSessionPlan:
         if self.provider_state_dir_relpath is None:
             return None
         return f"{container_workspace}/{self.provider_state_dir_relpath}"
-
-    def prepared_provider_session_id(self) -> str | None:
-        provider_run_state_plan = self._provider_run_state_plan
-        if provider_run_state_plan is None:
-            return self.provider_session_id
-        provider_session_id = provider_run_state_plan.prepared_provider_session_id()
-        object.__setattr__(self, "provider_session_id", provider_session_id)
-        return provider_session_id
-
-    def prepare_provider_state_dir(self) -> None:
-        provider_run_state_plan = self._provider_run_state_plan
-        if provider_run_state_plan is None:
-            return
-        provider_run_state_plan.prepare_provider_state_dir()
-
-    def record_provider_session_id(self, provider_session_id: str) -> None:
-        object.__setattr__(self, "provider_session_id", provider_session_id)
-        provider_run_state_plan = self._provider_run_state_plan
-        if provider_run_state_plan is not None:
-            provider_run_state_plan.remember_provider_session_id(provider_session_id)
-
-    def capture_provider_session_id(self, provider_session_id: str) -> None:
-        self.record_provider_session_id(provider_session_id)
-
-    def record_successful_run(self, provider_session_id: str | None = None) -> None:
-        session_id = provider_session_id or self.provider_session_id
-        if provider_session_id is not None:
-            self.record_provider_session_id(provider_session_id)
-        provider_run_state_plan = self._provider_run_state_plan
-        if provider_run_state_plan is None:
-            return
-        provider_run_state_plan.record_successful_run(session_id)
 
 
 ProviderSessionPlanRequest = ProviderRunStatePlanRequest
@@ -368,7 +325,6 @@ def plan_resident_session(
         use_service_state_dir_for_container=(
             provider_run_state_plan.use_service_state_dir_for_container
         ),
-        _provider_run_state_plan=provider_run_state_plan,
     )
 
 
