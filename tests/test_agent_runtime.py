@@ -33,7 +33,6 @@ from agent_runtime.errors import (
 )
 from agent_runtime.execution_contracts import (
     PreparedRunSessionState,
-    RunSessionPlan,
     WorkExecutionAdapter,
     WorkInvocationDependencies,
     WorktreeMount,
@@ -397,14 +396,11 @@ class _ResidentSeamExecutionAdapter:
     ) -> WorkInvocationDependencies:
         del name, model, effort, service
 
-        def _prepare_session(
-            run_session: RunSessionPlan,
-        ) -> _ResidentAdapterPreparedRunSession:
-            resident_plan = cast(ResidentSessionPlan, run_session.run_session_plan)
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
             return _ResidentAdapterPreparedRunSession(
                 provider_state_dir_container_path="/workspace/runtime-state/",
-                run_kind=resident_plan.run_kind,
-                provider_session_id=f"prepared:{resident_plan.provider_session_id}",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
             )
 
         return WorkInvocationDependencies(

@@ -10,8 +10,6 @@ from .execution_contracts import (
     PromptRunRequest,
     PromptRunSession,
     PromptRuntimeExecutionAdapter,
-    PreparedProviderRunSession,
-    PreparedRunSessionState,
     RunSessionPlan,
     TextOutputAdapter,
     WorkInvocationRequest,
@@ -115,63 +113,10 @@ class _RuntimeIntent:
     output_adapter: Any = dataclasses.field(repr=False)
     dependencies: Any = dataclasses.field(repr=False)
     session_namespace: str = ""
-    run_session_plan: Any = None
     run_session: RunSessionPlan | None = None
     status_display: Any = None
     token: CancellationToken | None = None
     work_body: str = ""
-
-
-@dataclasses.dataclass
-class _ResidentPreparedProviderRunSession:
-    run_kind: RunKind
-    provider_session_id: str | None
-    _session_plan: ResidentSessionPlan = dataclasses.field(repr=False)
-
-    def record_provider_session_id(self, provider_session_id: str) -> None:
-        self.provider_session_id = provider_session_id
-        self._session_plan.record_provider_session_id(provider_session_id)
-
-    def record_successful_run(self) -> None:
-        self._session_plan.record_successful_run()
-
-
-@dataclasses.dataclass
-class _ResidentPreparedSession(PreparedRunSessionState):
-    session_plan: ResidentSessionPlan
-    provider_state_dir_container_path: str | None
-    _initial_session: _ResidentPreparedProviderRunSession = dataclasses.field(
-        init=False,
-        repr=False,
-    )
-
-    def __post_init__(self) -> None:
-        self._initial_session = _ResidentPreparedProviderRunSession(
-            run_kind=self.session_plan.run_kind,
-            provider_session_id=self.session_plan.provider_session_id,
-            _session_plan=self.session_plan,
-        )
-
-    @property
-    def provider_session_id(self) -> str | None:
-        return self._initial_session.provider_session_id
-
-    def prepare_for_run(self) -> None:
-        self.session_plan.prepare_provider_state_dir()
-        self._initial_session.provider_session_id = (
-            self.session_plan.prepared_provider_session_id()
-        )
-
-    def initial_provider_run_session(self) -> PreparedProviderRunSession:
-        return self._initial_session
-
-    def resumable_provider_run_session(self) -> PreparedProviderRunSession:
-        return self._initial_session
-
-    def protocol_reprompt_provider_run_session(
-        self,
-    ) -> PreparedProviderRunSession | None:
-        return None
 
 
 def _selected_service_path(
@@ -208,7 +153,10 @@ def _build_run_session(
     session_namespace: str,
     service: Any,
     container_workspace: str,
-    run_session_plan: Any,
+    run_kind: RunKind = RunKind.FRESH,
+    provider_session_id: str | None = None,
+    provider_state_dir_container_path: str | None = None,
+    exact_transcript_match: bool = False,
 ) -> RunSessionPlan:
     return RunSessionPlan(
         mount_path=mount_path,
@@ -216,7 +164,10 @@ def _build_run_session(
         session_namespace=session_namespace,
         service=service,
         container_workspace=container_workspace,
-        run_session_plan=run_session_plan,
+        run_kind=run_kind,
+        provider_session_id=provider_session_id,
+        provider_state_dir_container_path=provider_state_dir_container_path,
+        exact_transcript_match=exact_transcript_match,
     )
 
 
@@ -235,7 +186,6 @@ async def _invoke_runtime_intent(intent: _RuntimeIntent) -> Any:
             token=intent.token,
             work_body=intent.work_body,
             session_namespace=intent.session_namespace,
-            run_session_plan=intent.run_session_plan,
             run_session=intent.run_session,
         )
     )
@@ -429,7 +379,6 @@ async def run_prompt(
                 session_namespace=request.session_namespace,
                 service=resolved_service,
                 container_workspace=dependencies.container_workspace,
-                run_session_plan=request.run_session_plan,
             ),
         )
     )
@@ -511,7 +460,6 @@ async def run_one_shot(
                         session_namespace=request.session_namespace,
                         service=resolved_service,
                         container_workspace=dependencies.container_workspace,
-                        run_session_plan=request.run_session_plan,
                     ),
                 )
             )
@@ -555,9 +503,9 @@ async def run_resident_prompt(
         effort=request.effort,
         service=plan.service,
     )
-    prepared_session: PreparedRunSessionState | None = None
+    prepared_session: Any = None
 
-    def _prepare_session(run_session: RunSessionPlan) -> PreparedRunSessionState:
+    def _prepare_session(run_session: RunSessionPlan) -> Any:
         nonlocal prepared_session
         if prepared_session is None:
             prepared_session = dependencies.prepare_session(run_session)
@@ -573,7 +521,12 @@ async def run_resident_prompt(
         session_namespace=plan.namespace,
         service=plan.service,
         container_workspace=dependencies.container_workspace,
-        run_session_plan=plan,
+        run_kind=plan.run_kind,
+        provider_session_id=plan.provider_session_id,
+        provider_state_dir_container_path=plan.provider_state_dir_container_path(
+            dependencies.container_workspace
+        ),
+        exact_transcript_match=plan.exact_transcript_match,
     )
     output = await _invoke_runtime_intent(
         _RuntimeIntent(
