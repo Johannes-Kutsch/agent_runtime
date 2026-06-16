@@ -1,20 +1,19 @@
 # agent_runtime
 
-`agent_runtime` is the migration target for reusable agent runtime code that should live outside the consuming application.
+`agent_runtime` is a reusable Python runtime package for agent execution contracts, session planning, service selection, and log lifecycle management.
 
-## What is in this repo now
+## Layout
 
-- Packaging and release scaffolding
-- GitHub Actions release workflow
-- Domain docs hooks for future migration work
-- A smoke test so CI can validate the scaffold
+- `src/agent_runtime/` - runtime implementation
+- `tests/` - package contract tests
+- `context.md` - concise domain context for agents
+- `docs/adr/` - architecture decisions that define the runtime boundary
 
-## Release flow
+## Development
 
-- Pushes to `main` publish to TestPyPI.
-- Tags matching `v*.*.*` publish to PyPI.
+Install the project in editable mode with dev dependencies, then run the test suite.
 
-## Next step
-
-Copy the runtime modules into `src/agent_runtime/` when you are ready to start the actual migration.
-
+```bash
+pip install -e ".[dev]"
+pytest
+```

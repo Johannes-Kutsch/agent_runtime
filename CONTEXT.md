@@ -1,16 +1,35 @@
-# Ubiquitous Language
+# agent_runtime Context
 
-## Package & Distribution
+## Purpose
 
-| Term | Definition | Aliases to avoid |
-| --- | --- | --- |
-| **agent_runtime** | Reusable Python package boundary for shared agent runtime behavior. This repository is the migration target for runtime code that should be importable and testable without the consuming application. | runtime facade, shared utils |
-| **package migration** | The boundary move that extracts reusable runtime behavior into `agent_runtime` without moving application-specific orchestration code. Completion requires package-boundary proof, not just a package rename. | code move, extraction cleanup |
-| **consuming project** | A repository that depends on `agent_runtime` and adapts it for its own prompts, CLI, issue flow, or application-specific wiring. | host project, parent project |
+`agent_runtime` is the reusable runtime boundary for agent execution. It owns contracts that can be consumed by an application adapter without importing the application itself.
 
-## Repository Boundary
+## Ubiquitous Language
 
-- This repository is intentionally small during migration setup.
-- Only surrounding infrastructure lives here until the runtime code is copied in.
-- Keep new concepts aligned with the package boundary above.
+| Term | Meaning |
+| --- | --- |
+| `agent_runtime` | The reusable runtime package and its public surface. |
+| `StageOverride` | A single stage selection node containing service, model, effort, and optional fallback. |
+| `ServiceRegistry` | The runtime-owned resolver that maps configured services and stage chains to an executable candidate. |
+| `AgentService` | The protocol implemented by provider adapters. |
+| `RunKind` | The runtime mode for a service invocation, such as fresh or resumable. |
+| `ProviderSessionState` | The provider-owned session state that records how a run should start or resume. |
+| `ProviderSessionAdapter` | The narrow adapter seam that owns provider-specific session policy. |
+| `WorkInvocation` | The runtime-owned work lifecycle that turns a prompt plus execution dependencies into a text result. |
+| `AgentRuntimeError` | The base error for runtime failures. |
 
+## Boundary Rules
+
+- The runtime package must remain importable without application modules.
+- Application-specific prompt rendering, CLI wiring, issue orchestration, and output parsing belong outside the runtime boundary.
+- Provider-specific session details must stay behind explicit adapter contracts.
+- Runtime-owned public names should be neutral and caller-supplied where paths or log roots are involved.
+
+## Runtime Surfaces
+
+- One-shot prompt execution for already-rendered prompts.
+- Resident execution for resumable sessions.
+- Service selection across nested `StageOverride` chains.
+- Provider session planning and state recovery.
+- Text-output reduction from parsed provider events.
+- Agent log reservation and append/update lifecycle.

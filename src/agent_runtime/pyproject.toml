@@ -1,0 +1,35 @@
+﻿[project]
+name = "agent-runtime"
+dynamic = ["version"]
+description = "Reusable runtime contracts and execution helpers"
+requires-python = ">=3.11.3"
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["agent_runtime"]
+include-package-data = true
+
+[tool.setuptools.package-dir]
+agent_runtime = "."
+
+[tool.setuptools.package-data]
+agent_runtime = [
+    "py.typed",
+    "pyproject.toml",
+]
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
+version_scheme = "guess-next-dev"
+fallback_version = "0.0.0"
+
