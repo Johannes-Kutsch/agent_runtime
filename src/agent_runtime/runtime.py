@@ -555,15 +555,25 @@ async def run_resident_prompt(
         effort=request.effort,
         service=plan.service,
     )
-    prepared_session = _ResidentPreparedSession(
-        session_plan=plan,
-        provider_state_dir_container_path=plan.provider_state_dir_container_path(
-            dependencies.container_workspace
-        ),
-    )
+    prepared_session: PreparedRunSessionState | None = None
+
+    def _prepare_session(run_session: RunSessionPlan) -> PreparedRunSessionState:
+        nonlocal prepared_session
+        if prepared_session is None:
+            prepared_session = dependencies.prepare_session(run_session)
+        return prepared_session
+
     resident_dependencies = dataclasses.replace(
         dependencies,
-        prepare_session=lambda _run_session: prepared_session,
+        prepare_session=_prepare_session,
+    )
+    run_session = _build_run_session(
+        mount_path=plan.worktree,
+        role=plan.role,
+        session_namespace=plan.namespace,
+        service=plan.service,
+        container_workspace=dependencies.container_workspace,
+        run_session_plan=plan,
     )
     output = await _invoke_runtime_intent(
         _RuntimeIntent(
@@ -582,21 +592,17 @@ async def run_resident_prompt(
             token=request.token,
             work_body=request.work_body,
             session_namespace=plan.namespace,
-            run_session=_build_run_session(
-                mount_path=plan.worktree,
-                role=plan.role,
-                session_namespace=plan.namespace,
-                service=plan.service,
-                container_workspace=dependencies.container_workspace,
-                run_session_plan=plan,
-            ),
+            run_session=run_session,
         )
     )
+    if prepared_session is None:
+        prepared_session = resident_dependencies.prepare_session(run_session)
+    provider_run_session = prepared_session.initial_provider_run_session()
     return ResidentRunResult(
         output=output,
         runtime_metadata=ResidentRuntimeMetadata(
             service_name=plan.service.name,
-            provider_session_id=prepared_session.provider_session_id,
+            provider_session_id=provider_run_session.provider_session_id,
             run_kind=plan.run_kind,
             session_namespace=plan.namespace,
             exact_transcript_match=plan.exact_transcript_match,

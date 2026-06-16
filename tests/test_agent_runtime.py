@@ -33,6 +33,7 @@ from agent_runtime.errors import (
 )
 from agent_runtime.execution_contracts import (
     PreparedRunSessionState,
+    RunSessionPlan,
     WorkExecutionAdapter,
     WorkInvocationDependencies,
     WorktreeMount,
@@ -54,6 +55,7 @@ from agent_runtime.stage_priority_chain import (
     render_chain_label,
     select_configured_candidate_chain,
 )
+from agent_runtime.session_planning import ResidentSessionPlan
 from agent_runtime.work import reduce_text_output_events
 
 
@@ -197,6 +199,9 @@ class _PreparedRunSession:
 
 
 class _Session:
+    def __init__(self, provider_state_dir: str | None = None) -> None:
+        self.provider_state_dir = provider_state_dir
+
     def __enter__(self) -> _Session:
         return self
 
@@ -312,6 +317,106 @@ class _OneShotExecutionAdapter:
                     invocation_order=self._invocation_order,
                     attempts_by_service=self._attempts_by_service,
                 ),
+            ),
+            get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+        )
+
+
+@dataclass
+class _ResidentAdapterPreparedRunSession:
+    provider_state_dir_container_path: str | None
+    run_kind: RunKind
+    provider_session_id: str | None
+
+    def prepare_for_run(self) -> None:
+        return None
+
+    def initial_provider_run_session(self) -> _ProviderRunSession:
+        return _ProviderRunSession(
+            run_kind=self.run_kind,
+            provider_session_id=self.provider_session_id,
+        )
+
+    def resumable_provider_run_session(self) -> _ProviderRunSession:
+        return self.initial_provider_run_session()
+
+    def protocol_reprompt_provider_run_session(self) -> None:
+        return None
+
+
+class _ResidentSeamRunner:
+    def __init__(self, session: _Session) -> None:
+        self._session = session
+
+    async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
+        del git_name, git_email, work_body
+
+    async def work(
+        self,
+        role: AgentRole,
+        prompt: str,
+        *,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del role, prompt, on_provider_session_id
+        return f"{run_kind.value}:{session_uuid}:{self._session.provider_state_dir}"
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: AgentRole = AgentRole.IMPLEMENTER,
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del tool_policy
+        return await self.work(
+            role,
+            prompt,
+            run_kind=run_kind,
+            session_uuid=session_uuid,
+            on_provider_session_id=on_provider_session_id,
+        )
+
+
+class _ResidentSeamExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> runtime.ExecutionService:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: runtime.ExecutionService,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(
+            run_session: RunSessionPlan,
+        ) -> _ResidentAdapterPreparedRunSession:
+            resident_plan = cast(ResidentSessionPlan, run_session.run_session_plan)
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=resident_plan.run_kind,
+                provider_session_id=f"prepared:{resident_plan.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            container_workspace="/workspace",
+            timeout_retries=0,
+            stage_key_for_role=lambda role: role.value,
+            prepare_session=cast(Any, _prepare_session),
+            build_session=lambda mount_path, service, provider_state_dir: _Session(
+                provider_state_dir
+            ),
+            build_runner=lambda session, status_display: cast(
+                WorkExecutionAdapter, _ResidentSeamRunner(cast(_Session, session))
             ),
             get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
         )
@@ -481,6 +586,46 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
         ),
     )
     assert invocation_order == ["codex", "claude"]
+
+
+def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam() -> (
+    None
+):
+    result = asyncio.run(
+        prompt_runtime.ResidentRuntime(
+            execution_adapter=_ResidentSeamExecutionAdapter()
+        ).run_resident_prompt(
+            prompt_runtime.ResidentRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=ResidentSessionPlan(
+                    role=AgentRole.IMPLEMENTER,
+                    worktree=Path("."),
+                    namespace="main",
+                    service=cast(runtime.ExecutionProvider, _ExecutionService("codex")),
+                    run_kind=RunKind.RESUME,
+                    service_state_dir=Path("state"),
+                    provider_state_dir_relpath="state/",
+                    host_provider_state_dir=Path("state"),
+                    provider_session_id="recovered-session",
+                    auth_seeding_requirement=cast(Any, object()),
+                ),
+            )
+        )
+    )
+
+    assert result == prompt_runtime.ResidentRunResult(
+        output="resume:prepared:recovered-session:/workspace/runtime-state/",
+        runtime_metadata=prompt_runtime.ResidentRuntimeMetadata(
+            service_name="codex",
+            provider_session_id="prepared:recovered-session",
+            run_kind=RunKind.RESUME,
+            session_namespace="main",
+            exact_transcript_match=False,
+        ),
+    )
 
 
 def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_path() -> (
