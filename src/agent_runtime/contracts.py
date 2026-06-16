@@ -98,7 +98,20 @@ class ProviderSessionRecordingStore(Protocol):
     def save_service_session_id(self, service_name: str, session_id: str) -> None: ...
 
 
-class AgentService(Protocol):
+class ServiceSelectionProvider(Protocol):
+    def is_available(self, now: datetime | None = None) -> bool: ...
+
+    def next_wake_time(self) -> datetime: ...
+
+
+class SessionPlanningProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    def is_resumable(self, state_dir: Path) -> bool: ...
+
+
+class ExecutionProvider(Protocol):
     @property
     def name(self) -> str: ...
 
@@ -125,12 +138,22 @@ class AgentService(Protocol):
         on_provider_session_id: Callable[[str], None] | None = None,
     ) -> Iterator[ParsedTurn]: ...
 
-    def is_available(self, now: datetime | None = None) -> bool: ...
-
-    def next_wake_time(self) -> datetime: ...
-
     def mark_exhausted(self, reset_time: datetime | None) -> None: ...
 
+
+class ResidentExecutionProvider(
+    SessionPlanningProvider,
+    ExecutionProvider,
+    Protocol,
+):
+    pass
+
+
+class AgentService(
+    ServiceSelectionProvider,
+    ResidentExecutionProvider,
+    Protocol,
+):
     def state_dir_relpath(self, role: AgentRole, namespace: str = "") -> str | None: ...
 
     def is_resumable(self, state_dir: Path) -> bool: ...
@@ -144,12 +167,16 @@ __all__ = [
     "AgentService",
     "AssistantTurn",
     "CredentialFailure",
+    "ExecutionProvider",
     "HardError",
     "ParsedTurn",
     "PromptTokens",
+    "ResidentExecutionProvider",
     "ProviderSessionRecordingStore",
     "ProviderStatePreparationAction",
     "Result",
+    "ServiceSelectionProvider",
+    "SessionPlanningProvider",
     "ToolPolicy",
     "TransientError",
     "UnsupportedTokens",

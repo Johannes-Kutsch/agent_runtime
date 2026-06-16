@@ -3,22 +3,22 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import datetime
 
-from .contracts import AgentService
+from .contracts import ServiceSelectionProvider
 from .stage_priority_chain import (
     configured_candidate_chain,
     select_configured_candidate_chain,
 )
 from .types import StageOverride
 
-ServiceSummaryRenderer = Callable[[str, AgentService], str | None]
+ServiceSummaryRenderer = Callable[[str, ServiceSelectionProvider], str | None]
 
 
 class ServiceRegistry:
-    def __init__(self, services: Mapping[str, AgentService]) -> None:
+    def __init__(self, services: Mapping[str, ServiceSelectionProvider]) -> None:
         self._services = dict(services)
 
     @property
-    def services(self) -> dict[str, AgentService]:
+    def services(self) -> dict[str, ServiceSelectionProvider]:
         return dict(self._services)
 
     def _configured_candidate_overrides(
@@ -42,7 +42,7 @@ class ServiceRegistry:
 
     def _exhausted_services_for(
         self, override: StageOverride, now: datetime
-    ) -> tuple[AgentService, ...]:
+    ) -> tuple[ServiceSelectionProvider, ...]:
         configured_overrides = self._configured_candidate_overrides(override)
         availability = self._availability_by_service(configured_overrides, now)
         return tuple(
@@ -96,7 +96,7 @@ class ServiceRegistry:
             return None
         return min(service.next_wake_time() for service in exhausted)
 
-    def __getitem__(self, key: str) -> AgentService | None:
+    def __getitem__(self, key: str) -> ServiceSelectionProvider | None:
         return self._services.get(key)
 
     def summary_lines(

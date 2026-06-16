@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol, cast
 
-from .contracts import AgentService
+from .contracts import ResidentExecutionProvider, SessionPlanningProvider
 from .errors import AgentCredentialFailureError
 from .provider_session_adapter import (
     ProviderSessionAdapter,
@@ -136,7 +136,7 @@ class ProviderRunStatePlanRequest:
     worktree: Path
     role: AgentRole
     namespace: str
-    service: AgentService
+    service: SessionPlanningProvider
     role_session: RoleSessionLike
     provider_session_adapter: ProviderSessionAdapter
 
@@ -236,7 +236,7 @@ class ResidentSessionPlanRequest:
     worktree: Path
     role: AgentRole
     namespace: str
-    service: AgentService
+    service: ResidentExecutionProvider
     role_session: RoleSessionLike
     provider_session_adapter: ProviderSessionAdapter
 
@@ -246,7 +246,7 @@ class ResidentSessionPlan:
     role: AgentRole
     worktree: Path
     namespace: str
-    service: AgentService
+    service: ResidentExecutionProvider
     run_kind: RunKind
     service_state_dir: Path | None
     provider_state_dir_relpath: str | None
