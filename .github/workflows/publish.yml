@@ -54,7 +54,7 @@ jobs:
           else
             echo "is_tag=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AGENT_RUNTIME=$VERSION" >> "$GITHUB_ENV"
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RUHKEN_AGENT_RUNTIME=$VERSION" >> "$GITHUB_ENV"
 
       - name: Build
         run: pip install build && python -m build
@@ -93,4 +93,3 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
-
