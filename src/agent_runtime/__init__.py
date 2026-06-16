@@ -6,8 +6,8 @@ from ._import_isolation import assert_runtime_import_isolation
 
 from .agent_log import AgentInvocationLog, LogicalAgentInvocationLog, WorkInvocationLog
 from .contracts import (
-    AgentService,
     AssistantTurn,
+    ExecutionService,
     CredentialFailure,
     ExecutionProvider,
     HardError,
@@ -15,6 +15,7 @@ from .contracts import (
     PromptTokens,
     ProviderSessionRecordingStore,
     ProviderStatePreparationAction,
+    ResumabilityProvider,
     ResidentExecutionProvider,
     Result,
     ServiceSelectionProvider,
@@ -84,10 +85,10 @@ __all__ = [
     "AgentInvocationLog",
     "AgentFailedError",
     "AgentRuntimeError",
-    "AgentService",
     "AgentRole",
     "AgentTimeoutError",
     "AssistantTurn",
+    "ExecutionService",
     "ExecutionProvider",
     "CancellationToken",
     "ChainEntry",
@@ -107,6 +108,7 @@ __all__ = [
     "ProviderSessionStateRequest",
     "ProviderStatePreparationAction",
     "PromptTokens",
+    "ResumabilityProvider",
     "ResidentExecutionProvider",
     "PromptRunRequest",
     "PromptRunSession",

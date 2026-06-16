@@ -104,14 +104,11 @@ class ServiceSelectionProvider(Protocol):
     def next_wake_time(self) -> datetime: ...
 
 
-class SessionPlanningProvider(Protocol):
-    @property
-    def name(self) -> str: ...
-
+class ResumabilityProvider(Protocol):
     def is_resumable(self, state_dir: Path) -> bool: ...
 
 
-class ExecutionProvider(Protocol):
+class ExecutionService(Protocol):
     @property
     def name(self) -> str: ...
 
@@ -141,32 +138,30 @@ class ExecutionProvider(Protocol):
     def mark_exhausted(self, reset_time: datetime | None) -> None: ...
 
 
+class ExecutionProvider(ExecutionService, Protocol):
+    """Compatibility alias for the focused execution service seam."""
+
+
 class ResidentExecutionProvider(
-    SessionPlanningProvider,
+    ResumabilityProvider,
     ExecutionProvider,
     Protocol,
 ):
     pass
 
 
-class AgentService(
-    ServiceSelectionProvider,
-    ResidentExecutionProvider,
+class SessionPlanningProvider(
+    ResumabilityProvider,
     Protocol,
 ):
-    def state_dir_relpath(self, role: AgentRole, namespace: str = "") -> str | None: ...
-
-    def is_resumable(self, state_dir: Path) -> bool: ...
-
-    def valid_models(self) -> frozenset[str]: ...
-
-    def valid_efforts(self) -> frozenset[str]: ...
+    @property
+    def name(self) -> str: ...
 
 
 __all__ = [
-    "AgentService",
     "AssistantTurn",
     "CredentialFailure",
+    "ExecutionService",
     "ExecutionProvider",
     "HardError",
     "ParsedTurn",
@@ -175,6 +170,7 @@ __all__ = [
     "ProviderSessionRecordingStore",
     "ProviderStatePreparationAction",
     "Result",
+    "ResumabilityProvider",
     "ServiceSelectionProvider",
     "SessionPlanningProvider",
     "ToolPolicy",

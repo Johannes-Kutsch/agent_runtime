@@ -6,7 +6,7 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
 
-from .contracts import ExecutionProvider, ParsedTurn
+from .contracts import ExecutionService, ParsedTurn
 from .execution_contracts import (
     CancellationToken,
     PreparedProviderRunSession,
@@ -214,7 +214,7 @@ def _default_status_row_factory(
 
 
 def _default_provider_account_exhaustion_handler(
-    service: ExecutionProvider,
+    service: ExecutionService,
     error: UsageLimitError,
 ) -> None:
     service.mark_exhausted(error.reset_time)
