@@ -96,6 +96,14 @@ class ServiceRegistry:
             return None
         return min(service.next_wake_time() for service in exhausted)
 
+    def mark_exhausted(
+        self, service_name: str, *, reset_time: datetime | None
+    ) -> None:
+        service = self._services.get(service_name)
+        if service is None:
+            return
+        service.mark_exhausted(reset_time)
+
     def __getitem__(self, key: str) -> ServiceSelectionProvider | None:
         return self._services.get(key)
 
