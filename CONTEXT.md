@@ -24,9 +24,11 @@
 - Application-specific prompt rendering, CLI wiring, issue orchestration, and output parsing belong outside the runtime boundary.
 - The runtime/request seam stays a single vertical flow from caller intent through session planning to work invocation.
 - The package root should stay a narrow compatibility entrypoint, not a catch-all export surface.
+- Runtime entrypoints should be canonical per mode rather than duplicated across equivalent facades.
 - Runtime-owned selection, availability, and resumability policy stay in the runtime boundary.
 - Provider execution behavior stays behind focused adapter contracts.
 - Provider-specific session details must stay behind explicit adapter contracts.
+- Work invocation dependencies should stay focused on execution intent rather than presentation or orchestration concerns.
 - Runtime-owned public names should be neutral and caller-supplied where paths or log roots are involved.
 
 ## Runtime Surfaces
@@ -38,5 +40,6 @@
 - Service selection across nested `StageOverride` chains.
 - Provider execution behind adapter contracts.
 - Provider session planning and state recovery.
+- Provider-session mutation stays behind the provider-facing seam rather than the plan value.
 - Text-output reduction from parsed provider events.
 - Agent log reservation and append/update lifecycle.
