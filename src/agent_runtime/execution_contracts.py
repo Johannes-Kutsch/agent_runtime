@@ -437,7 +437,6 @@ class WorkExecutionDependencies:
 @dataclasses.dataclass(frozen=True)
 class WorkFailureHandling:
     timeout_retries: int
-    stage_key_for_role: Callable[[InvocationRole], str | None] | None = None
     translate_setup_failure: SetupFailureTranslator | None = None
     handle_provider_account_exhaustion: ProviderAccountExhaustionHandler = (
         _default_provider_account_exhaustion_handler

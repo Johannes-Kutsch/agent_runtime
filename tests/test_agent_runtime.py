@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -357,10 +357,7 @@ class _OneShotExecutionAdapter:
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
-            failure_handling=WorkFailureHandling(
-                timeout_retries=0,
-                stage_key_for_role=lambda role: role.value,
-            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
             presentation=WorkPresentationDependencies(),
         )
 
@@ -455,10 +452,7 @@ class _RoleAwareOneShotExecutionAdapter:
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
-            failure_handling=WorkFailureHandling(
-                timeout_retries=0,
-                stage_key_for_role=lambda role: role.value,
-            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
             presentation=WorkPresentationDependencies(),
         )
 
@@ -606,10 +600,7 @@ class _ResidentSeamExecutionAdapter:
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
-            failure_handling=WorkFailureHandling(
-                timeout_retries=0,
-                stage_key_for_role=lambda role: role.value,
-            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
             presentation=WorkPresentationDependencies(),
         )
 
@@ -682,10 +673,7 @@ class _RoleAwareResidentSeamExecutionAdapter:
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
-            failure_handling=WorkFailureHandling(
-                timeout_retries=0,
-                stage_key_for_role=lambda role: role.value,
-            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
             presentation=WorkPresentationDependencies(),
         )
 
@@ -801,6 +789,15 @@ def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
 
     assert usage_limit_scope.value == "quota-review"
     assert runtime.UsageLimitScope.__module__.startswith("agent_runtime")
+
+
+def test_work_failure_handling_no_longer_exposes_role_to_stage_mapping_hook() -> None:
+    assert {field.name for field in fields(WorkFailureHandling)} == {
+        "timeout_retries",
+        "translate_setup_failure",
+        "handle_provider_account_exhaustion",
+        "transient_status_message",
+    }
 
 
 @pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
