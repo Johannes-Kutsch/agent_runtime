@@ -16,10 +16,10 @@ from .errors import (
 from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .session import (
-    ProviderSessionPreferences,
-    ProviderSessionPreferencesRequest,
-    ProviderSessionState,
-    ProviderSessionStateRequest,
+    ProviderSessionPreferences as ProviderSessionPreferences,
+    ProviderSessionPreferencesRequest as ProviderSessionPreferencesRequest,
+    ProviderSessionState as ProviderSessionState,
+    ProviderSessionStateRequest as ProviderSessionStateRequest,
     RunKind,
 )
 from .types import StageSelection
@@ -34,10 +34,6 @@ __all__ = [
     "ExecutionProvider",
     "InvocationRole",
     "ProviderSessionAdapter",
-    "ProviderSessionPreferences",
-    "ProviderSessionPreferencesRequest",
-    "ProviderSessionState",
-    "ProviderSessionStateRequest",
     "RuntimeConfigurationError",
     "RunKind",
     "StageSelection",
