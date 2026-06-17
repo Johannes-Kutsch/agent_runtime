@@ -45,6 +45,7 @@ from agent_runtime.errors import (
 from agent_runtime.execution_contracts import (
     CancellationToken,
     PreparedRunSessionState,
+    PromptRunRequest,
     PromptRunSession,
     WorkExecutionAdapter,
     WorkExecutionDependencies,
@@ -1031,8 +1032,8 @@ def test_tool_policy_profiles_stay_provider_neutral() -> None:
         )
 
 
-def test_one_shot_run_request_default_tool_policy_remains_full() -> None:
-    request = prompt_runtime.OneShotRunRequest(
+def test_prompt_run_request_default_tool_policy_remains_full() -> None:
+    request = PromptRunRequest(
         prompt="already rendered prompt",
         worktree=WorktreeMount(Path(".")),
         stage=runtime.StageSelection(
