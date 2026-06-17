@@ -846,6 +846,68 @@ def test_agent_invocation_log_uses_invocation_role_header_key(
     assert "role" not in header
 
 
+def test_agent_invocation_log_uses_log_name_and_logs_dir_parameters(
+    tmp_path: Path,
+) -> None:
+    invocation_log = AgentInvocationLog(
+        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
+    )
+
+    reserved_path = invocation_log.reserve(
+        log_name="Issue 51 Review",
+        logs_dir=tmp_path,
+    )
+    logical_log = invocation_log.start_logical_session(
+        log_name="Issue 51 Review",
+        logs_dir=tmp_path,
+    )
+
+    assert reserved_path.name == "issue-51-review-20260101T0000.log"
+    assert logical_log.log_path.name == "issue-51-review-20260101T0000-2.log"
+
+
+def test_agent_invocation_log_records_conditional_usage_limit_scope(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "agent.log"
+    invocation_log = AgentInvocationLog(
+        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
+    )
+
+    with invocation_log.open_work_invocation(
+        log_path=log_path,
+        role=InvocationRole("implementer"),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        run_kind=RunKind.FRESH,
+        session_uuid=None,
+        prompt="same scope as role",
+    ):
+        pass
+
+    with invocation_log.open_work_invocation(
+        log_path=log_path,
+        role=InvocationRole("implementer"),
+        usage_limit_scope=runtime.UsageLimitScope("repo-write"),
+        run_kind=RunKind.RESUME,
+        session_uuid=None,
+        prompt="different scope from role",
+    ) as work_invocation:
+        work_invocation.record_provider_session_id("provider-session")
+
+    headers = [
+        record
+        for record in (
+            json.loads(line) for line in log_path.read_text().splitlines() if line
+        )
+        if record.get("type") == "agent_invocation"
+    ]
+
+    assert "usage_limit_scope" not in headers[0]
+    assert headers[1]["invocation_role"] == "implementer"
+    assert headers[1]["usage_limit_scope"] == "repo-write"
+    assert headers[1]["provider_session_id"] == "provider-session"
+
+
 def test_stage_chain_resolution_prefers_first_available_configured_service() -> None:
     override = runtime.StageOverride(
         service="missing",

@@ -9,6 +9,7 @@ from typing import BinaryIO
 from . import _time as _time_module
 from .roles import InvocationRole
 from .session import RunKind
+from .usage_limit_scope import UsageLimitScope
 
 
 class WorkInvocationLog:
@@ -63,10 +64,12 @@ class LogicalAgentInvocationLog:
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
+        usage_limit_scope: UsageLimitScope | None = None,
     ) -> Iterator[WorkInvocationLog]:
         with self._owner.open_work_invocation(
             log_path=self.log_path,
             role=role,
+            usage_limit_scope=usage_limit_scope,
             run_kind=run_kind,
             session_uuid=session_uuid,
             prompt=prompt,
@@ -82,10 +85,12 @@ class LogicalAgentInvocationLog:
         session_uuid: str | None,
         prompt: str,
         provider_bytes: bytes,
+        usage_limit_scope: UsageLimitScope | None = None,
     ) -> None:
         self._owner.append_work_invocation(
             log_path=self.log_path,
             role=role,
+            usage_limit_scope=usage_limit_scope,
             run_kind=run_kind,
             session_uuid=session_uuid,
             prompt=prompt,
@@ -108,13 +113,13 @@ class AgentInvocationLog:
     ) -> None:
         self._now_local = _time_module.now_local if now_local is None else now_local
 
-    def reserve(self, *, agent_name: str, effective_logs_dir: Path) -> Path:
-        effective_logs_dir.mkdir(parents=True, exist_ok=True)
-        slug = re.sub(r"[^a-z0-9]+", "-", agent_name.lower()).strip("-")
+    def reserve(self, *, log_name: str, logs_dir: Path) -> Path:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        slug = re.sub(r"[^a-z0-9]+", "-", log_name.lower()).strip("-")
         timestamp = self._now_local().strftime("%Y%m%dT%H%M")
         stem = f"{slug}-{timestamp}"
         for suffix in ["", *[f"-{n}" for n in range(2, 10_000)]]:
-            path = effective_logs_dir / f"{stem}{suffix}.log"
+            path = logs_dir / f"{stem}{suffix}.log"
             try:
                 with open(path, "xb"):
                     pass
@@ -126,14 +131,14 @@ class AgentInvocationLog:
     def start_logical_session(
         self,
         *,
-        agent_name: str,
-        effective_logs_dir: Path,
+        log_name: str,
+        logs_dir: Path,
     ) -> LogicalAgentInvocationLog:
         return LogicalAgentInvocationLog(
             self,
             log_path=self.reserve(
-                agent_name=agent_name,
-                effective_logs_dir=effective_logs_dir,
+                log_name=log_name,
+                logs_dir=logs_dir,
             ),
         )
 
@@ -146,6 +151,7 @@ class AgentInvocationLog:
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
+        usage_limit_scope: UsageLimitScope | None = None,
     ) -> Iterator[WorkInvocationLog]:
         with open(log_path, "ab") as log:
             separator = self._separator_for_next_invocation(log_path)
@@ -159,6 +165,8 @@ class AgentInvocationLog:
                 "provider_session_id": session_uuid,
                 "prompt": prompt,
             }
+            if usage_limit_scope is not None and usage_limit_scope.value != role.value:
+                header_record["usage_limit_scope"] = usage_limit_scope.value
             log.write(json.dumps(header_record).encode() + b"\n")
             log.flush()
             yield WorkInvocationLog(
@@ -177,10 +185,12 @@ class AgentInvocationLog:
         session_uuid: str | None,
         prompt: str,
         provider_bytes: bytes,
+        usage_limit_scope: UsageLimitScope | None = None,
     ) -> None:
         with self.open_work_invocation(
             log_path=log_path,
             role=role,
+            usage_limit_scope=usage_limit_scope,
             run_kind=run_kind,
             session_uuid=session_uuid,
             prompt=prompt,
