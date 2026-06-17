@@ -234,7 +234,7 @@ class ProviderRunStatePlan:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResidentSessionPlanRequest:
+class ResumableSessionPlanRequest:
     worktree: Path
     role: InvocationRole
     namespace: str
@@ -249,7 +249,7 @@ class ResidentSessionPlanRequest:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResidentSessionPlan:
+class ResumableSessionPlan:
     role: InvocationRole
     worktree: Path
     namespace: str
@@ -303,20 +303,20 @@ def record_successful_provider_session_metadata(
     provider_run_state_plan.record_successful_run(provider_session_id)
 
 
-def plan_resident_session(
-    request: ResidentSessionPlanRequest,
-) -> ResidentSessionPlan:
+def plan_resumable_session(
+    request: ResumableSessionPlanRequest,
+) -> ResumableSessionPlan:
     provider_run_state_plan = plan_provider_run_state(
         ProviderRunStatePlanRequest(
             worktree=request.worktree,
             role=request.role,
             namespace=request.namespace,
-            resumability_service=_resident_resumability_service(request),
+            resumability_service=_resumable_resumability_service(request),
             role_session=request.role_session,
             provider_session_adapter=request.provider_session_adapter,
         )
     )
-    return ResidentSessionPlan(
+    return ResumableSessionPlan(
         role=request.role,
         worktree=request.worktree,
         namespace=request.namespace,
@@ -431,8 +431,8 @@ def _host_state_dir(worktree: Path, state_dir_relpath: str | None) -> Path | Non
     return worktree / state_dir_relpath.rstrip("/")
 
 
-def _resident_resumability_service(
-    request: ResidentSessionPlanRequest,
+def _resumable_resumability_service(
+    request: ResumableSessionPlanRequest,
 ) -> ResumabilityProvider:
     resumability_service = request.resumability_service
     if resumability_service is not None:
@@ -448,11 +448,11 @@ __all__ = [
     "ProviderSessionDecision",
     "ProviderSessionPlanRequest",
     "RecoveredSessionIdPersistence",
-    "ResidentSessionPlan",
-    "ResidentSessionPlanRequest",
+    "ResumableSessionPlan",
+    "ResumableSessionPlanRequest",
     "plan_provider_run_state",
     "plan_provider_session",
-    "plan_resident_session",
+    "plan_resumable_session",
     "record_observed_provider_session_id",
     "record_successful_provider_session_metadata",
 ]

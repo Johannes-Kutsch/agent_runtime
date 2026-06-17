@@ -15,6 +15,7 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
+import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime._import_isolation import assert_runtime_import_isolation
 from agent_runtime.contracts import (
@@ -79,11 +80,11 @@ from agent_runtime.usage_limit_decision import (
     UsageLimitOutcome,
     decide_usage_limit_continuation,
 )
-from agent_runtime.session_planning import ResidentSessionPlan
+from agent_runtime.session_planning import ResumableSessionPlan
 from agent_runtime.session_planning import (
     AuthSeedingRequirement,
-    ResidentSessionPlanRequest,
-    plan_resident_session,
+    ResumableSessionPlanRequest,
+    plan_resumable_session,
 )
 
 
@@ -1203,7 +1204,19 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "PromptRuntimeExecutionAdapter")
     assert not hasattr(prompt_runtime, "run_one_shot")
     assert not hasattr(prompt_runtime, "run_prompt")
-    assert not hasattr(prompt_runtime, "run_resident_prompt")
+    assert not hasattr(prompt_runtime, "run_resumable_prompt")
+    assert not hasattr(prompt_runtime, "ResidentRunRequest")
+    assert not hasattr(prompt_runtime, "ResidentRunResult")
+    assert not hasattr(prompt_runtime, "ResidentRuntime")
+    assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
+    assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
+    assert {
+        "ResumableRunRequest",
+        "ResumableRunResult",
+        "ResumableRuntime",
+        "ResumableRuntimeExecutionAdapter",
+        "ResumableRuntimeMetadata",
+    } <= set(prompt_runtime.__all__)
 
 
 def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
@@ -1212,8 +1225,21 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
     contracts = importlib.import_module("agent_runtime.contracts")
 
     assert "ExecutionProvider" in contracts.__all__
+    assert "ResumableExecutionProvider" in contracts.__all__
     assert not hasattr(contracts, "ExecutionService")
+    assert not hasattr(contracts, "ResidentExecutionProvider")
     assert runtime.ExecutionProvider is contracts.ExecutionProvider
+
+
+def test_session_planning_surface_uses_resumable_vocabulary() -> None:
+    assert not hasattr(session_planning_runtime, "ResidentSessionPlan")
+    assert not hasattr(session_planning_runtime, "ResidentSessionPlanRequest")
+    assert not hasattr(session_planning_runtime, "plan_resident_session")
+    assert {
+        "ResumableSessionPlan",
+        "ResumableSessionPlanRequest",
+        "plan_resumable_session",
+    } <= set(session_planning_runtime.__all__)
 
 
 def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
@@ -1304,12 +1330,12 @@ def test_tool_policy_profiles_stay_provider_neutral() -> None:
             "PromptRunRequest requires an explicit `tool_policy` value.",
         ),
         (
-            lambda: prompt_runtime.ResidentRunRequest(
+            lambda: prompt_runtime.ResumableRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
                 effort="medium",
-                session_plan=ResidentSessionPlan(
+                session_plan=ResumableSessionPlan(
                     role=InvocationRole("reviewer"),
                     worktree=Path("."),
                     namespace="main",
@@ -1322,7 +1348,7 @@ def test_tool_policy_profiles_stay_provider_neutral() -> None:
                     auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
                 ),
             ),
-            "ResidentRunRequest requires an explicit `tool_policy` value.",
+            "ResumableRunRequest requires an explicit `tool_policy` value.",
         ),
     ],
 )
@@ -1417,7 +1443,7 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
         == ""
     )
     assert (
-        ResidentSessionPlanRequest(
+        ResumableSessionPlanRequest(
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace="",
@@ -1436,7 +1462,7 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
         )
 
     with pytest.raises(ValueError):
-        ResidentSessionPlanRequest(
+        ResumableSessionPlanRequest(
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace=label,
@@ -2698,12 +2724,12 @@ def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
     )
 
 
-def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam() -> (
+def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam() -> (
     None
 ):
     service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resident_session(
-        ResidentSessionPlanRequest(
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace="main",
@@ -2713,7 +2739,7 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
         )
     )
 
-    assert session_plan == ResidentSessionPlan(
+    assert session_plan == ResumableSessionPlan(
         role=InvocationRole("implementer"),
         worktree=Path("."),
         namespace="main",
@@ -2727,10 +2753,10 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResidentRuntime(
+        prompt_runtime.ResumableRuntime(
             execution_adapter=_ResidentSeamExecutionAdapter()
-        ).run_resident_prompt(
-            prompt_runtime.ResidentRunRequest(
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -2741,9 +2767,9 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
         )
     )
 
-    assert result == prompt_runtime.ResidentRunResult(
+    assert result == prompt_runtime.ResumableRunResult(
         output="resume:prepared:recovered-session:/workspace/runtime-state/",
-        runtime_metadata=prompt_runtime.ResidentRuntimeMetadata(
+        runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
             service_name="codex",
             provider_session_id="prepared:recovered-session",
             run_kind=RunKind.RESUME,
@@ -2753,11 +2779,11 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
     )
 
 
-def test_resident_runtime_uses_invocation_role_from_session_plan() -> None:
+def test_resumable_runtime_uses_invocation_role_from_session_plan() -> None:
     role = InvocationRole("reviewer")
     service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resident_session(
-        ResidentSessionPlanRequest(
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
             worktree=Path("."),
             role=role,
             namespace="main",
@@ -2769,10 +2795,10 @@ def test_resident_runtime_uses_invocation_role_from_session_plan() -> None:
     execution_adapter = _RoleAwareResidentSeamExecutionAdapter()
 
     asyncio.run(
-        prompt_runtime.ResidentRuntime(
+        prompt_runtime.ResumableRuntime(
             execution_adapter=execution_adapter
-        ).run_resident_prompt(
-            prompt_runtime.ResidentRunRequest(
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -2787,7 +2813,7 @@ def test_resident_runtime_uses_invocation_role_from_session_plan() -> None:
 
 
 @pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
-def test_resident_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
+def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
     tool_policy: runtime.ToolPolicy,
 ) -> None:
     execution_adapter = _ToolPolicyObservingResidentExecutionAdapter()
@@ -2798,8 +2824,8 @@ def test_resident_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
             execution_adapter.observed_service_tool_policies,
         ),
     )
-    session_plan = plan_resident_session(
-        ResidentSessionPlanRequest(
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace="main",
@@ -2810,10 +2836,10 @@ def test_resident_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
     )
 
     asyncio.run(
-        prompt_runtime.ResidentRuntime(
+        prompt_runtime.ResumableRuntime(
             execution_adapter=execution_adapter
-        ).run_resident_prompt(
-            prompt_runtime.ResidentRunRequest(
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -2868,14 +2894,14 @@ def test_prompt_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
     assert execution_adapter.observed_service_tool_policies == [tool_policy]
 
 
-def test_resident_runtime_request_rejects_request_level_invocation_role() -> None:
+def test_resumable_runtime_request_rejects_request_level_invocation_role() -> None:
     with pytest.raises(TypeError):
-        prompt_runtime.ResidentRunRequest(
+        prompt_runtime.ResumableRunRequest(
             prompt="already rendered prompt",
             worktree=WorktreeMount(Path(".")),
             model="gpt-5.4",
             effort="medium",
-            session_plan=ResidentSessionPlan(
+            session_plan=ResumableSessionPlan(
                 role=InvocationRole("reviewer"),
                 worktree=Path("."),
                 namespace="main",

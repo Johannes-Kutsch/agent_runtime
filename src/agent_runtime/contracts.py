@@ -155,7 +155,7 @@ class ExecutionProvider(Protocol):
     def mark_exhausted(self, reset_time: datetime | None) -> None: ...
 
 
-class ResidentExecutionProvider(
+class ResumableExecutionProvider(
     ResumabilityProvider,
     ExecutionProvider,
     Protocol,
@@ -178,7 +178,7 @@ __all__ = [
     "HardError",
     "ParsedTurn",
     "PromptTokens",
-    "ResidentExecutionProvider",
+    "ResumableExecutionProvider",
     "ProviderSessionRecordingStore",
     "ProviderStatePreparationAction",
     "Result",
