@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, fields
@@ -788,6 +789,11 @@ def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
     usage_limit_scope = runtime.UsageLimitScope("quota-review")
 
     assert usage_limit_scope.value == "quota-review"
+
+
+def test_runtime_does_not_expose_service_registry_presentation_module() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_runtime.service_registry_presentation")
     assert runtime.UsageLimitScope.__module__.startswith("agent_runtime")
 
 
@@ -925,6 +931,40 @@ def test_service_registry_resolve_and_wake_time() -> None:
     assert registry.next_wake_time(
         datetime(2026, 1, 1, tzinfo=timezone.utc)
     ) == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_application_can_render_service_availability_summary_from_registry() -> None:
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    registry = ServiceRegistry(
+        {
+            "codex": cast(
+                ServiceSelectionProvider,
+                _Service(
+                    "codex",
+                    available=False,
+                    wake_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                ),
+            ),
+            "claude": cast(
+                ServiceSelectionProvider,
+                _Service(
+                    "claude",
+                    available=True,
+                    wake_time=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                ),
+            ),
+        }
+    )
+
+    summary_lines = [
+        f"{name}: {'available' if service.is_available(now=now) else 'unavailable'}"
+        for name, service in registry.services.items()
+    ]
+
+    assert summary_lines == [
+        "codex: unavailable",
+        "claude: available",
+    ]
 
 
 def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolution() -> (
