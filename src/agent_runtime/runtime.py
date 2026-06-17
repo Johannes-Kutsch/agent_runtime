@@ -4,7 +4,7 @@ import dataclasses
 from typing import Any
 
 from . import _time as _time_module
-from .contracts import ToolPolicy
+from .contracts import ToolPolicy, ToolPolicyProfile
 from .execution_contracts import (
     CancellationToken,
     PromptRunRequest as _PromptRunRequest,
@@ -37,6 +37,7 @@ __all__ = [
     "ResidentRuntimeExecutionAdapter",
     "ResidentRuntimeMetadata",
     "ToolPolicy",
+    "ToolPolicyProfile",
     "WorktreeMount",
 ]
 

@@ -84,10 +84,25 @@ ParsedTurn = (
 )
 
 
+@dataclasses.dataclass(frozen=True)
+class ToolPolicyProfile:
+    allowed_tools: tuple[str, ...] = ()
+    disallowed_tools: tuple[str, ...] = ()
+    strict_mcp_config: bool = True
+
+
 class ToolPolicy(enum.Enum):
     RESTRICTED = "restricted"
     PARTIAL = "partial"
     FULL = "full"
+
+    @property
+    def profile(self) -> ToolPolicyProfile:
+        if self is ToolPolicy.RESTRICTED:
+            return ToolPolicyProfile(allowed_tools=("Read", "Glob"))
+        if self is ToolPolicy.PARTIAL:
+            return ToolPolicyProfile(disallowed_tools=("Edit", "Write", "NotebookEdit"))
+        return ToolPolicyProfile()
 
 
 class ProviderStatePreparationAction(Protocol):
@@ -176,6 +191,7 @@ __all__ = [
     "ServiceSelectionProvider",
     "SessionPlanningProvider",
     "ToolPolicy",
+    "ToolPolicyProfile",
     "TransientError",
     "UnsupportedTokens",
     "UsageLimit",

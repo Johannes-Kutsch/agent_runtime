@@ -792,6 +792,64 @@ def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
     assert usage_limit_scope.value == "quota-review"
 
 
+def test_tool_policy_restricted_resolves_to_provider_neutral_profile() -> None:
+    profile = runtime.ToolPolicy.RESTRICTED.profile
+
+    assert profile.allowed_tools == ("Read", "Glob")
+    assert profile.disallowed_tools == ()
+    assert profile.strict_mcp_config is True
+
+
+def test_runtime_surface_exposes_tool_policy_profiles_for_partial_and_full() -> None:
+    partial = runtime.ToolPolicy.PARTIAL.profile
+    full = runtime.ToolPolicy.FULL.profile
+
+    assert "ToolPolicyProfile" in prompt_runtime.__all__
+    assert isinstance(partial, prompt_runtime.ToolPolicyProfile)
+    assert partial.allowed_tools == ()
+    assert partial.disallowed_tools == ("Edit", "Write", "NotebookEdit")
+    assert partial.strict_mcp_config is True
+    assert isinstance(full, prompt_runtime.ToolPolicyProfile)
+    assert full.allowed_tools == ()
+    assert full.disallowed_tools == ()
+    assert full.strict_mcp_config is True
+
+
+def test_tool_policy_profiles_stay_provider_neutral() -> None:
+    for policy in runtime.ToolPolicy:
+        profile = policy.profile
+        profile_fields = {field.name for field in fields(profile)}
+        rendered_values = profile.allowed_tools + profile.disallowed_tools
+
+        assert profile_fields == {
+            "allowed_tools",
+            "disallowed_tools",
+            "strict_mcp_config",
+        }
+        assert profile.strict_mcp_config is True
+        assert all(not value.startswith("-") for value in rendered_values)
+        assert all(
+            provider not in value.lower()
+            for value in rendered_values
+            for provider in ("claude", "codex", "opencode")
+        )
+
+
+def test_one_shot_run_request_default_tool_policy_remains_full() -> None:
+    request = prompt_runtime.OneShotRunRequest(
+        prompt="already rendered prompt",
+        worktree=WorktreeMount(Path(".")),
+        stage=runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        role=InvocationRole("implementer"),
+    )
+
+    assert request.tool_policy is runtime.ToolPolicy.FULL
+
+
 def test_runtime_does_not_expose_service_registry_presentation_module() -> None:
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("agent_runtime.service_registry_presentation")
