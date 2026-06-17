@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
-from .contracts import ExecutionService, ToolPolicy
+from .contracts import ExecutionProvider, ToolPolicy
 from .identity import validate_session_namespace
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
@@ -34,7 +34,7 @@ class PromptRunSession:
 
 
 class PromptRuntimeExecutionAdapter(Protocol):
-    def resolve_service(self, service_name: str = "") -> ExecutionService: ...
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider: ...
 
     def build_work_dependencies(
         self,
@@ -42,7 +42,7 @@ class PromptRuntimeExecutionAdapter(Protocol):
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies: ...
 
 
@@ -126,7 +126,7 @@ class RunSessionPlan:
     mount_path: Path
     role: InvocationRole
     session_namespace: str
-    service: ExecutionService
+    service: ExecutionProvider
     container_workspace: str
     usage_limit_scope: UsageLimitScope | None = None
     run_kind: RunKind = RunKind.FRESH
@@ -383,12 +383,12 @@ PreparedSession = PreparedRunSessionState
 PrepareSessionAdapter = Callable[[RunSessionPlan], PreparedRunSessionState]
 StatusRowFactory = Callable[..., AbstractAsyncContextManager[Any]]
 SetupFailureTranslator = Callable[[InvocationRole, BaseException], BaseException | None]
-ProviderAccountExhaustionHandler = Callable[[ExecutionService, Any], None]
+ProviderAccountExhaustionHandler = Callable[[ExecutionProvider, Any], None]
 StatusDisplayFactory = Callable[[], WorkStatusDisplay]
 
 
 def _default_provider_account_exhaustion_handler(
-    service: ExecutionService,
+    service: ExecutionProvider,
     error: Any,
 ) -> None:
     service.mark_exhausted(error.reset_time)
@@ -491,7 +491,7 @@ class WorkOutputAdapter(Protocol[WorkResultT]):
 class WorkExecutionDependencies:
     container_workspace: str
     prepare_session: PrepareSessionAdapter
-    build_session: Callable[[Path, ExecutionService, str | None], Any]
+    build_session: Callable[[Path, ExecutionProvider, str | None], Any]
     build_runner: Callable[[Any, Any], WorkExecutionAdapter]
     get_git_identity: Callable[[], tuple[str, str]]
 
@@ -568,7 +568,7 @@ class WorkInvocationRequest(Generic[WorkResultT]):
         return self.run_session.role
 
     @property
-    def service(self) -> ExecutionService:
+    def service(self) -> ExecutionProvider:
         return self.run_session.service
 
     @property
