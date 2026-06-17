@@ -766,6 +766,7 @@ def test_package_exports_runtime_surface() -> None:
         "UsageLimitScope",
     ]
     assert runtime.StageSelection.__module__.startswith("agent_runtime")
+    assert not hasattr(runtime, "StageOverride")
     assert runtime.AgentRuntimeError is AgentRuntimeError
     assert not hasattr(runtime, "run_prompt")
     assert not hasattr(runtime, "ServiceRegistry")
@@ -964,7 +965,7 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
             prompt_runtime.OneShotRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
-                override=runtime.StageSelection(
+                stage=runtime.StageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1051,6 +1052,12 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
         run_kind=RunKind.FRESH,
         session_namespace="main",
     )
+    assert request.stage == runtime.StageSelection(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+    )
+    assert request.override == request.stage
     assert execution_adapter.observed_roles == [role]
     assert execution_adapter.observed_run_sessions[0].role == role
     assert execution_adapter.observed_run_sessions[0].session_namespace == "main"
@@ -1098,7 +1105,7 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role() -> 
             prompt_runtime.OneShotRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
-                override=runtime.StageSelection(
+                stage=runtime.StageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1166,7 +1173,7 @@ def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook() ->
                 prompt_runtime.OneShotRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),
-                    override=runtime.StageSelection(
+                    stage=runtime.StageSelection(
                         service="codex",
                         model="gpt-5.4",
                         effort="medium",
@@ -1181,6 +1188,54 @@ def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook() ->
     assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("quota-review")
     assert execution_adapter.observed_roles == [role]
     assert execution_adapter.observed_run_sessions[0].role == role
+
+
+def test_one_shot_run_request_uses_stage_selection_vocabulary() -> None:
+    stage = runtime.StageSelection(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+    )
+
+    request = prompt_runtime.OneShotRunRequest(
+        prompt="already rendered prompt",
+        worktree=WorktreeMount(Path(".")),
+        stage=stage,
+        role=InvocationRole("implementer"),
+    )
+
+    assert {field.name for field in fields(prompt_runtime.OneShotRunRequest)} >= {
+        "stage",
+        "role",
+    }
+    assert "override" not in {
+        field.name for field in fields(prompt_runtime.OneShotRunRequest)
+    }
+    assert request.stage is stage
+    assert request.override is stage
+
+
+def test_one_shot_run_request_preserves_override_keyword_compatibility() -> None:
+    stage = runtime.StageSelection(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+        fallback=runtime.StageSelection(
+            service="claude",
+            model="sonnet",
+            effort="high",
+        ),
+    )
+
+    request = prompt_runtime.OneShotRunRequest(
+        prompt="already rendered prompt",
+        worktree=WorktreeMount(Path(".")),
+        override=stage,
+        role=InvocationRole("implementer"),
+    )
+
+    assert request.stage == stage
+    assert request.override == stage
 
 
 def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:

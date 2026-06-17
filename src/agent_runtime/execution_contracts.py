@@ -42,11 +42,11 @@ class PromptRuntimeExecutionAdapter(Protocol):
     ) -> WorkInvocationDependencies: ...
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, init=False)
 class PromptRunRequest:
     prompt: str
     worktree: WorktreeMount
-    override: StageSelection
+    stage: StageSelection
     role: InvocationRole
     usage_limit_scope: UsageLimitScope | None = None
     tool_policy: ToolPolicy = ToolPolicy.FULL
@@ -56,9 +56,56 @@ class PromptRunRequest:
     token: CancellationToken | None = None
     session: PromptRunSession = dataclasses.field(default_factory=PromptRunSession)
 
+    def __init__(
+        self,
+        prompt: str,
+        worktree: WorktreeMount,
+        stage: StageSelection | None = None,
+        role: InvocationRole | None = None,
+        usage_limit_scope: UsageLimitScope | None = None,
+        tool_policy: ToolPolicy = ToolPolicy.FULL,
+        name: str = "Runtime Agent",
+        status_display: Any = None,
+        work_body: str = "",
+        token: CancellationToken | None = None,
+        session: PromptRunSession | None = None,
+        *,
+        override: StageSelection | None = None,
+    ) -> None:
+        if stage is None:
+            stage = override
+        elif override is not None and override != stage:
+            raise TypeError(
+                "PromptRunRequest received conflicting `stage` and `override` values."
+            )
+        if stage is None:
+            raise TypeError("PromptRunRequest requires a `stage` value.")
+        if role is None:
+            raise TypeError("PromptRunRequest requires a `role` value.")
+
+        object.__setattr__(self, "prompt", prompt)
+        object.__setattr__(self, "worktree", worktree)
+        object.__setattr__(self, "stage", stage)
+        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
+        object.__setattr__(self, "tool_policy", tool_policy)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "status_display", status_display)
+        object.__setattr__(self, "work_body", work_body)
+        object.__setattr__(self, "token", token)
+        object.__setattr__(
+            self,
+            "session",
+            session if session is not None else PromptRunSession(),
+        )
+
     @property
     def mount_path(self) -> Path:
         return self.worktree.host_path
+
+    @property
+    def override(self) -> StageSelection:
+        return self.stage
 
     @property
     def session_namespace(self) -> str:
