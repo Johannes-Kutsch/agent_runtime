@@ -960,6 +960,16 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "run_resident_prompt")
 
 
+def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
+    None
+):
+    contracts = importlib.import_module("agent_runtime.contracts")
+
+    assert "ExecutionProvider" in contracts.__all__
+    assert not hasattr(contracts, "ExecutionService")
+    assert runtime.ExecutionProvider is contracts.ExecutionProvider
+
+
 def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
     assert (
         session_runtime.ProviderSessionPreferences.__module__ == "agent_runtime.session"
