@@ -72,6 +72,9 @@ def test_release_build_output_contains_only_fresh_runtime_artifacts(
     dist_dir.mkdir()
     stale_artifact = dist_dir / "stale.txt"
     stale_artifact.write_text("stale", encoding="utf-8")
+    stale_directory = dist_dir / "stale-dir"
+    stale_directory.mkdir()
+    (stale_directory / "nested.txt").write_text("stale", encoding="utf-8")
 
     repo_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
@@ -89,6 +92,7 @@ def test_release_build_output_contains_only_fresh_runtime_artifacts(
 
     assert result.returncode == 0, result.stderr
     assert not stale_artifact.exists()
+    assert not stale_directory.exists()
 
     built_artifacts = sorted(path.name for path in dist_dir.iterdir())
     assert len(built_artifacts) == 2
