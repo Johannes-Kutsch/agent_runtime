@@ -20,7 +20,6 @@ from agent_runtime._import_isolation import assert_runtime_import_isolation
 from agent_runtime.contracts import (
     AssistantTurn,
     CredentialFailure,
-    ExecutionService,
     ExecutionProvider,
     HardError,
     PromptTokens,
@@ -367,7 +366,7 @@ class _OneShotExecutionAdapter:
         self._invocation_order = invocation_order
         self._attempts_by_service = attempts_by_service
 
-    def resolve_service(self, service_name: str = "") -> ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
     def build_work_dependencies(
@@ -376,7 +375,7 @@ class _OneShotExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort
         execution_service = cast(_ExecutionService, service)
@@ -480,7 +479,7 @@ class _RoleAwareOneShotExecutionAdapter:
         self.observed_run_sessions: list[Any] = []
         self.observed_roles: list[InvocationRole] = []
 
-    def resolve_service(self, service_name: str = "") -> ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
     def build_work_dependencies(
@@ -489,7 +488,7 @@ class _RoleAwareOneShotExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort, service
         return WorkInvocationDependencies(
@@ -538,7 +537,7 @@ class _UsageLimitWithoutMappingExecutionAdapter(_RoleAwareOneShotExecutionAdapte
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort, service
         return WorkInvocationDependencies(
@@ -615,7 +614,7 @@ class _PromptOnlyOneShotWorkRunner:
 
 
 class _PromptOnlyOneShotExecutionAdapter:
-    def resolve_service(self, service_name: str = "") -> ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
     def build_work_dependencies(
@@ -624,7 +623,7 @@ class _PromptOnlyOneShotExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort, service
         return WorkInvocationDependencies(
@@ -678,7 +677,7 @@ class _ToolCapableOnlyOneShotWorkRunner:
 
 
 class _MissingPromptOnlyOneShotExecutionAdapter:
-    def resolve_service(self, service_name: str = "") -> ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
     def build_work_dependencies(
@@ -687,7 +686,7 @@ class _MissingPromptOnlyOneShotExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort, service
         return WorkInvocationDependencies(
@@ -772,7 +771,7 @@ class _ResidentSeamRunner:
 
 
 class _ResidentSeamExecutionAdapter:
-    def resolve_service(self, service_name: str = "") -> ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
     def build_work_dependencies(
@@ -781,7 +780,7 @@ class _ResidentSeamExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort, service
 
@@ -1013,7 +1012,7 @@ class _RoleAwareResidentSeamExecutionAdapter:
     def __init__(self) -> None:
         self.observed_roles: list[InvocationRole] = []
 
-    def resolve_service(self, service_name: str = "") -> ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
     def build_work_dependencies(
@@ -1022,7 +1021,7 @@ class _RoleAwareResidentSeamExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort, service
 
@@ -1153,6 +1152,16 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "run_one_shot")
     assert not hasattr(prompt_runtime, "run_prompt")
     assert not hasattr(prompt_runtime, "run_resident_prompt")
+
+
+def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
+    None
+):
+    contracts = importlib.import_module("agent_runtime.contracts")
+
+    assert "ExecutionProvider" in contracts.__all__
+    assert not hasattr(contracts, "ExecutionService")
+    assert runtime.ExecutionProvider is contracts.ExecutionProvider
 
 
 def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
