@@ -4,7 +4,7 @@ from ._import_isolation import (
     assert_runtime_import_isolation as _assert_runtime_import_isolation,
 )
 
-from .contracts import ExecutionProvider, ToolPolicy, ToolPolicyProfile
+from .contracts import ExecutionProvider, ExecutionService, ToolPolicy, ToolPolicyProfile
 from .errors import (
     AgentCredentialFailureError,
     AgentFailedError,
@@ -17,8 +17,14 @@ from .errors import (
 )
 from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
-from .session import RunKind
-from .types import StageSelection
+from .session import (
+    ProviderSessionPreferences,
+    ProviderSessionPreferencesRequest,
+    ProviderSessionState,
+    ProviderSessionStateRequest,
+    RunKind,
+)
+from .types import StageOverride, StageSelection
 from .usage_limit_scope import UsageLimitScope
 
 __all__ = [
@@ -27,11 +33,17 @@ __all__ = [
     "AgentRuntimeError",
     "AgentTimeoutError",
     "HardAgentError",
+    "ExecutionService",
     "ExecutionProvider",
     "InvocationRole",
     "ProviderSessionAdapter",
+    "ProviderSessionPreferences",
+    "ProviderSessionPreferencesRequest",
+    "ProviderSessionState",
+    "ProviderSessionStateRequest",
     "RuntimeConfigurationError",
     "RunKind",
+    "StageOverride",
     "StageSelection",
     "ToolPolicy",
     "ToolPolicyProfile",

@@ -440,6 +440,16 @@ def _resumable_resumability_service(
     return cast(ResumabilityProvider, request.service)
 
 
+ResidentSessionPlanRequest = ResumableSessionPlanRequest
+ResidentSessionPlan = ResumableSessionPlan
+
+
+def plan_resident_session(
+    request: ResidentSessionPlanRequest,
+) -> ResidentSessionPlan:
+    return plan_resumable_session(request)
+
+
 __all__ = [
     "AuthSeedingRequirement",
     "LocalAuthSeedAction",
@@ -448,10 +458,13 @@ __all__ = [
     "ProviderSessionDecision",
     "ProviderSessionPlanRequest",
     "RecoveredSessionIdPersistence",
+    "ResidentSessionPlan",
+    "ResidentSessionPlanRequest",
     "ResumableSessionPlan",
     "ResumableSessionPlanRequest",
     "plan_provider_run_state",
     "plan_provider_session",
+    "plan_resident_session",
     "plan_resumable_session",
     "record_observed_provider_session_id",
     "record_successful_provider_session_metadata",

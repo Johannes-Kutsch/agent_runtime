@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Iterable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
 
-from .contracts import ExecutionProvider
+from .contracts import ExecutionProvider, ParsedTurn
 from .execution_contracts import (
     CancellationToken,
     PreparedProviderRunSession,
@@ -224,6 +225,73 @@ def _default_provider_account_exhaustion_handler(
     service.mark_exhausted(error.reset_time)
 
 
+def reduce_text_output_events(
+    events: Iterable[ParsedTurn],
+    on_turn: Callable[[str], None],
+    on_tokens: Callable[[int], None] | None = None,
+    *,
+    provider: str,
+) -> str:
+    from .contracts import (
+        AssistantTurn,
+        CredentialFailure,
+        HardError,
+        PromptTokens,
+        Result,
+        TransientError,
+        UnsupportedTokens,
+        UsageLimit,
+    )
+
+    result_text: str | None = None
+    collected_turns: list[str] = []
+    for event in events:
+        if isinstance(event, UsageLimit):
+            raise UsageLimitError(
+                reset_time=event.reset_time,
+                raw_message=event.raw_message,
+                service_name=provider,
+                is_permanent=event.is_permanent,
+            )
+        if isinstance(event, TransientError):
+            raise TransientAgentError(
+                message=event.raw_message,
+                status_code=event.status_code,
+            )
+        if isinstance(event, HardError):
+            raise HardAgentError(
+                message=event.raw_message,
+                status_code=event.status_code,
+                service_name=provider,
+                classification=event.classification,
+                observations=event.observations,
+            )
+        if isinstance(event, CredentialFailure):
+            raise AgentCredentialFailureError(
+                message=event.raw_message,
+                status_code=event.status_code,
+                service_name=event.service_name,
+                classification=event.classification,
+                observations=event.source_observations,
+            )
+        if isinstance(event, PromptTokens):
+            if on_tokens is not None:
+                on_tokens(event.count)
+            continue
+        if isinstance(event, UnsupportedTokens):
+            continue
+        if isinstance(event, AssistantTurn):
+            on_turn(event.text)
+            collected_turns.append(event.text)
+            continue
+        if isinstance(event, Result):
+            result_text = event.text
+            break
+    if result_text is not None:
+        return result_text
+    return "\n".join(collected_turns)
+
+
 def _ensure_timeout_context(
     error: AgentTimeoutError,
     *,
@@ -350,6 +418,7 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                             request.run_session.usage_limit_scope
                             or UsageLimitScope(request.role.value)
                         )
+                        err.stage_key = err.usage_limit_scope.value
                     request.dependencies.failure_handling.handle_provider_account_exhaustion(
                         request.service,
                         err,
@@ -489,4 +558,5 @@ __all__ = [
     "WorkOutputAdapter",
     "WorkPresentationDependencies",
     "invoke_work",
+    "reduce_text_output_events",
 ]

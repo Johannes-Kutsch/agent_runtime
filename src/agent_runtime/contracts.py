@@ -5,7 +5,7 @@ import enum
 from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from .provider_errors import ProviderErrorObservation
 from .roles import InvocationRole
@@ -137,7 +137,7 @@ class ExecutionProvider(Protocol):
         run_kind: RunKind,
         session_uuid: str | None,
         *,
-        tool_policy: ToolPolicy | ToolPolicyProfile | None = None,
+        tool_policy: ToolPolicy | ToolPolicyProfile | Any | None = None,
     ) -> str: ...
 
     def build_env(
@@ -155,7 +155,19 @@ class ExecutionProvider(Protocol):
     def mark_exhausted(self, reset_time: datetime | None) -> None: ...
 
 
+class ExecutionService(ExecutionProvider, Protocol):
+    """Compatibility alias for the focused execution service protocol."""
+
+
 class ResumableExecutionProvider(
+    ResumabilityProvider,
+    ExecutionProvider,
+    Protocol,
+):
+    pass
+
+
+class ResidentExecutionProvider(
     ResumabilityProvider,
     ExecutionProvider,
     Protocol,
@@ -174,10 +186,12 @@ class SessionPlanningProvider(
 __all__ = [
     "AssistantTurn",
     "CredentialFailure",
+    "ExecutionService",
     "ExecutionProvider",
     "HardError",
     "ParsedTurn",
     "PromptTokens",
+    "ResidentExecutionProvider",
     "ResumableExecutionProvider",
     "ProviderSessionRecordingStore",
     "ProviderStatePreparationAction",
