@@ -22,7 +22,7 @@ from .session import (
     ProviderSessionStateRequest,
     RunKind,
 )
-from .types import StageOverride
+from .types import StageSelection
 from .usage_limit_scope import UsageLimitScope
 
 __all__ = [
@@ -40,7 +40,7 @@ __all__ = [
     "ProviderSessionStateRequest",
     "RuntimeConfigurationError",
     "RunKind",
-    "StageOverride",
+    "StageSelection",
     "ToolPolicy",
     "TransientAgentError",
     "UsageLimitError",

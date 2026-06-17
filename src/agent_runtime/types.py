@@ -4,11 +4,14 @@ import dataclasses
 
 
 @dataclasses.dataclass(frozen=True)
-class StageOverride:
+class StageSelection:
     model: str = ""
     effort: str = ""
     service: str = ""
-    fallback: StageOverride | None = None
+    fallback: StageSelection | None = None
 
 
-__all__ = ["StageOverride"]
+StageOverride = StageSelection
+
+
+__all__ = ["StageSelection"]

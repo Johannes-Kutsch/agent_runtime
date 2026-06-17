@@ -11,7 +11,7 @@ from .contracts import ExecutionService, ToolPolicy
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
 from .session import RunKind
-from .types import StageOverride
+from .types import StageSelection
 from .usage_limit_scope import UsageLimitScope
 
 WorkResultT = TypeVar("WorkResultT")
@@ -46,7 +46,7 @@ class PromptRuntimeExecutionAdapter(Protocol):
 class PromptRunRequest:
     prompt: str
     worktree: WorktreeMount
-    override: StageOverride
+    override: StageSelection
     role: InvocationRole
     usage_limit_scope: UsageLimitScope | None = None
     tool_policy: ToolPolicy = ToolPolicy.FULL

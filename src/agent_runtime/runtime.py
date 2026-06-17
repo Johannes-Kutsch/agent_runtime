@@ -21,7 +21,7 @@ from .service_registry import ServiceRegistry
 from .session import RunKind
 from .session_planning import ResidentSessionPlan
 from .stage_priority_chain import iter_stage_chain
-from .types import StageOverride
+from .types import StageSelection
 from .usage_limit_scope import UsageLimitScope
 from .work import invoke_work
 
@@ -111,7 +111,7 @@ class _RuntimeIntent:
 
 
 def _selected_service_path(
-    override: StageOverride,
+    override: StageSelection,
     *,
     selected_service: str,
 ) -> tuple[str, ...]:
