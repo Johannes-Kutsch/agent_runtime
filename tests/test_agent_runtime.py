@@ -39,7 +39,9 @@ from agent_runtime.errors import (
     UsageLimitError,
 )
 from agent_runtime.execution_contracts import (
+    CancellationToken,
     PreparedRunSessionState,
+    PromptRunSession,
     WorkExecutionAdapter,
     WorkExecutionDependencies,
     WorkFailureHandling,
@@ -356,6 +358,104 @@ class _OneShotExecutionAdapter:
         )
 
 
+class _RoleAwarePreparedRunSession(_PreparedRunSession):
+    def __init__(self, run_session: Any, observed_run_sessions: list[Any]) -> None:
+        super().__init__()
+        self.provider_state_dir_container_path = (
+            f"/workspace/state/{run_session.role.value}/{run_session.session_namespace}"
+        )
+        observed_run_sessions.append(run_session)
+
+
+class _RoleAwareOneShotWorkRunner:
+    def __init__(self, observed_roles: list[InvocationRole]) -> None:
+        self._observed_roles = observed_roles
+
+    async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
+        del git_name, git_email, work_body
+
+    async def work(
+        self,
+        role: InvocationRole,
+        prompt: str,
+        *,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> dict[str, str]:
+        assert callable(on_provider_session_id)
+        assert run_kind is RunKind.FRESH
+        assert session_uuid is None
+
+        self._observed_roles.append(role)
+        on_provider_session_id(f"provider-{role.value}")
+        return {"prompt": prompt, "role": role.value}
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del tool_policy
+        result = await self.work(
+            role,
+            prompt,
+            run_kind=run_kind,
+            session_uuid=session_uuid,
+            on_provider_session_id=on_provider_session_id,
+        )
+        return str(result)
+
+
+class _RoleAwareOneShotExecutionAdapter:
+    def __init__(self) -> None:
+        self.observed_run_sessions: list[Any] = []
+        self.observed_roles: list[InvocationRole] = []
+
+    def resolve_service(self, service_name: str = "") -> ExecutionService:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionService,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState,
+                    _RoleAwarePreparedRunSession(
+                        run_session,
+                        self.observed_run_sessions,
+                    ),
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _RoleAwareOneShotWorkRunner(self.observed_roles),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(
+                timeout_retries=0,
+                stage_key_for_role=lambda role: role.value,
+            ),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 @dataclass
 class _ResidentAdapterPreparedRunSession:
     provider_state_dir_container_path: str | None
@@ -447,6 +547,82 @@ class _ResidentSeamExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter, _ResidentSeamRunner(cast(_Session, session))
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(
+                timeout_retries=0,
+                stage_key_for_role=lambda role: role.value,
+            ),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _RoleAwareResidentSeamRunner(_ResidentSeamRunner):
+    def __init__(
+        self,
+        session: _Session,
+        observed_roles: list[InvocationRole],
+    ) -> None:
+        super().__init__(session)
+        self._observed_roles = observed_roles
+
+    async def work(
+        self,
+        role: InvocationRole,
+        prompt: str,
+        *,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        self._observed_roles.append(role)
+        return await super().work(
+            role,
+            prompt,
+            run_kind=run_kind,
+            session_uuid=session_uuid,
+            on_provider_session_id=on_provider_session_id,
+        )
+
+
+class _RoleAwareResidentSeamExecutionAdapter:
+    def __init__(self) -> None:
+        self.observed_roles: list[InvocationRole] = []
+
+    def resolve_service(self, service_name: str = "") -> ExecutionService:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionService,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _RoleAwareResidentSeamRunner(
+                        cast(_Session, session),
+                        self.observed_roles,
+                    ),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -708,6 +884,7 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
                         effort="high",
                     ),
                 ),
+                role=InvocationRole("implementer"),
             )
         )
     )
@@ -726,6 +903,85 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
         ),
     )
     assert invocation_order == ["codex", "claude"]
+
+
+def test_one_shot_runtime_request_requires_explicit_invocation_role() -> None:
+    with pytest.raises(TypeError):
+        prompt_runtime.OneShotRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path(".")),
+            override=runtime.StageOverride(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+        )  # type: ignore[call-arg]
+
+
+def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surfaces() -> (
+    None
+):
+    role = InvocationRole("reviewer")
+    execution_adapter = _RoleAwareOneShotExecutionAdapter()
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=execution_adapter,
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        ),
+    )
+    request = prompt_runtime.OneShotRunRequest(
+        prompt="already rendered prompt",
+        worktree=WorktreeMount(Path(".")),
+        override=runtime.StageOverride(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        role=role,
+        session=PromptRunSession(namespace="main"),
+    )
+
+    result = asyncio.run(runtime_instance.run_one_shot(request))
+
+    assert result.raw_output == {
+        "prompt": "already rendered prompt",
+        "role": "reviewer",
+    }
+    assert result.runtime_metadata == prompt_runtime.OneShotRuntimeMetadata(
+        provider_session_id="provider-reviewer",
+        run_kind=RunKind.FRESH,
+        session_namespace="main",
+    )
+    assert execution_adapter.observed_roles == [role]
+    assert execution_adapter.observed_run_sessions[0].role == role
+    assert execution_adapter.observed_run_sessions[0].session_namespace == "main"
+    cancelled_token = CancellationToken()
+    cancelled = prompt_runtime.OneShotRunRequest(
+        prompt="already rendered prompt",
+        worktree=WorktreeMount(Path(".")),
+        override=runtime.StageOverride(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        role=role,
+        token=cancelled_token,
+    )
+    cancelled_token.cancel()
+
+    with pytest.raises(UsageLimitError) as excinfo:
+        asyncio.run(runtime_instance.run_one_shot(cancelled))
+
+    assert excinfo.value.stage_key == "reviewer"
 
 
 def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam() -> (
@@ -780,6 +1036,61 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
             exact_transcript_match=False,
         ),
     )
+
+
+def test_resident_runtime_uses_invocation_role_from_session_plan() -> None:
+    role = InvocationRole("reviewer")
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resident_session(
+        ResidentSessionPlanRequest(
+            worktree=Path("."),
+            role=role,
+            namespace="main",
+            service=service,
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+        )
+    )
+    execution_adapter = _RoleAwareResidentSeamExecutionAdapter()
+
+    asyncio.run(
+        prompt_runtime.ResidentRuntime(
+            execution_adapter=execution_adapter
+        ).run_resident_prompt(
+            prompt_runtime.ResidentRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+            )
+        )
+    )
+
+    assert execution_adapter.observed_roles == [role]
+
+
+def test_resident_runtime_request_rejects_request_level_invocation_role() -> None:
+    with pytest.raises(TypeError):
+        prompt_runtime.ResidentRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path(".")),
+            model="gpt-5.4",
+            effort="medium",
+            session_plan=ResidentSessionPlan(
+                role=InvocationRole("reviewer"),
+                worktree=Path("."),
+                namespace="main",
+                service=cast(ExecutionProvider, _ExecutionService("codex")),
+                run_kind=RunKind.FRESH,
+                service_state_dir=None,
+                provider_state_dir_relpath=None,
+                host_provider_state_dir=None,
+                provider_session_id=None,
+                auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+            ),
+            role=InvocationRole("implementer"),
+        )  # type: ignore[call-arg]
 
 
 def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_path() -> (
