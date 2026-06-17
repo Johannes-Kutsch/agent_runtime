@@ -1,9 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import sys
 from collections.abc import Iterable
 
 _RUNTIME_IMPORT_SNAPSHOT = frozenset(sys.modules)
+
 
 def assert_runtime_import_isolation(
     *,
@@ -29,4 +30,3 @@ def assert_runtime_import_isolation(
         f"initialization: {imported}. This violates the agent_runtime package "
         "boundary."
     )
-
