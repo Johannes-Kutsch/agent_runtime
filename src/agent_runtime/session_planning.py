@@ -16,7 +16,6 @@ from .provider_session_adapter import (
 from .provider_errors import ProviderErrorObservation
 from .roles import InvocationRole
 from .session import (
-    ProviderSessionPreferencesRequest,
     ProviderSessionStateRequest,
     RunKind,
     ServiceResumeIdentityStore,
@@ -362,17 +361,6 @@ def plan_provider_run_state(
             host_state_dir is not None
             and request.resumability_service.is_resumable(host_state_dir)
         )
-    provider_session_preferences = (
-        provider_session_adapter.provider_session_preferences(
-            ProviderSessionPreferencesRequest(
-                role_session=cast(ServiceResumeIdentityStore, request.role_session),
-                provider_state_dir=host_state_dir,
-                has_resumable_provider_state=has_resumable_provider_state,
-                state_dir_relpath=state_dir_relpath,
-            )
-        )
-    )
-
     provider_session_state = provider_session_adapter.provider_session_state(
         ProviderSessionStateRequest(
             role_session=cast(ServiceResumeIdentityStore, request.role_session),
@@ -380,9 +368,6 @@ def plan_provider_run_state(
             has_resumable_provider_state=has_resumable_provider_state,
             state_dir_relpath=state_dir_relpath,
             require_exact_transcript_match=True,
-            preferred_provider_session_id=(
-                provider_session_preferences.preferred_provider_session_id
-            ),
         )
     )
     recovered_session_id_persistence = RecoveredSessionIdPersistence.SKIP

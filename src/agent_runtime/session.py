@@ -45,28 +45,12 @@ class ProviderSessionSelection:
 
 
 @dataclasses.dataclass(frozen=True)
-class ProviderSessionPreferencesRequest:
-    role_session: ServiceResumeIdentityStore
-    provider_state_dir: Path | None
-    has_resumable_provider_state: bool
-    state_dir_relpath: str | None = None
-    force_resume: bool = False
-
-
-@dataclasses.dataclass(frozen=True)
-class ProviderSessionPreferences:
-    preferred_provider_session_id: str | None = None
-
-
-@dataclasses.dataclass(frozen=True)
 class ProviderSessionStateRequest:
     role_session: ServiceResumeIdentityStore
     provider_state_dir: Path | None
     has_resumable_provider_state: bool
     state_dir_relpath: str | None = None
     require_exact_transcript_match: bool = False
-    preferred_provider_session_id: str | None = None
-    force_resume: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -79,7 +63,6 @@ class ProviderSessionState:
     persist_provider_session_id: bool = False
     auth_seeding_requirement: AuthSeedingRequirement | None = None
     auth_seed_action: LocalAuthSeedAction | None = None
-    allow_protocol_reprompt: bool = True
     use_service_state_dir_for_container: bool = False
 
 
@@ -229,8 +212,6 @@ def is_exact_resumable_service_session(
 
 
 __all__ = [
-    "ProviderSessionPreferences",
-    "ProviderSessionPreferencesRequest",
     "ProviderSessionSelection",
     "ProviderSessionState",
     "ProviderSessionStateRequest",

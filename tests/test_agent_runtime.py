@@ -1167,12 +1167,6 @@ class _ResidentPlanningProviderSessionAdapter:
             has_resumable_provider_state=True,
         )
 
-    def provider_session_preferences(self, request: Any) -> Any:
-        del request
-        return session_runtime.ProviderSessionPreferences(
-            preferred_provider_session_id="recovered-session"
-        )
-
     def provider_session_state(self, request: Any) -> Any:
         del request
         return session_runtime.ProviderSessionState(
@@ -1199,22 +1193,6 @@ class _ResidentPlanningProviderSessionAdapter:
         del service_state_dir
         role_session.save_service_session_id("codex", provider_session_id)
 
-    def recover_provider_session_id(
-        self,
-        provider_state_dir: Path | None,
-    ) -> str | None:
-        del provider_state_dir
-        return "recovered-session"
-
-    def is_exact_resumable_provider_session(
-        self,
-        *,
-        provider_session_id: str | None,
-        provider_state_dir: Path | None,
-    ) -> bool:
-        del provider_session_id, provider_state_dir
-        return False
-
 
 class _ExternalStateResidentPlanningProviderSessionAdapter:
     @property
@@ -1230,12 +1208,6 @@ class _ExternalStateResidentPlanningProviderSessionAdapter:
             state_dir_relpath="runtime-state/",
             provider_state_dir=Path("/host/runtime-state"),
             has_resumable_provider_state=True,
-        )
-
-    def provider_session_preferences(self, request: Any) -> Any:
-        del request
-        return session_runtime.ProviderSessionPreferences(
-            preferred_provider_session_id="recovered-session"
         )
 
     def provider_session_state(self, request: Any) -> Any:
@@ -1263,22 +1235,6 @@ class _ExternalStateResidentPlanningProviderSessionAdapter:
     ) -> None:
         del service_state_dir
         role_session.save_service_session_id("codex", provider_session_id)
-
-    def recover_provider_session_id(
-        self,
-        provider_state_dir: Path | None,
-    ) -> str | None:
-        del provider_state_dir
-        return "recovered-session"
-
-    def is_exact_resumable_provider_session(
-        self,
-        *,
-        provider_session_id: str | None,
-        provider_state_dir: Path | None,
-    ) -> bool:
-        del provider_session_id, provider_state_dir
-        return False
 
 
 def test_package_exports_runtime_surface() -> None:
@@ -1406,13 +1362,6 @@ def test_resumable_session_plan_hides_container_state_selection_metadata() -> No
 
 
 def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
-    assert (
-        session_runtime.ProviderSessionPreferences.__module__ == "agent_runtime.session"
-    )
-    assert (
-        session_runtime.ProviderSessionPreferencesRequest.__module__
-        == "agent_runtime.session"
-    )
     assert session_runtime.ProviderSessionState.__module__ == "agent_runtime.session"
     assert (
         session_runtime.ProviderSessionStateRequest.__module__
