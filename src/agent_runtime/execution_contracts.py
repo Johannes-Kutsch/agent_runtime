@@ -9,11 +9,12 @@ from typing import Any, Generic, Protocol, TypeVar
 
 from .contracts import ExecutionService, ToolPolicy
 from .errors import AgentTimeoutError, UsageLimitError
-from .roles import AgentRole
+from .roles import InvocationRole
 from .session import RunKind
 from .types import StageOverride
 
 WorkResultT = TypeVar("WorkResultT")
+_DEFAULT_INVOCATION_ROLE = InvocationRole("implementer")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,7 +69,7 @@ class PromptRunRequest:
 @dataclasses.dataclass(frozen=True)
 class RunSessionPlan:
     mount_path: Path
-    role: AgentRole
+    role: InvocationRole
     session_namespace: str
     service: ExecutionService
     container_workspace: str
@@ -325,7 +326,7 @@ class PreparedRunSessionState(Protocol):
 PreparedSession = PreparedRunSessionState
 PrepareSessionAdapter = Callable[[RunSessionPlan], PreparedRunSessionState]
 StatusRowFactory = Callable[..., AbstractAsyncContextManager[Any]]
-SetupFailureTranslator = Callable[[AgentRole, BaseException], BaseException | None]
+SetupFailureTranslator = Callable[[InvocationRole, BaseException], BaseException | None]
 ProviderAccountExhaustionHandler = Callable[[ExecutionService, Any], None]
 StatusDisplayFactory = Callable[[], WorkStatusDisplay]
 
@@ -360,7 +361,7 @@ class WorkExecutionAdapter(Protocol):
 
     async def work(
         self,
-        role: AgentRole,
+        role: InvocationRole,
         prompt: str,
         *,
         run_kind: RunKind = RunKind.FRESH,
@@ -372,7 +373,7 @@ class WorkExecutionAdapter(Protocol):
         self,
         prompt: str,
         *,
-        role: AgentRole = AgentRole.IMPLEMENTER,
+        role: InvocationRole = _DEFAULT_INVOCATION_ROLE,
         tool_policy: Any = ToolPolicy.FULL,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
@@ -392,7 +393,7 @@ class WorkOutputAdapter(Protocol[WorkResultT]):
         self,
         *,
         runner: WorkExecutionAdapter,
-        role: AgentRole,
+        role: InvocationRole,
         prompt: str,
         run_kind: RunKind,
         session_uuid: str | None,
@@ -413,7 +414,7 @@ class WorkOutputAdapter(Protocol[WorkResultT]):
         self,
         result: WorkResultT,
         *,
-        role: AgentRole,
+        role: InvocationRole,
         mount_path: Path,
         session_namespace: str,
         service_name: str,
@@ -432,7 +433,7 @@ class WorkExecutionDependencies:
 @dataclasses.dataclass(frozen=True)
 class WorkFailureHandling:
     timeout_retries: int
-    stage_key_for_role: Callable[[AgentRole], str | None]
+    stage_key_for_role: Callable[[InvocationRole], str | None]
     translate_setup_failure: SetupFailureTranslator | None = None
     handle_provider_account_exhaustion: ProviderAccountExhaustionHandler = (
         _default_provider_account_exhaustion_handler
@@ -498,7 +499,7 @@ class WorkInvocationRequest(Generic[WorkResultT]):
         return self.run_session.mount_path
 
     @property
-    def role(self) -> AgentRole:
+    def role(self) -> InvocationRole:
         return self.run_session.role
 
     @property
@@ -528,7 +529,7 @@ class TextOutputAdapter:
         self,
         *,
         runner: WorkExecutionAdapter,
-        role: AgentRole,
+        role: InvocationRole,
         prompt: str,
         run_kind: RunKind,
         session_uuid: str | None,
@@ -562,7 +563,7 @@ class TextOutputAdapter:
         self,
         result: str,
         *,
-        role: AgentRole,
+        role: InvocationRole,
         mount_path: Path,
         session_namespace: str,
         service_name: str,

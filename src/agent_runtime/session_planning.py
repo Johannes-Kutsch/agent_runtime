@@ -13,7 +13,7 @@ from .provider_session_adapter import (
     ProviderSessionPlanningRequest,
 )
 from .provider_errors import ProviderErrorObservation
-from .roles import AgentRole
+from .roles import InvocationRole
 from .session import (
     ProviderSessionPreferencesRequest,
     ProviderSessionStateRequest,
@@ -134,7 +134,7 @@ class RoleSessionLike(Protocol):
 @dataclasses.dataclass(frozen=True)
 class ProviderRunStatePlanRequest:
     worktree: Path
-    role: AgentRole
+    role: InvocationRole
     namespace: str
     resumability_service: ResumabilityProvider
     role_session: RoleSessionLike
@@ -234,7 +234,7 @@ class ProviderRunStatePlan:
 @dataclasses.dataclass(frozen=True)
 class ResidentSessionPlanRequest:
     worktree: Path
-    role: AgentRole
+    role: InvocationRole
     namespace: str
     service: ExecutionProvider
     role_session: RoleSessionLike
@@ -244,7 +244,7 @@ class ResidentSessionPlanRequest:
 
 @dataclasses.dataclass(frozen=True)
 class ResidentSessionPlan:
-    role: AgentRole
+    role: InvocationRole
     worktree: Path
     namespace: str
     service: ExecutionProvider

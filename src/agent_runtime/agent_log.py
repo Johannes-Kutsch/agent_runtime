@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from . import _time as _time_module
-from .roles import AgentRole
+from .roles import InvocationRole
 from .session import RunKind
 
 
@@ -59,7 +59,7 @@ class LogicalAgentInvocationLog:
     def open_work_invocation(
         self,
         *,
-        role: AgentRole,
+        role: InvocationRole,
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
@@ -77,7 +77,7 @@ class LogicalAgentInvocationLog:
     def append_work_invocation(
         self,
         *,
-        role: AgentRole,
+        role: InvocationRole,
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
@@ -142,7 +142,7 @@ class AgentInvocationLog:
         self,
         *,
         log_path: Path,
-        role: AgentRole,
+        role: InvocationRole,
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
@@ -172,7 +172,7 @@ class AgentInvocationLog:
         self,
         *,
         log_path: Path,
-        role: AgentRole,
+        role: InvocationRole,
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
