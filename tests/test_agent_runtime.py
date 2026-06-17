@@ -53,6 +53,7 @@ from agent_runtime.execution_contracts import (
     WorktreeMount,
 )
 from agent_runtime.provider_errors import ProviderErrorObservation
+from agent_runtime.provider_output import reduce_text_output_events
 from agent_runtime.roles import InvocationRole
 from agent_runtime.service_registry import ServiceRegistry
 from agent_runtime.session import (
@@ -80,7 +81,6 @@ from agent_runtime.session_planning import (
     ResidentSessionPlanRequest,
     plan_resident_session,
 )
-from agent_runtime.work import reduce_text_output_events
 
 
 class _Service:
@@ -1555,6 +1555,45 @@ def test_reduce_text_output_events_returns_result_and_maps_errors() -> None:
             turns.append,
             provider="codex",
         )
+
+
+def test_provider_output_reduction_joins_assistant_turns_without_result() -> None:
+    turns: list[str] = []
+
+    result = reduce_text_output_events(
+        [
+            PromptTokens(2),
+            AssistantTurn("hello"),
+            UnsupportedTokens(3, "source"),
+            AssistantTurn("world"),
+        ],
+        turns.append,
+        provider="codex",
+    )
+
+    assert result == "hello\nworld"
+    assert turns == ["hello", "world"]
+
+
+def test_provider_output_reduction_stops_after_result() -> None:
+    turns: list[str] = []
+    token_counts: list[int] = []
+
+    result = reduce_text_output_events(
+        [
+            AssistantTurn("hello"),
+            Result("done"),
+            PromptTokens(99),
+            AssistantTurn("ignored"),
+        ],
+        turns.append,
+        token_counts.append,
+        provider="codex",
+    )
+
+    assert result == "done"
+    assert turns == ["hello"]
+    assert token_counts == []
 
 
 def test_runtime_errors_capture_context() -> None:
