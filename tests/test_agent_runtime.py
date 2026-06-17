@@ -854,7 +854,7 @@ class _ToolPolicyObservingResidentExecutionAdapter:
         self.observed_tool_policies: list[Any] = []
         self.observed_service_tool_policies: list[Any] = []
 
-    def resolve_service(self, service_name: str = "") -> ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ToolPolicyObservingExecutionService(
             service_name,
             self.observed_service_tool_policies,
@@ -866,7 +866,7 @@ class _ToolPolicyObservingResidentExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort
         execution_service = cast(_ExecutionService, service)
@@ -942,7 +942,7 @@ class _ToolPolicyObservingPromptExecutionAdapter:
         self.observed_tool_policies: list[Any] = []
         self.observed_service_tool_policies: list[Any] = []
 
-    def resolve_service(self, service_name: str = "") -> ExecutionService:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ToolPolicyObservingExecutionService(
             service_name,
             self.observed_service_tool_policies,
@@ -954,7 +954,7 @@ class _ToolPolicyObservingPromptExecutionAdapter:
         name: str,
         model: str,
         effort: str,
-        service: ExecutionService,
+        service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
         del name, model, effort
         execution_service = cast(_ExecutionService, service)
