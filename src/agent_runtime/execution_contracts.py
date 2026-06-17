@@ -46,6 +46,7 @@ class PromptRunRequest:
     prompt: str
     worktree: WorktreeMount
     override: StageOverride
+    role: InvocationRole
     tool_policy: ToolPolicy = ToolPolicy.FULL
     name: str = "Runtime Agent"
     status_display: Any = None

@@ -39,8 +39,6 @@ __all__ = [
     "WorktreeMount",
 ]
 
-_DEFAULT_INVOCATION_ROLE = InvocationRole("implementer")
-
 OneShotRunRequest = _PromptRunRequest
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResidentRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
@@ -308,7 +306,7 @@ async def _run_prompt(
         request.override,
         _time_module.now_local(),
     )
-    role = _DEFAULT_INVOCATION_ROLE
+    role = request.role
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
         runner,
@@ -357,7 +355,7 @@ async def _run_one_shot(
             "One-shot runtime requires at least one configured service candidate."
         )
 
-    role = _DEFAULT_INVOCATION_ROLE
+    role = request.role
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
         runner,
