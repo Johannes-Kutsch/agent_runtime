@@ -1133,6 +1133,7 @@ def test_package_exports_runtime_surface() -> None:
         "RunKind",
         "StageSelection",
         "ToolPolicy",
+        "ToolPolicyProfile",
         "TransientAgentError",
         "UsageLimitError",
         "UsageLimitScope",
@@ -1207,11 +1208,11 @@ def test_runtime_surface_exposes_tool_policy_profiles_for_partial_and_full() -> 
 
     assert "ToolPolicyProfile" in prompt_runtime.__all__
     assert isinstance(partial, prompt_runtime.ToolPolicyProfile)
-    assert partial.allowed_tools == ()
+    assert partial.allowed_tools is None
     assert partial.disallowed_tools == ("Edit", "Write", "NotebookEdit")
     assert partial.strict_mcp_config is True
     assert isinstance(full, prompt_runtime.ToolPolicyProfile)
-    assert full.allowed_tools == ()
+    assert full.allowed_tools is None
     assert full.disallowed_tools == ()
     assert full.strict_mcp_config is True
 
@@ -1220,7 +1221,7 @@ def test_tool_policy_profiles_stay_provider_neutral() -> None:
     for policy in runtime.ToolPolicy:
         profile = policy.profile
         profile_fields = {field.name for field in fields(profile)}
-        rendered_values = profile.allowed_tools + profile.disallowed_tools
+        rendered_values = (profile.allowed_tools or ()) + profile.disallowed_tools
 
         assert profile_fields == {
             "allowed_tools",
