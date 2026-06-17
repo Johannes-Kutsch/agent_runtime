@@ -19,27 +19,37 @@ Execution entrypoints live under `agent_runtime.runtime`; the package root stays
 
 ## Consumer Integration
 
-Ordinary consumers should start with the canonical runtime entrypoints under `agent_runtime.runtime` together with the small package-root vocabulary such as `InvocationRole`, `StageSelection`, and `ExecutionProvider`.
+Ordinary consumers should start with the canonical runtime entrypoints under `agent_runtime.runtime` together with the small package-root vocabulary such as `InvocationRole` and `StageSelection`.
 
 ### One-shot Execution
 
 One-shot execution is the normal path for an already-rendered prompt. The caller provides an explicit `InvocationRole` so logs, provider metadata, and state partitioning reflect caller intent.
 
 ```python
-from agent_runtime import ExecutionProvider, InvocationRole, StageSelection
-from agent_runtime.runtime import one_shot
+from pathlib import Path
 
-provider: ExecutionProvider = build_provider()
-selection = StageSelection(service="openai/default", model="gpt-5", effort="medium")
+from agent_runtime import InvocationRole, StageSelection
+from agent_runtime.runtime import OneShotRunRequest, OneShotRuntime
 
-result = await one_shot(
-    prompt=rendered_prompt,
-    invocation_role=InvocationRole("issue-triage"),
-    stage_selection=selection,
-    provider=provider,
+runtime = OneShotRuntime(
+    execution_adapter=build_execution_adapter(),
+    service_registry=build_service_registry(),
 )
 
-print(result.output_text)
+result = await runtime.run_one_shot(
+    OneShotRunRequest(
+        prompt=rendered_prompt,
+        worktree=Path("."),
+        stage=StageSelection(
+            service="openai/default",
+            model="gpt-5",
+            effort="medium",
+        ),
+        role=InvocationRole("issue-triage"),
+    )
+)
+
+print(result.output)
 print(result.selected_service)
 ```
 
@@ -58,7 +68,7 @@ Tool-capable execution is a separate boundary from one-shot prompt execution. If
 Use these as the normal integration path:
 
 - `agent_runtime.runtime` canonical entrypoints for one-shot and resumable execution
-- Package-root vocabulary such as `InvocationRole`, `StageSelection`, and `ExecutionProvider`
+- Package-root vocabulary such as `InvocationRole` and `StageSelection`
 
 Use these only when you are building or extending adapters:
 

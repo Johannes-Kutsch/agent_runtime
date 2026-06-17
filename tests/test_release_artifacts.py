@@ -111,3 +111,21 @@ def test_release_build_output_contains_only_fresh_runtime_artifacts(
         )
         == 1
     )
+
+
+def test_readme_runtime_consumer_surface_uses_narrow_release_integration_terms() -> (
+    None
+):
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "pip install ruhken-agent-runtime" in readme
+    assert "from agent_runtime import InvocationRole, StageSelection" in readme
+    assert (
+        "from agent_runtime.runtime import OneShotRunRequest, OneShotRuntime" in readme
+    )
+    assert "result = await runtime.run_one_shot(" in readme
+    assert "ProviderSessionAdapter" in readme
+    assert "ToolPolicyProfile" in readme
+    assert "Direct `invoke_work` usage is an advanced implementation seam" in readme
+    assert "from agent_runtime.runtime import one_shot" not in readme
+    assert "resident" not in readme.lower()
