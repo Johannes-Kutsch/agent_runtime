@@ -14,7 +14,7 @@ from .errors import (
     UsageLimitError,
 )
 from .provider_session_adapter import ProviderSessionAdapter
-from .roles import AgentRole
+from .roles import AgentRole, InvocationRole
 from .session import (
     ProviderSessionPreferences,
     ProviderSessionPreferencesRequest,
@@ -32,6 +32,7 @@ __all__ = [
     "AgentTimeoutError",
     "HardAgentError",
     "ExecutionProvider",
+    "InvocationRole",
     "ProviderSessionAdapter",
     "ProviderSessionPreferences",
     "ProviderSessionPreferencesRequest",

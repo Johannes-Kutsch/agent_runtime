@@ -528,6 +528,7 @@ def test_package_exports_runtime_surface() -> None:
         "AgentTimeoutError",
         "HardAgentError",
         "ExecutionProvider",
+        "InvocationRole",
         "ProviderSessionAdapter",
         "ProviderSessionPreferences",
         "ProviderSessionPreferencesRequest",
@@ -550,6 +551,19 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "run_one_shot")
     assert not hasattr(prompt_runtime, "run_prompt")
     assert not hasattr(prompt_runtime, "run_resident_prompt")
+
+
+def test_package_surface_exposes_invocation_role_value_object() -> None:
+    role = runtime.InvocationRole("implementer")
+
+    assert role.value == "implementer"
+    assert runtime.InvocationRole.__module__.startswith("agent_runtime")
+
+
+@pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
+def test_invocation_role_rejects_unsafe_labels(label: str) -> None:
+    with pytest.raises(ValueError):
+        runtime.InvocationRole(label)
 
 
 def test_import_isolation_helper_reports_forbidden_modules() -> None:
