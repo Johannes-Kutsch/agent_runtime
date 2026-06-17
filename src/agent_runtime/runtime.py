@@ -608,8 +608,10 @@ async def _run_resumable_prompt(
         usage_limit_scope=plan.usage_limit_scope,
         run_kind=plan.run_kind,
         provider_session_id=plan.provider_session_id,
-        provider_state_dir_container_path=plan.provider_state_dir_container_path(
-            dependencies.execution.container_workspace
+        provider_state_dir_container_path=_provider_state_dir_container_path(
+            worktree=plan.worktree,
+            provider_state_dir=plan.provider_state_dir,
+            container_workspace=dependencies.execution.container_workspace,
         ),
         exact_transcript_match=plan.exact_transcript_match,
     )
@@ -644,3 +646,18 @@ async def _run_resumable_prompt(
             exact_transcript_match=plan.exact_transcript_match,
         ),
     )
+
+
+def _provider_state_dir_container_path(
+    *,
+    worktree: Path,
+    provider_state_dir: Path | None,
+    container_workspace: str,
+) -> str | None:
+    if provider_state_dir is None:
+        return None
+    try:
+        container_relpath = provider_state_dir.relative_to(worktree)
+    except ValueError:
+        return None
+    return f"{container_workspace}/{container_relpath.as_posix()}/"

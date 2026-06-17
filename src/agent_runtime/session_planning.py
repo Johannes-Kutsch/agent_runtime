@@ -255,33 +255,12 @@ class ResumableSessionPlan:
     namespace: str
     service: ExecutionProvider
     run_kind: RunKind
-    service_state_dir: Path | None
-    provider_state_dir_relpath: str | None
-    host_provider_state_dir: Path | None
+    provider_state_dir: Path | None
     provider_session_id: str | None
     auth_seeding_requirement: AuthSeedingRequirement
     auth_seed_action: LocalAuthSeedAction | None = None
     exact_transcript_match: bool = False
-    use_service_state_dir_for_container: bool = False
     usage_limit_scope: UsageLimitScope | None = None
-
-    def provider_state_dir_container_path(self, container_workspace: str) -> str | None:
-        container_state_dir = self.host_provider_state_dir
-        if (
-            self.use_service_state_dir_for_container
-            and self.service_state_dir is not None
-        ):
-            container_state_dir = self.service_state_dir
-        if container_state_dir is not None:
-            try:
-                container_relpath = container_state_dir.relative_to(self.worktree)
-            except ValueError:
-                pass
-            else:
-                return f"{container_workspace}/{container_relpath.as_posix()}/"
-        if self.provider_state_dir_relpath is None:
-            return None
-        return f"{container_workspace}/{self.provider_state_dir_relpath}"
 
 
 ProviderSessionPlanRequest = ProviderRunStatePlanRequest
@@ -323,17 +302,23 @@ def plan_resumable_session(
         service=request.service,
         usage_limit_scope=request.usage_limit_scope,
         run_kind=provider_run_state_plan.run_kind,
-        service_state_dir=provider_run_state_plan.service_state_dir,
-        provider_state_dir_relpath=provider_run_state_plan.provider_state_dir_relpath,
-        host_provider_state_dir=provider_run_state_plan.provider_state_dir,
+        provider_state_dir=_public_provider_state_dir(provider_run_state_plan),
         provider_session_id=provider_run_state_plan.provider_session_id,
         auth_seeding_requirement=provider_run_state_plan.auth_seeding_requirement,
         auth_seed_action=provider_run_state_plan.auth_seed_action,
         exact_transcript_match=provider_run_state_plan.exact_transcript_match,
-        use_service_state_dir_for_container=(
-            provider_run_state_plan.use_service_state_dir_for_container
-        ),
     )
+
+
+def _public_provider_state_dir(
+    provider_run_state_plan: ProviderRunStatePlan,
+) -> Path | None:
+    if (
+        provider_run_state_plan.use_service_state_dir_for_container
+        and provider_run_state_plan.service_state_dir is not None
+    ):
+        return provider_run_state_plan.service_state_dir
+    return provider_run_state_plan.provider_state_dir
 
 
 def plan_provider_session(

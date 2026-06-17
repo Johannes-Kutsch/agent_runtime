@@ -1242,6 +1242,56 @@ def test_session_planning_surface_uses_resumable_vocabulary() -> None:
     } <= set(session_planning_runtime.__all__)
 
 
+def test_resumable_session_plan_exposes_public_value_fields_only() -> None:
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+        )
+    )
+
+    assert [field.name for field in fields(session_plan)] == [
+        "role",
+        "worktree",
+        "namespace",
+        "service",
+        "run_kind",
+        "provider_state_dir",
+        "provider_session_id",
+        "auth_seeding_requirement",
+        "auth_seed_action",
+        "exact_transcript_match",
+        "usage_limit_scope",
+    ]
+    assert not hasattr(session_plan, "provider_state_dir_container_path")
+
+
+def test_resumable_session_plan_hides_container_state_selection_metadata() -> None:
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+        )
+    )
+
+    field_names = {field.name for field in fields(session_plan)}
+
+    assert "service_state_dir" not in field_names
+    assert "use_service_state_dir_for_container" not in field_names
+
+
 def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
     assert (
         session_runtime.ProviderSessionPreferences.__module__ == "agent_runtime.session"
@@ -1341,9 +1391,7 @@ def test_tool_policy_profiles_stay_provider_neutral() -> None:
                     namespace="main",
                     service=cast(ExecutionProvider, _ExecutionService("codex")),
                     run_kind=RunKind.FRESH,
-                    service_state_dir=None,
-                    provider_state_dir_relpath=None,
-                    host_provider_state_dir=None,
+                    provider_state_dir=None,
                     provider_session_id=None,
                     auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
                 ),
@@ -2745,9 +2793,7 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
         namespace="main",
         service=service,
         run_kind=RunKind.RESUME,
-        service_state_dir=Path("state"),
-        provider_state_dir_relpath="state/",
-        host_provider_state_dir=Path("state"),
+        provider_state_dir=Path("state"),
         provider_session_id="recovered-session",
         auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
     )
@@ -2907,9 +2953,7 @@ def test_resumable_runtime_request_rejects_request_level_invocation_role() -> No
                 namespace="main",
                 service=cast(ExecutionProvider, _ExecutionService("codex")),
                 run_kind=RunKind.FRESH,
-                service_state_dir=None,
-                provider_state_dir_relpath=None,
-                host_provider_state_dir=None,
+                provider_state_dir=None,
                 provider_session_id=None,
                 auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
             ),
