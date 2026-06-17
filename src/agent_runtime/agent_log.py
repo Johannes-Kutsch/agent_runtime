@@ -154,7 +154,7 @@ class AgentInvocationLog:
             header_start = log.tell()
             header_record: dict[str, object] = {
                 "type": "agent_invocation",
-                "role": role.value,
+                "invocation_role": role.value,
                 "run_kind": run_kind.value,
                 "provider_session_id": session_uuid,
                 "prompt": prompt,
