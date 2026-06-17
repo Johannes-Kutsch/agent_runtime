@@ -133,7 +133,7 @@ class RoleSessionLike(Protocol):
 
 
 @dataclasses.dataclass(frozen=True)
-class _ProviderRunStatePlanRequest:
+class ProviderSessionPlanRequest:
     worktree: Path
     role: InvocationRole
     namespace: str
@@ -262,14 +262,11 @@ class ResumableSessionPlan:
     usage_limit_scope: UsageLimitScope | None = None
 
 
-ProviderSessionPlanRequest = _ProviderRunStatePlanRequest
-
-
 def plan_resumable_session(
     request: ResumableSessionPlanRequest,
 ) -> ResumableSessionPlan:
     provider_run_state_plan = _plan_provider_run_state(
-        _ProviderRunStatePlanRequest(
+        ProviderSessionPlanRequest(
             worktree=request.worktree,
             role=request.role,
             namespace=request.namespace,
@@ -317,7 +314,7 @@ def plan_provider_session(
 
 
 def _plan_provider_run_state(
-    request: _ProviderRunStatePlanRequest,
+    request: ProviderSessionPlanRequest,
 ) -> _ProviderRunStatePlan:
     provider_session_adapter = request.provider_session_adapter
     provider_session_planning_facts = (

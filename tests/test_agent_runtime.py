@@ -26,6 +26,7 @@ from agent_runtime.contracts import (
     HardError,
     PromptTokens,
     Result,
+    ResumabilityProvider,
     ServiceSelectionProvider,
     TransientError,
     UnsupportedTokens,
@@ -1308,6 +1309,60 @@ def test_session_planning_surface_uses_resumable_vocabulary() -> None:
         "ResumableSessionPlanRequest",
         "plan_resumable_session",
     } <= set(session_planning_runtime.__all__)
+
+
+def test_provider_session_planning_surface_exposes_immutable_decision_only() -> None:
+    assert session_planning_runtime.ProviderSessionPlanRequest.__name__ == (
+        "ProviderSessionPlanRequest"
+    )
+    assert not hasattr(session_planning_runtime, "ProviderRunStatePlan")
+    assert not hasattr(session_planning_runtime, "plan_provider_run_state")
+    assert not hasattr(
+        session_planning_runtime,
+        "record_observed_provider_session_id",
+    )
+    assert not hasattr(
+        session_planning_runtime,
+        "record_successful_provider_session_metadata",
+    )
+    assert {
+        "ProviderSessionDecision",
+        "ProviderSessionPlanRequest",
+        "plan_provider_session",
+    } <= set(session_planning_runtime.__all__)
+
+
+def test_provider_session_planning_returns_immutable_decision_value() -> None:
+    provider_session_decision = session_planning_runtime.plan_provider_session(
+        session_planning_runtime.ProviderSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            resumability_service=cast(ResumabilityProvider, _ExecutionService("codex")),
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+        )
+    )
+
+    assert (
+        provider_session_decision
+        == session_planning_runtime.ProviderSessionDecision(
+            run_kind=RunKind.RESUME,
+            provider_session_id="recovered-session",
+            state_dir_relpath="state/",
+            state_dir_path=Path("state"),
+            recovered_session_id_persistence=(
+                session_planning_runtime.RecoveredSessionIdPersistence.SKIP
+            ),
+            service_state_dir=Path("state"),
+            exact_transcript_match=False,
+            auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+            auth_seed_action=None,
+            use_service_state_dir_for_container=False,
+        )
+    )
+    with pytest.raises(FrozenInstanceError):
+        setattr(provider_session_decision, "provider_session_id", "other-session")
 
 
 def test_resumable_session_plan_exposes_public_value_fields_only() -> None:
