@@ -22,6 +22,7 @@ from .session import RunKind
 from .session_planning import ResidentSessionPlan
 from .stage_priority_chain import iter_stage_chain
 from .types import StageOverride
+from .usage_limit_scope import UsageLimitScope
 from .work import invoke_work
 
 __all__ = [
@@ -143,6 +144,7 @@ def _build_run_session(
     session_namespace: str,
     service: Any,
     container_workspace: str,
+    usage_limit_scope: UsageLimitScope | None = None,
     run_kind: RunKind = RunKind.FRESH,
     provider_session_id: str | None = None,
     provider_state_dir_container_path: str | None = None,
@@ -154,6 +156,7 @@ def _build_run_session(
         session_namespace=session_namespace,
         service=service,
         container_workspace=container_workspace,
+        usage_limit_scope=usage_limit_scope,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
         provider_state_dir_container_path=provider_state_dir_container_path,
@@ -327,6 +330,7 @@ async def _run_prompt(
                 session_namespace=request.session_namespace,
                 service=resolved_service,
                 container_workspace=dependencies.execution.container_workspace,
+                usage_limit_scope=request.usage_limit_scope,
             ),
             model=resolved_override.model,
             effort=resolved_override.effort,
@@ -367,7 +371,8 @@ async def _run_one_shot(
         if request.token is not None and request.token.is_cancelled:
             raise UsageLimitError(
                 reset_time=None,
-                stage_key=role.value,
+                usage_limit_scope=request.usage_limit_scope
+                or UsageLimitScope(role.value),
             )
         if not service_registry.has_available_for(request.override, now):
             resolved_override = service_registry.resolve(request.override, now)
@@ -379,6 +384,8 @@ async def _run_one_shot(
             raise UsageLimitError(
                 reset_time=next_wake_time,
                 provider=selected_service_name,
+                usage_limit_scope=request.usage_limit_scope
+                or UsageLimitScope(role.value),
             )
 
         resolved_override = service_registry.resolve(
@@ -408,6 +415,7 @@ async def _run_one_shot(
                         session_namespace=request.session_namespace,
                         service=resolved_service,
                         container_workspace=dependencies.execution.container_workspace,
+                        usage_limit_scope=request.usage_limit_scope,
                     ),
                     model=resolved_override.model,
                     effort=resolved_override.effort,
@@ -482,6 +490,7 @@ async def _run_resident_prompt(
         session_namespace=plan.namespace,
         service=plan.service,
         container_workspace=dependencies.execution.container_workspace,
+        usage_limit_scope=plan.usage_limit_scope,
         run_kind=plan.run_kind,
         provider_session_id=plan.provider_session_id,
         provider_state_dir_container_path=plan.provider_state_dir_container_path(

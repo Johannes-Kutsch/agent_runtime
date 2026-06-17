@@ -39,6 +39,7 @@ from .errors import (
 )
 from .roles import InvocationRole
 from .session import RunKind
+from .usage_limit_scope import UsageLimitScope
 
 
 class _PlainStatusDisplay:
@@ -312,8 +313,9 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
     if token.is_cancelled:
         raise UsageLimitError(
             reset_time=None,
-            stage_key=request.dependencies.failure_handling.stage_key_for_role(
-                request.role
+            usage_limit_scope=(
+                request.run_session.usage_limit_scope
+                or UsageLimitScope(request.role.value)
             ),
         )
 
@@ -411,12 +413,12 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                     retries_left -= 1
                     initial_attempt = False
                 except UsageLimitError as err:
-                    if err.stage_key is None:
-                        err.stage_key = (
-                            request.dependencies.failure_handling.stage_key_for_role(
-                                request.role
-                            )
+                    if err.usage_limit_scope is None:
+                        err.usage_limit_scope = (
+                            request.run_session.usage_limit_scope
+                            or UsageLimitScope(request.role.value)
                         )
+                        err.stage_key = err.usage_limit_scope.value
                     request.dependencies.failure_handling.handle_provider_account_exhaustion(
                         request.service,
                         err,

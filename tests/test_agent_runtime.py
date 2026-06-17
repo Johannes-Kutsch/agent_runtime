@@ -68,6 +68,11 @@ from agent_runtime.stage_priority_chain import (
     render_chain_label,
     select_configured_candidate_chain,
 )
+from agent_runtime.usage_limit_decision import (
+    SleepUntil,
+    UsageLimitOutcome,
+    decide_usage_limit_continuation,
+)
 from agent_runtime.session_planning import ResidentSessionPlan
 from agent_runtime.session_planning import (
     AuthSeedingRequirement,
@@ -458,6 +463,55 @@ class _RoleAwareOneShotExecutionAdapter:
         )
 
 
+class _UsageLimitWithoutMappingRunner(_RoleAwareOneShotWorkRunner):
+    async def work(
+        self,
+        role: InvocationRole,
+        prompt: str,
+        *,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> dict[str, str]:
+        self._observed_roles.append(role)
+        del prompt, run_kind, session_uuid, on_provider_session_id
+        raise UsageLimitError(reset_time=None, provider="codex")
+
+
+class _UsageLimitWithoutMappingExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionService,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState,
+                    _RoleAwarePreparedRunSession(
+                        run_session,
+                        self.observed_run_sessions,
+                    ),
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _UsageLimitWithoutMappingRunner(self.observed_roles),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 @dataclass
 class _ResidentAdapterPreparedRunSession:
     provider_state_dir_container_path: str | None
@@ -721,6 +775,7 @@ def test_package_exports_runtime_surface() -> None:
         "ToolPolicy",
         "TransientAgentError",
         "UsageLimitError",
+        "UsageLimitScope",
     ]
     assert runtime.StageOverride.__module__.startswith("agent_runtime")
     assert runtime.AgentRuntimeError is AgentRuntimeError
@@ -741,10 +796,23 @@ def test_package_surface_exposes_invocation_role_value_object() -> None:
     assert runtime.InvocationRole.__module__.startswith("agent_runtime")
 
 
+def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
+    usage_limit_scope = runtime.UsageLimitScope("quota-review")
+
+    assert usage_limit_scope.value == "quota-review"
+    assert runtime.UsageLimitScope.__module__.startswith("agent_runtime")
+
+
 @pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
 def test_invocation_role_rejects_unsafe_labels(label: str) -> None:
     with pytest.raises(ValueError):
         runtime.InvocationRole(label)
+
+
+@pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
+def test_usage_limit_scope_rejects_unsafe_labels(label: str) -> None:
+    with pytest.raises(ValueError):
+        runtime.UsageLimitScope(label)
 
 
 def test_import_isolation_helper_reports_forbidden_modules() -> None:
@@ -1006,7 +1074,140 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
     with pytest.raises(UsageLimitError) as excinfo:
         asyncio.run(runtime_instance.run_one_shot(cancelled))
 
-    assert excinfo.value.stage_key == "reviewer"
+    assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("reviewer")
+
+
+def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role() -> None:
+    role = InvocationRole("reviewer")
+    execution_adapter = _RoleAwareOneShotExecutionAdapter()
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=execution_adapter,
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        ),
+    )
+
+    result = asyncio.run(
+        runtime_instance.run_one_shot(
+            prompt_runtime.OneShotRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                override=runtime.StageOverride(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=role,
+                usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+                session=PromptRunSession(namespace="main"),
+            )
+        )
+    )
+
+    assert result.raw_output == {
+        "prompt": "already rendered prompt",
+        "role": "reviewer",
+    }
+    assert execution_adapter.observed_roles == [role]
+    assert execution_adapter.observed_run_sessions[0].role == role
+
+    cancelled_token = CancellationToken()
+    cancelled_token.cancel()
+
+    with pytest.raises(UsageLimitError) as excinfo:
+        asyncio.run(
+            runtime_instance.run_one_shot(
+                prompt_runtime.OneShotRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=WorktreeMount(Path(".")),
+                    override=runtime.StageOverride(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    role=role,
+                    usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+                    token=cancelled_token,
+                )
+            )
+        )
+
+    assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("quota-review")
+
+
+def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook() -> None:
+    role = InvocationRole("reviewer")
+    execution_adapter = _UsageLimitWithoutMappingExecutionAdapter()
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=execution_adapter,
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(UsageLimitError) as excinfo:
+        asyncio.run(
+            runtime_instance.run_one_shot(
+                prompt_runtime.OneShotRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=WorktreeMount(Path(".")),
+                    override=runtime.StageOverride(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    role=role,
+                    usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+                    session=PromptRunSession(namespace="main"),
+                )
+            )
+        )
+
+    assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("quota-review")
+    assert execution_adapter.observed_roles == [role]
+    assert execution_adapter.observed_run_sessions[0].role == role
+
+
+def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
+    now = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+    wake_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    decision = decide_usage_limit_continuation(
+        UsageLimitOutcome(
+            reset_time=None,
+            provider="codex",
+            usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+        ),
+        stage_override=None,
+        service_registry=None,
+        now=now,
+        compute_wake_time=lambda reset_time, current_time: (wake_time, False),
+    )
+
+    assert decision == SleepUntil(
+        wake_time=wake_time,
+        message="Usage limit reached. Sleeping until 12:00. Press Ctrl+C to abort.",
+        is_estimated=False,
+        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+    )
 
 
 def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam() -> (

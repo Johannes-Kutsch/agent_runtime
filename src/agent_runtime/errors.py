@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .provider_errors import ProviderErrorObservation
+from .usage_limit_scope import UsageLimitScope
 
 
 class AgentRuntimeError(RuntimeError):
@@ -35,6 +36,7 @@ class UsageLimitError(AgentRuntimeError):
         *,
         is_permanent: bool = False,
         account_label: str | None = None,
+        usage_limit_scope: UsageLimitScope | None = None,
         stage_key: str | None = None,
     ) -> None:
         self.reset_time = reset_time
@@ -42,7 +44,14 @@ class UsageLimitError(AgentRuntimeError):
         self.provider = provider
         self.is_permanent = is_permanent
         self.account_label = account_label
-        self.stage_key = stage_key
+        self.usage_limit_scope = (
+            usage_limit_scope
+            if usage_limit_scope is not None
+            else (UsageLimitScope(stage_key) if stage_key is not None else None)
+        )
+        self.stage_key = (
+            self.usage_limit_scope.value if self.usage_limit_scope is not None else None
+        )
         super().__init__(
             f"Usage limit reached (reset_time={reset_time.isoformat() if reset_time else None})"
         )
