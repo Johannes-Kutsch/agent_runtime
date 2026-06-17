@@ -20,10 +20,10 @@ class AgentTimeoutError(AgentRuntimeError, TimeoutError):
     def __init__(
         self,
         message: str = "",
-        role_value: str = "",
+        invocation_role: str = "",
         worktree_path: Path | None = None,
     ) -> None:
-        self.role_value = role_value
+        self.invocation_role = invocation_role
         self.worktree_path = worktree_path
         super().__init__(message)
 
@@ -33,26 +33,23 @@ class UsageLimitError(AgentRuntimeError):
         self,
         reset_time: datetime | None = None,
         raw_message: str | None = None,
-        provider: str | None = None,
+        service_name: str | None = None,
         *,
         is_permanent: bool = False,
         account_label: str | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
-        stage_key: str | None = None,
     ) -> None:
         self.reset_time = reset_time
         self.raw_message = raw_message
-        self.provider = provider
+        if service_name is not None:
+            validate_runtime_identity_label(
+                service_name,
+                kind="UsageLimitError service name",
+            )
+        self.service_name = service_name
         self.is_permanent = is_permanent
         self.account_label = account_label
-        self.usage_limit_scope = (
-            usage_limit_scope
-            if usage_limit_scope is not None
-            else (UsageLimitScope(stage_key) if stage_key is not None else None)
-        )
-        self.stage_key = (
-            self.usage_limit_scope.value if self.usage_limit_scope is not None else None
-        )
+        self.usage_limit_scope = usage_limit_scope
         super().__init__(
             f"Usage limit reached (reset_time={reset_time.isoformat() if reset_time else None})"
         )
@@ -109,7 +106,7 @@ class AgentCredentialFailureError(HardAgentError):
 class AgentFailedError(AgentRuntimeError):
     def __init__(
         self,
-        role_value: str,
+        invocation_role: str,
         worktree_path: Path,
         namespace: str = "",
         failure_class: str = "",
@@ -123,8 +120,8 @@ class AgentFailedError(AgentRuntimeError):
                 service_name,
                 kind="AgentFailedError service name",
             )
-        super().__init__(f"Agent {role_value!r} failed irrecoverably")
-        self.role_value = role_value
+        super().__init__(f"Agent {invocation_role!r} failed irrecoverably")
+        self.invocation_role = invocation_role
         self.worktree_path = worktree_path
         self.namespace = namespace
         self.failure_class = failure_class
@@ -136,7 +133,12 @@ class AgentFailedError(AgentRuntimeError):
     def session_dir(self) -> str:
         if self.provider_session_path is not None:
             return self.provider_session_path
-        parts = [self.session_root, self.role_value, self.namespace, self.service_name]
+        parts = [
+            self.session_root,
+            self.invocation_role,
+            self.namespace,
+            self.service_name,
+        ]
         return "/".join(part for part in parts if part)
 
 

@@ -75,6 +75,7 @@ from agent_runtime.stage_priority_chain import (
 )
 from agent_runtime.usage_limit_decision import (
     SleepUntil,
+    Stop,
     UsageLimitOutcome,
     decide_usage_limit_continuation,
 )
@@ -311,7 +312,7 @@ class _OneShotWorkRunner:
                 raise AssertionError("one-shot retried the exhausted primary service")
             raise UsageLimitError(
                 reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                provider=service_name,
+                service_name=service_name,
             )
 
         assert callable(on_provider_session_id)
@@ -527,7 +528,7 @@ class _UsageLimitWithoutMappingRunner(_RoleAwareOneShotWorkRunner):
     ) -> dict[str, str]:
         self._observed_roles.append(role)
         del prompt, run_kind, session_uuid, on_provider_session_id
-        raise UsageLimitError(reset_time=None, provider="codex")
+        raise UsageLimitError(reset_time=None, service_name="codex")
 
 
 class _UsageLimitWithoutMappingExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
@@ -1399,17 +1400,104 @@ def test_agent_failed_error_rejects_unsafe_runtime_identity_labels_before_buildi
 ):
     with pytest.raises(ValueError):
         AgentFailedError(
-            role_value="implementer",
+            invocation_role="implementer",
             worktree_path=Path("."),
             namespace="../escape",
         )
 
     with pytest.raises(ValueError):
         AgentFailedError(
-            role_value="implementer",
+            invocation_role="implementer",
             worktree_path=Path("."),
             service_name="a/b",
         )
+
+
+def test_runtime_errors_expose_invocation_role_metadata() -> None:
+    timeout = AgentTimeoutError(
+        "timed out",
+        invocation_role="reviewer",
+        worktree_path=Path("worktree"),
+    )
+    failed = AgentFailedError(
+        invocation_role="reviewer",
+        worktree_path=Path("worktree"),
+        namespace="main",
+        service_name="codex",
+    )
+
+    assert timeout.invocation_role == "reviewer"
+    assert not hasattr(timeout, "role_value")
+    assert failed.invocation_role == "reviewer"
+    assert failed.session_dir == "reviewer/main/codex"
+    assert not hasattr(failed, "role_value")
+
+
+def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
+    error = UsageLimitError(
+        reset_time=None,
+        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+    )
+
+    assert error.usage_limit_scope == runtime.UsageLimitScope("quota-review")
+    assert not hasattr(error, "stage_key")
+
+
+def test_one_shot_runtime_exposes_usage_limit_service_name_metadata() -> None:
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=_RoleAwareOneShotExecutionAdapter(),
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=False,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(UsageLimitError) as excinfo:
+        asyncio.run(
+            runtime_instance.run_one_shot(
+                prompt_runtime.OneShotRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=WorktreeMount(Path(".")),
+                    stage=runtime.StageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                )
+            )
+        )
+
+    assert excinfo.value.service_name == "codex"
+    assert not hasattr(excinfo.value, "provider")
+
+
+def test_permanent_usage_limit_account_label_remains_diagnostic_metadata() -> None:
+    decision = decide_usage_limit_continuation(
+        UsageLimitOutcome(
+            reset_time=None,
+            service_name=None,
+            account_label="team account",
+            is_permanent=True,
+        ),
+        stage_override=None,
+        service_registry=None,
+        now=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
+        compute_wake_time=lambda reset_time, current_time: (current_time, False),
+    )
+
+    assert isinstance(decision, Stop)
+    assert decision.message is not None
+    assert "team account" in decision.message
+    assert "claude" not in decision.message.lower()
 
 
 @pytest.mark.parametrize("service_name", [" ", "a/b", "../escape"])
@@ -2378,7 +2466,7 @@ def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
     decision = decide_usage_limit_continuation(
         UsageLimitOutcome(
             reset_time=None,
-            provider="codex",
+            service_name="codex",
             usage_limit_scope=runtime.UsageLimitScope("quota-review"),
         ),
         stage_override=None,
@@ -2775,7 +2863,7 @@ def test_runtime_errors_capture_context() -> None:
     failed = AgentFailedError("implementer", Path("worktree"), service_name="codex")
 
     assert isinstance(timeout, AgentRuntimeError)
-    assert usage_limit.provider is None
+    assert usage_limit.service_name is None
     assert transient.status_code == 502
     assert hard.service_name == "codex"
     assert failed.session_dir == "implementer/codex"
