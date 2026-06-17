@@ -13,6 +13,7 @@ from typing import Any, Callable, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 import agent_runtime.session_planning as session_planning_runtime
@@ -1367,6 +1368,47 @@ def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
         session_runtime.ProviderSessionStateRequest.__module__
         == "agent_runtime.session"
     )
+
+
+def test_provider_session_adapter_public_seam_stays_narrow() -> None:
+    assert provider_session_adapter_runtime.__all__ == [
+        "ProviderSessionAdapter",
+        "ProviderSessionPlanningFacts",
+        "ProviderSessionPlanningRequest",
+    ]
+    adapter_members = provider_session_adapter_runtime.ProviderSessionAdapter.__dict__
+
+    assert "provider_session_planning_facts" in adapter_members
+    assert "provider_session_state" in adapter_members
+    assert "prepare_local_provider_run_state" in adapter_members
+    assert "record_provider_session_id" in adapter_members
+    assert "provider_session_preferences" not in adapter_members
+    assert "recover_provider_session_id" not in adapter_members
+    assert "is_exact_resumable_provider_session" not in adapter_members
+    assert not hasattr(provider_session_adapter_runtime, "ProviderSessionService")
+
+
+def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> None:
+    assert [
+        field.name for field in fields(session_runtime.ProviderSessionStateRequest)
+    ] == [
+        "role_session",
+        "provider_state_dir",
+        "has_resumable_provider_state",
+        "state_dir_relpath",
+        "require_exact_transcript_match",
+    ]
+    assert [field.name for field in fields(session_runtime.ProviderSessionState)] == [
+        "run_kind",
+        "provider_session_id",
+        "state_dir_relpath",
+        "state_dir_path",
+        "exact_transcript_match",
+        "persist_provider_session_id",
+        "auth_seeding_requirement",
+        "auth_seed_action",
+        "use_service_state_dir_for_container",
+    ]
 
 
 def test_package_surface_exposes_invocation_role_value_object() -> None:
