@@ -623,6 +623,69 @@ class _PromptOnlyOneShotExecutionAdapter:
         )
 
 
+class _ToolCapableOnlyOneShotWorkRunner:
+    async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
+        del git_name, git_email, work_body
+
+    async def work(
+        self,
+        role: InvocationRole,
+        prompt: str,
+        *,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> dict[str, str]:
+        del role, prompt, run_kind, session_uuid, on_provider_session_id
+        raise AssertionError("one-shot fell back to tool-capable work invocation")
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise AssertionError("one-shot fell back to tool-capable work_text invocation")
+
+
+class _MissingPromptOnlyOneShotExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionService:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionService,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _ToolCapableOnlyOneShotWorkRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 @dataclass
 class _ResidentAdapterPreparedRunSession:
     provider_state_dir_container_path: str | None
@@ -1514,6 +1577,49 @@ def test_one_shot_runtime_uses_prompt_only_provider_invocation() -> None:
         "role": "implementer",
         "invocation_mode": "prompt_only",
     }
+    assert result.runtime_metadata == prompt_runtime.OneShotRuntimeMetadata(
+        provider_session_id="provider-prompt-only",
+        run_kind=RunKind.FRESH,
+        session_namespace="",
+    )
+
+
+def test_one_shot_runtime_requires_prompt_only_provider_invocation() -> None:
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=_MissingPromptOnlyOneShotExecutionAdapter(),
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(runtime.RuntimeConfigurationError) as excinfo:
+        asyncio.run(
+            runtime_instance.run_one_shot(
+                prompt_runtime.OneShotRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=WorktreeMount(Path(".")),
+                    stage=runtime.StageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                )
+            )
+        )
+
+    assert str(excinfo.value) == (
+        "One-shot runtime requires a work runner with callable `prompt_only()`."
+    )
 
 
 def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
