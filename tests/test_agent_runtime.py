@@ -48,7 +48,7 @@ from agent_runtime.execution_contracts import (
     WorktreeMount,
 )
 from agent_runtime.provider_errors import ProviderErrorObservation
-from agent_runtime.roles import AgentRole
+from agent_runtime.roles import InvocationRole
 from agent_runtime.service_registry import ServiceRegistry
 from agent_runtime.session import (
     ProviderSessionSelection,
@@ -92,7 +92,9 @@ class _Service:
         if reset_time is not None:
             self._wake_time = reset_time
 
-    def state_dir_relpath(self, role: AgentRole, namespace: str = "") -> str | None:
+    def state_dir_relpath(
+        self, role: InvocationRole, namespace: str = ""
+    ) -> str | None:
         del role, namespace
         return None
 
@@ -117,7 +119,7 @@ class _ExecutionService:
 
     def build_command(
         self,
-        role: AgentRole,
+        role: InvocationRole,
         model: str,
         effort: str,
         run_kind: RunKind,
@@ -144,7 +146,9 @@ class _ExecutionService:
         del lines, on_provider_session_id
         return iter(())
 
-    def state_dir_relpath(self, role: AgentRole, namespace: str = "") -> str | None:
+    def state_dir_relpath(
+        self, role: InvocationRole, namespace: str = ""
+    ) -> str | None:
         del role, namespace
         return None
 
@@ -253,14 +257,14 @@ class _OneShotWorkRunner:
 
     async def work(
         self,
-        role: AgentRole,
+        role: InvocationRole,
         prompt: str,
         *,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
     ) -> dict[str, str]:
-        assert role is AgentRole.IMPLEMENTER
+        assert role == InvocationRole("implementer")
         assert run_kind is RunKind.FRESH
         assert session_uuid is None
 
@@ -285,7 +289,7 @@ class _OneShotWorkRunner:
         self,
         prompt: str,
         *,
-        role: AgentRole = AgentRole.IMPLEMENTER,
+        role: InvocationRole = InvocationRole("implementer"),
         tool_policy: Any = runtime.ToolPolicy.FULL,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
@@ -383,7 +387,7 @@ class _ResidentSeamRunner:
 
     async def work(
         self,
-        role: AgentRole,
+        role: InvocationRole,
         prompt: str,
         *,
         run_kind: RunKind = RunKind.FRESH,
@@ -397,7 +401,7 @@ class _ResidentSeamRunner:
         self,
         prompt: str,
         *,
-        role: AgentRole = AgentRole.IMPLEMENTER,
+        role: InvocationRole = InvocationRole("implementer"),
         tool_policy: Any = runtime.ToolPolicy.FULL,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
@@ -524,7 +528,6 @@ def test_package_exports_runtime_surface() -> None:
         "AgentCredentialFailureError",
         "AgentFailedError",
         "AgentRuntimeError",
-        "AgentRole",
         "AgentTimeoutError",
         "HardAgentError",
         "ExecutionProvider",
@@ -732,7 +735,7 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
     session_plan = plan_resident_session(
         ResidentSessionPlanRequest(
             worktree=Path("."),
-            role=AgentRole.IMPLEMENTER,
+            role=InvocationRole("implementer"),
             namespace="main",
             service=service,
             role_session=_RoleSession(service_sessions={}, service_metadata={}),
@@ -741,7 +744,7 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
     )
 
     assert session_plan == ResidentSessionPlan(
-        role=AgentRole.IMPLEMENTER,
+        role=InvocationRole("implementer"),
         worktree=Path("."),
         namespace="main",
         service=service,
@@ -786,7 +789,7 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
 
     assert (
         provider_state_relpath(
-            AgentRole.IMPLEMENTER,
+            InvocationRole("implementer"),
             "codex",
             session_root=".runtime-session",
         )
@@ -794,7 +797,7 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
     )
     assert (
         normalize_state_dir_relpath(
-            AgentRole.IMPLEMENTER,
+            InvocationRole("implementer"),
             "main",
             "codex",
             legacy,

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .contracts import ProviderSessionRecordingStore, ProviderStatePreparationAction
-from .roles import AgentRole
+from .roles import InvocationRole
 from .session import (
     ProviderSessionPreferences,
     ProviderSessionPreferencesRequest,
@@ -17,7 +17,7 @@ from .session import (
 @dataclasses.dataclass(frozen=True)
 class ProviderSessionPlanningRequest:
     worktree: Path
-    role: AgentRole
+    role: InvocationRole
     namespace: str
 
 
@@ -32,7 +32,9 @@ class ProviderSessionService(Protocol):
     @property
     def name(self) -> str: ...
 
-    def state_dir_relpath(self, role: AgentRole, namespace: str = "") -> str | None: ...
+    def state_dir_relpath(
+        self, role: InvocationRole, namespace: str = ""
+    ) -> str | None: ...
 
     def is_resumable(self, state_dir: Path) -> bool: ...
 

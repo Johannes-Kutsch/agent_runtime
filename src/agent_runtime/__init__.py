@@ -14,7 +14,7 @@ from .errors import (
     UsageLimitError,
 )
 from .provider_session_adapter import ProviderSessionAdapter
-from .roles import AgentRole, InvocationRole
+from .roles import InvocationRole
 from .session import (
     ProviderSessionPreferences,
     ProviderSessionPreferencesRequest,
@@ -28,7 +28,6 @@ __all__ = [
     "AgentCredentialFailureError",
     "AgentFailedError",
     "AgentRuntimeError",
-    "AgentRole",
     "AgentTimeoutError",
     "HardAgentError",
     "ExecutionProvider",

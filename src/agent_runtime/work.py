@@ -37,7 +37,7 @@ from .errors import (
     TransientAgentError,
     UsageLimitError,
 )
-from .roles import AgentRole
+from .roles import InvocationRole
 from .session import RunKind
 
 
@@ -294,7 +294,7 @@ def reduce_text_output_events(
 def _ensure_timeout_context(
     error: AgentTimeoutError,
     *,
-    role: AgentRole,
+    role: InvocationRole,
     mount_path: Path,
 ) -> AgentTimeoutError:
     if not error.role_value:

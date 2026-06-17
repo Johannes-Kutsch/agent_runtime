@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import dataclasses
 from enum import Enum
@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Protocol
 
 if TYPE_CHECKING:
-    from .roles import AgentRole
+    from .roles import InvocationRole
     from agent_runtime.session_planning import (
         AuthSeedingRequirement,
         LocalAuthSeedAction,
@@ -82,7 +82,7 @@ class ProviderSessionState:
 
 
 def provider_state_relpath(
-    role: "AgentRole",
+    role: "InvocationRole",
     provider_name: str,
     namespace: str = "",
     *,
@@ -95,7 +95,7 @@ def provider_state_relpath(
 
 
 def normalize_state_dir_relpath(
-    role: "AgentRole",
+    role: "InvocationRole",
     namespace: str,
     service_name: str,
     state_dir_relpath: str | None,
@@ -231,4 +231,3 @@ __all__ = [
     "provider_state_relpath",
     "select_resumable_provider_session_id",
 ]
-

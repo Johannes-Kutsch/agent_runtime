@@ -16,7 +16,7 @@ from .execution_contracts import (
     WorktreeMount,
 )
 from .errors import RuntimeConfigurationError, UsageLimitError
-from .roles import AgentRole
+from .roles import InvocationRole
 from .service_registry import ServiceRegistry
 from .session import RunKind
 from .session_planning import ResidentSessionPlan
@@ -38,6 +38,8 @@ __all__ = [
     "ToolPolicy",
     "WorktreeMount",
 ]
+
+_DEFAULT_INVOCATION_ROLE = InvocationRole("implementer")
 
 OneShotRunRequest = _PromptRunRequest
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
@@ -139,7 +141,7 @@ def _require_execution_adapter_method(
 def _build_run_session(
     *,
     mount_path: Any,
-    role: AgentRole,
+    role: InvocationRole,
     session_namespace: str,
     service: Any,
     container_workspace: str,
@@ -199,7 +201,7 @@ class _OneShotOutputAdapter:
         self,
         *,
         runner: Any,
-        role: AgentRole,
+        role: InvocationRole,
         prompt: str,
         run_kind: RunKind,
         session_uuid: str | None,
@@ -246,7 +248,7 @@ class _OneShotOutputAdapter:
         self,
         result: Any,
         *,
-        role: AgentRole,
+        role: InvocationRole,
         mount_path: Any,
         session_namespace: str,
         service_name: str,
@@ -306,7 +308,7 @@ async def _run_prompt(
         request.override,
         _time_module.now_local(),
     )
-    role = AgentRole.IMPLEMENTER
+    role = _DEFAULT_INVOCATION_ROLE
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
         runner,
@@ -355,7 +357,7 @@ async def _run_one_shot(
             "One-shot runtime requires at least one configured service candidate."
         )
 
-    role = AgentRole.IMPLEMENTER
+    role = _DEFAULT_INVOCATION_ROLE
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
         runner,
