@@ -297,7 +297,7 @@ class _OneShotWorkRunner:
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
-    ) -> dict[str, str]:
+    ) -> str:
         assert role == InvocationRole("implementer")
         assert run_kind is RunKind.FRESH
         assert session_uuid is None
@@ -317,7 +317,7 @@ class _OneShotWorkRunner:
 
         assert callable(on_provider_session_id)
         on_provider_session_id(f"provider-{service_name}")
-        return {"service": service_name, "prompt": prompt}
+        return f"{service_name}:{prompt}"
 
     async def work_text(
         self,
@@ -347,7 +347,7 @@ class _OneShotWorkRunner:
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
-    ) -> dict[str, str]:
+    ) -> str:
         return await self.work(
             role,
             prompt,
@@ -428,14 +428,14 @@ class _RoleAwareOneShotWorkRunner:
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
-    ) -> dict[str, str]:
+    ) -> str:
         assert callable(on_provider_session_id)
         assert run_kind is RunKind.FRESH
         assert session_uuid is None
 
         self._observed_roles.append(role)
         on_provider_session_id(f"provider-{role.value}")
-        return {"prompt": prompt, "role": role.value}
+        return f"{role.value}:{prompt}"
 
     async def work_text(
         self,
@@ -465,7 +465,7 @@ class _RoleAwareOneShotWorkRunner:
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
-    ) -> dict[str, str]:
+    ) -> str:
         return await self.work(
             role,
             prompt,
@@ -525,7 +525,7 @@ class _UsageLimitWithoutMappingRunner(_RoleAwareOneShotWorkRunner):
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
-    ) -> dict[str, str]:
+    ) -> str:
         self._observed_roles.append(role)
         del prompt, run_kind, session_uuid, on_provider_session_id
         raise UsageLimitError(reset_time=None, service_name="codex")
@@ -577,7 +577,7 @@ class _PromptOnlyOneShotWorkRunner:
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
-    ) -> dict[str, Any]:
+    ) -> str:
         del role, prompt, run_kind, session_uuid, on_provider_session_id
         raise AssertionError("one-shot used tool-capable work invocation")
 
@@ -602,16 +602,12 @@ class _PromptOnlyOneShotWorkRunner:
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
-    ) -> dict[str, Any]:
+    ) -> str:
         assert callable(on_provider_session_id)
         assert run_kind is RunKind.FRESH
         assert session_uuid is None
         on_provider_session_id("provider-prompt-only")
-        return {
-            "prompt": prompt,
-            "role": role.value,
-            "invocation_mode": "prompt_only",
-        }
+        return f"{role.value}:{prompt}:prompt_only"
 
 
 class _PromptOnlyOneShotExecutionAdapter:
@@ -639,6 +635,60 @@ class _PromptOnlyOneShotExecutionAdapter:
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
                     _PromptOnlyOneShotWorkRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _NormalizedPromptOnlyOneShotWorkRunner:
+    async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
+        del git_name, git_email, work_body
+
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        assert callable(on_provider_session_id)
+        assert role == InvocationRole("implementer")
+        assert run_kind is RunKind.FRESH
+        assert session_uuid is None
+        on_provider_session_id("provider-normalized")
+        return f"normalized:{prompt}"
+
+
+class _NormalizedPromptOnlyOneShotExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _NormalizedPromptOnlyOneShotWorkRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -2042,16 +2092,18 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
     )
 
     assert result == prompt_runtime.OneShotRunResult(
+        output="claude:already rendered prompt",
         selected_service="claude",
         selected_model="sonnet",
         selected_effort="high",
         used_fallback=True,
-        selected_service_path=("codex", "claude"),
-        raw_output={"service": "claude", "prompt": "already rendered prompt"},
-        runtime_metadata=prompt_runtime.OneShotRuntimeMetadata(
-            provider_session_id="provider-claude",
-            run_kind=RunKind.FRESH,
-            session_namespace="",
+        metadata=prompt_runtime.OneShotResultMetadata(
+            selected_service_path=("codex", "claude"),
+            runtime=prompt_runtime.OneShotRuntimeMetadata(
+                provider_session_id="provider-claude",
+                run_kind=RunKind.FRESH,
+                session_namespace="",
+            ),
         ),
     )
     assert invocation_order == ["codex", "claude"]
@@ -2104,10 +2156,7 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
 
     result = asyncio.run(runtime_instance.run_one_shot(request))
 
-    assert result.raw_output == {
-        "prompt": "already rendered prompt",
-        "role": "reviewer",
-    }
+    assert result.output == "reviewer:already rendered prompt"
     assert result.runtime_metadata == prompt_runtime.OneShotRuntimeMetadata(
         provider_session_id="provider-reviewer",
         run_kind=RunKind.FRESH,
@@ -2178,10 +2227,7 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role() -> 
         )
     )
 
-    assert result.raw_output == {
-        "prompt": "already rendered prompt",
-        "role": "reviewer",
-    }
+    assert result.output == "reviewer:already rendered prompt"
     assert execution_adapter.observed_roles == [role]
     assert execution_adapter.observed_run_sessions[0].role == role
 
@@ -2410,11 +2456,7 @@ def test_one_shot_runtime_uses_prompt_only_provider_invocation() -> None:
         )
     )
 
-    assert result.raw_output == {
-        "prompt": "already rendered prompt",
-        "role": "implementer",
-        "invocation_mode": "prompt_only",
-    }
+    assert result.output == "implementer:already rendered prompt:prompt_only"
     assert result.runtime_metadata == prompt_runtime.OneShotRuntimeMetadata(
         provider_session_id="provider-prompt-only",
         run_kind=RunKind.FRESH,
@@ -2458,6 +2500,76 @@ def test_one_shot_runtime_requires_prompt_only_provider_invocation() -> None:
     assert str(excinfo.value) == (
         "One-shot runtime requires a work runner with callable `prompt_only()`."
     )
+
+
+def test_one_shot_runtime_returns_normalized_text_output() -> None:
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=_NormalizedPromptOnlyOneShotExecutionAdapter(),
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        ),
+    )
+
+    result = asyncio.run(
+        runtime_instance.run_one_shot(
+            prompt_runtime.OneShotRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+            )
+        )
+    )
+
+    assert result.output == "normalized:already rendered prompt"
+
+
+def test_one_shot_run_result_does_not_expose_provider_specific_raw_output() -> None:
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=_PromptOnlyOneShotExecutionAdapter(),
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        ),
+    )
+
+    result = asyncio.run(
+        runtime_instance.run_one_shot(
+            prompt_runtime.OneShotRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+            )
+        )
+    )
+
+    assert "raw_output" not in {field.name for field in fields(type(result))}
 
 
 def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:

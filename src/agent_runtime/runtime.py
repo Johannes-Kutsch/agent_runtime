@@ -30,6 +30,7 @@ from .work import invoke_work
 __all__ = [
     "OneShotRunRequest",
     "OneShotRunResult",
+    "OneShotResultMetadata",
     "OneShotRuntime",
     "OneShotRuntimeExecutionAdapter",
     "OneShotRuntimeMetadata",
@@ -115,14 +116,27 @@ class OneShotRuntimeMetadata:
 
 
 @dataclasses.dataclass(frozen=True)
+class OneShotResultMetadata:
+    selected_service_path: tuple[str, ...]
+    runtime: OneShotRuntimeMetadata
+
+
+@dataclasses.dataclass(frozen=True)
 class OneShotRunResult:
+    output: str
     selected_service: str
     selected_model: str
     selected_effort: str
     used_fallback: bool
-    selected_service_path: tuple[str, ...]
-    raw_output: Any
-    runtime_metadata: OneShotRuntimeMetadata
+    metadata: OneShotResultMetadata
+
+    @property
+    def selected_service_path(self) -> tuple[str, ...]:
+        return self.metadata.selected_service_path
+
+    @property
+    def runtime_metadata(self) -> OneShotRuntimeMetadata:
+        return self.metadata.runtime
 
 
 @dataclasses.dataclass(frozen=True)
@@ -538,13 +552,15 @@ async def _run_one_shot(
             selected_service=resolved_service.name,
         )
         return OneShotRunResult(
+            output=raw_output if isinstance(raw_output, str) else str(raw_output),
             selected_service=resolved_service.name,
             selected_model=resolved_override.model,
             selected_effort=resolved_override.effort,
             used_fallback=len(selected_service_path) > 1,
-            selected_service_path=selected_service_path,
-            raw_output=raw_output,
-            runtime_metadata=output_adapter.runtime_metadata,
+            metadata=OneShotResultMetadata(
+                selected_service_path=selected_service_path,
+                runtime=output_adapter.runtime_metadata,
+            ),
         )
 
 
