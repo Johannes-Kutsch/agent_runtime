@@ -21,7 +21,7 @@ from .service_registry import ServiceRegistry
 from .session import RunKind
 from .session_planning import ResidentSessionPlan
 from .stage_priority_chain import iter_stage_chain
-from .types import StageOverride
+from .types import StageSelection
 from .usage_limit_scope import UsageLimitScope
 from .work import invoke_work
 
@@ -111,7 +111,7 @@ class _RuntimeIntent:
 
 
 def _selected_service_path(
-    override: StageOverride,
+    override: StageSelection,
     *,
     selected_service: str,
 ) -> tuple[str, ...]:
@@ -306,7 +306,7 @@ async def _run_prompt(
     request: _PromptRunRequest,
 ) -> str:
     resolved_override = service_registry.resolve(
-        request.override,
+        request.stage,
         _time_module.now_local(),
     )
     role = request.role
@@ -354,7 +354,7 @@ async def _run_one_shot(
     service_registry: ServiceRegistry,
     request: OneShotRunRequest,
 ) -> OneShotRunResult:
-    if not service_registry.has_configured_candidate(request.override):
+    if not service_registry.has_configured_candidate(request.stage):
         raise RuntimeConfigurationError(
             "One-shot runtime requires at least one configured service candidate."
         )
@@ -374,11 +374,11 @@ async def _run_one_shot(
                 usage_limit_scope=request.usage_limit_scope
                 or UsageLimitScope(role.value),
             )
-        if not service_registry.has_available_for(request.override, now):
-            resolved_override = service_registry.resolve(request.override, now)
+        if not service_registry.has_available_for(request.stage, now):
+            resolved_override = service_registry.resolve(request.stage, now)
             selected_service_name = resolved_override.service
             next_wake_time = service_registry.next_wake_time_for(
-                request.override,
+                request.stage,
                 now,
             )
             raise UsageLimitError(
@@ -389,7 +389,7 @@ async def _run_one_shot(
             )
 
         resolved_override = service_registry.resolve(
-            request.override,
+            request.stage,
             now,
         )
         resolved_service = resolve_service(resolved_override.service)
@@ -439,7 +439,7 @@ async def _run_one_shot(
             raise
 
         selected_service_path = _selected_service_path(
-            request.override,
+            request.stage,
             selected_service=resolved_service.name,
         )
         return OneShotRunResult(
