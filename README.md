@@ -39,7 +39,15 @@ print(result.output_text)
 print(result.selected_service)
 ```
 
-Use the one-shot entrypoint when prompt rendering, issue orchestration, and application policy already live in the consuming application and the runtime only needs to execute the prepared prompt.
+Use the one-shot entrypoint when prompt rendering, issue orchestration, and application policy already live in the consuming application and the runtime only needs to execute the prepared prompt. One-shot execution is prompt-only: it does not expose `ToolPolicy`, and it must not be used as an implicit path to provider tool access.
+
+### Tool Policy Boundary
+
+Tool-capable execution is a separate boundary from one-shot prompt execution. If a runtime entrypoint can grant tool access, the caller must provide an explicit `ToolPolicy`; the runtime does not default tool-capable requests to full access.
+
+`ToolPolicyProfile` is provider-neutral runtime data. It describes the coarse tool-access intent that the runtime passes to adapters without embedding provider CLI syntax or provider-specific command behavior into runtime-owned docs or APIs.
+
+Provider adapters own command rendering. They translate runtime-owned `ToolPolicy` and `ToolPolicyProfile` values into provider-specific CLI flags, arguments, and limitations for a given backend.
 
 ### Resumable Execution
 
