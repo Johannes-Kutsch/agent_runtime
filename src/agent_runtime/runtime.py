@@ -45,6 +45,7 @@ __all__ = [
 
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResidentRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
+_MISSING_TOOL_POLICY = object()
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -152,18 +153,47 @@ class ResidentRunResult:
     runtime_metadata: ResidentRuntimeMetadata
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, init=False)
 class ResidentRunRequest:
     prompt: str
     worktree: WorktreeMount
     model: str
     effort: str
     session_plan: ResidentSessionPlan
-    tool_policy: ToolPolicy = ToolPolicy.FULL
+    tool_policy: ToolPolicy
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
     token: CancellationToken | None = None
+
+    def __init__(
+        self,
+        prompt: str,
+        worktree: WorktreeMount,
+        model: str,
+        effort: str,
+        session_plan: ResidentSessionPlan,
+        tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
+        name: str = "Runtime Agent",
+        status_display: Any = None,
+        work_body: str = "",
+        token: CancellationToken | None = None,
+    ) -> None:
+        if tool_policy is _MISSING_TOOL_POLICY:
+            raise TypeError(
+                "ResidentRunRequest requires an explicit `tool_policy` value."
+            )
+
+        object.__setattr__(self, "prompt", prompt)
+        object.__setattr__(self, "worktree", worktree)
+        object.__setattr__(self, "model", model)
+        object.__setattr__(self, "effort", effort)
+        object.__setattr__(self, "session_plan", session_plan)
+        object.__setattr__(self, "tool_policy", tool_policy)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "status_display", status_display)
+        object.__setattr__(self, "work_body", work_body)
+        object.__setattr__(self, "token", token)
 
     @property
     def mount_path(self) -> Any:

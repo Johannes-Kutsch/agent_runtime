@@ -17,6 +17,7 @@ from .usage_limit_scope import UsageLimitScope
 
 WorkResultT = TypeVar("WorkResultT")
 _DEFAULT_INVOCATION_ROLE = InvocationRole("implementer")
+_MISSING_TOOL_POLICY = object()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -52,8 +53,8 @@ class PromptRunRequest:
     worktree: WorktreeMount
     stage: StageSelection
     role: InvocationRole
+    tool_policy: ToolPolicy
     usage_limit_scope: UsageLimitScope | None = None
-    tool_policy: ToolPolicy = ToolPolicy.FULL
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
@@ -67,7 +68,7 @@ class PromptRunRequest:
         stage: StageSelection | None = None,
         role: InvocationRole | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
-        tool_policy: ToolPolicy = ToolPolicy.FULL,
+        tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
@@ -86,6 +87,10 @@ class PromptRunRequest:
             raise TypeError("PromptRunRequest requires a `stage` value.")
         if role is None:
             raise TypeError("PromptRunRequest requires a `role` value.")
+        if tool_policy is _MISSING_TOOL_POLICY:
+            raise TypeError(
+                "PromptRunRequest requires an explicit `tool_policy` value."
+            )
         validate_stage_selection(stage)
 
         object.__setattr__(self, "prompt", prompt)
@@ -440,7 +445,7 @@ class WorkExecutionAdapter(Protocol):
         prompt: str,
         *,
         role: InvocationRole = _DEFAULT_INVOCATION_ROLE,
-        tool_policy: Any = ToolPolicy.FULL,
+        tool_policy: Any,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Callable[[str], None] | None = None,
@@ -576,10 +581,23 @@ class WorkInvocationRequest(Generic[WorkResultT]):
         return self.run_session.session_namespace
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, init=False)
 class TextOutputAdapter:
     prompt: str
-    tool_policy: Any = ToolPolicy.FULL
+    tool_policy: Any
+
+    def __init__(
+        self,
+        prompt: str,
+        tool_policy: Any = _MISSING_TOOL_POLICY,
+    ) -> None:
+        if tool_policy is _MISSING_TOOL_POLICY:
+            raise TypeError(
+                "TextOutputAdapter requires an explicit `tool_policy` value."
+            )
+
+        object.__setattr__(self, "prompt", prompt)
+        object.__setattr__(self, "tool_policy", tool_policy)
 
     async def build_prompt(
         self,

@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 import pytest
 
@@ -47,6 +48,7 @@ from agent_runtime.execution_contracts import (
     PreparedRunSessionState,
     PromptRunRequest,
     PromptRunSession,
+    TextOutputAdapter,
     WorkExecutionAdapter,
     WorkExecutionDependencies,
     WorkFailureHandling,
@@ -787,6 +789,77 @@ class _ResidentSeamExecutionAdapter:
         )
 
 
+class _ToolPolicyObservingResidentRunner(_ResidentSeamRunner):
+    def __init__(self, session: _Session, observed_tool_policies: list[Any]) -> None:
+        super().__init__(session)
+        self._observed_tool_policies = observed_tool_policies
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        self._observed_tool_policies.append(tool_policy)
+        return await super().work_text(
+            prompt,
+            role=role,
+            tool_policy=tool_policy,
+            run_kind=run_kind,
+            session_uuid=session_uuid,
+            on_provider_session_id=on_provider_session_id,
+        )
+
+
+class _ToolPolicyObservingResidentExecutionAdapter:
+    def __init__(self) -> None:
+        self.observed_tool_policies: list[Any] = []
+
+    def resolve_service(self, service_name: str = "") -> ExecutionService:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionService,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _ToolPolicyObservingResidentRunner(
+                        cast(_Session, session),
+                        self.observed_tool_policies,
+                    ),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _RoleAwareResidentSeamRunner(_ResidentSeamRunner):
     def __init__(
         self,
@@ -1032,19 +1105,59 @@ def test_tool_policy_profiles_stay_provider_neutral() -> None:
         )
 
 
-def test_prompt_run_request_default_tool_policy_remains_full() -> None:
-    request = PromptRunRequest(
-        prompt="already rendered prompt",
-        worktree=WorktreeMount(Path(".")),
-        stage=runtime.StageSelection(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
+@pytest.mark.parametrize(
+    ("request_factory", "expected_message"),
+    [
+        (
+            lambda: PromptRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+            ),
+            "PromptRunRequest requires an explicit `tool_policy` value.",
         ),
-        role=InvocationRole("implementer"),
-    )
+        (
+            lambda: prompt_runtime.ResidentRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=ResidentSessionPlan(
+                    role=InvocationRole("reviewer"),
+                    worktree=Path("."),
+                    namespace="main",
+                    service=cast(ExecutionProvider, _ExecutionService("codex")),
+                    run_kind=RunKind.FRESH,
+                    service_state_dir=None,
+                    provider_state_dir_relpath=None,
+                    host_provider_state_dir=None,
+                    provider_session_id=None,
+                    auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+                ),
+            ),
+            "ResidentRunRequest requires an explicit `tool_policy` value.",
+        ),
+    ],
+)
+def test_tool_capable_requests_require_explicit_tool_policy(
+    request_factory: Callable[[], object],
+    expected_message: str,
+) -> None:
+    with pytest.raises(TypeError, match=re.escape(expected_message)):
+        request_factory()
 
-    assert request.tool_policy is runtime.ToolPolicy.FULL
+
+def test_text_output_adapter_requires_explicit_tool_policy() -> None:
+    with pytest.raises(
+        TypeError,
+        match=re.escape("TextOutputAdapter requires an explicit `tool_policy` value."),
+    ):
+        TextOutputAdapter(prompt="already rendered prompt")
 
 
 def test_runtime_does_not_expose_service_registry_presentation_module() -> None:
@@ -2132,6 +2245,7 @@ def test_resident_runtime_preserves_resumable_behavior_through_run_session_seam(
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
             )
         )
     )
@@ -2173,11 +2287,47 @@ def test_resident_runtime_uses_invocation_role_from_session_plan() -> None:
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
             )
         )
     )
 
     assert execution_adapter.observed_roles == [role]
+
+
+@pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
+def test_resident_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
+    tool_policy: runtime.ToolPolicy,
+) -> None:
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resident_session(
+        ResidentSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+        )
+    )
+    execution_adapter = _ToolPolicyObservingResidentExecutionAdapter()
+
+    asyncio.run(
+        prompt_runtime.ResidentRuntime(
+            execution_adapter=execution_adapter
+        ).run_resident_prompt(
+            prompt_runtime.ResidentRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=tool_policy,
+            )
+        )
+    )
+
+    assert execution_adapter.observed_tool_policies == [tool_policy]
 
 
 def test_resident_runtime_request_rejects_request_level_invocation_role() -> None:
@@ -2199,6 +2349,7 @@ def test_resident_runtime_request_rejects_request_level_invocation_role() -> Non
                 provider_session_id=None,
                 auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
             ),
+            tool_policy=runtime.ToolPolicy.FULL,
             role=InvocationRole("implementer"),
         )  # type: ignore[call-arg]
 
