@@ -5,7 +5,7 @@ import enum
 from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from .provider_errors import ProviderErrorObservation
 from .roles import InvocationRole
@@ -86,7 +86,7 @@ ParsedTurn = (
 
 @dataclasses.dataclass(frozen=True)
 class ToolPolicyProfile:
-    allowed_tools: tuple[str, ...] = ()
+    allowed_tools: tuple[str, ...] | None = None
     disallowed_tools: tuple[str, ...] = ()
     strict_mcp_config: bool = True
 
@@ -137,7 +137,7 @@ class ExecutionService(Protocol):
         run_kind: RunKind,
         session_uuid: str | None,
         *,
-        tool_policy: Any | None = None,
+        tool_policy: ToolPolicy | ToolPolicyProfile | None = None,
     ) -> str: ...
 
     def build_env(

@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
-from .contracts import ExecutionService, ToolPolicy
+from .contracts import ExecutionService, ToolPolicy, ToolPolicyProfile
 from .identity import validate_session_namespace
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
@@ -440,7 +440,7 @@ class WorkExecutionAdapter(Protocol):
         prompt: str,
         *,
         role: InvocationRole = _DEFAULT_INVOCATION_ROLE,
-        tool_policy: Any = ToolPolicy.FULL,
+        tool_policy: ToolPolicy | ToolPolicyProfile = ToolPolicy.FULL,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Callable[[str], None] | None = None,
@@ -579,7 +579,7 @@ class WorkInvocationRequest(Generic[WorkResultT]):
 @dataclasses.dataclass(frozen=True)
 class TextOutputAdapter:
     prompt: str
-    tool_policy: Any = ToolPolicy.FULL
+    tool_policy: ToolPolicy | ToolPolicyProfile = ToolPolicy.FULL
 
     async def build_prompt(
         self,
