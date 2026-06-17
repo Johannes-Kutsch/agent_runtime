@@ -11,13 +11,17 @@
 | `agent_runtime` | The reusable runtime package and its stable core public surface. |
 | `Runtime Consumer Surface` | The entrypoint surface intended for ordinary consuming projects. |
 | `Runtime Adapter Seam` | A focused runtime seam implemented by consuming-project or provider adapters. |
-| `StageOverride` | A single stage selection node containing service, model, effort, and optional fallback. |
+| `StageSelection` | A single stage selection node containing service, model, effort, and optional fallback. |
+| `ServiceName` | A path-safe runtime service identity used for selection, provider state paths, logs, and diagnostics. |
 | `ServiceRegistry` | The runtime-owned resolver that maps configured services and stage chains to an executable candidate. |
 | `ExecutionProvider` | The focused protocol implemented by provider adapters for execution behavior. |
 | `RunKind` | The runtime mode for a service invocation, such as fresh or resumable. |
-| `UsageLimitScope` | The caller-defined grouping key used for usage-limit continuation policy. |
+| `ToolPolicyProfile` | A provider-neutral runtime description of coarse tool-access policy used by provider adapters to render provider-specific command flags. |
+| `UsageLimitScope` | A caller-defined, validated grouping key used for usage-limit continuation policy. |
 | `ProviderSessionState` | The provider-owned session state that records how a run should start or resume. |
+| `ProviderSessionId` | The external provider or tool session identifier associated with a runtime service invocation. |
 | `ProviderSessionAdapter` | The narrow adapter seam that owns provider-specific session policy. |
+| `SessionNamespace` | An optional path-safe label that partitions provider session state for an invocation role. |
 | `WorkInvocation` | The runtime-owned work lifecycle that turns caller intent plus execution dependencies into a text result. |
 | `InvocationRole` | A caller-defined, path-safe runtime invocation label used for provider execution metadata, not a runtime-owned workflow model. |
 | `AgentRuntimeError` | The base error for runtime failures. |
@@ -39,10 +43,10 @@
 ## Runtime Surfaces
 
 - One-shot prompt execution for already-rendered prompts.
-- Resident execution for resumable sessions.
+- Resumable execution for provider-backed sessions.
 - Caller intent through session planning and work invocation remains one vertical flow.
 - Package-root imports stay narrow while behaviorful entrypoints live under focused modules.
-- Service selection across nested `StageOverride` chains.
+- Service selection across nested `StageSelection` chains.
 - Provider execution behind adapter contracts.
 - Provider session planning and state recovery.
 - Provider-session mutation stays behind the provider-facing seam rather than the plan value.
