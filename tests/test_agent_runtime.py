@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime.runtime as prompt_runtime
+from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime._import_isolation import assert_runtime_import_isolation
 from agent_runtime.contracts import (
     AssistantTurn,
@@ -578,6 +580,29 @@ def test_import_isolation_helper_reports_forbidden_modules() -> None:
         )
 
     assert "forbidden.pkg" in str(excinfo.value)
+
+
+def test_agent_invocation_log_uses_invocation_role_header_key(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "agent.log"
+    invocation_log = AgentInvocationLog(
+        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
+    )
+
+    with invocation_log.open_work_invocation(
+        log_path=log_path,
+        role=InvocationRole("implementer"),
+        run_kind=RunKind.FRESH,
+        session_uuid=None,
+        prompt="already rendered prompt",
+    ):
+        pass
+
+    header = json.loads(log_path.read_text().splitlines()[0])
+
+    assert header["invocation_role"] == "implementer"
+    assert "role" not in header
 
 
 def test_stage_chain_resolution_prefers_first_available_configured_service() -> None:
