@@ -230,8 +230,8 @@ def _ensure_timeout_context(
     role: InvocationRole,
     mount_path: Path,
 ) -> AgentTimeoutError:
-    if not error.role_value:
-        error.role_value = role.value
+    if not error.invocation_role:
+        error.invocation_role = role.value
         error.worktree_path = mount_path
     return error
 
@@ -350,7 +350,6 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                             request.run_session.usage_limit_scope
                             or UsageLimitScope(request.role.value)
                         )
-                        err.stage_key = err.usage_limit_scope.value
                     request.dependencies.failure_handling.handle_provider_account_exhaustion(
                         request.service,
                         err,

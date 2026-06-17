@@ -35,7 +35,7 @@ def reduce_text_output_events(
             raise UsageLimitError(
                 reset_time=event.reset_time,
                 raw_message=event.raw_message,
-                provider=provider,
+                service_name=provider,
                 is_permanent=event.is_permanent,
             )
         if isinstance(event, TransientError):

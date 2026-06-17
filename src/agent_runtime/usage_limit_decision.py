@@ -12,7 +12,7 @@ from .usage_limit_scope import UsageLimitScope
 @dataclasses.dataclass(frozen=True)
 class UsageLimitOutcome:
     reset_time: datetime | None = None
-    provider: str | None = None
+    service_name: str | None = None
     raw_message: str | None = None
     account_label: str | None = None
     is_permanent: bool = False
@@ -60,7 +60,7 @@ def _sleep_message(wake: datetime, now: datetime, *, is_estimated: bool) -> str:
 
 
 def _permanent_exhaustion_message(outcome: UsageLimitOutcome) -> str:
-    provider_label = outcome.provider or "claude"
+    provider_label = outcome.service_name or "unknown service"
     account = outcome.account_label or "unknown"
     message = (
         f"{provider_label} {account} account retired for this run and will be retried "

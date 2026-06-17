@@ -463,7 +463,7 @@ async def _run_one_shot(
             )
             raise UsageLimitError(
                 reset_time=next_wake_time,
-                provider=selected_service_name,
+                service_name=selected_service_name,
                 usage_limit_scope=request.usage_limit_scope
                 or UsageLimitScope(role.value),
             )
