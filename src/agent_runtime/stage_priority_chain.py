@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-from .types import StageSelection
+from .types import StageSelection, validate_stage_selection
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,7 @@ class ConfiguredCandidateChain:
 
 
 def iter_stage_chain(override: StageSelection) -> Iterator[StageSelection]:
+    validate_stage_selection(override)
     node: StageSelection | None = override
     while node is not None:
         yield node

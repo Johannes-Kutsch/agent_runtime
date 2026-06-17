@@ -8,7 +8,7 @@ from .stage_priority_chain import (
     configured_candidate_chain,
     select_configured_candidate_chain,
 )
-from .types import StageSelection
+from .types import StageSelection, validate_stage_selection
 
 
 class ServiceRegistry:
@@ -22,6 +22,7 @@ class ServiceRegistry:
     def _configured_candidate_overrides(
         self, override: StageSelection
     ) -> tuple[StageSelection, ...]:
+        validate_stage_selection(override)
         return configured_candidate_chain(
             override, configured_service_names=tuple(self._services)
         ).candidates
