@@ -52,6 +52,7 @@ from agent_runtime.execution_contracts import (
     WorktreeMount,
 )
 from agent_runtime.provider_errors import ProviderErrorObservation
+from agent_runtime.provider_output import reduce_text_output_events
 from agent_runtime.roles import InvocationRole
 from agent_runtime.service_registry import ServiceRegistry
 from agent_runtime.session import (
@@ -79,7 +80,6 @@ from agent_runtime.session_planning import (
     ResidentSessionPlanRequest,
     plan_resident_session,
 )
-from agent_runtime.work import reduce_text_output_events
 
 
 class _Service:
