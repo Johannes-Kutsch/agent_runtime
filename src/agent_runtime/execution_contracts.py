@@ -11,7 +11,7 @@ from .contracts import ExecutionService, ToolPolicy
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
 from .session import RunKind
-from .types import StageSelection
+from .types import StageSelection, validate_stage_selection
 from .usage_limit_scope import UsageLimitScope
 
 WorkResultT = TypeVar("WorkResultT")
@@ -82,6 +82,7 @@ class PromptRunRequest:
             raise TypeError("PromptRunRequest requires a `stage` value.")
         if role is None:
             raise TypeError("PromptRunRequest requires a `role` value.")
+        validate_stage_selection(stage)
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree)
