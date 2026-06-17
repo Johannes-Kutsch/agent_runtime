@@ -10,7 +10,6 @@ from .execution_contracts import (
     CancellationToken,
     PromptRunRequest as _PromptRunRequest,
     PromptRuntimeExecutionAdapter as _PromptRuntimeExecutionAdapter,
-    PromptRunSession,
     RunSessionPlan,
     TextOutputAdapter,
     WorkInvocationPresentation,
@@ -18,6 +17,7 @@ from .execution_contracts import (
     WorktreeMount,
 )
 from .errors import RuntimeConfigurationError, UsageLimitError
+from .identity import validate_session_namespace
 from .roles import InvocationRole
 from .service_registry import ServiceRegistry
 from .session import RunKind
@@ -46,32 +46,28 @@ __all__ = [
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResidentRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 
+_DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
+
 
 @dataclasses.dataclass(frozen=True, init=False)
 class OneShotRunRequest:
     prompt: str
-    worktree: WorktreeMount
+    worktree: Path
     stage: StageSelection
     role: InvocationRole
     usage_limit_scope: UsageLimitScope | None = None
-    name: str = "Runtime Agent"
-    status_display: Any = None
-    work_body: str = ""
+    session_namespace: str = ""
     token: CancellationToken | None = None
-    session: PromptRunSession = dataclasses.field(default_factory=PromptRunSession)
 
     def __init__(
         self,
         prompt: str,
-        worktree: WorktreeMount,
+        worktree: Path | WorktreeMount,
         stage: StageSelection | None = None,
         role: InvocationRole | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
-        name: str = "Runtime Agent",
-        status_display: Any = None,
-        work_body: str = "",
+        session_namespace: str = "",
         token: CancellationToken | None = None,
-        session: PromptRunSession | None = None,
         *,
         override: StageSelection | None = None,
     ) -> None:
@@ -87,36 +83,27 @@ class OneShotRunRequest:
             raise TypeError("OneShotRunRequest requires a `role` value.")
         validate_stage_selection(stage)
 
+        validate_session_namespace(session_namespace)
+
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", worktree)
+        object.__setattr__(
+            self,
+            "worktree",
+            worktree.host_path if isinstance(worktree, WorktreeMount) else worktree,
+        )
         object.__setattr__(self, "stage", stage)
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
-        object.__setattr__(self, "name", name)
-        object.__setattr__(self, "status_display", status_display)
-        object.__setattr__(self, "work_body", work_body)
+        object.__setattr__(self, "session_namespace", session_namespace)
         object.__setattr__(self, "token", token)
-        object.__setattr__(
-            self,
-            "session",
-            session if session is not None else PromptRunSession(),
-        )
 
     @property
     def mount_path(self) -> Path:
-        return self.worktree.host_path
+        return self.worktree
 
     @property
     def override(self) -> StageSelection:
         return self.stage
-
-    @property
-    def session_namespace(self) -> str:
-        return self.session.namespace
-
-    @property
-    def run_session_plan(self) -> Any:
-        return self.session.plan
 
 
 @dataclasses.dataclass(frozen=True)
@@ -474,7 +461,7 @@ async def _run_one_shot(
         )
         resolved_service = resolve_service(resolved_override.service)
         dependencies = build_work_dependencies(
-            name=request.name,
+            name=_DEFAULT_ONE_SHOT_NAME,
             model=resolved_override.model,
             effort=resolved_override.effort,
             service=resolved_service,
@@ -502,9 +489,7 @@ async def _run_one_shot(
                     output_adapter=output_adapter,
                     dependencies=dependencies,
                     presentation=WorkInvocationPresentation(
-                        name=request.name,
-                        status_display=request.status_display,
-                        work_body=request.work_body,
+                        name=_DEFAULT_ONE_SHOT_NAME,
                     ),
                     token=attempt_token,
                 )
