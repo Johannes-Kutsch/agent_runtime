@@ -295,7 +295,7 @@ def plan_resumable_session(
             provider_session_adapter=request.provider_session_adapter,
         )
     )
-    return ResumableSessionPlan(
+    session_plan = ResumableSessionPlan(
         role=request.role,
         worktree=request.worktree,
         namespace=request.namespace,
@@ -308,6 +308,12 @@ def plan_resumable_session(
         auth_seed_action=provider_run_state_plan.auth_seed_action,
         exact_transcript_match=provider_run_state_plan.exact_transcript_match,
     )
+    object.__setattr__(
+        session_plan,
+        "_provider_state_dir_relpath",
+        provider_run_state_plan.provider_state_dir_relpath,
+    )
+    return session_plan
 
 
 def _public_provider_state_dir(

@@ -5,7 +5,7 @@ import importlib
 import json
 import re
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, fields
+from dataclasses import FrozenInstanceError, dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
@@ -1105,6 +1105,52 @@ class _RoleAwareResidentSeamExecutionAdapter:
         )
 
 
+class _PlannedStatePathObservingResidentExecutionAdapter:
+    def __init__(self) -> None:
+        self.observed_provider_state_dir_container_paths: list[str | None] = []
+
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            self.observed_provider_state_dir_container_paths.append(
+                run_session.provider_state_dir_container_path
+            )
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path=(
+                    run_session.provider_state_dir_container_path
+                ),
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter, _ResidentSeamRunner(cast(_Session, session))
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _ResidentPlanningProviderSessionAdapter:
     @property
     def service_name(self) -> str:
@@ -1134,6 +1180,71 @@ class _ResidentPlanningProviderSessionAdapter:
             provider_session_id="recovered-session",
             state_dir_relpath="state/",
             state_dir_path=Path("state"),
+        )
+
+    def prepare_local_provider_run_state(
+        self,
+        provider_state_dir: Path | None,
+        auth_seed_action: Any | None = None,
+    ) -> None:
+        del provider_state_dir, auth_seed_action
+
+    def record_provider_session_id(
+        self,
+        *,
+        role_session: Any,
+        provider_session_id: str,
+        service_state_dir: Path | None = None,
+    ) -> None:
+        del service_state_dir
+        role_session.save_service_session_id("codex", provider_session_id)
+
+    def recover_provider_session_id(
+        self,
+        provider_state_dir: Path | None,
+    ) -> str | None:
+        del provider_state_dir
+        return "recovered-session"
+
+    def is_exact_resumable_provider_session(
+        self,
+        *,
+        provider_session_id: str | None,
+        provider_state_dir: Path | None,
+    ) -> bool:
+        del provider_session_id, provider_state_dir
+        return False
+
+
+class _ExternalStateResidentPlanningProviderSessionAdapter:
+    @property
+    def service_name(self) -> str:
+        return "codex"
+
+    def provider_session_planning_facts(
+        self,
+        request: ProviderSessionPlanningRequest,
+    ) -> ProviderSessionPlanningFacts:
+        del request
+        return ProviderSessionPlanningFacts(
+            state_dir_relpath="runtime-state/",
+            provider_state_dir=Path("/host/runtime-state"),
+            has_resumable_provider_state=True,
+        )
+
+    def provider_session_preferences(self, request: Any) -> Any:
+        del request
+        return session_runtime.ProviderSessionPreferences(
+            preferred_provider_session_id="recovered-session"
+        )
+
+    def provider_session_state(self, request: Any) -> Any:
+        del request
+        return session_runtime.ProviderSessionState(
+            run_kind=RunKind.RESUME,
+            provider_session_id="recovered-session",
+            state_dir_relpath="runtime-state/",
+            state_dir_path=Path("/host/runtime-state"),
         )
 
     def prepare_local_provider_run_state(
@@ -1270,6 +1381,8 @@ def test_resumable_session_plan_exposes_public_value_fields_only() -> None:
         "usage_limit_scope",
     ]
     assert not hasattr(session_plan, "provider_state_dir_container_path")
+    with pytest.raises(FrozenInstanceError):
+        setattr(session_plan, "provider_state_dir", Path("other-state"))
 
 
 def test_resumable_session_plan_hides_container_state_selection_metadata() -> None:
@@ -2856,6 +2969,45 @@ def test_resumable_runtime_uses_invocation_role_from_session_plan() -> None:
     )
 
     assert execution_adapter.observed_roles == [role]
+
+
+def test_resumable_runtime_preserves_planned_relative_provider_state_path() -> None:
+    worktree = Path("/repo")
+    execution_adapter = _PlannedStatePathObservingResidentExecutionAdapter()
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=worktree,
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=cast(ExecutionProvider, _ExecutionService("codex")),
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=(
+                _ExternalStateResidentPlanningProviderSessionAdapter()
+            ),
+        )
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=execution_adapter
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
+            )
+        )
+    )
+
+    assert execution_adapter.observed_provider_state_dir_container_paths == [
+        "/workspace/runtime-state/"
+    ]
+    assert (
+        result.output == "resume:prepared:recovered-session:/workspace/runtime-state/"
+    )
 
 
 @pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))

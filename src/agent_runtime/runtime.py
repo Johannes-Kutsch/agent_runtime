@@ -611,6 +611,9 @@ async def _run_resumable_prompt(
         provider_state_dir_container_path=_provider_state_dir_container_path(
             worktree=plan.worktree,
             provider_state_dir=plan.provider_state_dir,
+            provider_state_dir_relpath=getattr(
+                plan, "_provider_state_dir_relpath", None
+            ),
             container_workspace=dependencies.execution.container_workspace,
         ),
         exact_transcript_match=plan.exact_transcript_match,
@@ -652,12 +655,21 @@ def _provider_state_dir_container_path(
     *,
     worktree: Path,
     provider_state_dir: Path | None,
+    provider_state_dir_relpath: str | None,
     container_workspace: str,
 ) -> str | None:
     if provider_state_dir is None:
-        return None
+        return (
+            None
+            if provider_state_dir_relpath is None
+            else f"{container_workspace}/{provider_state_dir_relpath}"
+        )
     try:
         container_relpath = provider_state_dir.relative_to(worktree)
     except ValueError:
-        return None
+        return (
+            None
+            if provider_state_dir_relpath is None
+            else f"{container_workspace}/{provider_state_dir_relpath}"
+        )
     return f"{container_workspace}/{container_relpath.as_posix()}/"
