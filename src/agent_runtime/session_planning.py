@@ -18,7 +18,7 @@ from .roles import InvocationRole
 from .session import (
     ProviderSessionStateRequest,
     RunKind,
-    ServiceResumeIdentityStore,
+    SessionStore,
     normalize_state_dir_relpath,
 )
 from .usage_limit_scope import UsageLimitScope
@@ -120,11 +120,7 @@ class ProviderSessionDecision:
         return f"{container_workspace}/{self.state_dir_relpath}"
 
 
-class RoleSessionLike(Protocol):
-    def session_uuid(self) -> str: ...
-
-    def save_service_session_id(self, service_name: str, session_id: str) -> None: ...
-
+class _SuccessfulRunSessionStore(SessionStore, Protocol):
     def record_successful_provider_session_metadata(
         self,
         service_name: str,
@@ -138,13 +134,16 @@ class ProviderSessionPlanRequest:
     role: InvocationRole
     namespace: str
     resumability_service: ResumabilityProvider
-    role_session: RoleSessionLike
+    session_store: _SuccessfulRunSessionStore
     provider_session_adapter: ProviderSessionAdapter
 
 
 @dataclasses.dataclass
 class _ProviderRunStatePlan:
-    role_session: RoleSessionLike = dataclasses.field(repr=False, compare=False)
+    session_store: _SuccessfulRunSessionStore = dataclasses.field(
+        repr=False,
+        compare=False,
+    )
     service_name: str
     run_kind: RunKind
     provider_state_dir: Path | None
@@ -220,13 +219,13 @@ class _ProviderRunStatePlan:
     def remember_provider_session_id(self, provider_session_id: str) -> None:
         self.provider_session_id = provider_session_id
         self.provider_session_adapter.record_provider_session_id(
-            role_session=self.role_session,
+            session_store=self.session_store,
             provider_session_id=provider_session_id,
             service_state_dir=self.service_state_dir,
         )
 
     def record_successful_run(self, provider_session_id: str | None) -> None:
-        self.role_session.record_successful_provider_session_metadata(
+        self.session_store.record_successful_provider_session_metadata(
             self.service_name,
             provider_session_id,
         )
@@ -238,7 +237,7 @@ class ResumableSessionPlanRequest:
     role: InvocationRole
     namespace: str
     service: ExecutionProvider
-    role_session: RoleSessionLike
+    session_store: _SuccessfulRunSessionStore
     provider_session_adapter: ProviderSessionAdapter
     resumability_service: ResumabilityProvider | None = None
     usage_limit_scope: UsageLimitScope | None = None
@@ -271,7 +270,7 @@ def plan_resumable_session(
             role=request.role,
             namespace=request.namespace,
             resumability_service=_resumable_resumability_service(request),
-            role_session=request.role_session,
+            session_store=request.session_store,
             provider_session_adapter=request.provider_session_adapter,
         )
     )
@@ -344,7 +343,7 @@ def _plan_provider_run_state(
         )
     provider_session_state = provider_session_adapter.provider_session_state(
         ProviderSessionStateRequest(
-            role_session=cast(ServiceResumeIdentityStore, request.role_session),
+            session_store=cast(SessionStore, request.session_store),
             provider_state_dir=host_state_dir,
             has_resumable_provider_state=has_resumable_provider_state,
             state_dir_relpath=state_dir_relpath,
@@ -362,7 +361,7 @@ def _plan_provider_run_state(
         or AuthSeedingRequirement.NOT_REQUIRED
     )
     return _ProviderRunStatePlan(
-        role_session=request.role_session,
+        session_store=request.session_store,
         provider_session_adapter=provider_session_adapter,
         service_name=provider_session_adapter.service_name,
         run_kind=provider_session_state.run_kind,

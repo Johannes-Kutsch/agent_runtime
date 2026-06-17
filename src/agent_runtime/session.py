@@ -18,7 +18,7 @@ else:
     LocalAuthSeedAction = object
 
 
-class ServiceResumeIdentityStore(Protocol):
+class SessionStore(Protocol):
     def session_uuid(self) -> str: ...
 
     def service_session_id(self, service_name: str) -> str | None: ...
@@ -46,7 +46,7 @@ class ProviderSessionSelection:
 
 @dataclasses.dataclass(frozen=True)
 class ProviderSessionStateRequest:
-    role_session: ServiceResumeIdentityStore
+    session_store: SessionStore
     provider_state_dir: Path | None
     has_resumable_provider_state: bool
     state_dir_relpath: str | None = None
@@ -159,7 +159,7 @@ def load_state_dir_provider_session_id(
 
 
 def select_resumable_provider_session_id(
-    role_session: ServiceResumeIdentityStore,
+    session_store: SessionStore,
     service_name: str,
     *,
     provider_state_dir: Path | None,
@@ -169,7 +169,7 @@ def select_resumable_provider_session_id(
     if not has_resumable_provider_state:
         return ProviderSessionSelection(provider_session_id=None)
 
-    provider_session_id = role_session.service_session_id(service_name)
+    provider_session_id = session_store.service_session_id(service_name)
     if provider_session_id is not None:
         return ProviderSessionSelection(provider_session_id=provider_session_id)
 
@@ -183,7 +183,7 @@ def select_resumable_provider_session_id(
     if provider_session_id is None:
         return ProviderSessionSelection(provider_session_id=None)
 
-    role_session.save_service_session_id(service_name, provider_session_id)
+    session_store.save_service_session_id(service_name, provider_session_id)
     return ProviderSessionSelection(
         provider_session_id=provider_session_id,
         persist_provider_session_id=True,
@@ -191,7 +191,7 @@ def select_resumable_provider_session_id(
 
 
 def is_exact_resumable_service_session(
-    role_session: ServiceResumeIdentityStore,
+    session_store: SessionStore,
     service_name: str,
     *,
     provider_session_id: str | None,
@@ -199,9 +199,9 @@ def is_exact_resumable_service_session(
     exact_provider_session_matcher: Callable[[str | None, Path | None], bool]
     | None = None,
 ) -> bool:
-    metadata = role_session.service_session_metadata(service_name)
+    metadata = session_store.service_session_metadata(service_name)
     if (
-        role_session.exact_transcript_service_name() != service_name
+        session_store.exact_transcript_service_name() != service_name
         or metadata is None
         or metadata["provider_session_id"] != provider_session_id
     ):
@@ -216,6 +216,7 @@ __all__ = [
     "ProviderSessionState",
     "ProviderSessionStateRequest",
     "RunKind",
+    "SessionStore",
     "is_exact_resumable_service_session",
     "load_provider_state_session_id",
     "load_state_dir_provider_session_id",

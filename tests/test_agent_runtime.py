@@ -201,7 +201,7 @@ class _ToolPolicyObservingExecutionService(_ExecutionService):
 
 
 @dataclass
-class _RoleSession:
+class _SessionStore:
     service_sessions: dict[str, str | None]
     service_metadata: dict[str, dict[str, str] | None]
     exact_transcript_service: str | None = None
@@ -1188,12 +1188,12 @@ class _ResidentPlanningProviderSessionAdapter:
     def record_provider_session_id(
         self,
         *,
-        role_session: Any,
+        session_store: Any,
         provider_session_id: str,
         service_state_dir: Path | None = None,
     ) -> None:
         del service_state_dir
-        role_session.save_service_session_id("codex", provider_session_id)
+        session_store.save_service_session_id("codex", provider_session_id)
 
 
 class _ExternalStateResidentPlanningProviderSessionAdapter:
@@ -1231,12 +1231,12 @@ class _ExternalStateResidentPlanningProviderSessionAdapter:
     def record_provider_session_id(
         self,
         *,
-        role_session: Any,
+        session_store: Any,
         provider_session_id: str,
         service_state_dir: Path | None = None,
     ) -> None:
         del service_state_dir
-        role_session.save_service_session_id("codex", provider_session_id)
+        session_store.save_service_session_id("codex", provider_session_id)
 
 
 def test_package_exports_runtime_surface() -> None:
@@ -1339,7 +1339,7 @@ def test_provider_session_planning_returns_immutable_decision_value() -> None:
             role=InvocationRole("implementer"),
             namespace="main",
             resumability_service=cast(ResumabilityProvider, _ExecutionService("codex")),
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
         )
     )
@@ -1374,7 +1374,7 @@ def test_resumable_session_plan_exposes_public_value_fields_only() -> None:
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
         )
     )
@@ -1406,7 +1406,7 @@ def test_resumable_session_plan_hides_container_state_selection_metadata() -> No
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
         )
     )
@@ -1447,7 +1447,7 @@ def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> N
     assert [
         field.name for field in fields(session_runtime.ProviderSessionStateRequest)
     ] == [
-        "role_session",
+        "session_store",
         "provider_state_dir",
         "has_resumable_provider_state",
         "state_dir_relpath",
@@ -1655,7 +1655,7 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
             role=InvocationRole("implementer"),
             namespace="",
             service=cast(ExecutionProvider, _ExecutionService("codex")),
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
         ).namespace
         == ""
@@ -1674,7 +1674,7 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
             role=InvocationRole("implementer"),
             namespace=label,
             service=cast(ExecutionProvider, _ExecutionService("codex")),
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
         )
 
@@ -2941,7 +2941,7 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
         )
     )
@@ -2993,7 +2993,7 @@ def test_resumable_runtime_uses_invocation_role_from_session_plan() -> None:
             role=role,
             namespace="main",
             service=service,
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
         )
     )
@@ -3026,7 +3026,7 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path() -> N
             role=InvocationRole("implementer"),
             namespace="main",
             service=cast(ExecutionProvider, _ExecutionService("codex")),
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=(
                 _ExternalStateResidentPlanningProviderSessionAdapter()
             ),
@@ -3074,7 +3074,7 @@ def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            session_store=_SessionStore(service_sessions={}, service_metadata={}),
             provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
         )
     )
@@ -3189,13 +3189,13 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
 
 def test_select_resumable_provider_session_id_recovers_and_persists_state() -> None:
     state_dir = Path("state")
-    role_session = _RoleSession(
+    session_store = _SessionStore(
         service_sessions={},
         service_metadata={},
     )
 
     selection = select_resumable_provider_session_id(
-        role_session,
+        session_store,
         "codex",
         provider_state_dir=state_dir,
         has_resumable_provider_state=True,
@@ -3208,13 +3208,13 @@ def test_select_resumable_provider_session_id_recovers_and_persists_state() -> N
         provider_session_id="provider-session",
         persist_provider_session_id=True,
     )
-    assert role_session.service_session_id("codex") == "provider-session"
+    assert session_store.service_session_id("codex") == "provider-session"
 
 
 def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher() -> (
     None
 ):
-    role_session = _RoleSession(
+    session_store = _SessionStore(
         service_sessions={"codex": "provider-session"},
         service_metadata={"codex": {"provider_session_id": "provider-session"}},
         exact_transcript_service="codex",
@@ -3222,7 +3222,7 @@ def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_ma
 
     assert (
         is_exact_resumable_service_session(
-            role_session,
+            session_store,
             "codex",
             provider_session_id="provider-session",
             provider_state_dir=Path("state"),
@@ -3231,7 +3231,7 @@ def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_ma
     )
     assert (
         is_exact_resumable_service_session(
-            role_session,
+            session_store,
             "codex",
             provider_session_id="provider-session",
             provider_state_dir=Path("state"),

@@ -109,10 +109,6 @@ class ProviderStatePreparationAction(Protocol):
     def apply(self) -> None: ...
 
 
-class ProviderSessionRecordingStore(Protocol):
-    def save_service_session_id(self, service_name: str, session_id: str) -> None: ...
-
-
 class ServiceSelectionProvider(Protocol):
     def is_available(self, now: datetime | None = None) -> bool: ...
 
@@ -179,7 +175,6 @@ __all__ = [
     "ParsedTurn",
     "PromptTokens",
     "ResumableExecutionProvider",
-    "ProviderSessionRecordingStore",
     "ProviderStatePreparationAction",
     "Result",
     "ResumabilityProvider",
