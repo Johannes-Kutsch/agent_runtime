@@ -12,6 +12,7 @@ from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
 from .session import RunKind
 from .types import StageOverride
+from .usage_limit_scope import UsageLimitScope
 
 WorkResultT = TypeVar("WorkResultT")
 _DEFAULT_INVOCATION_ROLE = InvocationRole("implementer")
@@ -47,6 +48,7 @@ class PromptRunRequest:
     worktree: WorktreeMount
     override: StageOverride
     role: InvocationRole
+    usage_limit_scope: UsageLimitScope | None = None
     tool_policy: ToolPolicy = ToolPolicy.FULL
     name: str = "Runtime Agent"
     status_display: Any = None
@@ -74,6 +76,7 @@ class RunSessionPlan:
     session_namespace: str
     service: ExecutionService
     container_workspace: str
+    usage_limit_scope: UsageLimitScope | None = None
     run_kind: RunKind = RunKind.FRESH
     provider_session_id: str | None = None
     provider_state_dir_container_path: str | None = None
@@ -434,7 +437,7 @@ class WorkExecutionDependencies:
 @dataclasses.dataclass(frozen=True)
 class WorkFailureHandling:
     timeout_retries: int
-    stage_key_for_role: Callable[[InvocationRole], str | None]
+    stage_key_for_role: Callable[[InvocationRole], str | None] | None = None
     translate_setup_failure: SetupFailureTranslator | None = None
     handle_provider_account_exhaustion: ProviderAccountExhaustionHandler = (
         _default_provider_account_exhaustion_handler

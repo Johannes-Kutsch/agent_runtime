@@ -21,6 +21,7 @@ from .session import (
     ServiceResumeIdentityStore,
     normalize_state_dir_relpath,
 )
+from .usage_limit_scope import UsageLimitScope
 
 
 class AuthSeedingRequirement(Enum):
@@ -240,6 +241,7 @@ class ResidentSessionPlanRequest:
     role_session: RoleSessionLike
     provider_session_adapter: ProviderSessionAdapter
     resumability_service: ResumabilityProvider | None = None
+    usage_limit_scope: UsageLimitScope | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -257,6 +259,7 @@ class ResidentSessionPlan:
     auth_seed_action: LocalAuthSeedAction | None = None
     exact_transcript_match: bool = False
     use_service_state_dir_for_container: bool = False
+    usage_limit_scope: UsageLimitScope | None = None
 
     def provider_state_dir_container_path(self, container_workspace: str) -> str | None:
         container_state_dir = self.host_provider_state_dir
@@ -314,6 +317,7 @@ def plan_resident_session(
         worktree=request.worktree,
         namespace=request.namespace,
         service=request.service,
+        usage_limit_scope=request.usage_limit_scope,
         run_kind=provider_run_state_plan.run_kind,
         service_state_dir=provider_run_state_plan.service_state_dir,
         provider_state_dir_relpath=provider_run_state_plan.provider_state_dir_relpath,

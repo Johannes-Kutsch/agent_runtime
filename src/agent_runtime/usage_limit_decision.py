@@ -6,6 +6,7 @@ from typing import Callable, TypeAlias
 
 from .service_registry import ServiceRegistry
 from .types import StageOverride
+from .usage_limit_scope import UsageLimitScope
 
 
 @dataclasses.dataclass(frozen=True)
@@ -15,12 +16,14 @@ class UsageLimitOutcome:
     raw_message: str | None = None
     account_label: str | None = None
     is_permanent: bool = False
+    usage_limit_scope: UsageLimitScope | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class ContinueNow:
     message: str | None = None
     exhausted_wake_time: datetime | None = None
+    usage_limit_scope: UsageLimitScope | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -28,11 +31,13 @@ class SleepUntil:
     wake_time: datetime
     message: str
     is_estimated: bool = False
+    usage_limit_scope: UsageLimitScope | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class Stop:
     message: str | None = None
+    usage_limit_scope: UsageLimitScope | None = None
 
 
 UsageLimitContinuationDecision: TypeAlias = ContinueNow | SleepUntil | Stop
@@ -116,10 +121,14 @@ def decide_usage_limit_continuation(
         return ContinueNow(
             message=message,
             exhausted_wake_time=exhausted_wake_time,
+            usage_limit_scope=outcome.usage_limit_scope,
         )
 
     if outcome.is_permanent:
-        return Stop(message=_permanent_exhaustion_message(outcome))
+        return Stop(
+            message=_permanent_exhaustion_message(outcome),
+            usage_limit_scope=outcome.usage_limit_scope,
+        )
 
     if service_registry is None:
         next_wake = None
@@ -133,6 +142,7 @@ def decide_usage_limit_continuation(
         return SleepUntil(
             wake_time=next_wake,
             message=_sleep_message(next_wake, now, is_estimated=False),
+            usage_limit_scope=outcome.usage_limit_scope,
         )
 
     wake_time, is_estimated = compute_wake_time(outcome.reset_time, now)
@@ -140,4 +150,5 @@ def decide_usage_limit_continuation(
         wake_time=wake_time,
         is_estimated=is_estimated,
         message=_sleep_message(wake_time, now, is_estimated=is_estimated),
+        usage_limit_scope=outcome.usage_limit_scope,
     )

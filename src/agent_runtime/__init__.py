@@ -23,6 +23,7 @@ from .session import (
     RunKind,
 )
 from .types import StageOverride
+from .usage_limit_scope import UsageLimitScope
 
 __all__ = [
     "AgentCredentialFailureError",
@@ -43,6 +44,7 @@ __all__ = [
     "ToolPolicy",
     "TransientAgentError",
     "UsageLimitError",
+    "UsageLimitScope",
 ]
 
 
