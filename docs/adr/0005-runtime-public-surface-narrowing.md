@@ -5,27 +5,209 @@ The runtime boundary should expose a smaller, clearer front-facing surface. Call
 ## Decision
 
 - Keep the package root as a narrow compatibility entrypoint rather than a catch-all export surface.
+- Keep `ruhken-agent-runtime` as the distribution name while `agent_runtime` remains the import package name.
+- Do not add a package-root `__version__` attribute for the first release; consumers can use package metadata for installed version lookup.
+- Keep core vocabulary values such as `StageSelection` available from the package root without promoting miscellaneous implementation modules as public seams.
+- Keep behaviorful runtime mode entrypoints in focused runtime modules rather than exporting them from the package root.
+- Keep runtime execution entrypoints async-only for the first release rather than owning synchronous event-loop wrappers.
+- Keep runtime import-isolation checks as internal self-test infrastructure rather than public consumer utilities.
+- Keep the primary execution provider protocol available from the package root as the main adapter anchor.
+- Use `ExecutionProvider` as the single public provider execution protocol name rather than exporting overlapping execution-service aliases.
+- Keep service selection and availability as a focused adapter protocol outside the package root, separate from execution behavior.
+- Validate runtime service identities used in registry, paths, logs, and diagnostics as path-safe service names.
+- Treat model and effort as provider execution parameters rather than path-safe runtime identities.
+- Keep reusable stage-selection analysis and resolution helpers in a focused non-root seam, while keeping stage rendering/labeling helpers out of ordinary public API.
+- Keep advanced adapter DTOs in their focused seam modules instead of exporting them from the package root.
+- Keep provider-session path and recovery helpers public only through focused session modules, using invocation-role vocabulary.
+- Replace role-session vocabulary with session-store vocabulary for provider session persistence seams.
+- Consolidate overlapping session-store protocols or keep them as internal capability facets rather than separate public concepts.
+- Keep provider-state preparation as an action protocol, while treating concrete local auth seeding as a focused advanced helper rather than core/root API.
+- Do not expose service-registry presentation helpers as public runtime surface; applications own service summary formatting.
 - Expose one canonical entrypoint per runtime mode instead of parallel facade and free-function surfaces for the same behavior.
+- Give each canonical runtime mode its own front-facing request type instead of aliasing low-level work or prompt request shapes.
+- Keep canonical prompt inputs as already-rendered text strings rather than introducing structured message schemas.
+- Do not expose tool policy on one-shot prompt execution; one-shot execution is prompt-only and must not grant provider tool access.
+- Require tool-capable runtime requests to provide an explicit tool policy instead of defaulting to full tool access.
+- Keep public request, result, and metadata dataclasses immutable at runtime boundaries.
+- Remove untyped extension-hole fields from public runtime request/session objects unless they are replaced by named protocols or value types.
+- Return normalized text from canonical one-shot execution results rather than provider-specific raw output.
+- Keep selected service, model, and effort as top-level one-shot result data.
+- Keep one-shot selection metadata, including the selected service path, as runtime diagnostics for fallback behavior.
+- Keep `used_fallback` as explicit one-shot result convenience even though it is derivable from the selected service path.
+- Keep runtime metadata grouped under result metadata objects rather than flattening all operational fields into result outputs.
+- Include session namespace in one-shot metadata only when one-shot execution actually uses namespace for runtime context.
+- Keep session namespace as a direct state-partitioning field on relevant runtime APIs instead of wrapping it in low-level prompt-session request objects.
+- Validate non-empty session namespaces as path-safe labels while preserving the empty default namespace.
+- Use plain worktree paths in canonical runtime-facing APIs unless a richer mount abstraction is actually configurable.
+- Keep canonical runtime request objects focused on execution intent rather than presentation or status UI wiring.
+- Remove generic request `name` fields from canonical runtime requests unless represented as explicit optional presentation or log configuration.
+- Treat presentation cleanup as release-blocking for canonical public runtime APIs, while low-level work invocation presentation internals can remain undocumented implementation details.
+- Keep container workspace paths out of canonical runtime APIs; they may remain low-level execution adapter plumbing.
+- Use selection-oriented vocabulary for stage/service/model/effort candidate chains instead of override vocabulary.
+- Require public stage selection nodes to provide explicit service, model, and effort values rather than relying on empty-string sentinels.
+- Keep recursive fallback links as the public stage selection chain shape.
+- Keep service, model, and effort coupled per stage selection node so fallbacks can use provider-specific execution settings.
 - Keep work invocation dependencies focused on runtime execution rather than presentation or orchestration concerns.
-- Keep resident session planning as a value-oriented seam and keep provider-session mutation behind the provider-facing adapter.
+- Use resumable terminology for the public provider-session-backed runtime mode instead of resident terminology.
+- Keep one-shot terminology for standalone single-prompt execution.
+- Keep resumable session planning as a value-oriented seam and keep provider-session mutation behind the provider-facing adapter.
+- Keep public session plans value-oriented and immutable; any mutable lifecycle handles should not be exposed as plan values.
+- Keep resumable execution plan-driven: a resumable run executes the planned session instead of performing service fallback or reselection during invocation.
+- Treat resumable service/session identity as planned state, while model and effort remain execution parameters unless a provider adapter enforces stricter policy.
+- Keep `ProviderSessionAdapter` as the public provider-session seam rather than exposing overlapping provider-session service protocols.
+- Keep provider-session adapters multi-method so discovery, preference, state decision, preparation, recording, recovery, and exact-resume checks remain explicit advanced responsibilities.
+- Collapse provider-session preference-only seams into the state decision seam unless a concrete provider requires a separate preference phase.
+- Remove provider-session adapter protocol methods that are not used by runtime planning paths before release.
+- Remove provider-session DTO fields that runtime does not read before release, including protocol-reprompt flags unless they are wired into execution behavior.
+- Remove or hide provider-session DTO fields that expose container state-dir mechanics, unless replaced by clearer provider-state mounting vocabulary for a concrete provider need.
+- Keep exact-resume verification public only where runtime planning actively uses it.
+- Let provider-session state request persistence of recovered provider session IDs using explicit recovered-session vocabulary.
+- Keep provider-session planning facts distinct from provider-session state decisions so runtime policy can compose factual discovery with provider-specific decisions.
+- Keep provider-owned session state and runtime-planned provider-session decisions as distinct advanced concepts, without exporting either from the package root.
+- Keep lower-level provider session planning public through immutable provider-session decisions rather than mutable run-state plans.
+- Keep container path projection out of public provider-session decision values; container paths belong to low-level execution plumbing.
+- Use `provider_state_dir` for public local provider-state paths; reserve host/container path distinctions for low-level execution plumbing.
+- Keep provider state relative paths as advanced planning metadata rather than canonical runtime request or result fields.
+- Avoid exposing lower-level mutable provider run-state plan objects as public release seams unless a concrete advanced consumer requires them.
+- Do not expose provider-session recording free functions as public API when recording belongs behind runtime execution or adapter lifecycle handles.
+- Keep exact transcript match metadata as advanced resumability information.
+- Keep explicit provider event dataclasses as the provider output contract instead of replacing them with an untyped event envelope.
+- Preserve raw provider diagnostic observations in adapter contracts, with consuming applications responsible for display, storage, and redaction policy.
+- Expose provider-output reduction helpers through a focused adapter seam instead of requiring imports from low-level work invocation modules.
+- Keep agent invocation logging as an advanced focused seam: runtime owns record shape and append/update lifecycle, while consuming applications own location, presentation, and retention.
+- Use `log_name` for caller-supplied log filename/display stems instead of treating names as invocation identity.
+- Use `logs_dir` for runtime log directory parameters instead of application-derived effective-directory vocabulary.
 - Keep the service registry responsible for selection and availability policy, and keep presentation helpers outside that seam.
+- Runtime constructors may accept typed service-provider mappings as convenience input, but must not widen the seam to untyped service registries.
+- Keep `CancellationToken` as the runtime-owned cooperative cancellation value and keep quota/fallback bookkeeping separate from caller cancellation semantics.
+- Use service-name vocabulary for runtime-owned usage-limit identity instead of provider vocabulary when referring to configured runtime services.
+- Keep usage-limit account labels as optional diagnostic metadata rather than runtime selection identity.
+- Keep `provider_session_id` vocabulary for external provider/tool session identifiers, distinct from runtime service names.
+- Keep `ToolPolicy` as a coarse runtime-owned execution policy enum for tool-capable execution, distinct from caller-defined invocation vocabulary.
+- Keep partial tool access in `ToolPolicy` for the first release because downstream integrations need an intermediate tool-access level.
+- Keep tool-policy command mappings behind provider adapters; the runtime owns policy vocabulary, while adapters own provider-specific CLI flags and limitations.
+- Runtime may expose provider-neutral tool-policy profile helpers, but provider adapters own translation into provider-specific command flags.
+- Include concrete provider-neutral `ToolPolicyProfile` data in the runtime for the built-in policy levels.
+- Keep `RunKind` as a closed runtime-owned session lifecycle enum.
+- Keep `RunKind.RESUME` as the specific lifecycle value for a run that resumes an existing provider session; use `Resumable` for the public runtime mode capability.
 - Preserve runtime-owned selection, resumability, and failure policy while simplifying the public shape around them.
 - Treat low-level work invocation modules as runtime implementation modules, even when they remain importable for compatibility and tests.
+- Treat direct `invoke_work` usage as undocumented implementation API; hard internalization is secondary to cleaning canonical runtime APIs before release.
+- Remove public compatibility aliases before the first release unless they protect already-published external consumers.
 - Replace the closed runtime-owned `AgentRole` vocabulary with caller-defined invocation labels.
 - Represent invocation labels as a runtime-owned validated value object whose values are supplied by callers.
 - Require canonical runtime requests to receive an explicit invocation label instead of defaulting to a runtime-owned workflow role.
 - Treat usage-limit grouping as caller policy, not as an implicit mapping from invocation role.
+- Represent usage-limit scopes as runtime-owned validated value objects whose values are supplied by callers or defaulted from invocation roles.
+- Use usage-limit-scope vocabulary in usage-limit error metadata instead of preserving stage-key attribute names.
 - Record invocation labels in runtime-owned logs as `invocation_role`, not as `role`.
+- Record `usage_limit_scope` in invocation logs only when an explicit scope differs from the invocation role.
+- Keep provider session state paths based on invocation role and session identity, not usage-limit scope.
+- Use value objects for caller-facing identity concepts such as invocation roles and usage-limit scopes, while validating pervasive service-name strings at runtime boundaries.
+- Use invocation-role vocabulary in runtime error metadata instead of preserving role-value attribute names.
+- Keep existing `Agent*` runtime error class names because agent execution is package-domain vocabulary, while removing role-specific metadata vocabulary.
 
 ## Consequences
 
 - The runtime boundary is easier to learn and test through its public surface.
+- The published distribution name carries the intended package namespace while the import package stays concise.
+- Release documentation should explicitly distinguish installing `ruhken-agent-runtime` from importing `agent_runtime`.
+- The package root avoids adding version-reporting API that duplicates standard package metadata.
+- Package-root imports remain a small vocabulary and compatibility surface instead of a full runtime facade.
+- Runtime execution does not freeze event-loop management policy before consumers demonstrate a need for synchronous wrappers.
+- Boundary self-tests remain available to the package without becoming consumer-facing API.
+- Consumers can import core vocabulary directly without learning vague modules such as generic type collections.
+- Release documentation should show the narrow consumer integration path instead of examples built from implementation modules.
+- README examples should focus on the one-shot integration path and reference resumable/session adapter seams without turning the README into an advanced tutorial.
+- First integration remains discoverable because the root exposes the primary provider execution seam.
+- Provider adapter authors have one public execution protocol name to implement.
+- Selection and quota availability policy can evolve without widening the primary execution provider contract.
+- Service names remain safe to use as runtime identity keys across selection, state layout, logs, and diagnostics.
+- Provider adapters retain responsibility for provider-specific model and effort validation.
+- Consuming applications can validate stage selections without adopting runtime-owned presentation formatting.
+- Adapter authors can still use advanced DTOs without making those DTOs part of ordinary root-level integration.
+- Adapter authors can reuse runtime-owned session path and recovery rules without making those helpers ordinary root-level API.
+- Session persistence seams describe storage responsibilities instead of old role terminology.
+- Adapter authors do not need to understand multiple near-duplicate public store protocols for the same persistence object.
+- Provider authentication preparation remains extensible without freezing local file-copying as the runtime's only auth model.
+- Service availability summaries can vary by consuming application without creating runtime presentation APIs.
 - Callers have fewer equivalent ways to reach the same behavior.
+- Mode-specific request types can evolve without freezing implementation-module vocabulary into the consumer API.
+- Application prompt rendering remains outside the runtime boundary.
+- One-shot prompt execution cannot accidentally inherit tool access through default policy values.
+- Consuming projects must make tool-access policy explicit at tool-capable runtime entrypoints.
+- Boundary values are safe to pass through async execution without accidental mutation.
+- Public request/session objects stay understandable instead of carrying opaque `Any` plan fields.
+- Canonical one-shot consumers receive a stable output contract while advanced seams can still handle provider-specific payloads.
+- Consumers can report the selected runtime candidate without digging through operational metadata.
+- Consumers can inspect fallback behavior without parsing presentation strings.
+- Consumers can answer the common fallback question without reinterpreting service-path metadata.
+- Consumers can ignore operational metadata when they only need execution output.
+- One-shot metadata reflects actual runtime context instead of carrying unused session fields.
+- State partitioning remains explicit without exposing low-level prompt-session wrappers in the canonical API.
+- Session namespace values cannot accidentally create unsafe or surprising provider state paths.
+- Ordinary consumers do not need to construct one-field wrapper objects for concepts that are currently just paths.
+- Presentation hooks can remain available through adapter/runtime configuration or advanced seams without becoming core request fields.
+- Invocation roles carry runtime identity without competing with generic display-name request fields.
+- The release surface avoids UI/status concerns even if implementation modules still contain presentation plumbing.
+- Ordinary consumers do not need to understand container workspace path mechanics.
+- Consumers can describe ordered runtime candidates without implying there is a hidden base configuration being overridden.
+- Missing runtime candidate configuration fails at construction or validation boundaries instead of surfacing as ambiguous empty values during execution.
+- Ordered fallback remains expressible without adding a separate list or graph abstraction.
+- Fallback services can carry their own provider-appropriate model and effort settings.
 - The deep parts of the runtime stay intact while the shallow surface area shrinks.
 - Compatibility shims can still exist where necessary, but they no longer define the boundary shape.
+- Release work can prioritize canonical consumer seams without requiring every importable implementation module to be physically hidden first.
+- Pre-release migration artifacts should not become public compatibility promises by accident.
 - Ordinary consuming projects should integrate through the runtime entrypoints and adapter seams instead of assembling work invocation internals directly.
+- Resumable session identity remains stable because selection and resumability planning happen before execution.
+- Plan values remain descriptions of intended execution, while provider-session mutation stays behind runtime or adapter lifecycle handles.
+- Standalone prompt execution remains distinguishable from provider-session-backed resumable execution.
+- Resumable prompts can vary execution settings without conflating those settings with provider-session identity.
+- Provider adapter authors have one named provider-session seam to implement.
+- Provider-session policy remains testable and composable instead of being hidden behind one opaque decision method.
+- Provider-session adapters avoid one-field preference DTOs and methods when final state decisions can own that policy directly.
+- Adapter authors are not forced to implement public protocol methods that runtime never calls.
+- Adapter authors are not offered public state fields that appear configurable but have no runtime effect.
+- Provider-session DTOs avoid leaking container path mechanics into adapter policy unless that policy is explicitly modeled.
+- Exact-resume behavior remains intentional instead of appearing as an unused future hook on every adapter.
+- Provider-specific authority over recovered session IDs is preserved without vague persistence flags.
+- Runtime path normalization and recovery policy can run between factual provider-state discovery and final session-state decisions.
+- Advanced session planning remains explicit about which values come from provider policy and which values are runtime-composed plans.
+- Advanced consumers can reuse runtime-owned provider session planning without adopting mutable lifecycle internals.
+- Provider-session decisions describe runtime state choices without owning container workspace projection.
+- Public session plans describe local provider state without forcing consumers into host/container terminology.
+- Relative state layout remains available where planning adapters need it without becoming ordinary runtime output.
+- Lower-level provider planning can remain available through immutable decisions rather than mutable plan handles.
+- Consumers are not encouraged to manually orchestrate provider-session recording around mutable plan objects.
+- Resumable integrations can distinguish exact transcript continuity from looser resume behavior.
+- Provider output remains type-directed while still staying behind the adapter contract surface.
+- Provider failure diagnostics remain useful without the runtime pretending to sanitize provider-specific payloads.
+- Adapter authors can reuse runtime-owned event-to-error reduction without treating work invocation internals as public API.
+- Shared log lifecycle remains reusable without making logging configuration part of the ordinary runtime request model.
+- Log filenames can remain caller-friendly without competing with invocation-role identity.
+- Runtime logging APIs receive concrete directories without inheriting application configuration terminology.
+- Ordinary one-shot integration can stay concise while service selection remains typed against adapter protocols.
+- Long-running invocations remain cancellable without exposing lower-level async primitives as the public request contract.
+- Usage-limit continuation policy refers to the runtime service identity that selection and errors already use.
+- Multi-account diagnostics remain possible without conflating account display labels with service selection or usage-limit scope.
+- Runtime service identity and external provider session identity remain separate in public metadata.
+- Provider adapters have a portable tool-access signal for tool-capable execution without importing application workflow vocabulary.
+- Tool-policy values remain small while preserving the downstream-required intermediate access level.
+- Provider adapters can map runtime tool policies to their provider-specific command flags and limitations.
+- Shared policy helpers can reduce duplicated adapter logic without moving provider CLI syntax into the runtime package.
+- Consuming adapters can share the same policy-level intent while keeping Claude, Codex, OpenCode, and other command rendering outside the runtime.
+- Provider adapters and session planners share explicit lifecycle vocabulary for fresh and resumable runs.
+- Runtime mode names describe capability while run-kind values describe the selected invocation lifecycle.
 - Future runtime modes should carry invocation labels without expanding application workflow semantics in the runtime package.
 - The runtime keeps validation and path-safety locality, while consuming projects keep ownership of their role vocabulary.
 - Logs, state paths, provider commands, and usage-limit stage keys should reflect caller intent instead of an implicit `implementer` default.
 - Consumers that need quota grouping separate from invocation identity should provide an explicit usage-limit scope.
+- Usage-limit policy keys remain explicit and validated without forcing ordinary consumers to provide a separate scope.
+- Usage-limit error handling uses the same policy vocabulary as runtime requests and continuation decisions.
 - Log records should use vocabulary that matches the runtime boundary before the first release freezes the schema.
+- Logs can explain non-default quota grouping without duplicating the default invocation-role scope in every record.
+- Changing quota grouping does not move or merge provider session state directories.
+- Runtime identity safety improves without forcing every provider mapping key or adapter property into a tiny wrapper type.
+- Error metadata should match invocation-label vocabulary before the first release freezes public attributes.
+- Public error class names remain stable while their metadata stops carrying obsolete role terminology.
