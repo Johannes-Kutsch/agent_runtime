@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 from typing import Any
 
 from . import _time as _time_module
@@ -9,6 +10,7 @@ from .execution_contracts import (
     CancellationToken,
     PromptRunRequest as _PromptRunRequest,
     PromptRuntimeExecutionAdapter as _PromptRuntimeExecutionAdapter,
+    PromptRunSession,
     RunSessionPlan,
     TextOutputAdapter,
     WorkInvocationPresentation,
@@ -41,9 +43,79 @@ __all__ = [
     "WorktreeMount",
 ]
 
-OneShotRunRequest = _PromptRunRequest
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResidentRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class OneShotRunRequest:
+    prompt: str
+    worktree: WorktreeMount
+    stage: StageSelection
+    role: InvocationRole
+    usage_limit_scope: UsageLimitScope | None = None
+    name: str = "Runtime Agent"
+    status_display: Any = None
+    work_body: str = ""
+    token: CancellationToken | None = None
+    session: PromptRunSession = dataclasses.field(default_factory=PromptRunSession)
+
+    def __init__(
+        self,
+        prompt: str,
+        worktree: WorktreeMount,
+        stage: StageSelection | None = None,
+        role: InvocationRole | None = None,
+        usage_limit_scope: UsageLimitScope | None = None,
+        name: str = "Runtime Agent",
+        status_display: Any = None,
+        work_body: str = "",
+        token: CancellationToken | None = None,
+        session: PromptRunSession | None = None,
+        *,
+        override: StageSelection | None = None,
+    ) -> None:
+        if stage is None:
+            stage = override
+        elif override is not None and override != stage:
+            raise TypeError(
+                "OneShotRunRequest received conflicting `stage` and `override` values."
+            )
+        if stage is None:
+            raise TypeError("OneShotRunRequest requires a `stage` value.")
+        if role is None:
+            raise TypeError("OneShotRunRequest requires a `role` value.")
+
+        object.__setattr__(self, "prompt", prompt)
+        object.__setattr__(self, "worktree", worktree)
+        object.__setattr__(self, "stage", stage)
+        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "status_display", status_display)
+        object.__setattr__(self, "work_body", work_body)
+        object.__setattr__(self, "token", token)
+        object.__setattr__(
+            self,
+            "session",
+            session if session is not None else PromptRunSession(),
+        )
+
+    @property
+    def mount_path(self) -> Path:
+        return self.worktree.host_path
+
+    @property
+    def override(self) -> StageSelection:
+        return self.stage
+
+    @property
+    def session_namespace(self) -> str:
+        return self.session.namespace
+
+    @property
+    def run_session_plan(self) -> Any:
+        return self.session.plan
 
 
 @dataclasses.dataclass(frozen=True)
@@ -216,9 +288,15 @@ class _OneShotOutputAdapter:
             provider_session_id = value
             on_provider_session_id(value)
 
-        raw_output = await runner.work(
-            role,
+        prompt_only = getattr(runner, "prompt_only", None)
+        if not callable(prompt_only):
+            raise RuntimeConfigurationError(
+                "One-shot runtime requires a work runner with callable `prompt_only()`."
+            )
+
+        raw_output = await prompt_only(
             prompt,
+            role=role,
             run_kind=run_kind,
             session_uuid=session_uuid,
             on_provider_session_id=_record_provider_session_id,
