@@ -34,11 +34,6 @@ __all__ = [
     "OneShotRuntime",
     "OneShotRuntimeExecutionAdapter",
     "OneShotRuntimeMetadata",
-    "ResidentRunRequest",
-    "ResidentRunResult",
-    "ResidentRuntime",
-    "ResidentRuntimeExecutionAdapter",
-    "ResidentRuntimeMetadata",
     "ResumableRunRequest",
     "ResumableRunResult",
     "ResumableRuntime",
@@ -51,7 +46,6 @@ __all__ = [
 
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResumableRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
-ResidentRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
 
 _DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
@@ -162,10 +156,6 @@ class ResumableRuntimeMetadata:
 class ResumableRunResult:
     output: str
     runtime_metadata: ResumableRuntimeMetadata
-
-
-ResidentRuntimeMetadata = ResumableRuntimeMetadata
-ResidentRunResult = ResumableRunResult
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -422,17 +412,6 @@ class ResumableRuntime:
             runner=self._execution_adapter,
             request=request,
         )
-
-
-ResidentRunRequest = ResumableRunRequest
-
-
-class ResidentRuntime(ResumableRuntime):
-    async def run_resident_prompt(
-        self,
-        request: ResidentRunRequest,
-    ) -> ResidentRunResult:
-        return await self.run_resumable_prompt(request)
 
 
 async def _run_prompt(

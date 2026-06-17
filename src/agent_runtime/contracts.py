@@ -155,19 +155,7 @@ class ExecutionProvider(Protocol):
     def mark_exhausted(self, reset_time: datetime | None) -> None: ...
 
 
-class ExecutionService(ExecutionProvider, Protocol):
-    """Compatibility alias for the focused execution service protocol."""
-
-
 class ResumableExecutionProvider(
-    ResumabilityProvider,
-    ExecutionProvider,
-    Protocol,
-):
-    pass
-
-
-class ResidentExecutionProvider(
     ResumabilityProvider,
     ExecutionProvider,
     Protocol,
@@ -186,12 +174,10 @@ class SessionPlanningProvider(
 __all__ = [
     "AssistantTurn",
     "CredentialFailure",
-    "ExecutionService",
     "ExecutionProvider",
     "HardError",
     "ParsedTurn",
     "PromptTokens",
-    "ResidentExecutionProvider",
     "ResumableExecutionProvider",
     "ProviderSessionRecordingStore",
     "ProviderStatePreparationAction",

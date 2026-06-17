@@ -418,7 +418,6 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                             request.run_session.usage_limit_scope
                             or UsageLimitScope(request.role.value)
                         )
-                        err.stage_key = err.usage_limit_scope.value
                     request.dependencies.failure_handling.handle_provider_account_exhaustion(
                         request.service,
                         err,
