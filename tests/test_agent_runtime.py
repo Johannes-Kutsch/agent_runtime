@@ -1425,6 +1425,15 @@ def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
     )
 
 
+def test_provider_session_seams_consolidate_public_session_store_vocabulary() -> None:
+    assert "SessionStore" in session_runtime.__all__
+    assert not hasattr(session_runtime, "ServiceResumeIdentityStore")
+    assert not hasattr(
+        importlib.import_module("agent_runtime.contracts"),
+        "ProviderSessionRecordingStore",
+    )
+
+
 def test_provider_session_adapter_public_seam_stays_narrow() -> None:
     assert provider_session_adapter_runtime.__all__ == [
         "ProviderSessionAdapter",
@@ -3209,6 +3218,36 @@ def test_select_resumable_provider_session_id_recovers_and_persists_state() -> N
         persist_provider_session_id=True,
     )
     assert session_store.service_session_id("codex") == "provider-session"
+
+
+def test_select_resumable_provider_session_id_prefers_session_store_over_recovery() -> (
+    None
+):
+    recover_calls = 0
+    session_store = _SessionStore(
+        service_sessions={"codex": "stored-session"},
+        service_metadata={},
+    )
+
+    def recover_provider_session_id(_path: Path | None) -> str | None:
+        nonlocal recover_calls
+        recover_calls += 1
+        return "recovered-session"
+
+    selection = select_resumable_provider_session_id(
+        session_store,
+        "codex",
+        provider_state_dir=Path("state"),
+        has_resumable_provider_state=True,
+        recover_provider_session_id=recover_provider_session_id,
+    )
+
+    assert selection == ProviderSessionSelection(
+        provider_session_id="stored-session",
+        persist_provider_session_id=False,
+    )
+    assert recover_calls == 0
+    assert session_store.service_session_id("codex") == "stored-session"
 
 
 def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher() -> (
