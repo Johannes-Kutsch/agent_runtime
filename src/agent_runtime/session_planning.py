@@ -133,7 +133,7 @@ class RoleSessionLike(Protocol):
 
 
 @dataclasses.dataclass(frozen=True)
-class ProviderRunStatePlanRequest:
+class _ProviderRunStatePlanRequest:
     worktree: Path
     role: InvocationRole
     namespace: str
@@ -143,7 +143,7 @@ class ProviderRunStatePlanRequest:
 
 
 @dataclasses.dataclass
-class ProviderRunStatePlan:
+class _ProviderRunStatePlan:
     role_session: RoleSessionLike = dataclasses.field(repr=False, compare=False)
     service_name: str
     run_kind: RunKind
@@ -262,30 +262,14 @@ class ResumableSessionPlan:
     usage_limit_scope: UsageLimitScope | None = None
 
 
-ProviderSessionPlanRequest = ProviderRunStatePlanRequest
-
-
-def record_observed_provider_session_id(
-    *,
-    provider_run_state_plan: ProviderRunStatePlan,
-    provider_session_id: str,
-) -> None:
-    provider_run_state_plan.remember_provider_session_id(provider_session_id)
-
-
-def record_successful_provider_session_metadata(
-    *,
-    provider_run_state_plan: ProviderRunStatePlan,
-    provider_session_id: str | None,
-) -> None:
-    provider_run_state_plan.record_successful_run(provider_session_id)
+ProviderSessionPlanRequest = _ProviderRunStatePlanRequest
 
 
 def plan_resumable_session(
     request: ResumableSessionPlanRequest,
 ) -> ResumableSessionPlan:
-    provider_run_state_plan = plan_provider_run_state(
-        ProviderRunStatePlanRequest(
+    provider_run_state_plan = _plan_provider_run_state(
+        _ProviderRunStatePlanRequest(
             worktree=request.worktree,
             role=request.role,
             namespace=request.namespace,
@@ -316,7 +300,7 @@ def plan_resumable_session(
 
 
 def _public_provider_state_dir(
-    provider_run_state_plan: ProviderRunStatePlan,
+    provider_run_state_plan: _ProviderRunStatePlan,
 ) -> Path | None:
     if (
         provider_run_state_plan.use_service_state_dir_for_container
@@ -327,14 +311,14 @@ def _public_provider_state_dir(
 
 
 def plan_provider_session(
-    request: ProviderRunStatePlanRequest,
+    request: ProviderSessionPlanRequest,
 ) -> ProviderSessionDecision:
-    return plan_provider_run_state(request).provider_session_decision()
+    return _plan_provider_run_state(request).provider_session_decision()
 
 
-def plan_provider_run_state(
-    request: ProviderRunStatePlanRequest,
-) -> ProviderRunStatePlan:
+def _plan_provider_run_state(
+    request: _ProviderRunStatePlanRequest,
+) -> _ProviderRunStatePlan:
     provider_session_adapter = request.provider_session_adapter
     provider_session_planning_facts = (
         provider_session_adapter.provider_session_planning_facts(
@@ -380,7 +364,7 @@ def plan_provider_run_state(
         provider_session_state.auth_seeding_requirement
         or AuthSeedingRequirement.NOT_REQUIRED
     )
-    return ProviderRunStatePlan(
+    return _ProviderRunStatePlan(
         role_session=request.role_session,
         provider_session_adapter=provider_session_adapter,
         service_name=provider_session_adapter.service_name,
@@ -419,16 +403,11 @@ def _resumable_resumability_service(
 __all__ = [
     "AuthSeedingRequirement",
     "LocalAuthSeedAction",
-    "ProviderRunStatePlan",
-    "ProviderRunStatePlanRequest",
     "ProviderSessionDecision",
     "ProviderSessionPlanRequest",
     "RecoveredSessionIdPersistence",
     "ResumableSessionPlan",
     "ResumableSessionPlanRequest",
-    "plan_provider_run_state",
     "plan_provider_session",
     "plan_resumable_session",
-    "record_observed_provider_session_id",
-    "record_successful_provider_session_metadata",
 ]
