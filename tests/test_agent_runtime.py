@@ -1074,6 +1074,161 @@ def test_usage_limit_scope_rejects_unsafe_labels(label: str) -> None:
         runtime.UsageLimitScope(label)
 
 
+@pytest.mark.parametrize("label", ["", " ", "a/b", "../escape"])
+def test_runtime_service_identities_reject_unsafe_labels(label: str) -> None:
+    with pytest.raises(ValueError):
+        runtime.StageSelection(
+            service=label,
+            model="provider model / ../ still allowed",
+            effort="high effort / ../ still allowed",
+        )
+
+    with pytest.raises(ValueError):
+        ServiceRegistry(
+            {
+                label: cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        )
+
+
+@pytest.mark.parametrize("label", [" ", "a/b", "../escape"])
+def test_prompt_run_session_namespace_preserves_empty_default_and_rejects_unsafe_non_empty_values(
+    label: str,
+) -> None:
+    assert PromptRunSession().namespace == ""
+    assert PromptRunSession(namespace="").namespace == ""
+
+    with pytest.raises(ValueError):
+        PromptRunSession(namespace=label)
+
+
+@pytest.mark.parametrize("label", [" ", "a/b", "../escape"])
+def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsafe_non_empty_values(
+    label: str,
+) -> None:
+    assert (
+        ProviderSessionPlanningRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="",
+        ).namespace
+        == ""
+    )
+    assert (
+        ResidentSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="",
+            service=cast(ExecutionProvider, _ExecutionService("codex")),
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+        ).namespace
+        == ""
+    )
+
+    with pytest.raises(ValueError):
+        ProviderSessionPlanningRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace=label,
+        )
+
+    with pytest.raises(ValueError):
+        ResidentSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace=label,
+            service=cast(ExecutionProvider, _ExecutionService("codex")),
+            role_session=_RoleSession(service_sessions={}, service_metadata={}),
+            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+        )
+
+
+def test_agent_failed_error_rejects_unsafe_runtime_identity_labels_before_building_diagnostics() -> (
+    None
+):
+    with pytest.raises(ValueError):
+        AgentFailedError(
+            role_value="implementer",
+            worktree_path=Path("."),
+            namespace="../escape",
+        )
+
+    with pytest.raises(ValueError):
+        AgentFailedError(
+            role_value="implementer",
+            worktree_path=Path("."),
+            service_name="a/b",
+        )
+
+
+@pytest.mark.parametrize("service_name", [" ", "a/b", "../escape"])
+def test_hard_agent_error_rejects_unsafe_runtime_service_labels_before_recording_diagnostics(
+    service_name: str,
+) -> None:
+    with pytest.raises(ValueError):
+        HardAgentError("hard", service_name=service_name)
+
+
+@pytest.mark.parametrize("service_name", ["", " ", "a/b", "../escape"])
+def test_provider_state_path_helpers_reject_unsafe_runtime_service_labels(
+    service_name: str,
+) -> None:
+    role = InvocationRole("implementer")
+
+    with pytest.raises(ValueError):
+        provider_state_relpath(role, service_name, namespace="main")
+
+    with pytest.raises(ValueError):
+        normalize_state_dir_relpath(
+            role,
+            "main",
+            service_name,
+            ".runtime-session/implementer/main/codex/",
+        )
+
+
+def test_model_and_effort_values_remain_provider_execution_parameters() -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_RoleAwareOneShotExecutionAdapter(),
+            service_registry=ServiceRegistry(
+                {
+                    "codex": cast(
+                        ServiceSelectionProvider,
+                        _Service(
+                            "codex",
+                            available=True,
+                            wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                        ),
+                    )
+                }
+            ),
+        ).run_one_shot(
+            prompt_runtime.OneShotRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="../gpt 5 / provider specific",
+                    effort="very-high / provider specific",
+                ),
+                role=InvocationRole("implementer"),
+            )
+        )
+    )
+
+    assert result.selected_model == "../gpt 5 / provider specific"
+    assert result.selected_effort == "very-high / provider specific"
+
+
 def test_import_isolation_helper_reports_forbidden_modules() -> None:
     with pytest.raises(ImportError) as excinfo:
         assert_runtime_import_isolation(

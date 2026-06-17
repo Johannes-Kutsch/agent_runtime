@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from .identity import validate_runtime_identity_label, validate_session_namespace
 from .provider_errors import ProviderErrorObservation
 from .usage_limit_scope import UsageLimitScope
 
@@ -74,6 +75,11 @@ class HardAgentError(AgentRuntimeError):
     ) -> None:
         self.status_code = status_code
         self.caller = ""
+        if service_name:
+            validate_runtime_identity_label(
+                service_name,
+                kind="HardAgentError service name",
+            )
         self.service_name = service_name
         self.classification = classification
         self.observations = observations
@@ -111,6 +117,12 @@ class AgentFailedError(AgentRuntimeError):
         provider_session_path: str | None = None,
         session_root: str = "",
     ) -> None:
+        validate_session_namespace(namespace)
+        if service_name:
+            validate_runtime_identity_label(
+                service_name,
+                kind="AgentFailedError service name",
+            )
         super().__init__(f"Agent {role_value!r} failed irrecoverably")
         self.role_value = role_value
         self.worktree_path = worktree_path

@@ -5,6 +5,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Protocol
 
+from .identity import validate_runtime_identity_label, validate_session_namespace
+
 if TYPE_CHECKING:
     from .roles import InvocationRole
     from agent_runtime.session_planning import (
@@ -88,6 +90,11 @@ def provider_state_relpath(
     *,
     session_root: str = "",
 ) -> str:
+    validate_runtime_identity_label(
+        provider_name,
+        kind="Provider state service name",
+    )
+    validate_session_namespace(namespace)
     base = f"{role.value}/{provider_name}/"
     if namespace:
         base = f"{role.value}/{namespace}/{provider_name}/"
@@ -102,6 +109,11 @@ def normalize_state_dir_relpath(
     *,
     session_root: str | None = None,
 ) -> str | None:
+    validate_runtime_identity_label(
+        service_name,
+        kind="Provider state service name",
+    )
+    validate_session_namespace(namespace)
     if state_dir_relpath is None or not namespace:
         return state_dir_relpath
     session_root = session_root or _session_root_for_relpath(state_dir_relpath)

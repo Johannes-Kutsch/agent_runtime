@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from datetime import datetime
 
 from .contracts import ServiceSelectionProvider
+from .identity import validate_runtime_identity_label
 from .stage_priority_chain import (
     configured_candidate_chain,
     select_configured_candidate_chain,
@@ -13,6 +14,11 @@ from .types import StageSelection, validate_stage_selection
 
 class ServiceRegistry:
     def __init__(self, services: Mapping[str, ServiceSelectionProvider]) -> None:
+        for service_name in services:
+            validate_runtime_identity_label(
+                service_name,
+                kind="ServiceRegistry service name",
+            )
         self._services = dict(services)
 
     @property
