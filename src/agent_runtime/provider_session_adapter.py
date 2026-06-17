@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .contracts import ProviderSessionRecordingStore, ProviderStatePreparationAction
+from .identity import validate_session_namespace
 from .roles import InvocationRole
 from .session import (
     ProviderSessionPreferences,
@@ -19,6 +20,9 @@ class ProviderSessionPlanningRequest:
     worktree: Path
     role: InvocationRole
     namespace: str
+
+    def __post_init__(self) -> None:
+        validate_session_namespace(self.namespace)
 
 
 @dataclasses.dataclass(frozen=True)

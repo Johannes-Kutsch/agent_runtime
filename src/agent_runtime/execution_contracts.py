@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
 from .contracts import ExecutionService, ToolPolicy
+from .identity import validate_session_namespace
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
 from .session import RunKind
@@ -27,6 +28,9 @@ class WorktreeMount:
 class PromptRunSession:
     namespace: str = ""
     plan: Any = None
+
+    def __post_init__(self) -> None:
+        validate_session_namespace(self.namespace)
 
 
 class PromptRuntimeExecutionAdapter(Protocol):

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol, cast
 
 from .contracts import ExecutionProvider, ResumabilityProvider
+from .identity import validate_session_namespace
 from .errors import AgentCredentialFailureError
 from .provider_session_adapter import (
     ProviderSessionAdapter,
@@ -242,6 +243,9 @@ class ResidentSessionPlanRequest:
     provider_session_adapter: ProviderSessionAdapter
     resumability_service: ResumabilityProvider | None = None
     usage_limit_scope: UsageLimitScope | None = None
+
+    def __post_init__(self) -> None:
+        validate_session_namespace(self.namespace)
 
 
 @dataclasses.dataclass(frozen=True)
