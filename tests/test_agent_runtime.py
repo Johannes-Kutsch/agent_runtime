@@ -2010,7 +2010,7 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
             effort="medium",
         ),
         role=role,
-        session=PromptRunSession(namespace="main"),
+        session_namespace="main",
     )
 
     result = asyncio.run(runtime_instance.run_one_shot(request))
@@ -2084,7 +2084,7 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role() -> 
                 ),
                 role=role,
                 usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-                session=PromptRunSession(namespace="main"),
+                session_namespace="main",
             )
         )
     )
@@ -2152,7 +2152,7 @@ def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook() ->
                     ),
                     role=role,
                     usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-                    session=PromptRunSession(namespace="main"),
+                    session_namespace="main",
                 )
             )
         )
@@ -2187,6 +2187,22 @@ def test_one_shot_run_request_uses_stage_selection_vocabulary() -> None:
     assert request.override is stage
 
 
+def test_one_shot_run_request_accepts_plain_worktree_path() -> None:
+    request = prompt_runtime.OneShotRunRequest(
+        prompt="already rendered prompt",
+        worktree=Path("."),
+        stage=runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        role=InvocationRole("implementer"),
+    )
+
+    assert request.worktree == Path(".")
+    assert request.mount_path == Path(".")
+
+
 def test_one_shot_run_request_preserves_override_keyword_compatibility() -> None:
     stage = runtime.StageSelection(
         service="codex",
@@ -2210,6 +2226,28 @@ def test_one_shot_run_request_preserves_override_keyword_compatibility() -> None
     assert request.override == stage
 
 
+def test_one_shot_run_request_uses_direct_session_namespace_field() -> None:
+    request = prompt_runtime.OneShotRunRequest(
+        prompt="already rendered prompt",
+        worktree=Path("."),
+        stage=runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        role=InvocationRole("implementer"),
+        session_namespace="main",
+    )
+
+    assert request.session_namespace == "main"
+    assert "session_namespace" in {
+        field.name for field in fields(prompt_runtime.OneShotRunRequest)
+    }
+    assert "session" not in {
+        field.name for field in fields(prompt_runtime.OneShotRunRequest)
+    }
+
+
 def test_one_shot_run_request_does_not_expose_tool_policy() -> None:
     stage = runtime.StageSelection(
         service="codex",
@@ -2229,6 +2267,26 @@ def test_one_shot_run_request_does_not_expose_tool_policy() -> None:
             role=InvocationRole("implementer"),
             tool_policy=runtime.ToolPolicy.FULL,
         )  # type: ignore[call-arg]
+
+
+def test_one_shot_run_request_does_not_expose_presentation_fields() -> None:
+    stage = runtime.StageSelection(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+    )
+
+    request = prompt_runtime.OneShotRunRequest(
+        prompt="already rendered prompt",
+        worktree=Path("."),
+        stage=stage,
+        role=InvocationRole("implementer"),
+    )
+
+    assert {"name", "status_display", "work_body"}.isdisjoint(
+        {field.name for field in fields(prompt_runtime.OneShotRunRequest)}
+    )
+    assert not hasattr(request, "run_session_plan")
 
 
 def test_one_shot_runtime_uses_prompt_only_provider_invocation() -> None:
