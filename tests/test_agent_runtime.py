@@ -2537,6 +2537,108 @@ def test_one_shot_runtime_returns_normalized_text_output() -> None:
     assert result.output == "normalized:already rendered prompt"
 
 
+def test_one_shot_run_result_groups_runtime_metadata_under_metadata() -> None:
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=_PromptOnlyOneShotExecutionAdapter(),
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        ),
+    )
+
+    result = asyncio.run(
+        runtime_instance.run_one_shot(
+            prompt_runtime.OneShotRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+            )
+        )
+    )
+
+    assert {field.name for field in fields(type(result))} == {
+        "output",
+        "selected_service",
+        "selected_model",
+        "selected_effort",
+        "used_fallback",
+        "metadata",
+    }
+    assert result.metadata == prompt_runtime.OneShotResultMetadata(
+        selected_service_path=("codex",),
+        runtime=prompt_runtime.OneShotRuntimeMetadata(
+            provider_session_id="provider-prompt-only",
+            run_kind=RunKind.FRESH,
+            session_namespace="",
+        ),
+    )
+
+
+def test_one_shot_runtime_reports_selected_service_path_without_fallback() -> None:
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=_PromptOnlyOneShotExecutionAdapter(),
+        service_registry=ServiceRegistry(
+            {
+                "codex": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                ),
+                "claude": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "claude",
+                        available=True,
+                        wake_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                    ),
+                ),
+            }
+        ),
+    )
+
+    result = asyncio.run(
+        runtime_instance.run_one_shot(
+            prompt_runtime.OneShotRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                    fallback=runtime.StageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                ),
+                role=InvocationRole("implementer"),
+            )
+        )
+    )
+
+    assert result.selected_service == "codex"
+    assert result.selected_model == "gpt-5.4"
+    assert result.selected_effort == "medium"
+    assert result.used_fallback is False
+    assert result.metadata.selected_service_path == ("codex",)
+
+
 def test_one_shot_run_result_does_not_expose_provider_specific_raw_output() -> None:
     runtime_instance = prompt_runtime.OneShotRuntime(
         execution_adapter=_PromptOnlyOneShotExecutionAdapter(),
