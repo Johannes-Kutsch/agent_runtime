@@ -21,7 +21,7 @@ from .identity import validate_session_namespace
 from .roles import InvocationRole
 from .service_registry import ServiceRegistry
 from .session import RunKind
-from .session_planning import ResidentSessionPlan
+from .session_planning import ResumableSessionPlan
 from .stage_priority_chain import iter_stage_chain
 from .types import StageSelection, validate_stage_selection
 from .usage_limit_scope import UsageLimitScope
@@ -33,18 +33,18 @@ __all__ = [
     "OneShotRuntime",
     "OneShotRuntimeExecutionAdapter",
     "OneShotRuntimeMetadata",
-    "ResidentRunRequest",
-    "ResidentRunResult",
-    "ResidentRuntime",
-    "ResidentRuntimeExecutionAdapter",
-    "ResidentRuntimeMetadata",
+    "ResumableRunRequest",
+    "ResumableRunResult",
+    "ResumableRuntime",
+    "ResumableRuntimeExecutionAdapter",
+    "ResumableRuntimeMetadata",
     "ToolPolicy",
     "ToolPolicyProfile",
     "WorktreeMount",
 ]
 
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
-ResidentRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
+ResumableRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
 
 _DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
@@ -126,7 +126,7 @@ class OneShotRunResult:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResidentRuntimeMetadata:
+class ResumableRuntimeMetadata:
     service_name: str
     provider_session_id: str | None
     run_kind: RunKind
@@ -135,18 +135,18 @@ class ResidentRuntimeMetadata:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResidentRunResult:
+class ResumableRunResult:
     output: str
-    runtime_metadata: ResidentRuntimeMetadata
+    runtime_metadata: ResumableRuntimeMetadata
 
 
 @dataclasses.dataclass(frozen=True, init=False)
-class ResidentRunRequest:
+class ResumableRunRequest:
     prompt: str
     worktree: WorktreeMount
     model: str
     effort: str
-    session_plan: ResidentSessionPlan
+    session_plan: ResumableSessionPlan
     tool_policy: ToolPolicy
     name: str = "Runtime Agent"
     status_display: Any = None
@@ -159,7 +159,7 @@ class ResidentRunRequest:
         worktree: WorktreeMount,
         model: str,
         effort: str,
-        session_plan: ResidentSessionPlan,
+        session_plan: ResumableSessionPlan,
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         name: str = "Runtime Agent",
         status_display: Any = None,
@@ -168,7 +168,7 @@ class ResidentRunRequest:
     ) -> None:
         if tool_policy is _MISSING_TOOL_POLICY:
             raise TypeError(
-                "ResidentRunRequest requires an explicit `tool_policy` value."
+                "ResumableRunRequest requires an explicit `tool_policy` value."
             )
 
         object.__setattr__(self, "prompt", prompt)
@@ -378,19 +378,19 @@ class OneShotRuntime:
         )
 
 
-class ResidentRuntime:
+class ResumableRuntime:
     def __init__(
         self,
         *,
-        execution_adapter: ResidentRuntimeExecutionAdapter,
+        execution_adapter: ResumableRuntimeExecutionAdapter,
     ) -> None:
         self._execution_adapter = execution_adapter
 
-    async def run_resident_prompt(
+    async def run_resumable_prompt(
         self,
-        request: ResidentRunRequest,
-    ) -> ResidentRunResult:
-        return await _run_resident_prompt(
+        request: ResumableRunRequest,
+    ) -> ResumableRunResult:
+        return await _run_resumable_prompt(
             runner=self._execution_adapter,
             request=request,
         )
@@ -548,11 +548,11 @@ async def _run_one_shot(
         )
 
 
-async def _run_resident_prompt(
+async def _run_resumable_prompt(
     *,
-    runner: ResidentRuntimeExecutionAdapter,
-    request: ResidentRunRequest,
-) -> ResidentRunResult:
+    runner: ResumableRuntimeExecutionAdapter,
+    request: ResumableRunRequest,
+) -> ResumableRunResult:
     build_work_dependencies = _require_execution_adapter_method(
         runner,
         "build_work_dependencies",
@@ -572,7 +572,7 @@ async def _run_resident_prompt(
             prepared_session = dependencies.execution.prepare_session(run_session)
         return prepared_session
 
-    resident_dependencies = dataclasses.replace(
+    resumable_dependencies = dataclasses.replace(
         dependencies,
         execution=dataclasses.replace(
             dependencies.execution,
@@ -602,7 +602,7 @@ async def _run_resident_prompt(
                 prompt=request.prompt,
                 tool_policy=request.tool_policy,
             ),
-            dependencies=resident_dependencies,
+            dependencies=resumable_dependencies,
             presentation=WorkInvocationPresentation(
                 name=request.name,
                 status_display=request.status_display,
@@ -612,11 +612,11 @@ async def _run_resident_prompt(
         )
     )
     if prepared_session is None:
-        prepared_session = resident_dependencies.execution.prepare_session(run_session)
+        prepared_session = resumable_dependencies.execution.prepare_session(run_session)
     provider_run_session = prepared_session.initial_provider_run_session()
-    return ResidentRunResult(
+    return ResumableRunResult(
         output=output,
-        runtime_metadata=ResidentRuntimeMetadata(
+        runtime_metadata=ResumableRuntimeMetadata(
             service_name=plan.service.name,
             provider_session_id=provider_run_session.provider_session_id,
             run_kind=plan.run_kind,
