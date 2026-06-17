@@ -15,6 +15,7 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
+import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime._import_isolation import assert_runtime_import_isolation
 from agent_runtime.contracts import (
@@ -1154,6 +1155,18 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "run_one_shot")
     assert not hasattr(prompt_runtime, "run_prompt")
     assert not hasattr(prompt_runtime, "run_resumable_prompt")
+    assert not hasattr(prompt_runtime, "ResidentRunRequest")
+    assert not hasattr(prompt_runtime, "ResidentRunResult")
+    assert not hasattr(prompt_runtime, "ResidentRuntime")
+    assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
+    assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
+    assert {
+        "ResumableRunRequest",
+        "ResumableRunResult",
+        "ResumableRuntime",
+        "ResumableRuntimeExecutionAdapter",
+        "ResumableRuntimeMetadata",
+    } <= set(prompt_runtime.__all__)
 
 
 def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
@@ -1162,8 +1175,21 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
     contracts = importlib.import_module("agent_runtime.contracts")
 
     assert "ExecutionProvider" in contracts.__all__
+    assert "ResumableExecutionProvider" in contracts.__all__
     assert not hasattr(contracts, "ExecutionService")
+    assert not hasattr(contracts, "ResidentExecutionProvider")
     assert runtime.ExecutionProvider is contracts.ExecutionProvider
+
+
+def test_session_planning_surface_uses_resumable_vocabulary() -> None:
+    assert not hasattr(session_planning_runtime, "ResidentSessionPlan")
+    assert not hasattr(session_planning_runtime, "ResidentSessionPlanRequest")
+    assert not hasattr(session_planning_runtime, "plan_resident_session")
+    assert {
+        "ResumableSessionPlan",
+        "ResumableSessionPlanRequest",
+        "plan_resumable_session",
+    } <= set(session_planning_runtime.__all__)
 
 
 def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
