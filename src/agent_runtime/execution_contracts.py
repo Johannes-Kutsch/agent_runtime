@@ -410,6 +410,16 @@ class WorkExecutionAdapter(Protocol):
         self, git_name: str, git_email: str, work_body: str = ""
     ) -> None: ...
 
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = _DEFAULT_INVOCATION_ROLE,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Callable[[str], None] | None = None,
+    ) -> Any: ...
+
     async def work(
         self,
         role: InvocationRole,
