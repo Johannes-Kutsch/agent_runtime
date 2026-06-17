@@ -13,6 +13,7 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime.runtime as prompt_runtime
+import agent_runtime.session as session_runtime
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime._import_isolation import assert_runtime_import_isolation
 from agent_runtime.contracts import (
@@ -876,13 +877,13 @@ class _ResidentPlanningProviderSessionAdapter:
 
     def provider_session_preferences(self, request: Any) -> Any:
         del request
-        return runtime.ProviderSessionPreferences(
+        return session_runtime.ProviderSessionPreferences(
             preferred_provider_session_id="recovered-session"
         )
 
     def provider_session_state(self, request: Any) -> Any:
         del request
-        return runtime.ProviderSessionState(
+        return session_runtime.ProviderSessionState(
             run_kind=RunKind.RESUME,
             provider_session_id="recovered-session",
             state_dir_relpath="state/",
@@ -933,10 +934,6 @@ def test_package_exports_runtime_surface() -> None:
         "ExecutionProvider",
         "InvocationRole",
         "ProviderSessionAdapter",
-        "ProviderSessionPreferences",
-        "ProviderSessionPreferencesRequest",
-        "ProviderSessionState",
-        "ProviderSessionStateRequest",
         "RuntimeConfigurationError",
         "RunKind",
         "StageSelection",
@@ -948,14 +945,34 @@ def test_package_exports_runtime_surface() -> None:
     assert runtime.StageSelection.__module__.startswith("agent_runtime")
     assert not hasattr(runtime, "StageOverride")
     assert runtime.AgentRuntimeError is AgentRuntimeError
+    assert not hasattr(runtime, "assert_runtime_import_isolation")
     assert not hasattr(runtime, "run_prompt")
     assert not hasattr(runtime, "ServiceRegistry")
+    assert not hasattr(runtime, "ProviderSessionPreferences")
+    assert not hasattr(runtime, "ProviderSessionPreferencesRequest")
+    assert not hasattr(runtime, "ProviderSessionState")
+    assert not hasattr(runtime, "ProviderSessionStateRequest")
     assert not hasattr(prompt_runtime, "PromptRuntime")
     assert not hasattr(prompt_runtime, "PromptRunRequest")
     assert not hasattr(prompt_runtime, "PromptRuntimeExecutionAdapter")
     assert not hasattr(prompt_runtime, "run_one_shot")
     assert not hasattr(prompt_runtime, "run_prompt")
     assert not hasattr(prompt_runtime, "run_resident_prompt")
+
+
+def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
+    assert (
+        session_runtime.ProviderSessionPreferences.__module__ == "agent_runtime.session"
+    )
+    assert (
+        session_runtime.ProviderSessionPreferencesRequest.__module__
+        == "agent_runtime.session"
+    )
+    assert session_runtime.ProviderSessionState.__module__ == "agent_runtime.session"
+    assert (
+        session_runtime.ProviderSessionStateRequest.__module__
+        == "agent_runtime.session"
+    )
 
 
 def test_package_surface_exposes_invocation_role_value_object() -> None:
