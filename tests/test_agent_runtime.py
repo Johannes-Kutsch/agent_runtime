@@ -1247,6 +1247,38 @@ def test_public_stage_selection_requires_non_empty_candidate_configuration() -> 
         )
 
 
+def test_one_shot_run_request_override_rejects_invalid_stage_fallback() -> None:
+    invalid_fallback = cast(
+        Any,
+        object.__new__(runtime.StageSelection),
+    )
+    object.__setattr__(invalid_fallback, "service", "claude")
+    object.__setattr__(invalid_fallback, "model", "sonnet")
+    object.__setattr__(invalid_fallback, "effort", "")
+    object.__setattr__(invalid_fallback, "fallback", None)
+
+    invalid_override = cast(
+        Any,
+        object.__new__(runtime.StageSelection),
+    )
+    object.__setattr__(invalid_override, "service", "codex")
+    object.__setattr__(invalid_override, "model", "gpt-5.4")
+    object.__setattr__(invalid_override, "effort", "medium")
+    object.__setattr__(
+        invalid_override,
+        "fallback",
+        cast(runtime.StageSelection, invalid_fallback),
+    )
+
+    with pytest.raises(ValueError, match="effort"):
+        prompt_runtime.OneShotRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path(".")),
+            override=cast(runtime.StageSelection, invalid_override),
+            role=InvocationRole("implementer"),
+        )
+
+
 def test_service_registry_resolve_and_wake_time() -> None:
     services: dict[str, ServiceSelectionProvider] = {
         "codex": cast(

@@ -23,7 +23,7 @@ from .service_registry import ServiceRegistry
 from .session import RunKind
 from .session_planning import ResidentSessionPlan
 from .stage_priority_chain import iter_stage_chain
-from .types import StageSelection
+from .types import StageSelection, validate_stage_selection
 from .usage_limit_scope import UsageLimitScope
 from .work import invoke_work
 
@@ -85,6 +85,7 @@ class OneShotRunRequest:
             raise TypeError("OneShotRunRequest requires a `stage` value.")
         if role is None:
             raise TypeError("OneShotRunRequest requires a `role` value.")
+        validate_stage_selection(stage)
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree)
