@@ -68,6 +68,12 @@ class ProviderInvocationResult:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class ProviderInvocationPreparedStream:
+    stdout_lines: tuple[str, ...] = ()
+    provider_session_id: str | None = None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationFailure:
     error: UsageLimitError | RetryableProviderFailureError
     stdout_lines: tuple[str, ...] = ()
@@ -204,9 +210,11 @@ class ProductionProviderInvocationAdapter:
 
 @dataclasses.dataclass(slots=True)
 class InMemoryProviderInvocationAdapter:
-    prepared_invocations: list[ProviderInvocationResult | ProviderInvocationFailure] = (
-        dataclasses.field(default_factory=list)
-    )
+    prepared_invocations: list[
+        ProviderInvocationResult
+        | ProviderInvocationFailure
+        | ProviderInvocationPreparedStream
+    ] = dataclasses.field(default_factory=list)
     recorded_requests: list[ProviderInvocationRequest] = dataclasses.field(
         default_factory=list
     )
@@ -226,4 +234,67 @@ class InMemoryProviderInvocationAdapter:
                 provider_session_id=prepared.provider_session_id,
             )
             raise prepared.error
+        if isinstance(prepared, ProviderInvocationPreparedStream):
+            stdout_lines = list(prepared.stdout_lines)
+
+            def _observed_provider_session_id() -> str | None:
+                provider_session_id = (
+                    prepared.provider_session_id or request.provider_session_id
+                )
+                if request.output_hooks.extract_provider_session_id is not None:
+                    provider_session_id = (
+                        request.output_hooks.extract_provider_session_id(stdout_lines)
+                        or provider_session_id
+                    )
+                return provider_session_id
+
+            work_invocation_context = (
+                nullcontext()
+                if request.log_context is None
+                else request.log_context.invocation_log.open_work_invocation(
+                    role=request.log_context.role,
+                    run_kind=request.run_kind,
+                    session_uuid=request.provider_session_id,
+                    prompt=request.prompt.content,
+                    usage_limit_scope=request.log_context.usage_limit_scope,
+                )
+            )
+            with work_invocation_context as work_invocation_log:
+                if work_invocation_log is None:
+
+                    def reducer() -> tuple[str, ProviderUsage | None]:
+                        return request.output_hooks.reduce_output(stdout_lines)
+                else:
+                    work_invocation_log.append_provider_chunk(
+                        "".join(stdout_lines).encode()
+                    )
+                    logged_reducer = request.output_hooks.reduce_logged_output or (
+                        lambda lines, _work_invocation_log: (
+                            request.output_hooks.reduce_output(lines)
+                        )
+                    )
+
+                    def reducer() -> tuple[str, ProviderUsage | None]:
+                        return logged_reducer(stdout_lines, work_invocation_log)
+
+                try:
+                    output, usage = reducer()
+                except Exception as exc:
+                    observed_provider_session_id = _observed_provider_session_id()
+                    setattr(exc, "provider_session_id", observed_provider_session_id)
+                    if isinstance(
+                        exc, (UsageLimitError, RetryableProviderFailureError)
+                    ):
+                        record_provider_invocation_failure_facts(
+                            exc,
+                            stdout_lines=tuple(stdout_lines),
+                            provider_session_id=observed_provider_session_id,
+                        )
+                    raise
+            return ProviderInvocationResult(
+                output=output,
+                usage=usage,
+                stdout_lines=tuple(stdout_lines),
+                provider_session_id=_observed_provider_session_id(),
+            )
         return prepared
