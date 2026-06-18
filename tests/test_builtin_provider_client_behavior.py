@@ -2029,6 +2029,61 @@ def test_runtime_client_reachable_opencode_stage_requires_api_key_without_fallin
     assert adapter.recorded_requests == []
 
 
+def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling_through(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: tmp_path / "missing-home",
+    )
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="missing",
+                    model="ignored",
+                    effort="low",
+                    fallback=runtime.StageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                        fallback=runtime.StageSelection(
+                            service="claude",
+                            model="sonnet",
+                            effort="medium",
+                        ),
+                    ),
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+                auth=runtime.ProviderAuth(),
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Codex authentication missing: run `codex login` on the host."
+    )
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.observations == (
+        ProviderErrorObservation(
+            service_name="codex",
+            raw_provider_text=(
+                "Codex authentication missing: run `codex login` on the host."
+            ),
+            source_stream="pre-dispatch host check",
+            status_code=401,
+        ),
+    )
+    assert adapter.recorded_requests == []
+
+
 def test_runtime_client_preserves_opencode_invalid_api_key_observations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2191,6 +2246,78 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
+
+
+def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_and_logs_provider_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "turn.failed",
+                        "error": {
+                            "message": (
+                                "You've hit your usage limit. "
+                                "Try again at January 2, 5pm (UTC)."
+                            )
+                        },
+                    }
+                )
+                + "\n",
+            )
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            logs_dir=tmp_path / "logs",
+            stage=runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.content == "already rendered prompt"
+    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.environment["TZ"] == "UTC"
+    assert "codex exec" in recorded_request.command
+    log_path = next((tmp_path / "logs").glob("*.log"))
+    log_text = log_path.read_text(encoding="utf-8")
+    assert '"prompt": "already rendered prompt"' in log_text
+    assert '"type": "turn.failed"' in log_text
 
 
 def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error(
