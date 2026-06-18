@@ -441,6 +441,94 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
     assert recorded_request.provider_session_id == "session-uuid"
 
 
+def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_invocation_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "prepared-session-id",
+    )
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationResult(
+                output="final output",
+                usage=runtime.ProviderUsage(
+                    input_tokens=7,
+                    output_tokens=3,
+                ),
+                stdout_lines=(
+                    '{"type":"text","sessionID":"observed-session-id","part":{"type":"text","text":"thinking"}}\n',
+                ),
+                provider_session_id="observed-session-id",
+            )
+        ]
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        worktree=tmp_path,
+        runtime_state_dir=runtime_state_dir,
+        stage=runtime.StageSelection(
+            service="opencode",
+            model="glm-5",
+            effort="medium",
+        ),
+        role=InvocationRole("implementer"),
+        session_namespace="main",
+        provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+        tool_access=runtime.ToolAccess.no_tools(),
+    )
+    outcome = prompt_runtime._run_builtin_session_outcome(
+        lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
+            request,
+            provider_invocation_adapter=adapter,
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="final output",
+        result=prompt_runtime.SessionRunResult(
+            output="final output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="opencode",
+                provider_session_id="observed-session-id",
+                run_kind=RunKind.FRESH,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="opencode",
+                selected_model="glm-5",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "provider_session_id": "observed-session-id",
+                    "provider_state_dir_relpath": "implementer/main/opencode/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=7,
+            output_tokens=3,
+        ),
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.content == "already rendered prompt"
+    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.role == InvocationRole("implementer")
+    assert recorded_request.usage_limit_scope is None
+    assert recorded_request.provider_session_id == "prepared-session-id"
+    provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
+        "observed-session-id"
+    )
+
+
 def test_runtime_client_runs_claude_resumed_session_from_continuation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

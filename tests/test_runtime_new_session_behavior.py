@@ -2286,3 +2286,95 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
             },
         ),
     )
+
+
+def test_runtime_client_writes_new_opencode_session_invocation_log_header_with_observed_provider_session_id(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    logs_dir = tmp_path / "runtime-logs"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del command, shell, cwd, env, stdout, stderr, text
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "provider-session-123",
+                            "part": {
+                                "type": "text",
+                                "text": "OpenCode answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "session.status",
+                            "status": {"type": "idle"},
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    outcome = asyncio.run(
+        prompt_runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                stage=stage_selection_factory(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+                tool_access=runtime.ToolAccess.no_tools(),
+                logs_dir=logs_dir,
+            )
+        )
+    )
+
+    assert outcome.output == "OpenCode answer"
+    assert list(worktree.rglob("*.log")) == []
+    assert list(runtime_state_dir.rglob("*.log")) == []
+    log_paths = sorted(logs_dir.glob("*.log"))
+    assert len(log_paths) == 1
+    log_text = log_paths[0].read_text(encoding="utf-8")
+    header = json.loads(log_text.splitlines()[0])
+    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
+    assert header == {
+        "type": "agent_invocation",
+        "invocation_role": "implementer",
+        "run_kind": "fresh",
+        "provider_session_id": outcome.result.runtime_metadata.provider_session_id,
+        "prompt": "already rendered prompt",
+    }
+    assert '"sessionID": "provider-session-123"' in log_text

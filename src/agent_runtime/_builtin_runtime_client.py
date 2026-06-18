@@ -1673,8 +1673,8 @@ def _invoke_opencode_new_session_provider(
         extract_provider_session_id=lambda _lines: observed_provider_session_id,
     )
     return invocation_result, (
-        observed_provider_session_id
-        or invocation_result.provider_session_id
+        invocation_result.provider_session_id
+        or observed_provider_session_id
         or provider_session_id
     )
 
