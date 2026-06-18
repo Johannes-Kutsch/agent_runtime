@@ -1502,14 +1502,24 @@ def test_agent_failed_error_exposes_invocation_role_metadata() -> None:
     failed = AgentFailedError(
         invocation_role="reviewer",
         worktree_path=Path("worktree"),
-        namespace="main",
-        service_name="codex",
     )
 
     assert failed.invocation_role == "reviewer"
 
 
-def test_agent_failed_error_builds_session_dir_from_public_metadata() -> None:
+def test_agent_failed_error_builds_session_dir_from_namespace_metadata() -> None:
+    failed = AgentFailedError(
+        invocation_role="reviewer",
+        worktree_path=Path("worktree"),
+        namespace="main",
+    )
+
+    assert failed.session_dir == "reviewer/main"
+
+
+def test_agent_failed_error_builds_session_dir_from_namespace_and_service_name_metadata() -> (
+    None
+):
     failed = AgentFailedError(
         invocation_role="reviewer",
         worktree_path=Path("worktree"),
@@ -1706,8 +1716,8 @@ def test_agent_invocation_log_records_non_default_usage_limit_scope(
         run_kind=RunKind.RESUME,
         session_uuid=None,
         prompt="different scope from role",
-    ) as work_invocation:
-        work_invocation.record_provider_session_id("provider-session")
+    ):
+        pass
 
     header = json.loads(log_path.read_text().splitlines()[0])
 
