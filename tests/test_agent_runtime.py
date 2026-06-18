@@ -709,6 +709,212 @@ class _UsageLimitThenSuccessEphemeralExecutionAdapter:
         )
 
 
+class _TimeoutEphemeralRunner(_RoleAwareOneShotWorkRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise AgentTimeoutError("timed out")
+
+
+class _TimeoutEphemeralExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _TimeoutEphemeralRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _RetryableProviderFailureEphemeralRunner(_RoleAwareOneShotWorkRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [
+                TransientError(
+                    status_code=503,
+                    raw_message="retry later",
+                    classification="retryable",
+                )
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _RetryableProviderFailureEphemeralExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _RetryableProviderFailureEphemeralRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _HardFailureEphemeralRunner(_RoleAwareOneShotWorkRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise HardAgentError("hard failure", service_name="codex")
+
+
+class _HardFailureEphemeralExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _HardFailureEphemeralRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _TransientProviderFailureEphemeralRunner(_RoleAwareOneShotWorkRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [TransientError(status_code=503, raw_message="retry later")],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _TransientProviderFailureEphemeralExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _TransientProviderFailureEphemeralRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _RetryableProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
     async def prompt_only(
         self,
@@ -3447,6 +3653,224 @@ def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditi
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
     )
     assert result.result is None
+
+
+def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_unavailable_services(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_EphemeralExecutionAdapter(),
+            service_registry=service_registry_factory(
+                "codex",
+                unavailable={"codex"},
+            ),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("."),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert result.result is None
+
+
+def test_ephemeral_runtime_returns_cancelled_outcome_for_caller_cancellation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    cancelled_token = CancellationToken()
+    cancelled_token.cancel()
+
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_EphemeralExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("."),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+                token=cancelled_token,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.cancelled(
+        output="",
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert result.result is None
+
+
+def test_ephemeral_runtime_returns_timed_out_outcome_for_timeout_conditions(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_TimeoutEphemeralExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("."),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.timed_out(
+        output="",
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert result.result is None
+
+
+def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retryable_provider_failures(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_RetryableProviderFailureEphemeralExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("."),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.retryable_provider_failure(
+        output="",
+        service_name="codex",
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert result.result is None
+
+
+def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    with pytest.raises(runtime.RuntimeConfigurationError):
+        asyncio.run(
+            prompt_runtime.EphemeralRuntime(
+                execution_adapter=_EphemeralExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=Path("."),
+                    stage=stage_selection_factory(
+                        service="missing",
+                        fallback=stage_selection_factory(
+                            service="also-missing",
+                            model="sonnet",
+                            effort="high",
+                        ),
+                    ),
+                    role=InvocationRole("implementer"),
+                    tool_access=runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    with pytest.raises(AgentCredentialFailureError):
+        asyncio.run(
+            prompt_runtime.EphemeralRuntime(
+                execution_adapter=_SetupTranslatedEphemeralExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=Path("."),
+                    stage=stage_selection_factory(
+                        service="codex",
+                        model="gpt-5",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    tool_access=runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    with pytest.raises(HardAgentError):
+        asyncio.run(
+            prompt_runtime.EphemeralRuntime(
+                execution_adapter=_HardFailureEphemeralExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=Path("."),
+                    stage=stage_selection_factory(
+                        service="codex",
+                        model="gpt-5",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    tool_access=runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    with pytest.raises(TransientAgentError):
+        asyncio.run(
+            prompt_runtime.EphemeralRuntime(
+                execution_adapter=_TransientProviderFailureEphemeralExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=Path("."),
+                    stage=stage_selection_factory(
+                        service="codex",
+                        model="gpt-5",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    tool_access=runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
 
 
 def test_one_shot_runtime_preserves_one_shot_result_convenience_fields_on_completed_outcome(
