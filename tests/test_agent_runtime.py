@@ -1755,22 +1755,26 @@ def test_public_stage_selection_requires_non_empty_candidate_configuration() -> 
         )
 
 
-def test_one_shot_run_request_override_rejects_invalid_stage_fallback() -> None:
+def test_public_stage_selection_rejects_path_like_service_name() -> None:
+    with pytest.raises(ValueError, match="StageSelection service"):
+        runtime.StageSelection(
+            service="bad/name",
+            model="gpt-5.4",
+            effort="medium",
+        )
+
+
+def test_public_stage_selection_rejects_invalid_fallback_effort() -> None:
     with pytest.raises(ValueError, match="effort"):
-        prompt_runtime.OneShotRunRequest(
-            prompt="already rendered prompt",
-            worktree=WorktreeMount(Path(".")),
-            override=runtime.StageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-                fallback=runtime.StageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="",
-                ),
+        runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+            fallback=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="",
             ),
-            role=InvocationRole("implementer"),
         )
 
 
