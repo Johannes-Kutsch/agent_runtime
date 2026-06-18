@@ -41,6 +41,20 @@ class AgentTimeoutError(AgentRuntimeError, TimeoutError):
         super().__init__(message)
 
 
+class NoServiceAvailableError(AgentRuntimeError):
+    def __init__(
+        self,
+        *,
+        reset_time: datetime | None = None,
+        usage_limit_scope: UsageLimitScope | None = None,
+        invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+    ) -> None:
+        self.reset_time = reset_time
+        self.usage_limit_scope = usage_limit_scope
+        self.invocation_progress = invocation_progress
+        super().__init__("No configured service candidates are currently available.")
+
+
 class UsageLimitError(AgentRuntimeError):
     def __init__(
         self,
@@ -164,6 +178,7 @@ __all__ = [
     "AgentRuntimeError",
     "AgentTimeoutError",
     "HardAgentError",
+    "NoServiceAvailableError",
     "RuntimeConfigurationError",
     "TransientAgentError",
     "UsageLimitError",

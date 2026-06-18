@@ -2080,7 +2080,7 @@ def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
     assert error.usage_limit_scope == runtime.UsageLimitScope("quota-review")
 
 
-def test_one_shot_runtime_exposes_usage_limit_service_name_metadata(
+def test_one_shot_runtime_exposes_no_service_available_timing_metadata(
     one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
@@ -2091,7 +2091,9 @@ def test_one_shot_runtime_exposes_usage_limit_service_name_metadata(
 
     result = asyncio.run(runtime_instance.run_one_shot(one_shot_request_factory()))
 
-    assert result.service_name == "codex"
+    assert result.kind == "no_service_available"
+    assert result.service_name is None
+    assert result.reset_time == datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
 def test_permanent_usage_limit_account_label_remains_diagnostic_metadata() -> None:
@@ -2734,7 +2736,7 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role(
     )
 
 
-def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook(
+def test_one_shot_runtime_preserves_usage_limit_scope_on_no_service_available_outcome(
     service_registry_factory: Callable[..., ServiceRegistry],
     one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
     stage_selection_factory: Callable[..., runtime.StageSelection],
@@ -2757,16 +2759,15 @@ def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook(
         )
     )
 
-    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="codex",
-        reset_time=None,
+        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("quota-review"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
 
-def test_one_shot_runtime_reports_started_progress_for_usage_limited_outcome(
+def test_one_shot_runtime_reports_started_progress_for_no_service_available_outcome(
     one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
@@ -2777,13 +2778,120 @@ def test_one_shot_runtime_reports_started_progress_for_usage_limited_outcome(
         ).run_one_shot(one_shot_request_factory())
     )
 
-    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
     )
+
+
+def test_one_shot_runtime_returns_no_service_available_outcome_when_all_configured_candidates_are_temporarily_unavailable(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_OneShotExecutionAdapter(),
+            service_registry=service_registry_factory(
+                "codex",
+                "claude",
+                unavailable={"codex", "claude"},
+                wake_times={
+                    "codex": datetime(2026, 1, 2, tzinfo=timezone.utc),
+                    "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
+                },
+            ),
+        ).run_one_shot(
+            one_shot_request_factory(
+                stage=stage_selection_factory(
+                    service="codex",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                )
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_one_shot_runtime_returns_no_service_available_outcome_when_all_configured_candidates_become_exhausted(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_OneShotExecutionAdapter(),
+            service_registry=service_registry_factory(
+                "codex",
+                "claude",
+                unavailable={"claude"},
+                wake_times={
+                    "codex": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
+                },
+            ),
+        ).run_one_shot(
+            one_shot_request_factory(
+                stage=stage_selection_factory(
+                    service="codex",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                )
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_one_shot_runtime_keeps_invalid_service_references_as_runtime_configuration_failures(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    runtime_instance = prompt_runtime.OneShotRuntime(
+        execution_adapter=_OneShotExecutionAdapter(),
+        service_registry=service_registry_factory("codex"),
+    )
+
+    with pytest.raises(
+        runtime.RuntimeConfigurationError,
+        match="requires at least one configured service candidate",
+    ):
+        asyncio.run(
+            runtime_instance.run_one_shot(
+                one_shot_request_factory(
+                    stage=stage_selection_factory(
+                        service="missing",
+                        fallback=stage_selection_factory(
+                            service="also-missing",
+                            model="sonnet",
+                            effort="high",
+                        ),
+                    )
+                )
+            )
+        )
 
 
 def test_one_shot_run_request_uses_stage_selection_vocabulary() -> None:

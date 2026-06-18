@@ -19,6 +19,7 @@ from .execution_contracts import (
 )
 from .errors import (
     AgentCancelledError,
+    NoServiceAvailableError,
     AgentTimeoutError,
     RuntimeConfigurationError,
     UsageLimitError,
@@ -94,6 +95,23 @@ class RuntimeOutcome:
             kind="usage_limited",
             output=output,
             service_name=service_name,
+            reset_time=reset_time,
+            usage_limit_scope=usage_limit_scope,
+            invocation_progress=invocation_progress,
+        )
+
+    @classmethod
+    def no_service_available(
+        cls,
+        *,
+        output: str,
+        reset_time: datetime | None,
+        usage_limit_scope: UsageLimitScope | None = None,
+        invocation_progress: InvocationProgress,
+    ) -> RuntimeOutcome:
+        return cls(
+            kind="no_service_available",
+            output=output,
             reset_time=reset_time,
             usage_limit_scope=usage_limit_scope,
             invocation_progress=invocation_progress,
@@ -568,6 +586,13 @@ class OneShotRuntime:
                 output="",
                 invocation_progress=exc.invocation_progress,
             )
+        except NoServiceAvailableError as exc:
+            return RuntimeOutcome.no_service_available(
+                output="",
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope,
+                invocation_progress=exc.invocation_progress,
+            )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
                 output="",
@@ -693,15 +718,12 @@ async def _run_one_shot(
                 invocation_progress=InvocationProgress.NOT_STARTED,
             )
         if not service_registry.has_available_for(request.stage, now):
-            resolved_override = service_registry.resolve(request.stage, now)
-            selected_service_name = resolved_override.service
             next_wake_time = service_registry.next_wake_time_for(
                 request.stage,
                 now,
             )
-            raise UsageLimitError(
+            raise NoServiceAvailableError(
                 reset_time=next_wake_time,
-                service_name=selected_service_name,
                 usage_limit_scope=request.usage_limit_scope
                 or UsageLimitScope(role.value),
             )
@@ -751,11 +773,16 @@ async def _run_one_shot(
                     resolved_override.service,
                     reset_time=exc.reset_time,
                 )
-                if not service_registry.has_available_for(
-                    request.stage,
-                    _time_module.now_local(),
-                ):
-                    raise
+                exhausted_now = _time_module.now_local()
+                if not service_registry.has_available_for(request.stage, exhausted_now):
+                    raise NoServiceAvailableError(
+                        reset_time=service_registry.next_wake_time_for(
+                            request.stage,
+                            exhausted_now,
+                        ),
+                        usage_limit_scope=exc.usage_limit_scope,
+                        invocation_progress=exc.invocation_progress,
+                    ) from exc
                 continue
             raise
 
