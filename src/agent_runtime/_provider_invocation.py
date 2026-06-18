@@ -154,7 +154,9 @@ class ProductionProviderInvocationAdapter:
                         output, usage = request.output_hooks.reduce_output(stdout_lines)
                     except Exception as exc:
                         observed_provider_session_id = _observed_provider_session_id()
-                        setattr(exc, "provider_session_id", observed_provider_session_id)
+                        setattr(
+                            exc, "provider_session_id", observed_provider_session_id
+                        )
                         if isinstance(
                             exc, (UsageLimitError, RetryableProviderFailureError)
                         ):
@@ -177,7 +179,9 @@ class ProductionProviderInvocationAdapter:
                         output, usage = reducer(stdout_lines, work_invocation_log)
                     except Exception as exc:
                         observed_provider_session_id = _observed_provider_session_id()
-                        setattr(exc, "provider_session_id", observed_provider_session_id)
+                        setattr(
+                            exc, "provider_session_id", observed_provider_session_id
+                        )
                         if isinstance(
                             exc, (UsageLimitError, RetryableProviderFailureError)
                         ):

@@ -1500,55 +1500,6 @@ def _reduce_logged_opencode_stream_with_usage(
     )
 
 
-def _run_provider_process(
-    *,
-    command: str,
-    cwd: Path,
-    env: dict[str, str],
-    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
-    invocation_log: Any,
-    role: Any,
-    run_kind: RunKind,
-    session_uuid: str | None,
-    prompt: str,
-    prompt_path: Path | None = None,
-    cleanup_prompt_path: bool = False,
-    usage_limit_scope: Any,
-    reduce_logged_output: Callable[
-        [list[str], WorkInvocationLog],
-        tuple[str, ProviderUsage | None],
-    ]
-    | None = None,
-    extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
-) -> ProviderInvocationResult:
-    return ProductionProviderInvocationAdapter().execute(
-        ProviderInvocationRequest(
-            command=command,
-            worktree=cwd,
-            environment=env,
-            prompt=ProviderInvocationPrompt(
-                content=prompt,
-                path=prompt_path,
-                cleanup_path=cleanup_prompt_path,
-            ),
-            run_kind=run_kind,
-            role=role,
-            usage_limit_scope=usage_limit_scope,
-            log_context=_provider_invocation_log_context(
-                invocation_log=invocation_log,
-                role=role,
-                usage_limit_scope=usage_limit_scope,
-            ),
-            provider_session_id=session_uuid,
-            output_hooks=ProviderOutputReductionHooks(
-                reduce_output=reduce_output,
-                reduce_logged_output=reduce_logged_output,
-                extract_provider_session_id=extract_provider_session_id,
-            ),
-        )
-    )
-
-
 def _default_provider_invocation_adapter() -> ProviderInvocationAdapter:
     return ProductionProviderInvocationAdapter()
 
