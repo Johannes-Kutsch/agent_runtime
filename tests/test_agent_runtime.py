@@ -1895,6 +1895,126 @@ class _PreparedNotStartedUsageLimitNewSessionExecutionAdapter:
         )
 
 
+class _StartedCancellationNewSessionRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise AgentCancelledError(
+            invocation_progress=runtime.InvocationProgress.STARTED,
+        )
+
+
+class _StartedCancellationNewSessionExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path=(
+                    run_session.provider_state_dir_container_path
+                ),
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedCancellationNewSessionRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _NotStartedCancellationNewSessionRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise AgentCancelledError(
+            invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+        )
+
+
+class _PreparedNotStartedCancellationNewSessionExecutionAdapter:
+    def __init__(self) -> None:
+        self.prepare_session_calls = 0
+
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            self.prepare_session_calls += 1
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path=(
+                    run_session.provider_state_dir_container_path
+                ),
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _NotStartedCancellationNewSessionRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 def _tool_policy_effect_text(tool_policy: Any) -> str:
     profile = (
         tool_policy.profile
@@ -5377,6 +5497,103 @@ def test_new_session_runtime_does_not_create_continuation_from_session_allocatio
 
     assert execution_adapter.prepare_session_calls == 1
     assert result.invocation_progress is runtime.InvocationProgress.NOT_STARTED
+    assert result.continuation is None
+
+
+def test_new_session_runtime_returns_continuation_for_started_cancellation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    worktree = Path("/repo")
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=_StartedCancellationNewSessionExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "codex"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.cancelled(
+        output="",
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=tool_access,
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-codex",
+                "provider_state_dir_relpath": "codex-runtime-state/",
+                "exact_transcript_match": False,
+            },
+        ),
+    )
+
+
+def test_new_session_runtime_keeps_not_started_cancellation_without_continuation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    worktree = Path("/repo")
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+    execution_adapter = _PreparedNotStartedCancellationNewSessionExecutionAdapter()
+
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=execution_adapter,
+            service_registry=service_registry_factory("codex"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "codex"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert execution_adapter.prepare_session_calls == 1
+    assert result == prompt_runtime.RuntimeOutcome.cancelled(
+        output="",
+        invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+    )
     assert result.continuation is None
 
 
