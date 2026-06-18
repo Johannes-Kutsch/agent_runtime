@@ -2825,6 +2825,66 @@ def test_one_shot_runtime_returns_no_service_available_outcome_when_all_configur
     )
 
 
+def test_one_shot_runtime_treats_missing_then_temporarily_unavailable_configured_candidate_as_no_service_available(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_OneShotExecutionAdapter(),
+            service_registry=service_registry_factory(
+                "claude",
+                unavailable={"claude"},
+                wake_times={
+                    "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
+                },
+            ),
+        ).run_one_shot(
+            one_shot_request_factory(
+                stage=stage_selection_factory(
+                    service="missing",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                )
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 3, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_one_shot_runtime_preserves_explicit_usage_limit_scope_when_configured_candidates_are_temporarily_unavailable(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_OneShotExecutionAdapter(),
+            service_registry=service_registry_factory("codex", unavailable={"codex"}),
+        ).run_one_shot(
+            one_shot_request_factory(
+                usage_limit_scope=runtime.UsageLimitScope("quota-review")
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
 def test_one_shot_runtime_returns_no_service_available_outcome_when_all_configured_candidates_become_exhausted(
     one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
     service_registry_factory: Callable[..., ServiceRegistry],
