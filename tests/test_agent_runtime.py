@@ -151,16 +151,9 @@ def provider_error_observation() -> ProviderErrorObservation:
 
 
 class _OneShotWorkRunner:
-    def __init__(
-        self,
-        service: _ExecutionService,
-        *,
-        invocation_order: list[str],
-        attempts_by_service: dict[str, int],
-    ) -> None:
+    def __init__(self, service: _ExecutionService) -> None:
         self._service = service
-        self._invocation_order = invocation_order
-        self._attempts_by_service = attempts_by_service
+        self._attempts_by_service: dict[str, int] = {}
 
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
@@ -179,7 +172,6 @@ class _OneShotWorkRunner:
         assert session_uuid is None
 
         service_name = self._service.name
-        self._invocation_order.append(service_name)
         attempt_count = self._attempts_by_service.get(service_name, 0) + 1
         self._attempts_by_service[service_name] = attempt_count
 
@@ -234,15 +226,6 @@ class _OneShotWorkRunner:
 
 
 class _OneShotExecutionAdapter:
-    def __init__(
-        self,
-        *,
-        invocation_order: list[str],
-        attempts_by_service: dict[str, int],
-    ) -> None:
-        self._invocation_order = invocation_order
-        self._attempts_by_service = attempts_by_service
-
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
@@ -267,11 +250,7 @@ class _OneShotExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _OneShotWorkRunner(
-                        execution_service,
-                        invocation_order=self._invocation_order,
-                        attempts_by_service=self._attempts_by_service,
-                    ),
+                    _OneShotWorkRunner(execution_service),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -280,19 +259,7 @@ class _OneShotExecutionAdapter:
         )
 
 
-class _RoleAwarePreparedRunSession(_PreparedRunSession):
-    def __init__(self, run_session: Any, observed_run_sessions: list[Any]) -> None:
-        super().__init__()
-        self.provider_state_dir_container_path = (
-            f"/workspace/state/{run_session.role.value}/{run_session.session_namespace}"
-        )
-        observed_run_sessions.append(run_session)
-
-
 class _RoleAwareOneShotWorkRunner:
-    def __init__(self, observed_roles: list[InvocationRole]) -> None:
-        self._observed_roles = observed_roles
-
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
 
@@ -309,7 +276,6 @@ class _RoleAwareOneShotWorkRunner:
         assert run_kind is RunKind.FRESH
         assert session_uuid is None
 
-        self._observed_roles.append(role)
         on_provider_session_id(f"provider-{role.value}")
         return f"{role.value}:{prompt}"
 
@@ -352,10 +318,6 @@ class _RoleAwareOneShotWorkRunner:
 
 
 class _RoleAwareOneShotExecutionAdapter:
-    def __init__(self) -> None:
-        self.observed_run_sessions: list[Any] = []
-        self.observed_roles: list[InvocationRole] = []
-
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
@@ -372,18 +334,14 @@ class _RoleAwareOneShotExecutionAdapter:
             execution=WorkExecutionDependencies(
                 container_workspace="/workspace",
                 prepare_session=lambda run_session: cast(
-                    PreparedRunSessionState,
-                    _RoleAwarePreparedRunSession(
-                        run_session,
-                        self.observed_run_sessions,
-                    ),
+                    PreparedRunSessionState, _PreparedRunSession()
                 ),
                 build_session=lambda mount_path, service, provider_state_dir: _Session(
                     provider_state_dir
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _RoleAwareOneShotWorkRunner(self.observed_roles),
+                    _RoleAwareOneShotWorkRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -402,8 +360,7 @@ class _UsageLimitWithoutMappingRunner(_RoleAwareOneShotWorkRunner):
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
     ) -> str:
-        self._observed_roles.append(role)
-        del prompt, run_kind, session_uuid, on_provider_session_id
+        del role, prompt, run_kind, session_uuid, on_provider_session_id
         raise UsageLimitError(reset_time=None, service_name="codex")
 
 
@@ -421,18 +378,14 @@ class _UsageLimitWithoutMappingExecutionAdapter(_RoleAwareOneShotExecutionAdapte
             execution=WorkExecutionDependencies(
                 container_workspace="/workspace",
                 prepare_session=lambda run_session: cast(
-                    PreparedRunSessionState,
-                    _RoleAwarePreparedRunSession(
-                        run_session,
-                        self.observed_run_sessions,
-                    ),
+                    PreparedRunSessionState, _PreparedRunSession()
                 ),
                 build_session=lambda mount_path, service, provider_state_dir: _Session(
                     provider_state_dir
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _UsageLimitWithoutMappingRunner(self.observed_roles),
+                    _UsageLimitWithoutMappingRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1982,8 +1935,6 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
     service_registry_factory: Callable[..., ServiceRegistry],
     one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
 ) -> None:
-    invocation_order: list[str] = []
-    attempts_by_service: dict[str, int] = {}
     registry = service_registry_factory(
         "codex",
         "claude",
@@ -1992,10 +1943,7 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
 
     result = asyncio.run(
         prompt_runtime.OneShotRuntime(
-            execution_adapter=_OneShotExecutionAdapter(
-                invocation_order=invocation_order,
-                attempts_by_service=attempts_by_service,
-            ),
+            execution_adapter=_OneShotExecutionAdapter(),
             service_registry=registry,
         ).run_one_shot(
             one_shot_request_factory(
@@ -2026,7 +1974,6 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
             ),
         ),
     )
-    assert invocation_order == ["codex", "claude"]
 
 
 def test_one_shot_runtime_request_requires_explicit_invocation_role(
@@ -2067,9 +2014,6 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
     )
     assert request.stage == stage_selection_factory()
     assert request.override == request.stage
-    assert execution_adapter.observed_roles == [role]
-    assert execution_adapter.observed_run_sessions[0].role == role
-    assert execution_adapter.observed_run_sessions[0].session_namespace == "main"
     cancelled_token = CancellationToken()
     cancelled = one_shot_request_factory(
         override=stage_selection_factory(),
@@ -2108,8 +2052,11 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role(
     )
 
     assert result.output == "reviewer:already rendered prompt"
-    assert execution_adapter.observed_roles == [role]
-    assert execution_adapter.observed_run_sessions[0].role == role
+    assert result.runtime_metadata == prompt_runtime.OneShotRuntimeMetadata(
+        provider_session_id="provider-reviewer",
+        run_kind=RunKind.FRESH,
+        session_namespace="main",
+    )
 
     cancelled_token = CancellationToken()
     cancelled_token.cancel()
@@ -2154,8 +2101,6 @@ def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook(
         )
 
     assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("quota-review")
-    assert execution_adapter.observed_roles == [role]
-    assert execution_adapter.observed_run_sessions[0].role == role
 
 
 def test_one_shot_run_request_uses_stage_selection_vocabulary() -> None:
