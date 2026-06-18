@@ -13,6 +13,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider, TransientError
 from agent_runtime.errors import (
@@ -2401,7 +2402,7 @@ def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuati
     execution_adapter = _EphemeralExecutionAdapter()
 
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=execution_adapter,
             service_registry=service_registry_factory("claude"),
         ).run_ephemeral(
@@ -2429,7 +2430,7 @@ def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_ou
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_EphemeralExecutionAdapter(),
             service_registry=service_registry_factory("codex", "claude"),
         ).run_ephemeral(
@@ -2460,7 +2461,7 @@ def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
 ) -> None:
     with pytest.raises(AgentCredentialFailureError) as exc_info:
         asyncio.run(
-            prompt_runtime.EphemeralRuntime(
+            compat_runtime.EphemeralRuntime(
                 execution_adapter=_SetupTranslatedEphemeralExecutionAdapter(),
                 service_registry=service_registry_factory("claude"),
             ).run_ephemeral(
@@ -2487,7 +2488,7 @@ def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditi
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_UsageLimitThenSuccessEphemeralExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_ephemeral(
@@ -2520,7 +2521,7 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_EphemeralExecutionAdapter(),
             service_registry=service_registry_factory(
                 "codex",
@@ -2558,7 +2559,7 @@ def test_ephemeral_runtime_returns_cancelled_outcome_for_caller_cancellation(
     cancelled_token.cancel()
 
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_EphemeralExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_ephemeral(
@@ -2589,7 +2590,7 @@ def test_ephemeral_runtime_returns_timed_out_outcome_for_timeout_conditions(
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_TimeoutEphemeralExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_ephemeral(
@@ -2619,7 +2620,7 @@ def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retrya
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_RetryableProviderFailureEphemeralExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_ephemeral(
@@ -2714,7 +2715,7 @@ def test_ephemeral_runtime_preserves_observed_usage_on_interrupted_outcomes(
     expected_outcome: prompt_runtime.RuntimeOutcome,
 ) -> None:
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_InterruptedEphemeralExecutionAdapter(error),
             service_registry=service_registry_factory("codex"),
         ).run_ephemeral(
@@ -2741,7 +2742,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
 ) -> None:
     with pytest.raises(runtime.RuntimeConfigurationError):
         asyncio.run(
-            prompt_runtime.EphemeralRuntime(
+            compat_runtime.EphemeralRuntime(
                 execution_adapter=_EphemeralExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_ephemeral(
@@ -2764,7 +2765,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(AgentCredentialFailureError):
         asyncio.run(
-            prompt_runtime.EphemeralRuntime(
+            compat_runtime.EphemeralRuntime(
                 execution_adapter=_SetupTranslatedEphemeralExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_ephemeral(
@@ -2784,7 +2785,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(HardAgentError):
         asyncio.run(
-            prompt_runtime.EphemeralRuntime(
+            compat_runtime.EphemeralRuntime(
                 execution_adapter=_HardFailureEphemeralExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_ephemeral(
@@ -2804,7 +2805,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(TransientAgentError):
         asyncio.run(
-            prompt_runtime.EphemeralRuntime(
+            compat_runtime.EphemeralRuntime(
                 execution_adapter=_TransientProviderFailureEphemeralExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_ephemeral(

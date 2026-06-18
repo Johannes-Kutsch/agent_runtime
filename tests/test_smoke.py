@@ -16,7 +16,8 @@ def test_readme_guides_consumers_to_ephemeral_runtime_entrypoint() -> None:
     assert "## Consumer Integration" in readme
     assert "### Ephemeral Execution" in readme
     assert "EphemeralRunRequest" in readme
-    assert "EphemeralRuntime" in readme
+    assert "RuntimeClient" in readme
+    assert "EphemeralRuntime" not in readme
     assert "run_ephemeral" in readme
     assert "start with the one-shot path first" not in readme
     assert "### One-shot Execution" not in readme

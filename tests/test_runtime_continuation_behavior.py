@@ -12,6 +12,7 @@ from typing import Any, Callable, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.contracts import (
@@ -762,7 +763,7 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -940,7 +941,7 @@ def test_resumed_session_runtime_passes_continuation_provider_resume_state_to_ad
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_ContinuationResumeStateExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -989,7 +990,7 @@ def test_resumed_session_runtime_completed_outcome_keeps_service_bound_in_contin
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_ContinuationBoundServiceResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1153,7 +1154,7 @@ def test_resumed_session_runtime_returns_latest_adapter_updated_provider_resume_
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_LatestResumeStateExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1323,7 +1324,7 @@ def test_resumed_session_runtime_keeps_frozen_adapter_session_seam_unchanged() -
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_FrozenPreparedSessionExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1374,7 +1375,7 @@ def test_resumed_session_runtime_from_continuation_defaults_and_overrides_model_
     )
 
     defaulted_result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1387,7 +1388,7 @@ def test_resumed_session_runtime_from_continuation_defaults_and_overrides_model_
         )
     )
     overridden_result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1437,7 +1438,7 @@ def test_resumed_session_runtime_started_usage_limit_keeps_service_bound_in_cont
     continuation = _bound_service_resumed_continuation(worktree)
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_ContinuationBoundStartedUsageLimitResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1480,7 +1481,7 @@ def test_resumed_session_runtime_exposes_tool_policy_effects_through_runtime_res
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=execution_adapter
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1514,7 +1515,7 @@ def test_resumed_session_runtime_reports_started_progress_for_usage_limited_outc
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedUsageLimitResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1566,7 +1567,7 @@ def test_resumed_session_runtime_prefers_adapter_reported_model_activity_for_usa
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_ModelActivityUsageLimitResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1628,7 +1629,7 @@ def test_resumed_session_runtime_returns_no_service_available_outcome_for_bound_
             raise AssertionError("bound service unavailability should stop before work")
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_UnavailableBoundServiceExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1721,7 +1722,7 @@ def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuati
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedCancellationExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1748,7 +1749,7 @@ def test_resumed_session_runtime_returns_timed_out_outcome_with_input_continuati
     continuation = _bound_service_resumed_continuation(worktree)
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedTimeoutResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1775,7 +1776,7 @@ def test_resumed_session_runtime_returns_retryable_provider_failure_outcome_with
     continuation = _bound_service_resumed_continuation(worktree)
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -1975,7 +1976,7 @@ def test_resumed_session_runtime_returns_usage_limited_outcome_with_input_contin
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_NotStartedUsageLimitExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2024,7 +2025,7 @@ def test_resumed_session_runtime_returns_no_service_available_outcome_with_input
             raise AssertionError("bound service unavailability should stop before work")
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_UnavailableBoundServiceExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2055,7 +2056,7 @@ def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuati
     cancelled_token.cancel()
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_TimeoutResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2100,7 +2101,7 @@ def test_resumed_session_runtime_preserves_input_continuation_for_not_started_in
     continuation = _bound_service_resumed_continuation(worktree)
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=execution_adapter
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2151,7 +2152,7 @@ def test_resumed_session_runtime_preserves_resumed_session_behavior_through_run_
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2200,7 +2201,7 @@ def test_resumed_session_runtime_uses_invocation_role_from_session_plan(
     execution_adapter = _RoleAwareResidentSeamExecutionAdapter()
 
     asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=execution_adapter
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2273,7 +2274,7 @@ def test_resumed_session_runtime_preserves_planned_relative_provider_state_path(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2325,7 +2326,7 @@ def test_resumed_session_runtime_returns_portable_continuation_resume_data(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2376,7 +2377,7 @@ def test_resumed_session_runtime_returns_cancelled_outcome_for_pre_start_caller_
     cancelled_token.cancel()
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
@@ -2414,7 +2415,7 @@ def test_resumed_session_runtime_reports_started_progress_for_timed_out_outcome(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
+        compat_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedTimeoutResidentExecutionAdapter()
         ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(

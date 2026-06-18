@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
@@ -1080,7 +1081,7 @@ def test_new_session_runtime_selects_fallback_service_before_binding_continuatio
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter(),
             service_registry=service_registry_factory("claude"),
         ).run_new_session(
@@ -1138,7 +1139,7 @@ def test_new_session_runtime_retries_fallback_before_binding_continuation(
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_UsageLimitedThenFallbackNewSessionExecutionAdapter(),
             service_registry=service_registry_factory("codex", "claude"),
         ).run_new_session(
@@ -1207,7 +1208,7 @@ def test_new_session_runtime_keeps_started_usage_limit_outcome(
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_StartedUsageLimitNewSessionExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1263,7 +1264,7 @@ def test_new_session_runtime_returns_continuation_for_started_interruption(
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_StartedUsageLimitNewSessionExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1379,7 +1380,7 @@ def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
             )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_AdapterOwnedResumeStateExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1424,7 +1425,7 @@ def test_new_session_runtime_reports_not_started_progress_without_continuation(
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_PreparedNotStartedUsageLimitNewSessionExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1469,7 +1470,7 @@ def test_new_session_runtime_does_not_create_continuation_from_session_allocatio
     execution_adapter = _PreparedNotStartedUsageLimitNewSessionExecutionAdapter()
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=execution_adapter,
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1509,7 +1510,7 @@ def test_new_session_runtime_returns_continuation_for_started_cancellation(
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_StartedCancellationNewSessionExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1563,7 +1564,7 @@ def test_new_session_runtime_keeps_not_started_cancellation_without_continuation
     execution_adapter = _PreparedNotStartedCancellationNewSessionExecutionAdapter()
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=execution_adapter,
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1606,7 +1607,7 @@ def test_new_session_runtime_returns_timed_out_outcome_with_continuation_after_m
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_StartedTimeoutResidentExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1659,7 +1660,7 @@ def test_new_session_runtime_returns_retryable_provider_failure_outcome_with_con
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1714,7 +1715,7 @@ def test_new_session_runtime_keeps_not_started_timeout_without_continuation(
     execution_adapter = _TimeoutResidentExecutionAdapter()
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=execution_adapter,
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1756,7 +1757,7 @@ def test_new_session_runtime_keeps_not_started_retryable_provider_failure_withou
     )
 
     result = asyncio.run(
-        prompt_runtime.NewSessionRuntime(
+        compat_runtime.NewSessionRuntime(
             execution_adapter=_RetryableProviderFailureResidentExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_new_session(
@@ -1814,7 +1815,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(runtime.RuntimeConfigurationError):
         asyncio.run(
-            prompt_runtime.NewSessionRuntime(
+            compat_runtime.NewSessionRuntime(
                 execution_adapter=cast(Any, object()),
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)
@@ -1822,7 +1823,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(AgentCredentialFailureError):
         asyncio.run(
-            prompt_runtime.NewSessionRuntime(
+            compat_runtime.NewSessionRuntime(
                 execution_adapter=_CredentialFailureResidentExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)
@@ -1830,7 +1831,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(HardAgentError):
         asyncio.run(
-            prompt_runtime.NewSessionRuntime(
+            compat_runtime.NewSessionRuntime(
                 execution_adapter=_HardFailureResidentExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)
@@ -1838,7 +1839,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(TransientAgentError):
         asyncio.run(
-            prompt_runtime.NewSessionRuntime(
+            compat_runtime.NewSessionRuntime(
                 execution_adapter=_TransientProviderFailureResidentExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)
@@ -1846,7 +1847,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(AgentFailedError):
         asyncio.run(
-            prompt_runtime.NewSessionRuntime(
+            compat_runtime.NewSessionRuntime(
                 execution_adapter=_UnclassifiedProviderFailureResidentExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)
@@ -1854,7 +1855,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
 
     with pytest.raises(RuntimeError, match="unexpected failure"):
         asyncio.run(
-            prompt_runtime.NewSessionRuntime(
+            compat_runtime.NewSessionRuntime(
                 execution_adapter=_UnexpectedFailureResidentExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)

@@ -48,18 +48,12 @@ __all__ = [
     "EphemeralRunRequest",
     "EphemeralRunResult",
     "EphemeralResultMetadata",
-    "EphemeralRuntime",
-    "EphemeralRuntimeExecutionAdapter",
     "EphemeralRuntimeMetadata",
     "NewSessionRunRequest",
-    "NewSessionRuntime",
-    "NewSessionRuntimeExecutionAdapter",
     "InvocationProgress",
     "ProviderAuth",
     "ProviderUsage",
     "ResumedSessionRunRequest",
-    "ResumedSessionRuntime",
-    "ResumedSessionRuntimeExecutionAdapter",
     "RuntimeClient",
     "RuntimeOutcome",
     "SessionRunResult",
@@ -69,10 +63,6 @@ __all__ = [
     "ToolPolicyProfile",
     "WorktreeMount",
 ]
-
-EphemeralRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
-NewSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
-ResumedSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 
 _RuntimeIntent = _runtime_facade_lifecycle_module._RuntimeIntent
 _EphemeralPreparedProviderRunSession = (
@@ -104,10 +94,8 @@ _provider_state_dir_container_path = (
 _continuation_resume_state = _runtime_facade_lifecycle_module._continuation_resume_state
 _build_continuation = _runtime_facade_lifecycle_module._build_continuation
 _interruption_continuation = _runtime_facade_lifecycle_module._interruption_continuation
-_coerce_service_registry = _runtime_facade_lifecycle_module._coerce_service_registry
 _run_ephemeral_outcome = _runtime_facade_lifecycle_module._run_ephemeral_outcome
 _run_new_session_outcome = _runtime_facade_lifecycle_module._run_new_session_outcome
-
 for _runtime_export in (
     Continuation,
     EphemeralResultMetadata,
@@ -211,60 +199,6 @@ def _run_builtin_session_outcome(
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
-        )
-
-
-class EphemeralRuntime:
-    def __init__(
-        self,
-        *,
-        execution_adapter: EphemeralRuntimeExecutionAdapter,
-        service_registry: ServiceRegistry | dict[str, Any] | None = None,
-    ) -> None:
-        self._service_registry = _coerce_service_registry(service_registry)
-        self._execution_adapter = execution_adapter
-
-    async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
-        return await _run_ephemeral_outcome(
-            runner=self._execution_adapter,
-            service_registry=self._service_registry,
-            request=request,
-        )
-
-
-class NewSessionRuntime:
-    def __init__(
-        self,
-        *,
-        execution_adapter: NewSessionRuntimeExecutionAdapter,
-        service_registry: ServiceRegistry | dict[str, Any] | None = None,
-    ) -> None:
-        self._service_registry = _coerce_service_registry(service_registry)
-        self._execution_adapter = execution_adapter
-
-    async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
-        return await _run_new_session_outcome(
-            runner=self._execution_adapter,
-            service_registry=self._service_registry,
-            request=request,
-        )
-
-
-class ResumedSessionRuntime:
-    def __init__(
-        self,
-        *,
-        execution_adapter: ResumedSessionRuntimeExecutionAdapter,
-    ) -> None:
-        self._execution_adapter = execution_adapter
-
-    async def run_resumed_session(
-        self,
-        request: ResumedSessionRunRequest,
-    ) -> RuntimeOutcome:
-        return await _run_resumed_session_outcome(
-            runner=self._execution_adapter,
-            request=request,
         )
 
 

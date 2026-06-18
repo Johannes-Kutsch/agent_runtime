@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
@@ -2915,7 +2916,7 @@ def test_model_and_effort_values_remain_provider_execution_parameters(
     stage_selection_factory: Callable[..., runtime.StageSelection],
 ) -> None:
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_RoleAwareEphemeralCompatExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
         ).run_ephemeral(

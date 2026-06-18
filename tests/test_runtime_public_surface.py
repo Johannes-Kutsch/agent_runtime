@@ -8,6 +8,7 @@ from typing import cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
@@ -129,6 +130,12 @@ def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases
     assert "OneShotRuntime" not in exported_names
     assert "OneShotRunRequest" not in exported_names
     with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import EphemeralRuntime", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import NewSessionRuntime", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ResumedSessionRuntime", {}, {})
+    with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ResumableRunRequest", {}, {})
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import OneShotRuntime", {}, {})
@@ -188,12 +195,11 @@ def test_types_module_exposes_stage_selection_as_the_only_stage_chain_value() ->
 def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     assert {
         "NewSessionRunRequest",
-        "NewSessionRuntime",
         "ResumedSessionRunRequest",
-        "ResumedSessionRuntime",
+        "RuntimeClient",
     } <= set(prompt_runtime.__all__)
     assert hasattr(prompt_runtime, "ResumedSessionRunRequest")
-    assert hasattr(prompt_runtime, "ResumedSessionRuntime")
+    assert hasattr(prompt_runtime, "RuntimeClient")
     assert prompt_runtime.ResumedSessionRunRequest.__name__ == (
         "ResumedSessionRunRequest"
     )
@@ -224,10 +230,10 @@ def test_runtime_package_root_exports_keep_runtime_lifecycle_identity() -> None:
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
 
 
-def test_resumed_session_runtime_exposes_only_lifecycle_resume_method() -> None:
-    runtime_instance = prompt_runtime.ResumedSessionRuntime(
+def test_internal_runtime_compatibility_module_keeps_resume_wrapper_private() -> None:
+    runtime_instance = compat_runtime.ResumedSessionRuntime(
         execution_adapter=cast(
-            prompt_runtime.ResumedSessionRuntimeExecutionAdapter,
+            compat_runtime.ResumedSessionRuntimeExecutionAdapter,
             object(),
         )
     )
@@ -239,9 +245,10 @@ def test_resumed_session_runtime_exposes_only_lifecycle_resume_method() -> None:
 def test_readme_guides_consumers_to_lifecycle_session_entrypoints() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "ResumedSessionRuntime" in readme
+    assert "RuntimeClient" in readme
     assert "ResumedSessionRunRequest" in readme
     assert "run_resumed_session" in readme
+    assert "ResumedSessionRuntime" not in readme
     assert "run_resumable_prompt" not in readme
 
 
@@ -254,7 +261,10 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
     assert "ResumableExecutionProvider" in contracts.__all__
     assert not hasattr(contracts, "ExecutionService")
     assert not hasattr(contracts, "ResidentExecutionProvider")
-    assert runtime.ExecutionProvider is contracts.ExecutionProvider
+    with pytest.raises(AttributeError):
+        getattr(runtime, "ExecutionProvider")
+    with pytest.raises(ImportError):
+        exec("from agent_runtime import ExecutionProvider", {}, {})
 
 
 def test_session_planning_surface_uses_resumable_vocabulary() -> None:

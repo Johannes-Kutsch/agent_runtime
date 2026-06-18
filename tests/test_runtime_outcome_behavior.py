@@ -7,6 +7,7 @@ from typing import Any, Callable, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider
 from agent_runtime.execution_contracts import (
@@ -120,7 +121,7 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
     )
 
     result = asyncio.run(
-        prompt_runtime.EphemeralRuntime(
+        compat_runtime.EphemeralRuntime(
             execution_adapter=_ToolPolicyRenderingEphemeralExecutionAdapter(),
             service_registry=service_registry_factory("claude"),
         ).run_ephemeral(

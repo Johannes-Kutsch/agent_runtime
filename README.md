@@ -52,7 +52,7 @@ if result.kind == "completed":
     print(result.usage)
 ```
 
-The older adapter-wired `EphemeralRuntime(...).run_ephemeral(EphemeralRunRequest(...))` spelling is the pre-migration implementation shape and should be retired from consumer documentation as issue #93 is implemented.
+Older adapter-wired runtime wrappers remain internal compatibility seams and are not part of the documented `Runtime Public Surface`.
 
 ### New-Session Execution
 
@@ -115,7 +115,7 @@ if result.kind == "completed":
     continuation = result.result.continuation
 ```
 
-The pre-migration `ResumedSessionRuntime(...).run_resumed_session(ResumedSessionRunRequest(...))` adapter form is an implementation seam, not the intended consumer integration path.
+Older resumed-session wrapper spellings remain internal compatibility seams and are not the intended consumer integration path.
 
 ### Runtime Outcomes
 

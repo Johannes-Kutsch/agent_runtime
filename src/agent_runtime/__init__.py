@@ -4,7 +4,7 @@ from ._import_isolation import (
     assert_runtime_import_isolation as _assert_runtime_import_isolation,
 )
 
-from .contracts import ExecutionProvider, ToolAccess, ToolPolicy, ToolPolicyProfile
+from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .errors import (
     AgentCredentialFailureError,
     AgentFailedError,
@@ -16,7 +16,6 @@ from .errors import (
     UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
-from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .runtime import (
     Continuation,
@@ -36,12 +35,10 @@ __all__ = [
     "AgentTimeoutError",
     "Continuation",
     "HardAgentError",
-    "ExecutionProvider",
     "InvocationRole",
     "InvocationProgress",
     "ProviderAuth",
     "ProviderUsage",
-    "ProviderSessionAdapter",
     "RuntimeClient",
     "RuntimeConfigurationError",
     "RuntimeOutcome",
