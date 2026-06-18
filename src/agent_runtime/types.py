@@ -39,7 +39,4 @@ def _require_stage_value(field_name: str, value: str, *, index: int) -> None:
     raise ValueError(f"StageSelection {node_label} requires a non-empty {field_name}.")
 
 
-StageOverride = StageSelection
-
-
 __all__ = ["StageSelection"]
