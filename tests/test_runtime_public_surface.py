@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import cast
@@ -131,6 +132,14 @@ def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surfa
         exec("from agent_runtime.runtime import ProviderInvocationResult", {}, {})
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ProviderInvocationAdapter", {}, {})
+
+
+def test_runtime_client_constructor_stays_on_public_default_surface() -> None:
+    signature = inspect.signature(runtime.RuntimeClient)
+    assert list(signature.parameters) == []
+    unexpected_kwargs: dict[str, object] = {"_provider_invocation_adapter": None}
+    with pytest.raises(TypeError):
+        runtime.RuntimeClient(**unexpected_kwargs)
 
 
 def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import _time as _time_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
@@ -42,6 +42,9 @@ from ._runtime_lifecycle import (
 )
 from .service_registry import ServiceRegistry
 from .usage_limit_scope import UsageLimitScope
+
+if TYPE_CHECKING:
+    from ._provider_invocation import ProviderInvocationAdapter
 
 __all__ = [
     "Continuation",
@@ -281,10 +284,12 @@ class RuntimeClient:
 def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
     *,
+    provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     select_builtin_stage: Any = _select_builtin_stage,
 ) -> EphemeralRunResult:
     return _builtin_runtime_client_module._run_builtin_ephemeral(
         request,
+        provider_invocation_adapter=provider_invocation_adapter,
         select_builtin_stage=select_builtin_stage,
         validate_claude_stage=_validate_claude_stage,
         validate_opencode_stage=_validate_opencode_stage,

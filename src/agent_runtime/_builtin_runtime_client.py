@@ -12,16 +12,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
 
+from . import _time as _time_module
 from .agent_log import AgentInvocationLog, WorkInvocationLog
 from ._provider_invocation import (
     ProductionProviderInvocationAdapter,
+    ProviderInvocationAdapter,
     ProviderInvocationLogContext,
     ProviderInvocationPrompt,
     ProviderInvocationRequest,
     ProviderInvocationResult,
     ProviderOutputReductionHooks,
+    provider_invocation_failure_provider_session_id,
 )
-from . import _time as _time_module
 from ._runtime_lifecycle import (
     Continuation,
     EphemeralResultMetadata,
@@ -1547,9 +1549,68 @@ def _run_provider_process(
     )
 
 
+def _default_provider_invocation_adapter() -> ProviderInvocationAdapter:
+    return ProductionProviderInvocationAdapter()
+
+
+def _invoke_provider(
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter,
+    command: str,
+    worktree: Path,
+    environment: dict[str, str],
+    prompt_content: str,
+    prompt_path: Path | None,
+    cleanup_prompt_path: bool,
+    run_kind: RunKind,
+    role: Any,
+    usage_limit_scope: Any,
+    provider_session_id: str | None,
+    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+    invocation_log: Any,
+    reduce_logged_output: Callable[
+        [list[str], WorkInvocationLog],
+        tuple[str, ProviderUsage | None],
+    ]
+    | None = None,
+    extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
+) -> ProviderInvocationResult:
+    return provider_invocation_adapter.execute(
+        ProviderInvocationRequest(
+            command=command,
+            worktree=worktree,
+            environment=environment,
+            prompt=ProviderInvocationPrompt(
+                content=prompt_content,
+                path=prompt_path,
+                cleanup_path=cleanup_prompt_path,
+            ),
+            run_kind=run_kind,
+            role=role,
+            usage_limit_scope=usage_limit_scope,
+            log_context=(
+                None
+                if invocation_log is None
+                else ProviderInvocationLogContext(
+                    invocation_log=invocation_log,
+                    role=role,
+                    usage_limit_scope=usage_limit_scope,
+                )
+            ),
+            provider_session_id=provider_session_id,
+            output_hooks=ProviderOutputReductionHooks(
+                reduce_output=reduce_output,
+                reduce_logged_output=reduce_logged_output,
+                extract_provider_session_id=extract_provider_session_id,
+            ),
+        )
+    )
+
+
 def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
     *,
+    provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     select_builtin_stage: Callable[
         [StageSelection], StageSelection
     ] = _select_builtin_stage,
@@ -1574,6 +1635,11 @@ def _run_builtin_ephemeral(
     validate_codex_auth: Callable[[], None] = _validate_codex_auth,
     selected_service_path: Callable[..., tuple[str, ...]] = _selected_service_path,
 ) -> EphemeralRunResult:
+    invocation_adapter = (
+        _default_provider_invocation_adapter()
+        if provider_invocation_adapter is None
+        else provider_invocation_adapter
+    )
     selected_stage = select_builtin_stage(request.stage)
     if selected_stage.service == "codex":
         validate_codex_stage(selected_stage)
@@ -1612,48 +1678,48 @@ def _run_builtin_ephemeral(
         role=request.role,
     )
     if selected_stage.service == "codex":
-        invocation_result = _run_provider_process(
+        invocation_result = _invoke_provider(
+            provider_invocation_adapter=invocation_adapter,
             command=codex_command(
                 model=selected_stage.model,
                 effort=selected_stage.effort,
                 tool_access=request.tool_access,
             ),
-            cwd=request.worktree,
-            env=codex_env(),
-            reduce_output=reduce_codex_stream,
-            invocation_log=invocation_log,
-            role=request.role,
-            run_kind=RunKind.FRESH,
-            session_uuid=None,
-            prompt=request.prompt,
+            worktree=request.worktree,
+            environment=codex_env(),
+            prompt_content=request.prompt,
             prompt_path=prompt_path,
             cleanup_prompt_path=True,
+            run_kind=RunKind.FRESH,
+            role=request.role,
             usage_limit_scope=request.usage_limit_scope,
+            provider_session_id=None,
+            reduce_output=reduce_codex_stream,
+            invocation_log=invocation_log,
         )
-        result_text = invocation_result.output
-        usage = invocation_result.usage
     elif selected_stage.service == "opencode":
-        invocation_result = _run_provider_process(
+        invocation_result = _invoke_provider(
+            provider_invocation_adapter=invocation_adapter,
             command=opencode_command(
                 model=selected_stage.model,
                 effort=selected_stage.effort,
                 run_kind=RunKind.FRESH,
                 session_uuid=None,
             ),
-            cwd=request.worktree,
-            env=opencode_env(
+            worktree=request.worktree,
+            environment=opencode_env(
                 auth=request.auth,
                 state_dir_container_path=str(request.worktree),
             ),
-            reduce_output=lambda lines: (reduce_opencode_stream(lines), None),
-            invocation_log=invocation_log,
-            role=request.role,
-            run_kind=RunKind.FRESH,
-            session_uuid=None,
-            prompt=request.prompt,
+            prompt_content=request.prompt,
             prompt_path=prompt_path,
             cleanup_prompt_path=True,
+            run_kind=RunKind.FRESH,
+            role=request.role,
             usage_limit_scope=request.usage_limit_scope,
+            provider_session_id=None,
+            reduce_output=lambda lines: (reduce_opencode_stream(lines), None),
+            invocation_log=invocation_log,
             reduce_logged_output=lambda lines, work_invocation_log: (
                 _reduce_logged_opencode_stream_with_usage(
                     lines,
@@ -1661,30 +1727,29 @@ def _run_builtin_ephemeral(
                 )
             ),
         )
-        result_text = invocation_result.output
-        usage = invocation_result.usage
     else:
-        invocation_result = _run_provider_process(
+        invocation_result = _invoke_provider(
+            provider_invocation_adapter=invocation_adapter,
             command=claude_command(
                 model=selected_stage.model,
                 effort=selected_stage.effort,
                 tool_access=request.tool_access,
                 prompt_path=prompt_path,
             ),
-            cwd=request.worktree,
-            env=claude_env(auth=request.auth),
-            reduce_output=reduce_claude_stream,
-            invocation_log=invocation_log,
-            role=request.role,
-            run_kind=RunKind.FRESH,
-            session_uuid=None,
-            prompt=request.prompt,
+            worktree=request.worktree,
+            environment=claude_env(auth=request.auth),
+            prompt_content=request.prompt,
             prompt_path=prompt_path,
             cleanup_prompt_path=True,
+            run_kind=RunKind.FRESH,
+            role=request.role,
             usage_limit_scope=request.usage_limit_scope,
+            provider_session_id=None,
+            reduce_output=reduce_claude_stream,
+            invocation_log=invocation_log,
         )
-        result_text = invocation_result.output
-        usage = invocation_result.usage
+    result_text = invocation_result.output
+    usage = invocation_result.usage
     service_path = selected_service_path(
         request.stage,
         selected_service=selected_stage.service,
@@ -1743,7 +1808,16 @@ def _require_opencode_auth(auth: ProviderAuth | None) -> None:
     )
 
 
-def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
+def _run_builtin_new_session(
+    request: NewSessionRunRequest,
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter | None = None,
+) -> RuntimeOutcome:
+    invocation_adapter = (
+        _default_provider_invocation_adapter()
+        if provider_invocation_adapter is None
+        else provider_invocation_adapter
+    )
     runtime_state_dir = _require_runtime_state_dir(
         request.runtime_state_dir,
         context="NewSessionRunRequest",
@@ -1779,39 +1853,35 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
                     provider_auth=request.provider_auth,
                     usage_limit_scope=request.usage_limit_scope,
                     session_namespace=request.session_namespace,
-                )
+                ),
+                provider_invocation_adapter=invocation_adapter,
             )
         prompt_path = Path("/tmp/.pycastle_prompt")
         provider_session_id: str | None = None
         try:
-            invocation_result = ProductionProviderInvocationAdapter().execute(
-                ProviderInvocationRequest(
-                    command=_codex_command(
-                        model=selected_stage.model,
-                        effort=selected_stage.effort,
-                        tool_access=request.tool_access,
-                        run_kind=RunKind.FRESH,
-                        session_uuid=None,
-                    ),
-                    worktree=request.worktree,
-                    environment=_codex_env(
-                        state_dir_container_path=str(provider_state_dir),
-                    ),
-                    prompt=ProviderInvocationPrompt(
-                        content=request.prompt,
-                        path=prompt_path,
-                        cleanup_path=True,
-                    ),
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
+                command=_codex_command(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
                     run_kind=RunKind.FRESH,
-                    role=request.role,
-                    usage_limit_scope=request.usage_limit_scope,
-                    log_context=None,
-                    provider_session_id=None,
-                    output_hooks=ProviderOutputReductionHooks(
-                        reduce_output=_reduce_codex_stream,
-                        extract_provider_session_id=_extract_codex_provider_session_id,
-                    ),
-                )
+                    session_uuid=None,
+                ),
+                worktree=request.worktree,
+                environment=_codex_env(
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                prompt_content=request.prompt,
+                prompt_path=prompt_path,
+                cleanup_prompt_path=True,
+                run_kind=RunKind.FRESH,
+                role=request.role,
+                usage_limit_scope=request.usage_limit_scope,
+                provider_session_id=None,
+                reduce_output=_reduce_codex_stream,
+                invocation_log=None,
+                extract_provider_session_id=_extract_codex_provider_session_id,
             )
             provider_session_id = invocation_result.provider_session_id
             result_text = invocation_result.output
@@ -1883,7 +1953,8 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
                     usage_limit_scope=request.usage_limit_scope,
                     session_namespace=request.session_namespace,
                     logs_dir=request.logs_dir,
-                )
+                ),
+                provider_invocation_adapter=invocation_adapter,
             )
         _validate_claude_stage(selected_stage)
         _require_claude_auth(request.provider_auth)
@@ -1966,7 +2037,8 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
 
     try:
         if selected_stage.service == "claude":
-            invocation_result = _run_provider_process(
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
                 command=_claude_command(
                     model=selected_stage.model,
                     effort=selected_stage.effort,
@@ -1975,59 +2047,67 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
                     run_kind=run_kind,
                     session_uuid=provider_session_id,
                 ),
-                cwd=request.worktree,
-                env=_claude_env(
+                worktree=request.worktree,
+                environment=_claude_env(
                     auth=request.provider_auth,
                     state_dir_container_path=str(provider_state_dir),
                 ),
-                reduce_output=_reduce_claude_stream,
-                invocation_log=invocation_log,
-                role=request.role,
-                run_kind=run_kind,
-                session_uuid=provider_session_id,
-                prompt=request.prompt,
+                prompt_content=request.prompt,
                 prompt_path=prompt_path,
                 cleanup_prompt_path=True,
+                run_kind=run_kind,
+                role=request.role,
                 usage_limit_scope=request.usage_limit_scope,
+                provider_session_id=provider_session_id,
+                reduce_output=_reduce_claude_stream,
+                invocation_log=invocation_log,
             )
-            result_text = invocation_result.output
-            usage = invocation_result.usage
         else:
-            invocation_result = _run_provider_process(
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
                 command=_opencode_command(
                     model=selected_stage.model,
                     effort=selected_stage.effort,
                     run_kind=run_kind,
                     session_uuid=provider_session_id,
                 ),
-                cwd=request.worktree,
-                env=_opencode_env(
+                worktree=request.worktree,
+                environment=_opencode_env(
                     auth=request.provider_auth,
                     state_dir_container_path=str(provider_state_dir),
                 ),
-                reduce_output=_reduce_opencode_session_output,
-                invocation_log=invocation_log,
-                role=request.role,
-                run_kind=run_kind,
-                session_uuid=provider_session_id,
-                prompt=request.prompt,
+                prompt_content=request.prompt,
                 prompt_path=prompt_path,
                 cleanup_prompt_path=True,
+                run_kind=run_kind,
+                role=request.role,
                 usage_limit_scope=request.usage_limit_scope,
+                provider_session_id=provider_session_id,
+                reduce_output=_reduce_opencode_session_output,
+                invocation_log=invocation_log,
                 reduce_logged_output=_reduce_logged_opencode_session_output,
                 extract_provider_session_id=lambda _lines: observed_provider_session_id,
             )
-            result_text = invocation_result.output
-            usage = invocation_result.usage
             provider_session_id = (
-                invocation_result.provider_session_id or provider_session_id
+                observed_provider_session_id or invocation_result.provider_session_id
             )
+            assert provider_session_id is not None
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
     except (UsageLimitError, RetryableProviderFailureError) as exc:
+        observed_failure_provider_session_id = (
+            provider_invocation_failure_provider_session_id(exc)
+        )
+        if observed_failure_provider_session_id is not None:
+            provider_session_id = observed_failure_provider_session_id
         if selected_stage.service == "opencode":
-            provider_session_id = observed_provider_session_id
+            provider_session_id = (
+                observed_failure_provider_session_id or observed_provider_session_id
+            )
         exc.continuation = None
-        if exc.invocation_progress is InvocationProgress.STARTED:
+        if (
+            exc.invocation_progress is InvocationProgress.STARTED
+            and provider_session_id is not None
+        ):
             exc.continuation = (
                 _build_claude_continuation(
                     model=selected_stage.model,
@@ -2047,6 +2127,13 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
                 )
             )
         raise
+    if selected_stage.service == "claude":
+        provider_session_id = (
+            invocation_result.provider_session_id or provider_session_id
+        )
+    assert provider_session_id is not None
+    result_text = invocation_result.output
+    usage = invocation_result.usage
     return RuntimeOutcome.completed(
         output=result_text,
         result=SessionRunResult(
@@ -2081,7 +2168,16 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
     )
 
 
-def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOutcome:
+def _run_builtin_resumed_session(
+    request: ResumedSessionRunRequest,
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter | None = None,
+) -> RuntimeOutcome:
+    invocation_adapter = (
+        _default_provider_invocation_adapter()
+        if provider_invocation_adapter is None
+        else provider_invocation_adapter
+    )
     runtime_state_dir = _require_runtime_state_dir(
         request.runtime_state_dir,
         context="ResumedSessionRunRequest",
@@ -2127,34 +2223,29 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
         prompt_path = Path("/tmp/.pycastle_prompt")
         active_provider_session_id: str | None = provider_session_id
         try:
-            invocation_result = ProductionProviderInvocationAdapter().execute(
-                ProviderInvocationRequest(
-                    command=_codex_command(
-                        model=request.model,
-                        effort=request.effort,
-                        tool_access=request.tool_access,
-                        run_kind=run_kind,
-                        session_uuid=provider_session_id,
-                    ),
-                    worktree=request.worktree.host_path,
-                    environment=_codex_env(
-                        state_dir_container_path=str(provider_state_dir),
-                    ),
-                    prompt=ProviderInvocationPrompt(
-                        content=request.prompt,
-                        path=prompt_path,
-                        cleanup_path=True,
-                    ),
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
+                command=_codex_command(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
                     run_kind=run_kind,
-                    role=request.role,
-                    usage_limit_scope=request.usage_limit_scope,
-                    log_context=None,
-                    provider_session_id=provider_session_id,
-                    output_hooks=ProviderOutputReductionHooks(
-                        reduce_output=_reduce_codex_stream,
-                        extract_provider_session_id=_extract_codex_provider_session_id,
-                    ),
-                )
+                    session_uuid=provider_session_id,
+                ),
+                worktree=request.worktree.host_path,
+                environment=_codex_env(
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                prompt_content=request.prompt,
+                prompt_path=prompt_path,
+                cleanup_prompt_path=True,
+                run_kind=run_kind,
+                role=request.role,
+                usage_limit_scope=request.usage_limit_scope,
+                provider_session_id=provider_session_id,
+                reduce_output=_reduce_codex_stream,
+                invocation_log=None,
+                extract_provider_session_id=_extract_codex_provider_session_id,
             )
             active_provider_session_id = (
                 invocation_result.provider_session_id or provider_session_id
@@ -2303,7 +2394,8 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
 
     try:
         if continuation.selected_service == "claude":
-            invocation_result = _run_provider_process(
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
                 command=_claude_command(
                     model=request.model,
                     effort=request.effort,
@@ -2312,57 +2404,62 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
                     run_kind=run_kind,
                     session_uuid=provider_session_id,
                 ),
-                cwd=request.worktree.host_path,
-                env=_claude_env(
+                worktree=request.worktree.host_path,
+                environment=_claude_env(
                     auth=request.provider_auth,
                     state_dir_container_path=str(provider_state_dir),
                 ),
-                reduce_output=_reduce_claude_stream,
-                invocation_log=invocation_log,
-                role=request.role,
-                run_kind=run_kind,
-                session_uuid=provider_session_id,
-                prompt=request.prompt,
+                prompt_content=request.prompt,
                 prompt_path=prompt_path,
                 cleanup_prompt_path=True,
+                run_kind=run_kind,
+                role=request.role,
                 usage_limit_scope=request.usage_limit_scope,
+                provider_session_id=provider_session_id,
+                reduce_output=_reduce_claude_stream,
+                invocation_log=invocation_log,
             )
-            result_text = invocation_result.output
-            usage = invocation_result.usage
         else:
-            invocation_result = _run_provider_process(
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
                 command=_opencode_command(
                     model=request.model,
                     effort=request.effort,
                     run_kind=run_kind,
                     session_uuid=provider_session_id,
                 ),
-                cwd=request.worktree.host_path,
-                env=_opencode_env(
+                worktree=request.worktree.host_path,
+                environment=_opencode_env(
                     auth=request.provider_auth,
                     state_dir_container_path=str(provider_state_dir),
                 ),
-                reduce_output=_reduce_opencode_session_output,
-                invocation_log=invocation_log,
-                role=request.role,
-                run_kind=run_kind,
-                session_uuid=provider_session_id,
-                prompt=request.prompt,
+                prompt_content=request.prompt,
                 prompt_path=prompt_path,
                 cleanup_prompt_path=True,
+                run_kind=run_kind,
+                role=request.role,
                 usage_limit_scope=request.usage_limit_scope,
+                provider_session_id=provider_session_id,
+                reduce_output=_reduce_opencode_session_output,
+                invocation_log=invocation_log,
                 reduce_logged_output=_reduce_logged_opencode_session_output,
                 extract_provider_session_id=lambda _lines: observed_provider_session_id,
             )
-            result_text = invocation_result.output
-            usage = invocation_result.usage
             provider_session_id = (
-                invocation_result.provider_session_id or provider_session_id
+                observed_provider_session_id or invocation_result.provider_session_id
             )
+            assert provider_session_id is not None
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
     except (UsageLimitError, RetryableProviderFailureError) as exc:
+        observed_failure_provider_session_id = (
+            provider_invocation_failure_provider_session_id(exc)
+        )
+        if observed_failure_provider_session_id is not None:
+            provider_session_id = observed_failure_provider_session_id
         if continuation.selected_service == "opencode":
-            provider_session_id = observed_provider_session_id
+            provider_session_id = (
+                observed_failure_provider_session_id or observed_provider_session_id
+            )
         exc.continuation = (
             (
                 _build_claude_continuation(
@@ -2383,9 +2480,17 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
                 )
             )
             if exc.invocation_progress is InvocationProgress.STARTED
+            and provider_session_id is not None
             else None
         )
         raise
+    if continuation.selected_service == "claude":
+        provider_session_id = (
+            invocation_result.provider_session_id or provider_session_id
+        )
+    assert provider_session_id is not None
+    result_text = invocation_result.output
+    usage = invocation_result.usage
     return RuntimeOutcome.completed(
         output=result_text,
         result=SessionRunResult(
