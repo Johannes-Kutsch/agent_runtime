@@ -53,10 +53,12 @@ class NoServiceAvailableError(AgentRuntimeError):
         reset_time: datetime | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+        continuation: Any | None = None,
     ) -> None:
         self.reset_time = reset_time
         self.usage_limit_scope = usage_limit_scope
         self.invocation_progress = invocation_progress
+        self.continuation = continuation
         super().__init__("No configured service candidates are currently available.")
 
 

@@ -41,6 +41,7 @@ from agent_runtime.errors import (
     AgentRuntimeError,
     AgentTimeoutError,
     HardAgentError,
+    NoServiceAvailableError,
     RetryableProviderFailureError,
     TransientAgentError,
     UsageLimitError,
@@ -6268,18 +6269,7 @@ def test_resumable_runtime_started_usage_limit_keeps_service_bound_in_continuati
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="bound-service",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(worktree),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "prepared:recovered-session",
-                "provider_state_dir_relpath": "runtime-state/",
-                "exact_transcript_match": False,
-            },
-        ),
+        continuation=continuation,
     )
 
 
@@ -6421,6 +6411,245 @@ def test_resumable_runtime_prefers_adapter_reported_model_activity_for_usage_lim
                 "exact_transcript_match": False,
             },
         ),
+    )
+
+
+def test_resumable_runtime_returns_no_service_available_outcome_for_bound_service_unavailability() -> (
+    None
+):
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="bound-service",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    class _UnavailableBoundServiceExecutionAdapter:
+        def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+            assert service_name == "bound-service"
+            raise NoServiceAvailableError(
+                reset_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                usage_limit_scope=runtime.UsageLimitScope("resume-scope"),
+                invocation_progress=runtime.InvocationProgress.STARTED,
+            )
+
+        def build_work_dependencies(
+            self,
+            *,
+            name: str,
+            model: str,
+            effort: str,
+            service: ExecutionProvider,
+        ) -> WorkInvocationDependencies:
+            del name, model, effort, service
+            raise AssertionError("bound service unavailability should stop before work")
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_UnavailableBoundServiceExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("resume-scope"),
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=continuation,
+    )
+
+
+def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_after_model_activity() -> (
+    None
+):
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="bound-service",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    class _StartedCancellationRunner(_ResidentSeamRunner):
+        async def work_text(
+            self,
+            prompt: str,
+            *,
+            role: InvocationRole = InvocationRole("implementer"),
+            tool_policy: Any = runtime.ToolPolicy.FULL,
+            run_kind: RunKind = RunKind.FRESH,
+            session_uuid: str | None = None,
+            on_provider_session_id: Any = None,
+        ) -> str:
+            del (
+                prompt,
+                role,
+                tool_policy,
+                run_kind,
+                session_uuid,
+                on_provider_session_id,
+            )
+            raise AgentCancelledError(
+                invocation_progress=runtime.InvocationProgress.STARTED,
+            )
+
+    class _StartedCancellationExecutionAdapter:
+        def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+            assert service_name == "bound-service"
+            return _ExecutionService("resolved-service")
+
+        def build_work_dependencies(
+            self,
+            *,
+            name: str,
+            model: str,
+            effort: str,
+            service: ExecutionProvider,
+        ) -> WorkInvocationDependencies:
+            del name, model, effort, service
+
+            def _prepare_session(
+                run_session: Any,
+            ) -> _ResidentAdapterPreparedRunSession:
+                return _ResidentAdapterPreparedRunSession(
+                    provider_state_dir_container_path="/workspace/runtime-state/",
+                    run_kind=run_session.run_kind,
+                    provider_session_id=f"prepared:{run_session.provider_session_id}",
+                )
+
+            return WorkInvocationDependencies(
+                execution=WorkExecutionDependencies(
+                    container_workspace="/workspace",
+                    prepare_session=cast(Any, _prepare_session),
+                    build_session=lambda mount_path, service, provider_state_dir: (
+                        _Session(provider_state_dir)
+                    ),
+                    build_runner=lambda session, status_display: cast(
+                        WorkExecutionAdapter,
+                        _StartedCancellationRunner(cast(_Session, session)),
+                    ),
+                    get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+                ),
+                failure_handling=WorkFailureHandling(timeout_retries=0),
+                presentation=WorkPresentationDependencies(),
+            )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_StartedCancellationExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.cancelled(
+        output="",
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=continuation,
+    )
+
+
+def test_resumable_runtime_returns_timed_out_outcome_with_input_continuation_after_model_activity() -> (
+    None
+):
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="bound-service",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_StartedTimeoutResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.timed_out(
+        output="",
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=continuation,
+    )
+
+
+def test_resumable_runtime_returns_retryable_provider_failure_outcome_with_input_continuation_after_model_activity() -> (
+    None
+):
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="bound-service",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.retryable_provider_failure(
+        output="",
+        service_name="codex",
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=continuation,
     )
 
 

@@ -1190,6 +1190,14 @@ class ResumableRuntime:
                 invocation_progress=exc.invocation_progress,
                 continuation=exc.continuation,
             )
+        except NoServiceAvailableError as exc:
+            return RuntimeOutcome.no_service_available(
+                output="",
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope,
+                invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
+            )
         except RetryableProviderFailureError as exc:
             return RuntimeOutcome.retryable_provider_failure(
                 output="",
@@ -1559,7 +1567,11 @@ async def _run_resumable_prompt(
         continuation = request.continuation
         service_name = continuation.selected_service
         provider_resume_state = _continuation_resume_state(continuation)
-        service = resolve_service(service_name)
+        try:
+            service = resolve_service(service_name)
+        except NoServiceAvailableError as exc:
+            exc.continuation = continuation
+            raise
         run_kind = _continuation_run_kind(provider_resume_state)
         provider_session_id = cast(
             str | None,
@@ -1650,16 +1662,20 @@ async def _run_resumable_prompt(
         RetryableProviderFailureError,
         UsageLimitError,
     ) as exc:
-        exc.continuation = _interruption_continuation(
-            request=request,
-            service_name=service_name,
-            run_kind=run_kind,
-            provider_state_dir_relpath=provider_state_dir_relpath,
-            exact_transcript_match=exact_transcript_match,
-            prepared_session=prepared_session,
-            prepare_session=resumable_dependencies.execution.prepare_session,
-            run_session=run_session,
-            invocation_progress=exc.invocation_progress,
+        exc.continuation = (
+            request.continuation
+            if request.continuation is not None
+            else _interruption_continuation(
+                request=request,
+                service_name=service_name,
+                run_kind=run_kind,
+                provider_state_dir_relpath=provider_state_dir_relpath,
+                exact_transcript_match=exact_transcript_match,
+                prepared_session=prepared_session,
+                prepare_session=resumable_dependencies.execution.prepare_session,
+                run_session=run_session,
+                invocation_progress=exc.invocation_progress,
+            )
         )
         raise
     if prepared_session is None:
