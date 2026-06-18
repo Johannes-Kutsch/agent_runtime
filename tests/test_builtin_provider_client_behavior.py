@@ -4,13 +4,12 @@ import json
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
 import agent_runtime as runtime
 import agent_runtime.runtime as prompt_runtime
-from agent_runtime.contracts import UsageLimit
 from agent_runtime.errors import AgentCredentialFailureError, TransientAgentError
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import InvocationRole
@@ -427,29 +426,96 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
     )
 
 
-def test_runtime_module_claude_event_parser_keeps_runtime_reset_time_override() -> None:
+def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     reset_time = datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc)
 
-    def _fake_parse_claude_reset_time(_text: object) -> datetime | None:
-        return reset_time
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "is_error": True,
+                            "api_error_status": 429,
+                            "result": "Claude usage limit reached.",
+                        }
+                    )
+                    + "\n"
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
 
-    original_parse_reset_time = prompt_runtime._parse_claude_reset_time
-    prompt_runtime._parse_claude_reset_time = cast(Any, _fake_parse_claude_reset_time)
-    try:
-        events = prompt_runtime._parse_claude_event(
-            json.dumps(
-                {
-                    "type": "result",
-                    "is_error": True,
-                    "api_error_status": 429,
-                    "result": "Claude usage limit reached.",
-                }
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: _ClaudeProcess(),
+    )
+    monkeypatch.setattr(
+        prompt_runtime,
+        "_parse_claude_reset_time",
+        lambda _text: reset_time,
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="claude",
+        reset_time=reset_time,
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_runtime_client_cleans_up_builtin_prompt_file_when_claude_subprocess_fails_to_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prompt_path = tmp_path / ".pycastle_prompt"
+
+    def _raise_subprocess_start_failure(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("failed to start Claude subprocess")
+
+    monkeypatch.setattr(subprocess, "Popen", _raise_subprocess_start_failure)
+
+    with pytest.raises(OSError, match="failed to start Claude subprocess"):
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+                auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             )
         )
-    finally:
-        prompt_runtime._parse_claude_reset_time = original_parse_reset_time
 
-    assert events == [UsageLimit(reset_time=reset_time, raw_message=None)]
+    assert not prompt_path.exists()
 
 
 def test_runtime_client_keeps_runtime_selected_service_path_override_in_metadata(
