@@ -102,26 +102,6 @@ class ExecutionServiceFake:
         return frozenset()
 
 
-class ToolPolicyObservingExecutionServiceFake(ExecutionServiceFake):
-    def __init__(self, name: str, observed_tool_policies: list[Any]) -> None:
-        super().__init__(name)
-        self._observed_tool_policies = observed_tool_policies
-
-    def build_command(
-        self,
-        role: InvocationRole,
-        model: str,
-        effort: str,
-        run_kind: RunKind,
-        session_uuid: str | None,
-        *,
-        tool_policy: Any | None = None,
-    ) -> str:
-        del role, model, effort, run_kind, session_uuid
-        self._observed_tool_policies.append(tool_policy)
-        return "tool-capable-command"
-
-
 @dataclass
 class SessionStoreFake:
     service_sessions: dict[str, str | None]

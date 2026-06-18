@@ -751,6 +751,19 @@ def _tool_policy_effect_text(tool_policy: Any) -> str:
     return f"allowed={allowed};disallowed={disallowed}"
 
 
+_TOOL_POLICY_CASES = [
+    pytest.param(policy, id=policy.value) for policy in runtime.ToolPolicy
+] + [
+    pytest.param(
+        runtime.ToolPolicyProfile(
+            allowed_tools=("Read", "Bash"),
+            disallowed_tools=("Edit",),
+        ),
+        id="custom-profile",
+    )
+]
+
+
 class _ToolPolicyRenderingResidentRunner(_ResidentSeamRunner):
     def __init__(
         self,
@@ -2523,9 +2536,9 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
     )
 
 
-@pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
+@pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)
 def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
-    tool_policy: runtime.ToolPolicy,
+    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
@@ -2560,9 +2573,9 @@ def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
     assert result.output == _tool_policy_effect_text(tool_policy)
 
 
-@pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
+@pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)
 def test_text_output_adapter_exposes_tool_policy_effects_through_public_adapter_seam(
-    tool_policy: runtime.ToolPolicy,
+    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
 ) -> None:
     output = asyncio.run(
         TextOutputAdapter(
