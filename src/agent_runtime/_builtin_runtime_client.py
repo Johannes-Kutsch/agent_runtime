@@ -1539,14 +1539,10 @@ def _invoke_provider(
             run_kind=run_kind,
             role=role,
             usage_limit_scope=usage_limit_scope,
-            log_context=(
-                None
-                if invocation_log is None
-                else ProviderInvocationLogContext(
-                    invocation_log=invocation_log,
-                    role=role,
-                    usage_limit_scope=usage_limit_scope,
-                )
+            log_context=_provider_invocation_log_context(
+                invocation_log=invocation_log,
+                role=role,
+                usage_limit_scope=usage_limit_scope,
             ),
             provider_session_id=provider_session_id,
             output_hooks=ProviderOutputReductionHooks(
@@ -1555,6 +1551,131 @@ def _invoke_provider(
                 extract_provider_session_id=extract_provider_session_id,
             ),
         )
+    )
+
+
+def _invoke_claude_new_session_provider(
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter,
+    request: NewSessionRunRequest,
+    stage: StageSelection,
+    provider_state_dir: Path,
+    run_kind: RunKind,
+    provider_session_id: str,
+) -> ProviderInvocationResult:
+    return _invoke_provider(
+        provider_invocation_adapter=provider_invocation_adapter,
+        command=_claude_command(
+            model=stage.model,
+            effort=stage.effort,
+            tool_access=request.tool_access,
+            prompt_path=request.worktree / ".pycastle_prompt",
+            run_kind=run_kind,
+            session_uuid=provider_session_id,
+        ),
+        worktree=request.worktree,
+        environment=_claude_env(
+            auth=request.provider_auth,
+            state_dir_container_path=str(provider_state_dir),
+        ),
+        prompt_content=request.prompt,
+        prompt_path=request.worktree / ".pycastle_prompt",
+        cleanup_prompt_path=True,
+        run_kind=run_kind,
+        role=request.role,
+        usage_limit_scope=request.usage_limit_scope,
+        provider_session_id=provider_session_id,
+        reduce_output=_reduce_claude_stream,
+        invocation_log=_start_invocation_log(
+            logs_dir=request.logs_dir,
+            role=request.role,
+        ),
+    )
+
+
+def _invoke_opencode_new_session_provider(
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter,
+    request: NewSessionRunRequest,
+    stage: StageSelection,
+    provider_state_dir: Path,
+    run_kind: RunKind,
+    provider_session_id: str,
+) -> tuple[ProviderInvocationResult, str]:
+    invocation_log = _start_invocation_log(
+        logs_dir=request.logs_dir,
+        role=request.role,
+    )
+    observed_provider_session_id = provider_session_id
+
+    def _record_opencode_session_id(session_id: str) -> None:
+        nonlocal observed_provider_session_id
+        observed_provider_session_id = session_id
+
+    def _reduce_opencode_session_output(
+        lines: list[str],
+    ) -> tuple[str, ProviderUsage | None]:
+        return (
+            reduce_text_output_events(
+                _parse_opencode_events(
+                    lines,
+                    on_provider_session_id=_record_opencode_session_id,
+                ),
+                lambda _turn: None,
+                provider="opencode",
+            ),
+            None,
+        )
+
+    def _reduce_logged_opencode_session_output(
+        lines: list[str],
+        work_invocation_log: WorkInvocationLog,
+    ) -> tuple[str, ProviderUsage | None]:
+        def _record_session_id(session_id: str) -> None:
+            _record_opencode_session_id(session_id)
+            work_invocation_log.record_provider_session_id(session_id)
+
+        return (
+            reduce_text_output_events(
+                _parse_opencode_events(
+                    lines,
+                    on_provider_session_id=_record_session_id,
+                ),
+                lambda _turn: None,
+                provider="opencode",
+            ),
+            None,
+        )
+
+    invocation_result = _invoke_provider(
+        provider_invocation_adapter=provider_invocation_adapter,
+        command=_opencode_command(
+            model=stage.model,
+            effort=stage.effort,
+            run_kind=run_kind,
+            session_uuid=provider_session_id,
+        ),
+        worktree=request.worktree,
+        environment=_opencode_env(
+            auth=request.provider_auth,
+            state_dir_container_path=str(provider_state_dir),
+        ),
+        prompt_content=request.prompt,
+        prompt_path=request.worktree / ".pycastle_prompt",
+        cleanup_prompt_path=True,
+        run_kind=run_kind,
+        role=request.role,
+        usage_limit_scope=request.usage_limit_scope,
+        provider_session_id=provider_session_id,
+        reduce_output=_reduce_opencode_session_output,
+        invocation_log=invocation_log,
+        reduce_logged_output=_reduce_logged_opencode_session_output,
+        extract_provider_session_id=lambda _lines: observed_provider_session_id,
+    )
+    return invocation_result, (
+        observed_provider_session_id
+        or invocation_result.provider_session_id
+        or provider_session_id
     )
 
 
@@ -1940,109 +2061,27 @@ def _run_builtin_new_session(
         raise RuntimeConfigurationError(
             "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
         )
-    prompt_path = request.worktree / ".pycastle_prompt"
-    invocation_log = _start_invocation_log(
-        logs_dir=request.logs_dir,
-        role=request.role,
-    )
-    observed_provider_session_id = provider_session_id
-
-    def _record_opencode_session_id(session_id: str) -> None:
-        nonlocal observed_provider_session_id
-        observed_provider_session_id = session_id
-
-    def _reduce_opencode_session_output(
-        lines: list[str],
-    ) -> tuple[str, ProviderUsage | None]:
-        return (
-            reduce_text_output_events(
-                _parse_opencode_events(
-                    lines,
-                    on_provider_session_id=_record_opencode_session_id,
-                ),
-                lambda _turn: None,
-                provider="opencode",
-            ),
-            None,
-        )
-
-    def _reduce_logged_opencode_session_output(
-        lines: list[str],
-        work_invocation_log: WorkInvocationLog,
-    ) -> tuple[str, ProviderUsage | None]:
-        def _record_session_id(session_id: str) -> None:
-            _record_opencode_session_id(session_id)
-            work_invocation_log.record_provider_session_id(session_id)
-
-        return (
-            reduce_text_output_events(
-                _parse_opencode_events(
-                    lines,
-                    on_provider_session_id=_record_session_id,
-                ),
-                lambda _turn: None,
-                provider="opencode",
-            ),
-            None,
-        )
-
     try:
         if selected_stage.service == "claude":
-            invocation_result = _invoke_provider(
+            invocation_result = _invoke_claude_new_session_provider(
                 provider_invocation_adapter=invocation_adapter,
-                command=_claude_command(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    prompt_path=prompt_path,
-                    run_kind=run_kind,
-                    session_uuid=provider_session_id,
-                ),
-                worktree=request.worktree,
-                environment=_claude_env(
-                    auth=request.provider_auth,
-                    state_dir_container_path=str(provider_state_dir),
-                ),
-                prompt_content=request.prompt,
-                prompt_path=prompt_path,
-                cleanup_prompt_path=True,
+                request=request,
+                stage=selected_stage,
+                provider_state_dir=provider_state_dir,
                 run_kind=run_kind,
-                role=request.role,
-                usage_limit_scope=request.usage_limit_scope,
                 provider_session_id=provider_session_id,
-                reduce_output=_reduce_claude_stream,
-                invocation_log=invocation_log,
             )
         else:
-            invocation_result = _invoke_provider(
-                provider_invocation_adapter=invocation_adapter,
-                command=_opencode_command(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
+            invocation_result, provider_session_id = (
+                _invoke_opencode_new_session_provider(
+                    provider_invocation_adapter=invocation_adapter,
+                    request=request,
+                    stage=selected_stage,
+                    provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
-                    session_uuid=provider_session_id,
-                ),
-                worktree=request.worktree,
-                environment=_opencode_env(
-                    auth=request.provider_auth,
-                    state_dir_container_path=str(provider_state_dir),
-                ),
-                prompt_content=request.prompt,
-                prompt_path=prompt_path,
-                cleanup_prompt_path=True,
-                run_kind=run_kind,
-                role=request.role,
-                usage_limit_scope=request.usage_limit_scope,
-                provider_session_id=provider_session_id,
-                reduce_output=_reduce_opencode_session_output,
-                invocation_log=invocation_log,
-                reduce_logged_output=_reduce_logged_opencode_session_output,
-                extract_provider_session_id=lambda _lines: observed_provider_session_id,
+                    provider_session_id=provider_session_id,
+                )
             )
-            provider_session_id = (
-                observed_provider_session_id or invocation_result.provider_session_id
-            )
-            assert provider_session_id is not None
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
     except (UsageLimitError, RetryableProviderFailureError) as exc:
         observed_failure_provider_session_id = (
@@ -2050,10 +2089,6 @@ def _run_builtin_new_session(
         )
         if observed_failure_provider_session_id is not None:
             provider_session_id = observed_failure_provider_session_id
-        if selected_stage.service == "opencode":
-            provider_session_id = (
-                observed_failure_provider_session_id or observed_provider_session_id
-            )
         exc.continuation = None
         if (
             exc.invocation_progress is InvocationProgress.STARTED
