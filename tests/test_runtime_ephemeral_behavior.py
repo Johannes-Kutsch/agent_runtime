@@ -875,6 +875,31 @@ def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_su
     assert '"type":"session.status"' in log_text
 
 
+def test_runtime_client_does_not_create_ephemeral_invocation_log_when_dispatch_never_starts(
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    logs_dir = tmp_path / "runtime-logs"
+
+    with pytest.raises(AgentCredentialFailureError):
+        prompt_runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=stage_selection_factory(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+                logs_dir=logs_dir,
+            )
+        )
+
+    assert list(logs_dir.glob("*.log")) == []
+
+
 def test_runtime_client_exposes_claude_usage_on_completed_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

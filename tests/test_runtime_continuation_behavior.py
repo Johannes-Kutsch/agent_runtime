@@ -1812,6 +1812,95 @@ def _bound_service_resumed_continuation(
     )
 
 
+def test_runtime_client_writes_resumed_session_invocation_log_to_logs_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    logs_dir = tmp_path / "runtime-logs"
+    worktree.mkdir()
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                (
+                    '{"type":"assistant","message":{"content":[{"type":"text",'
+                    '"text":"hello from claude"}],"usage":{"input_tokens":100}}}\n'
+                ),
+                '{"type":"result","result":"hello from claude"}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "implementer/main/claude",
+            "exact_transcript_match": False,
+        },
+    )
+
+    outcome = asyncio.run(
+        prompt_runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                provider_auth=prompt_runtime.ProviderAuth(
+                    claude_code_oauth_token="token"
+                ),
+                logs_dir=logs_dir,
+            )
+        )
+    )
+
+    assert outcome.output == "hello from claude"
+    assert list(worktree.rglob("*.log")) == []
+    assert list(runtime_state_dir.rglob("*.log")) == []
+    log_paths = sorted(logs_dir.glob("*.log"))
+    assert len(log_paths) == 1
+    log_text = log_paths[0].read_text()
+    header = json.loads(log_text.splitlines()[0])
+    assert header == {
+        "type": "agent_invocation",
+        "invocation_role": "implementer",
+        "run_kind": "fresh",
+        "provider_session_id": "recovered-session",
+        "prompt": "already rendered prompt",
+    }
+    assert '"type":"assistant"' in log_text
+    assert '"type":"result"' in log_text
+
+
 def test_resumed_session_runtime_returns_usage_limited_outcome_with_input_continuation_before_model_activity() -> (
     None
 ):
