@@ -16,6 +16,7 @@
 | `Runtime Adapter Seam` | An internal runtime seam implemented by built-in provider integrations, not a supported extension point for consumer-defined services. |
 | `Built-in Provider Adapter` | A runtime-shipped provider integration for a supported external agent provider such as Claude, Codex, or OpenCode that ordinary consumers select but do not import or implement. |
 | `Built-in Execution Substrate` | The runtime-owned mechanism that runs built-in provider commands for ordinary consumers without application-owned provider services. |
+| `Built-in Provider Invocation Seam` | Internal runtime seam behind `RuntimeClient` that executes one prepared built-in provider command and returns observable invocation facts such as normalized output, provider usage, raw provider stdout lines, and observed `ProviderSessionId`; not a Runtime Public Surface or consumer-defined adapter point. |
 | `ProviderAuth` | Immutable caller-supplied runtime credential data for built-in provider execution. |
 | `ClaudeCodeOAuthToken` | The Claude Code OAuth token supplied to the built-in Claude provider integration. |
 | `StageSelection` | A single stage selection node containing service, model, effort, and optional fallback. |
@@ -23,12 +24,14 @@
 | `ServiceRegistry` | The runtime-owned resolver that maps built-in services and stage chains to an executable candidate. |
 | `ExecutionProvider` | The internal execution contract implemented by runtime-shipped provider integrations. |
 | `RunKind` | The runtime mode for a service invocation, such as fresh or resumable. |
+| `ProviderInvocationRequest` | Private value describing all facts required by the Built-in Provider Invocation Seam: command, worktree, environment, prompt content or prompt-path policy, `RunKind`, invocation role, usage-limit scope, log context, and optional `ProviderSessionId`. |
 | `ToolPolicyProfile` | A provider-neutral runtime description of coarse tool-access policy used by provider adapters to render provider-specific command flags. |
 | `Tool-less Run` | A runtime invocation whose provider tool access is explicitly forbidden rather than left to provider defaults. |
 | `ToolAccess` | A closed runtime value describing whether an invocation has no tools or workspace-backed tool access. |
 | `UsageLimitScope` | A caller-defined, validated grouping key used for usage-limit continuation policy. |
 | `ProviderSessionState` | The provider-owned session state that records how a run should start or resume. |
 | `ProviderSessionId` | The external provider or tool session identifier associated with a runtime service invocation. |
+| `ProviderInvocationResult` | Private value returned by the Built-in Provider Invocation Seam containing normalized output, optional `ProviderUsage`, raw stdout lines when lifecycle policy needs them, and optional observed `ProviderSessionId`. |
 | `ProviderSessionAdapter` | The internal provider-session seam that owns built-in provider session policy. |
 | `SessionIntent` | The caller's pre-run declaration of whether an invocation should prepare provider-session continuity or remain ephemeral. |
 | `Ephemeral Run` | A runtime invocation that does not prepare or promise provider-session continuity. |
@@ -75,6 +78,8 @@
 - Built-in service, model, and effort values are validated by the runtime before provider execution.
 - Lifecycle runtime constructors should not expose execution adapter or service registry injection on the consumer API.
 - Ordinary runtime execution uses a Built-in Execution Substrate; application-owned Docker orchestration, dependency installation, managed worktrees, and preflight setup remain outside the runtime boundary.
+- Built-in provider subprocess dispatch, prompt-file lifecycle, and invocation-log interaction belong behind the Built-in Provider Invocation Seam, while provider-specific command rendering and lifecycle policy remain runtime-owned internals.
+- The Built-in Provider Invocation Seam is internal and must not become a consumer-defined provider adapter extension point.
 - Built-in provider credentials are supplied through per-request `ProviderAuth` data rather than process-global runtime setup.
 - `ProviderAuth` only needs credentials for explicit-credential providers reachable from the request's `StageSelection` chain; Codex uses host auth state.
 - Missing built-in provider credentials are credential failures, not malformed runtime configuration.
