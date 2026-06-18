@@ -3067,19 +3067,25 @@ def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases
         exec("from agent_runtime.runtime import OneShotRunRequest", {}, {})
 
 
-def test_runtime_direct_import_rejects_removed_legacy_names() -> None:
+@pytest.mark.parametrize(
+    "removed_name",
+    [
+        "OneShotRunRequest",
+        "OneShotRunResult",
+        "OneShotResultMetadata",
+        "OneShotRuntime",
+        "OneShotRuntimeExecutionAdapter",
+        "OneShotRuntimeMetadata",
+    ],
+)
+def test_runtime_direct_import_rejects_removed_legacy_names(
+    removed_name: str,
+) -> None:
+    with pytest.raises(ImportError):
+        exec(f"from agent_runtime.runtime import {removed_name}", {}, {})
+
     with pytest.raises(AttributeError):
-        getattr(prompt_runtime, "OneShotRuntime")
-    with pytest.raises(AttributeError):
-        getattr(prompt_runtime, "OneShotRunRequest")
-    with pytest.raises(AttributeError):
-        getattr(prompt_runtime, "OneShotRunResult")
-    with pytest.raises(AttributeError):
-        getattr(prompt_runtime, "OneShotResultMetadata")
-    with pytest.raises(AttributeError):
-        getattr(prompt_runtime, "OneShotRuntimeExecutionAdapter")
-    with pytest.raises(AttributeError):
-        getattr(prompt_runtime, "OneShotRuntimeMetadata")
+        getattr(prompt_runtime, removed_name)
 
 
 def test_runtime_direct_import_rejects_removed_resumable_completed_result_names() -> (
@@ -4139,6 +4145,78 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
         ),
     )
     assert result.tool_access == tool_access
+
+
+def test_completed_runtime_outcome_only_exposes_ephemeral_selection_metadata_for_ephemeral_results() -> (
+    None
+):
+    tool_access = runtime.ToolAccess.no_tools()
+    result = prompt_runtime.EphemeralRunResult(
+        output="done",
+        selected_service="claude",
+        selected_model="gpt-5",
+        selected_effort="medium",
+        tool_access=tool_access,
+        used_fallback=True,
+        metadata=prompt_runtime.EphemeralResultMetadata(
+            selected_service_path=("codex", "claude"),
+            runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                run_kind=RunKind.FRESH,
+                session_namespace="review",
+            ),
+        ),
+    )
+    outcome = prompt_runtime.RuntimeOutcome.completed(output="done", result=result)
+
+    assert outcome.runtime_metadata == result.runtime_metadata
+    assert outcome.metadata == result.metadata
+    assert outcome.selected_service_path == ("codex", "claude")
+    assert outcome.selected_service == "claude"
+    assert outcome.selected_model == "gpt-5"
+    assert outcome.selected_effort == "medium"
+    assert outcome.used_fallback is True
+    assert outcome.tool_access == tool_access
+
+
+def test_completed_runtime_outcome_rejects_ephemeral_selection_metadata_for_session_results() -> (
+    None
+):
+    continuation = prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="gpt-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+        provider_resume_state={"provider_session_id": "session-123"},
+    )
+    result = prompt_runtime.SessionRunResult(
+        output="done",
+        continuation=continuation,
+        runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+            provider_session_id="session-123",
+            run_kind=RunKind.RESUME,
+            session_namespace="review",
+            service_name="claude",
+            exact_transcript_match=False,
+        ),
+    )
+    outcome = prompt_runtime.RuntimeOutcome.completed(output="done", result=result)
+
+    assert outcome.runtime_metadata == result.runtime_metadata
+
+    with pytest.raises(AttributeError, match="ephemeral metadata"):
+        _ = outcome.metadata
+    with pytest.raises(AttributeError, match="selection metadata"):
+        _ = outcome.selected_service_path
+    with pytest.raises(AttributeError, match="selection metadata"):
+        _ = outcome.selected_service
+    with pytest.raises(AttributeError, match="selection metadata"):
+        _ = outcome.selected_model
+    with pytest.raises(AttributeError, match="selection metadata"):
+        _ = outcome.selected_effort
+    with pytest.raises(AttributeError, match="selection metadata"):
+        _ = outcome.used_fallback
+    with pytest.raises(AttributeError, match="tool access"):
+        _ = outcome.tool_access
 
 
 def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
