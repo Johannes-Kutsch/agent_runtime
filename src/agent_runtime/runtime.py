@@ -657,7 +657,7 @@ class SessionRunResult:
 
 
 @dataclasses.dataclass(frozen=True, init=False)
-class ResumableRunRequest:
+class ResumedSessionRunRequest:
     prompt: str
     worktree: WorktreeMount
     model: str
@@ -693,25 +693,25 @@ class ResumableRunRequest:
     ) -> None:
         if continuation is not None and session_plan is not None:
             raise TypeError(
-                "ResumableRunRequest received conflicting `session_plan` and `continuation` values."
+                "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
             )
         if (
             isinstance(tool_access, ToolAccess)
             and tool_policy is not _MISSING_TOOL_POLICY
         ):
             raise TypeError(
-                "ResumableRunRequest received conflicting `tool_access` and `tool_policy` values."
+                "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
             )
         if continuation is not None:
             if role is None:
                 raise TypeError(
-                    "ResumableRunRequest requires a `role` value when constructed from a continuation."
+                    "ResumedSessionRunRequest requires a `role` value when constructed from a continuation."
                 )
             if tool_policy is not _MISSING_TOOL_POLICY or isinstance(
                 tool_access, ToolAccess
             ):
                 raise TypeError(
-                    "ResumableRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
+                    "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
                 )
             validate_session_namespace(session_namespace)
             resolved_model = continuation.selected_model if model is None else model
@@ -722,15 +722,15 @@ class ResumableRunRequest:
         else:
             if session_plan is None:
                 raise TypeError(
-                    "ResumableRunRequest requires either a `session_plan` or `continuation` value."
+                    "ResumedSessionRunRequest requires either a `session_plan` or `continuation` value."
                 )
             if model is None or effort is None:
                 raise TypeError(
-                    "ResumableRunRequest requires `model` and `effort` when constructed from a session plan."
+                    "ResumedSessionRunRequest requires `model` and `effort` when constructed from a session plan."
                 )
             if role is not None:
                 raise TypeError(
-                    "ResumableRunRequest does not accept request-level `role` when `session_plan` is supplied."
+                    "ResumedSessionRunRequest does not accept request-level `role` when `session_plan` is supplied."
                 )
             if isinstance(tool_access, ToolAccess):
                 resolved_tool_access = tool_access
@@ -741,7 +741,7 @@ class ResumableRunRequest:
                 )
             else:
                 raise TypeError(
-                    "ResumableRunRequest requires an explicit `tool_policy` value."
+                    "ResumedSessionRunRequest requires an explicit `tool_policy` value."
                 )
             resolved_model = model
             resolved_effort = effort
@@ -750,7 +750,7 @@ class ResumableRunRequest:
             usage_limit_scope = session_plan.usage_limit_scope
         resolved_tool_access.require_workspace(
             worktree.host_path,
-            context="ResumableRunRequest",
+            context="ResumedSessionRunRequest",
         )
 
         object.__setattr__(self, "prompt", prompt)
@@ -1181,7 +1181,7 @@ class NewSessionRuntime:
 async def _run_resumed_session_outcome(
     *,
     runner: ResumableRuntimeExecutionAdapter,
-    request: ResumableRunRequest,
+    request: ResumedSessionRunRequest,
 ) -> RuntimeOutcome:
     try:
         result = await _run_resumable_prompt(
@@ -1237,15 +1237,12 @@ class ResumableRuntime:
 
     async def run_resumable_prompt(
         self,
-        request: ResumableRunRequest,
+        request: ResumedSessionRunRequest,
     ) -> RuntimeOutcome:
         return await _run_resumed_session_outcome(
             runner=self._execution_adapter,
             request=request,
         )
-
-
-ResumedSessionRunRequest = ResumableRunRequest
 
 
 class ResumedSessionRuntime:
@@ -1570,7 +1567,7 @@ async def _run_new_session(
         try:
             return await _run_resumable_prompt(
                 runner=runner,
-                request=ResumableRunRequest(
+                request=ResumedSessionRunRequest(
                     prompt=request.prompt,
                     worktree=WorktreeMount(request.worktree),
                     model=resolved_override.model,
@@ -1605,7 +1602,7 @@ async def _run_new_session(
 async def _run_resumable_prompt(
     *,
     runner: ResumableRuntimeExecutionAdapter,
-    request: ResumableRunRequest,
+    request: ResumedSessionRunRequest,
 ) -> SessionRunResult:
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
@@ -1841,7 +1838,7 @@ def _build_continuation(
 
 def _interruption_continuation(
     *,
-    request: ResumableRunRequest,
+    request: ResumedSessionRunRequest,
     service_name: str,
     run_kind: RunKind,
     provider_state_dir_relpath: str | None,
