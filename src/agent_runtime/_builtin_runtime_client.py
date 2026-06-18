@@ -1219,6 +1219,19 @@ def _persist_opencode_session_id(state_dir: Path, provider_session_id: str) -> N
     )
 
 
+def _opencode_exact_transcript_match(
+    *,
+    saved_exact_transcript_match: bool,
+    provider_session_id: str | None,
+    state_dir_session_id: str | None,
+) -> bool:
+    return (
+        saved_exact_transcript_match
+        and provider_session_id is not None
+        and state_dir_session_id == provider_session_id
+    )
+
+
 def _claude_run_kind_for_state_dir(state_dir: Path) -> RunKind:
     if _claude_is_resumable(state_dir):
         return RunKind.RESUME
@@ -1580,6 +1593,8 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
         process.wait()
     except (UsageLimitError, RetryableProviderFailureError) as exc:
+        if selected_stage.service == "opencode":
+            provider_session_id = observed_provider_session_id
         exc.continuation = None
         if exc.invocation_progress is InvocationProgress.STARTED:
             exc.continuation = (
@@ -1684,13 +1699,17 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
         else None
     )
     if continuation.selected_service == "opencode":
+        saved_exact_transcript_match = bool(
+            provider_resume_state.get("exact_transcript_match", False)
+        )
         if provider_session_id is None:
             provider_session_id = state_dir_session_id
         if provider_session_id is None:
             provider_session_id = _new_provider_session_id()
-        exact_transcript_match = (
-            state_dir_session_id is not None
-            and state_dir_session_id == provider_session_id
+        exact_transcript_match = _opencode_exact_transcript_match(
+            saved_exact_transcript_match=saved_exact_transcript_match,
+            provider_session_id=provider_session_id,
+            state_dir_session_id=state_dir_session_id,
         )
     else:
         if not provider_session_id:
@@ -1765,6 +1784,8 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
         process.wait()
     except (UsageLimitError, RetryableProviderFailureError) as exc:
+        if continuation.selected_service == "opencode":
+            provider_session_id = observed_provider_session_id
         exc.continuation = (
             (
                 _build_claude_continuation(

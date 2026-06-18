@@ -2084,3 +2084,113 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
         "continued-session-2"
     )
+
+
+def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_started_usage_limit(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del command, shell, cwd, env, stdout, stderr, text
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "provider-session-123",
+                            "part": {
+                                "type": "text",
+                                "text": "OpenCode answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "error",
+                            "sessionID": "provider-session-123",
+                            "error": {
+                                "name": "RateLimitError",
+                                "data": {
+                                    "message": "You have reached your OpenCode Go usage limit.",
+                                    "statusCode": 429,
+                                    "isRetryable": True,
+                                },
+                            },
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    provider_state_dir_relpath = session_runtime.provider_state_relpath(
+        InvocationRole("implementer"),
+        "opencode",
+        "main",
+    )
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                stage=stage_selection_factory(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="opencode",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="opencode",
+            selected_model="glm-5",
+            selected_effort="medium",
+            tool_access=tool_access,
+            provider_resume_state={
+                "provider_session_id": "provider-session-123",
+                "provider_state_dir_relpath": provider_state_dir_relpath,
+                "exact_transcript_match": False,
+            },
+        ),
+    )
