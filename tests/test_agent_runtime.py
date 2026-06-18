@@ -271,6 +271,78 @@ class _OneShotExecutionAdapter:
         )
 
 
+class _EphemeralExecutionAdapter:
+    def __init__(self) -> None:
+        self.prepare_session_calls = 0
+
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(_run_session: Any) -> PreparedRunSessionState:
+            self.prepare_session_calls += 1
+            return cast(PreparedRunSessionState, _PreparedRunSession())
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=_prepare_session,
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _RoleAwareOneShotWorkRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _ToolPolicyRenderingEphemeralExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _ToolPolicyRenderingPromptRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _RoleAwareOneShotWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
@@ -2959,6 +3031,115 @@ def test_one_shot_runtime_returns_completed_outcome_with_normalized_output(
             ),
         ),
     )
+
+
+def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuation_state(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    execution_adapter = _EphemeralExecutionAdapter()
+
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=execution_adapter,
+            service_registry=service_registry_factory("claude"),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("."),
+                stage=stage_selection_factory(
+                    service="claude",
+                    model="gpt-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert result.output == "implementer:already rendered prompt"
+    assert execution_adapter.prepare_session_calls == 0
+    assert not hasattr(result.result, "continuation")
+
+
+def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_outcome(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_EphemeralExecutionAdapter(),
+            service_registry=service_registry_factory("codex", "claude"),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("."),
+                stage=stage_selection_factory(
+                    service="missing",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert result.selected_service_path == ("missing", "claude")
+    assert result.used_fallback is True
+
+
+def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metadata_and_tool_access(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    tool_access = runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_ToolPolicyRenderingEphemeralExecutionAdapter(),
+            service_registry=service_registry_factory("claude"),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("/repo"),
+                stage=stage_selection_factory(
+                    service="claude",
+                    model="gpt-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.completed(
+        output=_tool_policy_effect_text(runtime.ToolPolicy.PARTIAL),
+        result=prompt_runtime.EphemeralRunResult(
+            output=_tool_policy_effect_text(runtime.ToolPolicy.PARTIAL),
+            selected_service="claude",
+            selected_model="gpt-5",
+            selected_effort="medium",
+            tool_access=tool_access,
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("claude",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert result.tool_access == tool_access
 
 
 def test_one_shot_runtime_preserves_one_shot_result_convenience_fields_on_completed_outcome(

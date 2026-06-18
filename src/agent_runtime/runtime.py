@@ -37,6 +37,12 @@ from .usage_limit_scope import UsageLimitScope
 from .work import invoke_work
 
 __all__ = [
+    "EphemeralRunRequest",
+    "EphemeralRunResult",
+    "EphemeralResultMetadata",
+    "EphemeralRuntime",
+    "EphemeralRuntimeExecutionAdapter",
+    "EphemeralRuntimeMetadata",
     "OneShotRunRequest",
     "OneShotRunResult",
     "OneShotResultMetadata",
@@ -56,6 +62,7 @@ __all__ = [
     "WorktreeMount",
 ]
 
+EphemeralRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResumableRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
@@ -67,7 +74,7 @@ _DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
 class RuntimeOutcome:
     kind: str
     output: str
-    result: OneShotRunResult | ResumableRunResult | None = None
+    result: EphemeralRunResult | OneShotRunResult | ResumableRunResult | None = None
     service_name: str | None = None
     reset_time: datetime | None = None
     usage_limit_scope: UsageLimitScope | None = None
@@ -78,7 +85,7 @@ class RuntimeOutcome:
         cls,
         *,
         output: str,
-        result: OneShotRunResult | ResumableRunResult,
+        result: EphemeralRunResult | OneShotRunResult | ResumableRunResult,
     ) -> RuntimeOutcome:
         return cls(kind="completed", output=output, result=result)
 
@@ -160,11 +167,13 @@ class RuntimeOutcome:
         )
 
     @property
-    def runtime_metadata(self) -> OneShotRuntimeMetadata | ResumableRuntimeMetadata:
+    def runtime_metadata(
+        self,
+    ) -> EphemeralRuntimeMetadata | OneShotRuntimeMetadata | ResumableRuntimeMetadata:
         result = self.result
         if result is None:
             raise AttributeError("Only completed outcomes carry runtime metadata.")
-        if isinstance(result, OneShotRunResult):
+        if isinstance(result, (EphemeralRunResult, OneShotRunResult)):
             return result.runtime_metadata
         return result.runtime_metadata
 
@@ -178,47 +187,44 @@ class RuntimeOutcome:
     @property
     def selected_service_path(self) -> tuple[str, ...]:
         result = self.result
-        if not isinstance(result, OneShotRunResult):
-            raise AttributeError(
-                "Completed outcome does not carry one-shot selection metadata."
-            )
+        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+            raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.selected_service_path
 
     @property
     def selected_service(self) -> str:
         result = self.result
-        if not isinstance(result, OneShotRunResult):
-            raise AttributeError(
-                "Completed outcome does not carry one-shot selection metadata."
-            )
+        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+            raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.selected_service
 
     @property
     def selected_model(self) -> str:
         result = self.result
-        if not isinstance(result, OneShotRunResult):
-            raise AttributeError(
-                "Completed outcome does not carry one-shot selection metadata."
-            )
+        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+            raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.selected_model
 
     @property
     def selected_effort(self) -> str:
         result = self.result
-        if not isinstance(result, OneShotRunResult):
-            raise AttributeError(
-                "Completed outcome does not carry one-shot selection metadata."
-            )
+        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+            raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.selected_effort
 
     @property
     def used_fallback(self) -> bool:
         result = self.result
-        if not isinstance(result, OneShotRunResult):
-            raise AttributeError(
-                "Completed outcome does not carry one-shot selection metadata."
-            )
+        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+            raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.used_fallback
+
+    @property
+    def tool_access(self) -> ToolAccess:
+        result = self.result
+        if not isinstance(result, EphemeralRunResult):
+            raise AttributeError("Completed outcome does not carry tool access.")
+        return result.tool_access
 
     @property
     def raw_output(self) -> str:
@@ -290,6 +296,41 @@ class OneShotRuntimeMetadata:
 
 
 @dataclasses.dataclass(frozen=True)
+class EphemeralRuntimeMetadata:
+    run_kind: RunKind
+    session_namespace: str
+
+
+@dataclasses.dataclass(frozen=True)
+class EphemeralResultMetadata:
+    selected_service_path: tuple[str, ...]
+    runtime: EphemeralRuntimeMetadata
+
+
+@dataclasses.dataclass(frozen=True)
+class EphemeralRunResult:
+    output: str
+    selected_service: str
+    selected_model: str
+    selected_effort: str
+    tool_access: ToolAccess
+    used_fallback: bool
+    metadata: EphemeralResultMetadata
+
+    @property
+    def selected_service_path(self) -> tuple[str, ...]:
+        return self.metadata.selected_service_path
+
+    @property
+    def runtime_metadata(self) -> EphemeralRuntimeMetadata:
+        return self.metadata.runtime
+
+    @property
+    def raw_output(self) -> str:
+        return self.output
+
+
+@dataclasses.dataclass(frozen=True)
 class OneShotResultMetadata:
     selected_service_path: tuple[str, ...]
     runtime: OneShotRuntimeMetadata
@@ -315,6 +356,91 @@ class OneShotRunResult:
     @property
     def raw_output(self) -> str:
         return self.output
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class EphemeralRunRequest:
+    prompt: str
+    worktree: Path
+    stage: StageSelection
+    role: InvocationRole
+    tool_access: ToolAccess
+    usage_limit_scope: UsageLimitScope | None = None
+    session_namespace: str = ""
+    token: CancellationToken | None = None
+
+    def __init__(
+        self,
+        prompt: str,
+        worktree: Path | WorktreeMount,
+        stage: StageSelection | None = None,
+        role: InvocationRole | None = None,
+        usage_limit_scope: UsageLimitScope | None = None,
+        tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
+        tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
+        session_namespace: str = "",
+        token: CancellationToken | None = None,
+        *,
+        override: StageSelection | None = None,
+    ) -> None:
+        if stage is None:
+            stage = override
+        elif override is not None and override != stage:
+            raise TypeError(
+                "EphemeralRunRequest received conflicting `stage` and `override` values."
+            )
+        if stage is None:
+            raise TypeError("EphemeralRunRequest requires a `stage` value.")
+        if role is None:
+            raise TypeError("EphemeralRunRequest requires a `role` value.")
+        worktree_path = (
+            worktree.host_path if isinstance(worktree, WorktreeMount) else worktree
+        )
+        if (
+            isinstance(tool_access, ToolAccess)
+            and tool_policy is not _MISSING_TOOL_POLICY
+        ):
+            raise TypeError(
+                "EphemeralRunRequest received conflicting `tool_access` and `tool_policy` values."
+            )
+        if isinstance(tool_access, ToolAccess):
+            resolved_tool_access = tool_access
+        elif tool_policy is not _MISSING_TOOL_POLICY:
+            resolved_tool_access = ToolAccess.workspace_backed(
+                worktree_path,
+                tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
+            )
+        else:
+            raise TypeError(
+                "EphemeralRunRequest requires an explicit `tool_access` value."
+            )
+        resolved_tool_access.require_workspace(
+            worktree_path,
+            context="EphemeralRunRequest",
+        )
+        validate_stage_selection(stage)
+        validate_session_namespace(session_namespace)
+
+        object.__setattr__(self, "prompt", prompt)
+        object.__setattr__(self, "worktree", worktree_path)
+        object.__setattr__(self, "stage", stage)
+        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "tool_access", resolved_tool_access)
+        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
+        object.__setattr__(self, "session_namespace", session_namespace)
+        object.__setattr__(self, "token", token)
+
+    @property
+    def mount_path(self) -> Path:
+        return self.worktree
+
+    @property
+    def override(self) -> StageSelection:
+        return self.stage
+
+    @property
+    def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
+        return self.tool_access.tool_policy
 
 
 @dataclasses.dataclass(frozen=True)
@@ -626,6 +752,62 @@ class OneShotRuntime:
         return RuntimeOutcome.completed(output=result.output, result=result)
 
 
+class EphemeralRuntime:
+    def __init__(
+        self,
+        *,
+        execution_adapter: EphemeralRuntimeExecutionAdapter,
+        service_registry: ServiceRegistry | dict[str, Any] | None = None,
+    ) -> None:
+        registry = (
+            service_registry
+            if isinstance(service_registry, ServiceRegistry)
+            else ServiceRegistry(service_registry or {})
+        )
+        self._service_registry = registry
+        self._execution_adapter = execution_adapter
+
+    async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
+        try:
+            result = await _run_ephemeral(
+                runner=self._execution_adapter,
+                service_registry=self._service_registry,
+                request=request,
+            )
+        except AgentCancelledError as exc:
+            return RuntimeOutcome.cancelled(
+                output="",
+                invocation_progress=exc.invocation_progress,
+            )
+        except AgentTimeoutError as exc:
+            return RuntimeOutcome.timed_out(
+                output="",
+                invocation_progress=exc.invocation_progress,
+            )
+        except NoServiceAvailableError as exc:
+            return RuntimeOutcome.no_service_available(
+                output="",
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope,
+                invocation_progress=exc.invocation_progress,
+            )
+        except RetryableProviderFailureError as exc:
+            return RuntimeOutcome.retryable_provider_failure(
+                output="",
+                service_name=exc.service_name,
+                invocation_progress=exc.invocation_progress,
+            )
+        except UsageLimitError as exc:
+            return RuntimeOutcome.usage_limited(
+                output="",
+                service_name=exc.service_name,
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope,
+                invocation_progress=exc.invocation_progress,
+            )
+        return RuntimeOutcome.completed(output=result.output, result=result)
+
+
 class ResumableRuntime:
     def __init__(
         self,
@@ -827,6 +1009,110 @@ async def _run_one_shot(
             metadata=OneShotResultMetadata(
                 selected_service_path=selected_service_path,
                 runtime=output_adapter.runtime_metadata,
+            ),
+        )
+
+
+async def _run_ephemeral(
+    *,
+    runner: EphemeralRuntimeExecutionAdapter,
+    service_registry: ServiceRegistry,
+    request: EphemeralRunRequest,
+) -> EphemeralRunResult:
+    if not service_registry.has_configured_candidate(request.stage):
+        raise RuntimeConfigurationError(
+            "Ephemeral runtime requires at least one configured service candidate."
+        )
+
+    role = request.role
+    resolve_service = _require_execution_adapter_method(runner, "resolve_service")
+    build_work_dependencies = _require_execution_adapter_method(
+        runner,
+        "build_work_dependencies",
+    )
+
+    while True:
+        now = _time_module.now_local()
+        if request.token is not None and request.token.is_cancelled:
+            raise AgentCancelledError(
+                invocation_progress=InvocationProgress.NOT_STARTED,
+            )
+        if not service_registry.has_available_for(request.stage, now):
+            next_wake_time = service_registry.next_wake_time_for(
+                request.stage,
+                now,
+            )
+            raise NoServiceAvailableError(
+                reset_time=next_wake_time,
+                usage_limit_scope=request.usage_limit_scope
+                or UsageLimitScope(role.value),
+            )
+
+        resolved_override = service_registry.resolve(request.stage, now)
+        resolved_service = resolve_service(resolved_override.service)
+        dependencies = build_work_dependencies(
+            name=_DEFAULT_ONE_SHOT_NAME,
+            model=resolved_override.model,
+            effort=resolved_override.effort,
+            service=resolved_service,
+        )
+        session = dependencies.execution.build_session(
+            request.mount_path,
+            resolved_service,
+            None,
+        )
+        runner_instance = dependencies.execution.build_runner(session, None)
+        git_name, git_email = dependencies.execution.get_git_identity()
+        await runner_instance.setup(git_name, git_email)
+        try:
+            raw_output = await TextOutputAdapter(
+                prompt=request.prompt,
+                tool_access=request.tool_access,
+                workspace=request.worktree,
+            ).invoke(
+                runner=runner_instance,
+                role=role,
+                prompt=request.prompt,
+                run_kind=RunKind.FRESH,
+                session_uuid=None,
+                on_provider_session_id=lambda _provider_session_id: None,
+            )
+        except Exception as exc:
+            if isinstance(exc, UsageLimitError):
+                service_registry.mark_exhausted(
+                    resolved_override.service,
+                    reset_time=exc.reset_time,
+                )
+                exhausted_now = _time_module.now_local()
+                if not service_registry.has_available_for(request.stage, exhausted_now):
+                    raise NoServiceAvailableError(
+                        reset_time=service_registry.next_wake_time_for(
+                            request.stage,
+                            exhausted_now,
+                        ),
+                        usage_limit_scope=exc.usage_limit_scope,
+                        invocation_progress=exc.invocation_progress,
+                    ) from exc
+                continue
+            raise
+
+        selected_service_path = _selected_service_path(
+            request.stage,
+            selected_service=resolved_service.name,
+        )
+        return EphemeralRunResult(
+            output=raw_output if isinstance(raw_output, str) else str(raw_output),
+            selected_service=resolved_service.name,
+            selected_model=resolved_override.model,
+            selected_effort=resolved_override.effort,
+            tool_access=request.tool_access,
+            used_fallback=len(selected_service_path) > 1,
+            metadata=EphemeralResultMetadata(
+                selected_service_path=selected_service_path,
+                runtime=EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace=request.session_namespace,
+                ),
             ),
         )
 
