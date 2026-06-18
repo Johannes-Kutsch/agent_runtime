@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -16,7 +16,6 @@ import agent_runtime as runtime
 import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
-import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime._import_isolation import assert_runtime_import_isolation
 from agent_runtime.contracts import (
@@ -27,7 +26,6 @@ from agent_runtime.contracts import (
     ModelActivity,
     PromptTokens,
     Result,
-    ResumabilityProvider,
     ServiceSelectionProvider,
     TransientError,
     UnsupportedTokens,
@@ -86,11 +84,9 @@ from agent_runtime.session_planning import ResumableSessionPlan
 from agent_runtime.session_planning import (
     AuthSeedingRequirement,
     ResumableSessionPlanRequest,
-    plan_resumable_session,
 )
 from tests.runtime_boundary_fakes import (
     ExecutionServiceFake as _ExecutionService,
-    ExternalStateResidentPlanningProviderSessionAdapterFake as _ExternalStateResidentPlanningProviderSessionAdapter,
     ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
     SelectionServiceFake as _Service,
     SessionStoreFake as _SessionStore,
@@ -2148,79 +2144,6 @@ class _ToolPolicyRenderingPromptRunner:
         return _tool_policy_effect_text(tool_policy)
 
 
-class _RoleAwareResidentSeamRunner(_ResidentSeamRunner):
-    def __init__(
-        self,
-        session: _Session,
-        observed_roles: list[InvocationRole],
-    ) -> None:
-        super().__init__(session)
-        self._observed_roles = observed_roles
-
-    async def work(
-        self,
-        role: InvocationRole,
-        prompt: str,
-        *,
-        run_kind: RunKind = RunKind.FRESH,
-        session_uuid: str | None = None,
-        on_provider_session_id: Any = None,
-    ) -> str:
-        self._observed_roles.append(role)
-        return await super().work(
-            role,
-            prompt,
-            run_kind=run_kind,
-            session_uuid=session_uuid,
-            on_provider_session_id=on_provider_session_id,
-        )
-
-
-class _RoleAwareResidentSeamExecutionAdapter:
-    def __init__(self) -> None:
-        self.observed_roles: list[InvocationRole] = []
-
-    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
-        return _ExecutionService(service_name)
-
-    def build_work_dependencies(
-        self,
-        *,
-        name: str,
-        model: str,
-        effort: str,
-        service: ExecutionProvider,
-    ) -> WorkInvocationDependencies:
-        del name, model, effort, service
-
-        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
-            return _ResidentAdapterPreparedRunSession(
-                provider_state_dir_container_path="/workspace/runtime-state/",
-                run_kind=run_session.run_kind,
-                provider_session_id=f"prepared:{run_session.provider_session_id}",
-            )
-
-        return WorkInvocationDependencies(
-            execution=WorkExecutionDependencies(
-                container_workspace="/workspace",
-                prepare_session=cast(Any, _prepare_session),
-                build_session=lambda mount_path, service, provider_state_dir: _Session(
-                    provider_state_dir
-                ),
-                build_runner=lambda session, status_display: cast(
-                    WorkExecutionAdapter,
-                    _RoleAwareResidentSeamRunner(
-                        cast(_Session, session),
-                        self.observed_roles,
-                    ),
-                ),
-                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
-            ),
-            failure_handling=WorkFailureHandling(timeout_retries=0),
-            presentation=WorkPresentationDependencies(),
-        )
-
-
 class _StartedUsageLimitResidentRunner(_ResidentSeamRunner):
     async def work_text(
         self,
@@ -2967,87 +2890,6 @@ class _UnexpectedFailureResidentExecutionAdapter:
             ),
             failure_handling=WorkFailureHandling(timeout_retries=0),
             presentation=WorkPresentationDependencies(),
-        )
-
-
-def test_resumable_session_plan_exposes_public_value_fields_only(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    service = execution_service_factory()
-
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    assert session_plan.role == InvocationRole("implementer")
-    assert session_plan.worktree == Path(".")
-    assert session_plan.namespace == "main"
-    assert session_plan.service is service
-    assert session_plan.run_kind is RunKind.RESUME
-    assert session_plan.provider_state_dir == Path("state")
-    assert session_plan.provider_session_id == "recovered-session"
-    assert session_plan.auth_seeding_requirement is AuthSeedingRequirement.NOT_REQUIRED
-    assert session_plan.auth_seed_action is None
-    assert session_plan.exact_transcript_match is False
-    assert session_plan.usage_limit_scope is None
-    with pytest.raises(FrozenInstanceError):
-        setattr(session_plan, "provider_state_dir", Path("other-state"))
-
-
-def test_package_surface_exposes_invocation_role_value_object() -> None:
-    role = runtime.InvocationRole("implementer")
-
-    assert role.value == "implementer"
-
-
-def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
-    usage_limit_scope = runtime.UsageLimitScope("quota-review")
-
-    assert usage_limit_scope.value == "quota-review"
-
-
-def test_tool_policy_restricted_resolves_to_provider_neutral_profile() -> None:
-    profile = runtime.ToolPolicy.RESTRICTED.profile
-
-    assert profile.allowed_tools == ("Read", "Glob")
-    assert profile.disallowed_tools == ()
-    assert profile.strict_mcp_config is True
-
-
-def test_runtime_surface_exposes_tool_policy_profiles_for_partial_and_full() -> None:
-    partial = runtime.ToolPolicy.PARTIAL.profile
-    full = runtime.ToolPolicy.FULL.profile
-
-    assert isinstance(partial, prompt_runtime.ToolPolicyProfile)
-    assert partial.allowed_tools is None
-    assert partial.disallowed_tools == ("Edit", "Write", "NotebookEdit")
-    assert partial.strict_mcp_config is True
-    assert isinstance(full, prompt_runtime.ToolPolicyProfile)
-    assert full.allowed_tools is None
-    assert full.disallowed_tools == ()
-    assert full.strict_mcp_config is True
-
-
-def test_tool_policy_profiles_stay_provider_neutral() -> None:
-    for policy in runtime.ToolPolicy:
-        profile = policy.profile
-        rendered_values = (profile.allowed_tools or ()) + profile.disallowed_tools
-
-        assert profile.strict_mcp_config is True
-        assert all(not value.startswith("-") for value in rendered_values)
-        assert all(
-            provider not in value.lower()
-            for value in rendered_values
-            for provider in ("claude", "codex", "opencode")
         )
 
 
@@ -4055,241 +3897,6 @@ def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
     )
 
 
-def test_resumed_session_runtime_preserves_resumed_session_behavior_through_run_session_seam(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    service = execution_service_factory()
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    assert session_plan == ResumableSessionPlan(
-        role=InvocationRole("implementer"),
-        worktree=Path("."),
-        namespace="main",
-        service=service,
-        run_kind=RunKind.RESUME,
-        provider_state_dir=Path("state"),
-        provider_session_id="recovered-session",
-        auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
-    )
-
-    result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.completed(
-        output="resume:prepared:recovered-session:/workspace/state/",
-        result=prompt_runtime.SessionRunResult(
-            output="resume:prepared:recovered-session:/workspace/state/",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="prepared:recovered-session",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
-            ),
-        ),
-    )
-
-
-def test_resumed_session_runtime_uses_invocation_role_from_session_plan(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    role = InvocationRole("reviewer")
-    service = execution_service_factory()
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=role,
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-    execution_adapter = _RoleAwareResidentSeamExecutionAdapter()
-
-    asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=execution_adapter
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-            )
-        )
-    )
-
-    assert execution_adapter.observed_roles == [role]
-
-
-def test_resumed_session_runtime_preserves_planned_relative_provider_state_path(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
-    external_state_provider_session_adapter: _ExternalStateResidentPlanningProviderSessionAdapter,
-) -> None:
-    worktree = Path("/repo")
-    service = execution_service_factory()
-    provider_session_decision = session_planning_runtime.plan_provider_session(
-        session_planning_runtime.ProviderSessionPlanRequest(
-            worktree=worktree,
-            role=InvocationRole("implementer"),
-            namespace="main",
-            resumability_service=cast(ResumabilityProvider, service),
-            session_store=session_store_factory(),
-            provider_session_adapter=external_state_provider_session_adapter,
-        )
-    )
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=worktree,
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=external_state_provider_session_adapter,
-        )
-    )
-
-    assert (
-        provider_session_decision
-        == session_planning_runtime.ProviderSessionDecision(
-            run_kind=RunKind.RESUME,
-            provider_session_id="recovered-session",
-            state_dir_relpath="runtime-state/",
-            state_dir_path=Path("/host/runtime-state"),
-            recovered_session_id_persistence=(
-                session_planning_runtime.RecoveredSessionIdPersistence.SKIP
-            ),
-            service_state_dir=Path("/host/runtime-state"),
-            exact_transcript_match=False,
-            auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
-            auth_seed_action=None,
-            use_service_state_dir_for_container=False,
-        )
-    )
-    assert session_plan.provider_state_dir == Path("/host/runtime-state")
-    assert session_plan.provider_session_id == "recovered-session"
-    assert (
-        provider_session_decision.container_state_dir_path(
-            worktree=worktree,
-            container_workspace="/workspace",
-        )
-        == "/workspace/runtime-state/"
-    )
-
-    result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(worktree),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.completed(
-        output="resume:prepared:recovered-session:/workspace/runtime-state/",
-        result=prompt_runtime.SessionRunResult(
-            output="resume:prepared:recovered-session:/workspace/runtime-state/",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="prepared:recovered-session",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
-            ),
-        ),
-    )
-
-
-def test_resumed_session_runtime_returns_portable_continuation_resume_data(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
-    external_state_provider_session_adapter: _ExternalStateResidentPlanningProviderSessionAdapter,
-) -> None:
-    worktree = Path("/repo")
-    service = execution_service_factory()
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=worktree,
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=external_state_provider_session_adapter,
-        )
-    )
-    tool_access = runtime.ToolAccess.workspace_backed(
-        worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
-    )
-
-    result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(worktree),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_access=tool_access,
-            )
-        )
-    )
-
-    assert hasattr(runtime, "Continuation")
-    assert hasattr(prompt_runtime, "Continuation")
-    assert runtime.Continuation is prompt_runtime.Continuation
-    assert result.result is not None
-    assert getattr(result.result, "continuation") == prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "prepared:recovered-session",
-            "provider_state_dir_relpath": "runtime-state/",
-            "exact_transcript_match": False,
-        },
-    )
-
-
 def test_new_session_runtime_selects_fallback_service_before_binding_continuation(
     stage_selection_factory: Callable[..., runtime.StageSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
@@ -5087,95 +4694,6 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)
         )
-
-
-def test_resumed_session_runtime_returns_cancelled_outcome_for_pre_start_caller_cancellation(
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-    cancelled_token = CancellationToken()
-    cancelled_token.cancel()
-
-    result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-                token=cancelled_token,
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.cancelled(
-        output="",
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
-def test_resumed_session_runtime_reports_started_progress_for_timed_out_outcome(
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_StartedTimeoutResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.timed_out(
-        output="",
-        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "prepared:recovered-session",
-                "provider_state_dir_relpath": "state/",
-                "exact_transcript_match": False,
-            },
-        ),
-    )
 
 
 @pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)

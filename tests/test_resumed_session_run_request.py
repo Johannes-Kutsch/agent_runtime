@@ -26,7 +26,9 @@ from tests.runtime_boundary_fakes import (
 )
 
 
-def test_resumable_run_request_from_continuation_rejects_tool_access_override() -> None:
+def test_resumed_session_run_request_from_continuation_rejects_tool_access_override() -> (
+    None
+):
     with pytest.raises(
         TypeError,
         match=re.escape(
@@ -49,7 +51,7 @@ def test_resumable_run_request_from_continuation_rejects_tool_access_override() 
         )
 
 
-def test_resumable_run_request_from_continuation_requires_role() -> None:
+def test_resumed_session_run_request_from_continuation_requires_role() -> None:
     with pytest.raises(
         TypeError,
         match=re.escape(
@@ -70,7 +72,7 @@ def test_resumable_run_request_from_continuation_requires_role() -> None:
         )
 
 
-def test_resumable_run_request_rejects_conflicting_continuation_and_session_plan(
+def test_resumed_session_run_request_rejects_conflicting_continuation_and_session_plan(
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
@@ -110,7 +112,7 @@ def test_resumable_run_request_rejects_conflicting_continuation_and_session_plan
         )
 
 
-def test_resumable_run_request_rejects_conflicting_tool_access_and_tool_policy() -> (
+def test_resumed_session_run_request_rejects_conflicting_tool_access_and_tool_policy() -> (
     None
 ):
     with pytest.raises(
@@ -139,7 +141,7 @@ def test_resumable_run_request_rejects_conflicting_tool_access_and_tool_policy()
         )
 
 
-def test_resumable_run_request_carries_workspace_backed_tool_access() -> None:
+def test_resumed_session_run_request_carries_workspace_backed_tool_access() -> None:
     tool_access = runtime.ToolAccess.workspace_backed(
         Path("/repo"),
         tool_policy=runtime.ToolPolicy.PARTIAL,
@@ -167,7 +169,7 @@ def test_resumable_run_request_carries_workspace_backed_tool_access() -> None:
     assert request.tool_access.workspace == Path("/repo")
 
 
-def test_resumable_run_request_accepts_explicit_no_tools_tool_access() -> None:
+def test_resumed_session_run_request_accepts_explicit_no_tools_tool_access() -> None:
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         worktree=WorktreeMount(Path("/repo")),
@@ -190,7 +192,7 @@ def test_resumable_run_request_accepts_explicit_no_tools_tool_access() -> None:
     assert request.tool_policy == runtime.ToolAccess.no_tools().tool_policy
 
 
-def test_resumable_run_request_rejects_workspace_backed_tool_access_for_other_worktree() -> (
+def test_resumed_session_run_request_rejects_workspace_backed_tool_access_for_other_worktree() -> (
     None
 ):
     with pytest.raises(
@@ -221,7 +223,7 @@ def test_resumable_run_request_rejects_workspace_backed_tool_access_for_other_wo
         )
 
 
-def test_resumable_runtime_request_rejects_request_level_invocation_role() -> None:
+def test_resumed_session_run_request_rejects_request_level_invocation_role() -> None:
     with pytest.raises(TypeError):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",

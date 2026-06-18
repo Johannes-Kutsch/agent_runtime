@@ -318,6 +318,42 @@ def test_provider_session_planning_returns_immutable_decision_value(
         setattr(provider_session_decision, "provider_session_id", "other")
 
 
+def test_resumable_session_plan_exposes_public_value_fields_only(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = execution_service_factory()
+
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    assert session_plan.role == InvocationRole("implementer")
+    assert session_plan.worktree == Path(".")
+    assert session_plan.namespace == "main"
+    assert session_plan.service is service
+    assert session_plan.run_kind is RunKind.RESUME
+    assert session_plan.provider_state_dir == Path("state")
+    assert session_plan.provider_session_id == "recovered-session"
+    assert (
+        session_plan.auth_seeding_requirement
+        is session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
+    )
+    assert session_plan.auth_seed_action is None
+    assert session_plan.exact_transcript_match is False
+    assert session_plan.usage_limit_scope is None
+    with pytest.raises(FrozenInstanceError):
+        setattr(session_plan, "provider_state_dir", Path("other-state"))
+
+
 def test_resumable_session_plan_hides_container_state_selection_metadata(
     execution_service_factory: Callable[..., ExecutionProvider],
     session_store_factory: Callable[..., _SessionStore],
@@ -398,3 +434,51 @@ def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> N
         "auth_seed_action",
         "use_service_state_dir_for_container",
     ]
+
+
+def test_package_surface_exposes_invocation_role_value_object() -> None:
+    role = runtime.InvocationRole("implementer")
+
+    assert role.value == "implementer"
+
+
+def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
+    usage_limit_scope = runtime.UsageLimitScope("quota-review")
+
+    assert usage_limit_scope.value == "quota-review"
+
+
+def test_tool_policy_restricted_resolves_to_provider_neutral_profile() -> None:
+    profile = runtime.ToolPolicy.RESTRICTED.profile
+
+    assert profile.allowed_tools == ("Read", "Glob")
+    assert profile.disallowed_tools == ()
+    assert profile.strict_mcp_config is True
+
+
+def test_runtime_surface_exposes_tool_policy_profiles_for_partial_and_full() -> None:
+    partial = runtime.ToolPolicy.PARTIAL.profile
+    full = runtime.ToolPolicy.FULL.profile
+
+    assert isinstance(partial, prompt_runtime.ToolPolicyProfile)
+    assert partial.allowed_tools is None
+    assert partial.disallowed_tools == ("Edit", "Write", "NotebookEdit")
+    assert partial.strict_mcp_config is True
+    assert isinstance(full, prompt_runtime.ToolPolicyProfile)
+    assert full.allowed_tools is None
+    assert full.disallowed_tools == ()
+    assert full.strict_mcp_config is True
+
+
+def test_tool_policy_profiles_stay_provider_neutral() -> None:
+    for policy in runtime.ToolPolicy:
+        profile = policy.profile
+        rendered_values = (profile.allowed_tools or ()) + profile.disallowed_tools
+
+        assert profile.strict_mcp_config is True
+        assert all(not value.startswith("-") for value in rendered_values)
+        assert all(
+            provider not in value.lower()
+            for value in rendered_values
+            for provider in ("claude", "codex", "opencode")
+        )
