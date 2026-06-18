@@ -1181,6 +1181,7 @@ def test_resumable_session_plan_exposes_public_value_fields_only(
     with pytest.raises(FrozenInstanceError):
         setattr(session_plan, "provider_state_dir", Path("other-state"))
 
+
 def test_resumable_session_plan_hides_container_state_selection_metadata(
     execution_service_factory: Callable[..., ExecutionProvider],
     session_store_factory: Callable[..., _SessionStore],
@@ -1741,52 +1742,34 @@ def test_public_stage_selection_requires_non_empty_candidate_configuration() -> 
             effort="",
         )
 
-    invalid_fallback = cast(
-        Any,
-        object.__new__(runtime.StageSelection),
-    )
-    object.__setattr__(invalid_fallback, "service", "claude")
-    object.__setattr__(invalid_fallback, "model", "")
-    object.__setattr__(invalid_fallback, "effort", "high")
-    object.__setattr__(invalid_fallback, "fallback", None)
-
     with pytest.raises(ValueError, match="model"):
-        prompt_runtime.OneShotRunRequest(
-            prompt="already rendered prompt",
-            worktree=WorktreeMount(Path(".")),
-            stage=cast(runtime.StageSelection, invalid_fallback),
-            role=InvocationRole("implementer"),
+        runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+            fallback=runtime.StageSelection(
+                service="claude",
+                model="",
+                effort="high",
+            ),
         )
 
 
 def test_one_shot_run_request_override_rejects_invalid_stage_fallback() -> None:
-    invalid_fallback = cast(
-        Any,
-        object.__new__(runtime.StageSelection),
-    )
-    object.__setattr__(invalid_fallback, "service", "claude")
-    object.__setattr__(invalid_fallback, "model", "sonnet")
-    object.__setattr__(invalid_fallback, "effort", "")
-    object.__setattr__(invalid_fallback, "fallback", None)
-
-    invalid_override = cast(
-        Any,
-        object.__new__(runtime.StageSelection),
-    )
-    object.__setattr__(invalid_override, "service", "codex")
-    object.__setattr__(invalid_override, "model", "gpt-5.4")
-    object.__setattr__(invalid_override, "effort", "medium")
-    object.__setattr__(
-        invalid_override,
-        "fallback",
-        cast(runtime.StageSelection, invalid_fallback),
-    )
-
     with pytest.raises(ValueError, match="effort"):
         prompt_runtime.OneShotRunRequest(
             prompt="already rendered prompt",
             worktree=WorktreeMount(Path(".")),
-            override=cast(runtime.StageSelection, invalid_override),
+            override=runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+                fallback=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="",
+                ),
+            ),
             role=InvocationRole("implementer"),
         )
 
@@ -1826,52 +1809,19 @@ def test_service_registry_resolve_and_wake_time(
     ) == datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-def test_service_registry_rejects_invalid_public_stage_selection() -> None:
-    invalid_stage = cast(
-        Any,
-        object.__new__(runtime.StageSelection),
-    )
-    object.__setattr__(invalid_stage, "service", "codex")
-    object.__setattr__(invalid_stage, "model", "gpt-5.4")
-    object.__setattr__(invalid_stage, "effort", "medium")
-    object.__setattr__(
-        invalid_stage,
-        "fallback",
-        cast(
-            runtime.StageSelection,
-            object.__new__(runtime.StageSelection),
-        ),
-    )
-    object.__setattr__(invalid_stage.fallback, "service", "claude")
-    object.__setattr__(invalid_stage.fallback, "model", "sonnet")
-    object.__setattr__(invalid_stage.fallback, "effort", "")
-    object.__setattr__(invalid_stage.fallback, "fallback", None)
-
-    registry = ServiceRegistry(
-        {
-            "codex": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "codex",
-                    available=True,
-                    wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+def test_service_registry_rejects_invalid_public_service_name_configuration() -> None:
+    with pytest.raises(ValueError, match="ServiceRegistry service name"):
+        ServiceRegistry(
+            {
+                "bad/name": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "bad/name",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
                 ),
-            ),
-            "claude": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "claude",
-                    available=True,
-                    wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                ),
-            ),
-        }
-    )
-
-    with pytest.raises(ValueError, match="effort"):
-        registry.resolve(
-            cast(runtime.StageSelection, invalid_stage),
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            }
         )
 
 
@@ -1900,32 +1850,17 @@ def test_application_can_render_service_availability_summary_from_registry(
     ]
 
 
-def test_stage_chain_helper_rejects_invalid_public_stage_selection() -> None:
-    invalid_stage = cast(
-        Any,
-        object.__new__(runtime.StageSelection),
-    )
-    object.__setattr__(invalid_stage, "service", "codex")
-    object.__setattr__(invalid_stage, "model", "gpt-5.4")
-    object.__setattr__(invalid_stage, "effort", "medium")
-    object.__setattr__(
-        invalid_stage,
-        "fallback",
-        cast(
-            runtime.StageSelection,
-            object.__new__(runtime.StageSelection),
-        ),
-    )
-    object.__setattr__(invalid_stage.fallback, "service", "")
-    object.__setattr__(invalid_stage.fallback, "model", "sonnet")
-    object.__setattr__(invalid_stage.fallback, "effort", "high")
-    object.__setattr__(invalid_stage.fallback, "fallback", None)
-
+def test_public_stage_selection_rejects_invalid_fallback_service_name() -> None:
     with pytest.raises(ValueError, match="service"):
-        select_configured_candidate_chain(
-            cast(runtime.StageSelection, invalid_stage),
-            configured_service_names=("codex", "claude"),
-            available_service_names=("codex", "claude"),
+        runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+            fallback=runtime.StageSelection(
+                service="",
+                model="sonnet",
+                effort="high",
+            ),
         )
 
 
