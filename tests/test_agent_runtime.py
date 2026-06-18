@@ -2325,6 +2325,15 @@ class _StartedUsageLimitResidentExecutionAdapter:
         )
 
 
+class _ContinuationBoundStartedUsageLimitResidentExecutionAdapter(
+    _StartedUsageLimitResidentExecutionAdapter
+):
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        if service_name != "bound-service":
+            raise AssertionError(f"expected continuation service, got {service_name!r}")
+        return _ExecutionService("resolved-service")
+
+
 class _RetryableProviderFailureResidentRunner(_ResidentSeamRunner):
     async def work_text(
         self,
@@ -5847,6 +5856,58 @@ def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_ef
     )
 
 
+def test_resumable_runtime_started_usage_limit_keeps_service_bound_in_continuation() -> (
+    None
+):
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="bound-service",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_ContinuationBoundStartedUsageLimitResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="bound-service",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(worktree),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "runtime-state/",
+                "exact_transcript_match": False,
+            },
+        ),
+    )
+
+
 @pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)
 def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
     tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
@@ -5921,6 +5982,18 @@ def test_resumable_runtime_reports_started_progress_for_usage_limited_outcome(
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "state/",
+                "exact_transcript_match": False,
+            },
+        ),
     )
 
 
@@ -5961,6 +6034,18 @@ def test_resumable_runtime_prefers_adapter_reported_model_activity_for_usage_lim
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "state/",
+                "exact_transcript_match": False,
+            },
+        ),
     )
 
 
@@ -6132,6 +6217,18 @@ def test_resumable_runtime_reports_started_progress_for_timed_out_outcome(
     assert result == prompt_runtime.RuntimeOutcome.timed_out(
         output="",
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "state/",
+                "exact_transcript_match": False,
+            },
+        ),
     )
 
 
@@ -6228,6 +6325,18 @@ def test_retryable_provider_failure_outcomes_preserve_started_progress(
         output="",
         service_name="codex",
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "state/",
+                "exact_transcript_match": False,
+            },
+        ),
     )
 
 

@@ -1182,17 +1182,20 @@ class ResumableRuntime:
             return RuntimeOutcome.cancelled(
                 output="",
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except AgentTimeoutError as exc:
             return RuntimeOutcome.timed_out(
                 output="",
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except RetryableProviderFailureError as exc:
             return RuntimeOutcome.retryable_provider_failure(
                 output="",
                 service_name=exc.service_name,
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
@@ -1201,6 +1204,7 @@ class ResumableRuntime:
                 reset_time=exc.reset_time,
                 usage_limit_scope=exc.usage_limit_scope,
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         return RuntimeOutcome.completed(output=result.output, result=result)
 
@@ -1648,7 +1652,7 @@ async def _run_resumable_prompt(
     ) as exc:
         exc.continuation = _interruption_continuation(
             request=request,
-            service_name=service.name,
+            service_name=service_name,
             run_kind=run_kind,
             provider_state_dir_relpath=provider_state_dir_relpath,
             exact_transcript_match=exact_transcript_match,
