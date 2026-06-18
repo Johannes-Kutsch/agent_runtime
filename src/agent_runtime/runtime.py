@@ -59,8 +59,8 @@ __all__ = [
     "ResumedSessionRuntime",
     "ResumedSessionRuntimeExecutionAdapter",
     "RuntimeOutcome",
-    "ResumableRunResult",
-    "ResumableRuntimeMetadata",
+    "SessionRunResult",
+    "SessionRuntimeMetadata",
     "ToolAccess",
     "ToolPolicy",
     "ToolPolicyProfile",
@@ -147,7 +147,7 @@ class Continuation:
 class RuntimeOutcome:
     kind: str
     output: str
-    result: EphemeralRunResult | OneShotRunResult | ResumableRunResult | None = None
+    result: EphemeralRunResult | OneShotRunResult | SessionRunResult | None = None
     service_name: str | None = None
     reset_time: datetime | None = None
     usage_limit_scope: UsageLimitScope | None = None
@@ -159,7 +159,7 @@ class RuntimeOutcome:
         cls,
         *,
         output: str,
-        result: EphemeralRunResult | OneShotRunResult | ResumableRunResult,
+        result: EphemeralRunResult | OneShotRunResult | SessionRunResult,
     ) -> RuntimeOutcome:
         return cls(kind="completed", output=output, result=result)
 
@@ -253,7 +253,7 @@ class RuntimeOutcome:
     @property
     def runtime_metadata(
         self,
-    ) -> EphemeralRuntimeMetadata | OneShotRuntimeMetadata | ResumableRuntimeMetadata:
+    ) -> EphemeralRuntimeMetadata | OneShotRuntimeMetadata | SessionRuntimeMetadata:
         result = self.result
         if result is None:
             raise AttributeError("Only completed outcomes carry runtime metadata.")
@@ -638,7 +638,7 @@ class NewSessionRunRequest:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResumableRuntimeMetadata:
+class SessionRuntimeMetadata:
     service_name: str
     provider_session_id: str | None
     run_kind: RunKind
@@ -647,9 +647,9 @@ class ResumableRuntimeMetadata:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResumableRunResult:
+class SessionRunResult:
     output: str
-    runtime_metadata: ResumableRuntimeMetadata
+    runtime_metadata: SessionRuntimeMetadata
     continuation: Continuation | None = dataclasses.field(
         default=None,
         compare=False,
@@ -1535,7 +1535,7 @@ async def _run_new_session(
     runner: NewSessionRuntimeExecutionAdapter,
     service_registry: ServiceRegistry,
     request: NewSessionRunRequest,
-) -> ResumableRunResult:
+) -> SessionRunResult:
     if not service_registry.has_configured_candidate(request.stage):
         raise RuntimeConfigurationError(
             "New-session runtime requires at least one configured service candidate."
@@ -1606,7 +1606,7 @@ async def _run_resumable_prompt(
     *,
     runner: ResumableRuntimeExecutionAdapter,
     request: ResumableRunRequest,
-) -> ResumableRunResult:
+) -> SessionRunResult:
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
         runner,
@@ -1735,9 +1735,9 @@ async def _run_resumable_prompt(
     if prepared_session is None:
         prepared_session = resumable_dependencies.execution.prepare_session(run_session)
     provider_run_session = _latest_provider_run_session(prepared_session)
-    return ResumableRunResult(
+    return SessionRunResult(
         output=output,
-        runtime_metadata=ResumableRuntimeMetadata(
+        runtime_metadata=SessionRuntimeMetadata(
             service_name=service_name,
             provider_session_id=provider_run_session.provider_session_id,
             run_kind=run_kind,

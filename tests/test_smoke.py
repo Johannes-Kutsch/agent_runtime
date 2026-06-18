@@ -45,7 +45,7 @@ def test_public_api_reference_documents_runtime_surface_tiers() -> None:
     assert "## Adapter Surface" in public_api
     assert "## Advanced Focused Seams" in public_api
     assert "not an inventory of every importable symbol" in public_api
-    assert "Compatibility aliases" in public_api
+    assert "compatibility aliases are intentionally absent" in public_api
 
 
 def test_public_api_reference_mentions_documented_exports() -> None:

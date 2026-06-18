@@ -3003,11 +3003,13 @@ def test_package_exports_runtime_surface() -> None:
         "EphemeralRuntimeMetadata",
         "Continuation",
         "ResumedSessionRunRequest",
-        "ResumableRunResult",
+        "SessionRunResult",
         "ResumedSessionRuntime",
         "ResumedSessionRuntimeExecutionAdapter",
-        "ResumableRuntimeMetadata",
+        "SessionRuntimeMetadata",
     } <= set(prompt_runtime.__all__)
+    assert not hasattr(prompt_runtime, "ResumableRunResult")
+    assert not hasattr(prompt_runtime, "ResumableRuntimeMetadata")
     assert "ResumableRunRequest" not in prompt_runtime.__all__
     assert "ResumableRuntime" not in prompt_runtime.__all__
     assert "ResumableRuntimeExecutionAdapter" not in prompt_runtime.__all__
@@ -5181,9 +5183,9 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
 
     assert result == prompt_runtime.RuntimeOutcome.completed(
         output="resume:prepared:recovered-session:/workspace/state/",
-        result=prompt_runtime.ResumableRunResult(
+        result=prompt_runtime.SessionRunResult(
             output="resume:prepared:recovered-session:/workspace/state/",
-            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
                 service_name="codex",
                 provider_session_id="prepared:recovered-session",
                 run_kind=RunKind.RESUME,
@@ -5303,9 +5305,9 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
 
     assert result == prompt_runtime.RuntimeOutcome.completed(
         output="resume:prepared:recovered-session:/workspace/runtime-state/",
-        result=prompt_runtime.ResumableRunResult(
+        result=prompt_runtime.SessionRunResult(
             output="resume:prepared:recovered-session:/workspace/runtime-state/",
-            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
                 service_name="codex",
                 provider_session_id="prepared:recovered-session",
                 run_kind=RunKind.RESUME,
@@ -5413,7 +5415,7 @@ def test_new_session_runtime_selects_fallback_service_before_binding_continuatio
         result.output
         == "resume:prepared:recovered-claude:/workspace/claude-runtime-state/"
     )
-    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.runtime_metadata.service_name == "claude"
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="claude",
@@ -5471,9 +5473,9 @@ def test_new_session_runtime_retries_fallback_before_binding_continuation(
 
     assert result == prompt_runtime.RuntimeOutcome.completed(
         output="resume:prepared:recovered-claude:/workspace/claude-runtime-state/",
-        result=prompt_runtime.ResumableRunResult(
+        result=prompt_runtime.SessionRunResult(
             output="resume:prepared:recovered-claude:/workspace/claude-runtime-state/",
-            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
                 service_name="claude",
                 provider_session_id="prepared:recovered-claude",
                 run_kind=RunKind.RESUME,
@@ -5483,7 +5485,7 @@ def test_new_session_runtime_retries_fallback_before_binding_continuation(
         ),
     )
     assert result.result is not None
-    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="claude",
         selected_model="sonnet",
@@ -5711,7 +5713,7 @@ def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
         )
     )
 
-    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
@@ -6238,9 +6240,9 @@ def test_resumable_runtime_resumes_from_portable_continuation_data() -> None:
 
     assert result == prompt_runtime.RuntimeOutcome.completed(
         output="resume:prepared:recovered-session:/workspace/runtime-state/",
-        result=prompt_runtime.ResumableRunResult(
+        result=prompt_runtime.SessionRunResult(
             output="resume:prepared:recovered-session:/workspace/runtime-state/",
-            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
                 service_name="codex",
                 provider_session_id="prepared:recovered-session",
                 run_kind=RunKind.RESUME,
@@ -6249,7 +6251,7 @@ def test_resumable_runtime_resumes_from_portable_continuation_data() -> None:
             ),
         ),
     )
-    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
@@ -6301,9 +6303,9 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
 
     assert result == prompt_runtime.RuntimeOutcome.completed(
         output="resume:prepared:recovered-session:/workspace/runtime-state/",
-        result=prompt_runtime.ResumableRunResult(
+        result=prompt_runtime.SessionRunResult(
             output="resume:prepared:recovered-session:/workspace/runtime-state/",
-            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
                 service_name="codex",
                 provider_session_id="prepared:recovered-session",
                 run_kind=RunKind.RESUME,
@@ -6312,7 +6314,7 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
             ),
         ),
     )
-    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
@@ -6526,7 +6528,7 @@ def test_resumable_runtime_completed_outcome_keeps_service_bound_in_continuation
         )
     )
 
-    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.runtime_metadata.service_name == "bound-service"
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="bound-service",
@@ -6696,7 +6698,7 @@ def test_resumable_runtime_returns_latest_adapter_updated_provider_resume_state(
         )
     )
 
-    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
@@ -6866,7 +6868,7 @@ def test_resumable_runtime_keeps_frozen_adapter_session_seam_unchanged() -> None
         )
     )
 
-    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert initial_provider_run_session_calls == [None]
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="codex",
@@ -6949,7 +6951,7 @@ def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_ef
         )
     )
 
-    assert isinstance(defaulted_result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(defaulted_result.result, prompt_runtime.SessionRunResult)
     assert defaulted_result.result.continuation == prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
@@ -6962,7 +6964,7 @@ def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_ef
             "exact_transcript_match": False,
         },
     )
-    assert isinstance(overridden_result.result, prompt_runtime.ResumableRunResult)
+    assert isinstance(overridden_result.result, prompt_runtime.SessionRunResult)
     assert overridden_result.result.continuation == prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.5",
