@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -993,10 +994,9 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="claude",
-        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         usage=runtime.ProviderUsage(
@@ -1271,10 +1271,9 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="codex",
-        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
@@ -1337,13 +1336,891 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="codex",
-        reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
+        reset_time=datetime(2027, 1, 2, 17, 2, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
+
+
+def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    observed_commands: list[str] = []
+
+    class _FakeProcess:
+        def __init__(self, stdout: Any) -> None:
+            self.stdout = stdout
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        if command.startswith("codex exec"):
+            return _FakeProcess(
+                iter(
+                    [
+                        '{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. Try again at January 2, 5pm (UTC)."}}\n',
+                    ]
+                )
+            )
+        return _FakeProcess(
+            iter(
+                [
+                    '{"type":"assistant","message":{"content":[{"type":"text","text":"hello from claude"}]}}\n',
+                    '{"type":"result","result":"hello from claude"}\n',
+                ]
+            )
+        )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    client = prompt_runtime.RuntimeClient()
+    first_stage = stage_selection_factory(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+    )
+    second_stage = stage_selection_factory(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+        fallback=stage_selection_factory(
+            service="claude",
+            model="sonnet",
+            effort="medium",
+        ),
+    )
+
+    first_outcome = client.run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=first_stage,
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+    second_outcome = client.run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=second_stage,
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert first_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from claude",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from claude",
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            used_fallback=True,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("codex", "claude"),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access "
+            "--json < /tmp/.pycastle_prompt"
+        ),
+        (
+            "claude --verbose --dangerously-skip-permissions --output-format "
+            "stream-json -p - --disable-slash-commands "
+            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
+            f"{tmp_path / '.pycastle_prompt'}"
+        ),
+    ]
+
+
+def test_runtime_client_instances_keep_independent_builtin_availability_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    observed_commands: list[str] = []
+
+    class _FakeProcess:
+        def __init__(self, stdout: Any) -> None:
+            self.stdout = stdout
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        if command.startswith("codex exec"):
+            return _FakeProcess(
+                iter(
+                    [
+                        '{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. Try again at January 2, 5pm (UTC)."}}\n',
+                    ]
+                )
+            )
+        return _FakeProcess(
+            iter(
+                [
+                    '{"type":"assistant","message":{"content":[{"type":"text","text":"hello from claude"}]}}\n',
+                    '{"type":"result","result":"hello from claude"}\n',
+                ]
+            )
+        )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    first_client = prompt_runtime.RuntimeClient()
+    second_client = prompt_runtime.RuntimeClient()
+
+    first_outcome = first_client.run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+        )
+    )
+    second_outcome = second_client.run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+                fallback=stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert first_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from claude",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from claude",
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            used_fallback=True,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("codex", "claude"),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access "
+            "--json < /tmp/.pycastle_prompt"
+        ),
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access "
+            "--json < /tmp/.pycastle_prompt"
+        ),
+        (
+            "claude --verbose --dangerously-skip-permissions --output-format "
+            "stream-json -p - --disable-slash-commands "
+            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
+            f"{tmp_path / '.pycastle_prompt'}"
+        ),
+    ]
+
+
+def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builtin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    observed_commands: list[str] = []
+
+    class _FakeProcess:
+        def __init__(self, stdout: Any) -> None:
+            self.stdout = stdout
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        if command.startswith("codex exec"):
+            return _FakeProcess(
+                iter(
+                    [
+                        '{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. Try again at January 2, 5pm (UTC)."}}\n',
+                    ]
+                )
+            )
+        return _FakeProcess(
+            iter(
+                [
+                    '{"type":"assistant","message":{"content":[{"type":"text","text":"hello from claude"}]}}\n',
+                    '{"type":"result","result":"hello from claude"}\n',
+                ]
+            )
+        )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+                fallback=stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from claude",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from claude",
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            used_fallback=True,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("codex", "claude"),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access "
+            "--json < /tmp/.pycastle_prompt"
+        ),
+        (
+            "claude --verbose --dangerously-skip-permissions --output-format "
+            "stream-json -p - --disable-slash-commands "
+            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
+            f"{tmp_path / '.pycastle_prompt'}"
+        ),
+    ]
+
+
+def test_runtime_client_reports_no_service_available_when_every_reachable_builtin_is_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    observed_commands: list[str] = []
+
+    class _FakeProcess:
+        def __init__(self, stdout: Any) -> None:
+            self.stdout = stdout
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        if command.startswith("codex exec"):
+            return _FakeProcess(
+                iter(
+                    [
+                        '{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. Try again at January 3, 5pm (UTC)."}}\n',
+                    ]
+                )
+            )
+        return _FakeProcess(
+            iter(
+                [
+                    (
+                        '{"type":"result","is_error":true,"api_error_status":429,'
+                        '"result":"usage limit resets January 2, 5pm (UTC)"}\n'
+                    ),
+                ]
+            )
+        )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+                fallback=stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access "
+            "--json < /tmp/.pycastle_prompt"
+        ),
+        (
+            "claude --verbose --dangerously-skip-permissions --output-format "
+            "stream-json -p - --disable-slash-commands "
+            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
+            f"{tmp_path / '.pycastle_prompt'}"
+        ),
+    ]
+
+
+def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    stage = stage_selection_factory(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+        fallback=stage_selection_factory(
+            service="claude",
+            model="sonnet",
+            effort="medium",
+        ),
+    )
+    client = prompt_runtime.RuntimeClient()
+
+    with pytest.raises(AgentCredentialFailureError):
+        client.run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=stage,
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+            )
+        )
+
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+    observed_commands: list[str] = []
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                '{"type":"item.completed","item":{"type":"agent_message","text":"hello from codex"}}\n',
+                '{"type":"turn.completed"}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = client.run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage,
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from codex",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from codex",
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("codex",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access "
+            "--json < /tmp/.pycastle_prompt"
+        )
+    ]
+
+
+def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+
+    stage = stage_selection_factory(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+        fallback=stage_selection_factory(
+            service="claude",
+            model="sonnet",
+            effort="medium",
+        ),
+    )
+    client = prompt_runtime.RuntimeClient()
+
+    class _HardFailureProcess:
+        stdout = iter(['{"type":"error","message":"invalid token"}\n'])
+
+        def wait(self) -> int:
+            return 0
+
+    def _hard_failure_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _HardFailureProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _HardFailureProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _hard_failure_popen,
+    )
+
+    with pytest.raises(HardAgentError):
+        client.run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=stage,
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+            )
+        )
+
+    observed_commands: list[str] = []
+
+    class _SuccessProcess:
+        stdout = iter(
+            [
+                '{"type":"item.completed","item":{"type":"agent_message","text":"hello from codex"}}\n',
+                '{"type":"turn.completed"}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _success_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _SuccessProcess:
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        return _SuccessProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _success_popen,
+    )
+
+    outcome = client.run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage,
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from codex",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from codex",
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("codex",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access "
+            "--json < /tmp/.pycastle_prompt"
+        )
+    ]
+
+
+def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_update(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    observed_commands: list[str] = []
+    codex_started = threading.Event()
+    release_codex = threading.Event()
+    codex_calls = 0
+
+    class _FakeProcess:
+        def __init__(self, stdout: Any) -> None:
+            self.stdout = stdout
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        nonlocal codex_calls
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        if command.startswith("codex exec"):
+            codex_calls += 1
+            codex_started.set()
+            release_codex.wait(timeout=2)
+            return _FakeProcess(
+                iter(
+                    [
+                        '{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. Try again at January 2, 5pm (UTC)."}}\n',
+                    ]
+                )
+            )
+        return _FakeProcess(
+            iter(
+                [
+                    '{"type":"assistant","message":{"content":[{"type":"text","text":"hello from claude"}]}}\n',
+                    '{"type":"result","result":"hello from claude"}\n',
+                ]
+            )
+        )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    client = prompt_runtime.RuntimeClient()
+    first_result: list[prompt_runtime.RuntimeOutcome] = []
+
+    def _run_first_call() -> None:
+        first_result.append(
+            client.run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    stage=stage_selection_factory(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                )
+            )
+        )
+
+    thread = threading.Thread(target=_run_first_call)
+    thread.start()
+    assert codex_started.wait(timeout=2)
+    release_codex.set()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+
+    second_outcome = client.run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+                fallback=stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert first_result == [
+        prompt_runtime.RuntimeOutcome.no_service_available(
+            output="",
+            reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+            usage_limit_scope=runtime.UsageLimitScope("implementer"),
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        )
+    ]
+    assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from claude",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from claude",
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            used_fallback=True,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("codex", "claude"),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert codex_calls == 1
+    assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access "
+            "--json < /tmp/.pycastle_prompt"
+        ),
+        (
+            "claude --verbose --dangerously-skip-permissions --output-format "
+            "stream-json -p - --disable-slash-commands "
+            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
+            f"{tmp_path / '.pycastle_prompt'}"
+        ),
+    ]
 
 
 def test_runtime_client_ignores_malformed_codex_lines_before_classifying_hard_error(

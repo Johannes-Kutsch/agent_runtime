@@ -17,6 +17,7 @@ from .execution_contracts import (
     WorktreeMount,
 )
 from .errors import (
+    RuntimeConfigurationError,
     UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
@@ -132,6 +133,8 @@ _is_claude_subscription_access_denial = (
 _parse_claude_reset_time = _builtin_runtime_client_module._parse_claude_reset_time
 _parse_opencode_reset_time = _builtin_runtime_client_module._parse_opencode_reset_time
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
+_supported_builtin_stage = _builtin_runtime_client_module.supported_builtin_stage
+_BuiltInAvailabilityState = _builtin_runtime_client_module.BuiltInAvailabilityState
 
 
 def _parse_claude_event(line: str) -> list[Any]:
@@ -210,31 +213,78 @@ class ResumedSessionRuntime:
 
 
 class RuntimeClient:
+    def __init__(self) -> None:
+        self._availability = _BuiltInAvailabilityState()
+
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
-        try:
-            result = _run_builtin_ephemeral(request)
-        except UsageLimitError as exc:
-            return RuntimeOutcome.usage_limited(
-                output="",
-                service_name=exc.service_name,
-                reset_time=exc.reset_time,
-                usage_limit_scope=exc.usage_limit_scope
-                or UsageLimitScope(request.role.value),
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-                usage=exc.usage,
-            )
-        return RuntimeOutcome.completed(
-            output=result.output,
-            result=result,
-            usage=result.usage,
+        default_usage_limit_scope = request.usage_limit_scope or UsageLimitScope(
+            request.role.value
         )
+        if _supported_builtin_stage(request.stage) is None:
+            raise RuntimeConfigurationError(
+                "RuntimeClient requires at least one supported built-in service candidate."
+            )
+        while True:
+            now = _time_module.now_local()
+            selected_stage = self._availability.first_available_stage(
+                request.stage, now=now
+            )
+            if selected_stage is None:
+                return RuntimeOutcome.no_service_available(
+                    output="",
+                    reset_time=self._availability.next_wake_time(
+                        request.stage,
+                        now=now,
+                    ),
+                    usage_limit_scope=default_usage_limit_scope,
+                    invocation_progress=InvocationProgress.NOT_STARTED,
+                )
+            try:
+                result = _run_builtin_ephemeral(
+                    request,
+                    select_builtin_stage=lambda _stage: selected_stage,
+                )
+            except UsageLimitError as exc:
+                exhausted_now = _time_module.now_local()
+                service_name = exc.service_name or selected_stage.service
+                self._availability.mark_exhausted(
+                    service_name,
+                    reset_time=exc.reset_time,
+                    now=exhausted_now,
+                )
+                if self._availability.has_available_stage(
+                    request.stage,
+                    now=exhausted_now,
+                ):
+                    continue
+                return RuntimeOutcome.no_service_available(
+                    output="",
+                    reset_time=self._availability.next_wake_time(
+                        request.stage,
+                        now=exhausted_now,
+                    )
+                    or exc.reset_time,
+                    usage_limit_scope=exc.usage_limit_scope
+                    or default_usage_limit_scope,
+                    invocation_progress=exc.invocation_progress,
+                    continuation=exc.continuation,
+                    usage=exc.usage,
+                )
+            return RuntimeOutcome.completed(
+                output=result.output,
+                result=result,
+                usage=result.usage,
+            )
 
 
-def _run_builtin_ephemeral(request: EphemeralRunRequest) -> EphemeralRunResult:
+def _run_builtin_ephemeral(
+    request: EphemeralRunRequest,
+    *,
+    select_builtin_stage: Any = _select_builtin_stage,
+) -> EphemeralRunResult:
     return _builtin_runtime_client_module._run_builtin_ephemeral(
         request,
-        select_builtin_stage=_select_builtin_stage,
+        select_builtin_stage=select_builtin_stage,
         validate_claude_stage=_validate_claude_stage,
         validate_opencode_stage=_validate_opencode_stage,
         claude_command=_claude_command,

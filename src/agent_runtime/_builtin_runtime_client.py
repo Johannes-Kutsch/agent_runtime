@@ -5,6 +5,7 @@ import logging
 import re
 import shlex
 import subprocess
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
@@ -133,6 +134,94 @@ _CLAUDE_MONTHS = {
     "december": 12,
     "dec": 12,
 }
+
+_SUPPORTED_BUILTIN_SERVICES = frozenset({"claude", "codex", "opencode"})
+_WAKE_TIME_BUFFER = timedelta(minutes=2)
+
+
+def compute_wake_time(
+    reset_time: datetime | None,
+    now: datetime,
+) -> tuple[datetime, bool]:
+    if reset_time is not None:
+        return reset_time + _WAKE_TIME_BUFFER, False
+    next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    return next_hour + _WAKE_TIME_BUFFER, True
+
+
+class BuiltInAvailabilityState:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._exhausted_until_by_service: dict[str, datetime] = {}
+
+    def _is_available_locked(self, service_name: str, now: datetime) -> bool:
+        exhausted_until = self._exhausted_until_by_service.get(service_name)
+        if exhausted_until is None:
+            return True
+        if exhausted_until <= now:
+            self._exhausted_until_by_service.pop(service_name, None)
+            return True
+        return False
+
+    def first_available_stage(
+        self,
+        stage: StageSelection,
+        *,
+        now: datetime,
+    ) -> StageSelection | None:
+        with self._lock:
+            for candidate in iter_stage_chain(stage):
+                if candidate.service not in _SUPPORTED_BUILTIN_SERVICES:
+                    continue
+                if self._is_available_locked(candidate.service, now):
+                    return candidate
+        return None
+
+    def has_available_stage(self, stage: StageSelection, *, now: datetime) -> bool:
+        return self.first_available_stage(stage, now=now) is not None
+
+    def next_wake_time(
+        self, stage: StageSelection, *, now: datetime
+    ) -> datetime | None:
+        with self._lock:
+            wake_times = []
+            for candidate in iter_stage_chain(stage):
+                if candidate.service not in _SUPPORTED_BUILTIN_SERVICES:
+                    continue
+                exhausted_until = self._exhausted_until_by_service.get(
+                    candidate.service
+                )
+                if exhausted_until is None:
+                    continue
+                if exhausted_until <= now:
+                    self._exhausted_until_by_service.pop(candidate.service, None)
+                    continue
+                wake_times.append(exhausted_until)
+            if not wake_times:
+                return None
+            return min(wake_times)
+
+    def mark_exhausted(
+        self,
+        service_name: str,
+        *,
+        reset_time: datetime | None,
+        now: datetime,
+    ) -> None:
+        wake, _ = compute_wake_time(reset_time, now)
+        if wake.tzinfo is None:
+            wake = wake.replace(tzinfo=timezone.utc)
+        with self._lock:
+            current = self._exhausted_until_by_service.get(service_name)
+            if current is None or wake > current:
+                self._exhausted_until_by_service[service_name] = wake
+
+
+def supported_builtin_stage(stage: StageSelection) -> StageSelection | None:
+    for candidate in iter_stage_chain(stage):
+        if candidate.service in _SUPPORTED_BUILTIN_SERVICES:
+            return candidate
+    return None
 
 
 def _selected_service_path(
@@ -1026,9 +1115,9 @@ def _reduce_opencode_stream(lines: list[str]) -> str:
 
 
 def _select_builtin_stage(stage: StageSelection) -> StageSelection:
-    for candidate in iter_stage_chain(stage):
-        if candidate.service in {"claude", "codex", "opencode"}:
-            return candidate
+    candidate = supported_builtin_stage(stage)
+    if candidate is not None:
+        return candidate
     raise RuntimeConfigurationError(
         "RuntimeClient requires at least one supported built-in service candidate."
     )

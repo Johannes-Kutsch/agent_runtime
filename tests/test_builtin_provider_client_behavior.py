@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -563,6 +563,11 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
     tmp_path: Path,
 ) -> None:
     _stub_builtin_tmp_prompt_path(monkeypatch)
+    monkeypatch.setattr(
+        prompt_runtime._time_module,
+        "now_local",
+        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
+    )
 
     class _OpenCodeProcess:
         def __init__(self) -> None:
@@ -627,10 +632,9 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="opencode",
-        reset_time=datetime(2026, 4, 28, 21, 2, tzinfo=timezone.utc),
+        reset_time=datetime(2026, 4, 28, 21, 4, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
@@ -894,6 +898,11 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
         "Popen",
         lambda *args, **kwargs: _ClaudeProcess(),
     )
+    monkeypatch.setattr(
+        prompt_runtime._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
 
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
@@ -910,10 +919,9 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="claude",
-        reset_time=None,
+        reset_time=datetime(2026, 1, 1, 13, 2, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
@@ -1063,10 +1071,9 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="claude",
-        reset_time=datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc),
+        reset_time=datetime(2026, 1, 2, 16, 2, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
@@ -1105,6 +1112,11 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         lambda *args, **kwargs: _ClaudeProcess(),
     )
     monkeypatch.setattr(
+        prompt_runtime._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(
         prompt_runtime,
         "_parse_claude_reset_time",
         lambda _text: reset_time,
@@ -1125,10 +1137,9 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
-        service_name="claude",
-        reset_time=reset_time,
+        reset_time=reset_time + timedelta(minutes=2),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
