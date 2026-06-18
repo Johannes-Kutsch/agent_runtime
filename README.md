@@ -77,6 +77,14 @@ result = await ResumedSessionRuntime(
 )
 ```
 
+### Adapter Responsibilities
+
+Provider adapters own provider-specific continuity details, but the runtime owns the continuation boundary. A continuation carries consumer-owned runtime data plus `ProviderResumeState`, which must remain JSON-compatible because the runtime transports it across process calls without interpreting it. Adapters should treat that resume state as their own serialized provider contract and must be able to resume provider-backed execution from it when the caller uses a new-session or resumed-session entrypoint.
+
+Adapters should also report `InvocationProgress` when they observe provider-specific activity that means work has started, such as emitted reasoning, visible messages, or tool invocation. The runtime can infer progress from known provider events, but explicit adapter reporting is the source of truth for provider activity that only the adapter can see. This progress metadata matters for interrupted session-backed runs because the caller may need to decide between retrying the same prompt or continuing the existing provider-session chain.
+
+Expected runtime outcomes are not adapter failures. Usage limits, cancellation, timeout, temporary service unavailability, and confidently retryable provider failures should flow through the canonical runtime outcome surface, optionally paired with invocation progress and the latest continuation for session-backed runs. Exceptional failures remain separate: hard provider failures, credential or configuration problems, adapter/protocol bugs, malformed runtime inputs, and unexpected exceptions should still surface as errors rather than normal outcomes.
+
 Tool-capable execution is a separate concern from session lifecycle. If an entrypoint can grant tool access, the caller must provide explicit tool access rather than relying on an implicit default. Follow the focused tool-policy documentation for that integration so provider-specific command rendering stays behind adapter contracts.
 
 `ToolPolicyProfile` remains provider-neutral runtime data. Provider adapters translate runtime-owned tool policy values into backend-specific flags, arguments, and restrictions.
