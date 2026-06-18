@@ -1247,17 +1247,7 @@ async def _run_ephemeral(
             )
         except Exception as exc:
             if isinstance(exc, UsageLimitError):
-                exhausted_now = _time_module.now_local()
-                if not service_registry.has_available_for(request.stage, exhausted_now):
-                    raise NoServiceAvailableError(
-                        reset_time=service_registry.next_wake_time_for(
-                            request.stage,
-                            exhausted_now,
-                        ),
-                        usage_limit_scope=exc.usage_limit_scope,
-                        invocation_progress=exc.invocation_progress,
-                    ) from exc
-                continue
+                raise
             raise
 
         selected_service_path = _selected_service_path(

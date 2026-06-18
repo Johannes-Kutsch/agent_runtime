@@ -642,6 +642,73 @@ class _StartedUsageLimitOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapte
         )
 
 
+class _UsageLimitThenSuccessEphemeralRunner(_RoleAwareOneShotWorkRunner):
+    def __init__(self) -> None:
+        self._attempts = 0
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        self._attempts += 1
+        if self._attempts == 1:
+            raise UsageLimitError(
+                reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+            )
+        return await super().work_text(
+            prompt,
+            role=role,
+            tool_policy=tool_policy,
+            run_kind=run_kind,
+            session_uuid=session_uuid,
+            on_provider_session_id=on_provider_session_id,
+        )
+
+
+class _UsageLimitThenSuccessEphemeralExecutionAdapter:
+    def __init__(self) -> None:
+        self._runner = _UsageLimitThenSuccessEphemeralRunner()
+
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    self._runner,
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _RetryableProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
     async def prompt_only(
         self,
@@ -3347,6 +3414,39 @@ def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
 
     assert str(exc_info.value) == "missing auth"
     assert exc_info.value.service_name == "claude"
+
+
+def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditions(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_UsageLimitThenSuccessEphemeralExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("."),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
+    assert result.result is None
 
 
 def test_one_shot_runtime_preserves_one_shot_result_convenience_fields_on_completed_outcome(
