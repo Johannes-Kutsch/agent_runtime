@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import fields
+from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import cast
 
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.errors import AgentRuntimeError
+from agent_runtime.provider_usage import ProviderUsage
+from agent_runtime.roles import InvocationRole
+from agent_runtime.session import RunKind
+from agent_runtime.usage_limit_scope import UsageLimitScope
 
 
 def test_package_exports_runtime_surface() -> None:
@@ -107,6 +112,92 @@ def test_package_exports_runtime_surface() -> None:
     assert "OneShotRuntime" not in prompt_runtime.__all__
     assert "OneShotRuntimeExecutionAdapter" not in prompt_runtime.__all__
     assert "OneShotRuntimeMetadata" not in prompt_runtime.__all__
+    assert not hasattr(runtime, "ProviderInvocationRequest")
+    assert not hasattr(runtime, "ProviderInvocationResult")
+    assert not hasattr(runtime, "ProviderInvocationAdapter")
+    assert not hasattr(prompt_runtime, "ProviderInvocationRequest")
+    assert not hasattr(prompt_runtime, "ProviderInvocationResult")
+    assert not hasattr(prompt_runtime, "ProviderInvocationAdapter")
+
+
+def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surface() -> (
+    None
+):
+    with pytest.raises(ImportError):
+        exec("from agent_runtime import ProviderInvocationRequest", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ProviderInvocationRequest", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ProviderInvocationResult", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ProviderInvocationAdapter", {}, {})
+
+
+def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None:
+    def reduce_output(lines: list[str]) -> tuple[str, None]:
+        return "".join(lines), None
+
+    hooks = provider_invocation_runtime.ProviderOutputReductionHooks(
+        reduce_output=reduce_output
+    )
+    prompt = provider_invocation_runtime.ProviderInvocationPrompt(
+        content="prompt body",
+        path=Path("/tmp/prompt.txt"),
+        cleanup_path=True,
+    )
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=Path("/tmp/worktree"),
+        environment={"PATH": "/usr/bin"},
+        prompt=prompt,
+        run_kind=RunKind.FRESH,
+        role=InvocationRole("review"),
+        usage_limit_scope=UsageLimitScope("review"),
+        log_context=None,
+        provider_session_id="session-123",
+        output_hooks=hooks,
+    )
+    result = provider_invocation_runtime.ProviderInvocationResult(
+        output="ok",
+        usage=ProviderUsage(output_tokens=3),
+        stdout_lines=("line 1", "line 2"),
+        provider_session_id="session-123",
+    )
+
+    assert [field.name for field in fields(prompt)] == [
+        "content",
+        "path",
+        "cleanup_path",
+    ]
+    assert [field.name for field in fields(hooks)] == [
+        "reduce_output",
+        "reduce_logged_output",
+    ]
+    assert [field.name for field in fields(request)] == [
+        "command",
+        "worktree",
+        "environment",
+        "prompt",
+        "run_kind",
+        "role",
+        "usage_limit_scope",
+        "log_context",
+        "provider_session_id",
+        "output_hooks",
+    ]
+    assert [field.name for field in fields(result)] == [
+        "output",
+        "usage",
+        "stdout_lines",
+        "provider_session_id",
+    ]
+    assert request.prompt.cleanup_path is True
+    assert request.output_hooks.reduce_output(["a", "b"]) == ("ab", None)
+    assert result.stdout_lines == ("line 1", "line 2")
+    with pytest.raises(FrozenInstanceError):
+        setattr(request, "command", "changed")
+    with pytest.raises(FrozenInstanceError):
+        setattr(result, "output", "changed")
 
 
 def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases_fail_direct_import() -> (
