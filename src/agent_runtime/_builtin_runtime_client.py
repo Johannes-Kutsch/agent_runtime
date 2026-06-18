@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import shlex
+import shutil
 import subprocess
 import threading
 import uuid
@@ -325,9 +326,14 @@ def _codex_command(
     model: str,
     effort: str,
     tool_access: ToolAccess,
+    run_kind: RunKind = RunKind.FRESH,
+    session_uuid: str | None = None,
 ) -> str:
     tool_policy = tool_access.tool_policy
-    parts = ["codex exec"]
+    if run_kind == RunKind.RESUME and session_uuid:
+        parts = ["codex exec resume", session_uuid]
+    else:
+        parts = ["codex exec"]
     if model:
         parts.append(f"-m {model}")
     if effort:
@@ -337,7 +343,8 @@ def _codex_command(
         parts.append("--dangerously-bypass-approvals-and-sandbox")
     else:
         parts.append("--sandbox danger-full-access")
-    parts += ["--json", "< /tmp/.pycastle_prompt"]
+    parts.append("--json")
+    parts.append("< /tmp/.pycastle_prompt")
     return " ".join(parts)
 
 
@@ -957,8 +964,12 @@ def _validate_codex_auth() -> None:
     auth_path = Path.home() / ".codex" / "auth.json"
     if auth_path.exists():
         return
+    raise _missing_codex_auth_error()
+
+
+def _missing_codex_auth_error() -> AgentCredentialFailureError:
     message = "Codex authentication missing: run `codex login` on the host."
-    raise AgentCredentialFailureError(
+    return AgentCredentialFailureError(
         message=message,
         service_name="codex",
         status_code=401,
@@ -1140,6 +1151,133 @@ def _select_builtin_stage(stage: StageSelection) -> StageSelection:
 
 def _new_provider_session_id() -> str:
     return str(uuid.uuid4())
+
+
+def _codex_provider_state_dir_relpath(
+    *,
+    role: Any,
+    session_namespace: str,
+) -> str:
+    return cast(str, provider_state_relpath(role, "codex", session_namespace))
+
+
+def _codex_is_resumable(state_dir: Path) -> bool:
+    sessions_dir = state_dir / "sessions"
+    if not sessions_dir.is_dir():
+        return False
+    return any(sessions_dir.rglob("rollout-*.jsonl"))
+
+
+def _codex_prepare_runtime_state(
+    runtime_state_dir: Path,
+    *,
+    role: Any,
+    session_namespace: str,
+) -> tuple[str, Path]:
+    provider_state_dir_relpath = _codex_provider_state_dir_relpath(
+        role=role,
+        session_namespace=session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    return provider_state_dir_relpath, provider_state_dir
+
+
+def _read_codex_rollout_thread_ids(rollout_path: Path) -> set[str]:
+    thread_ids: set[str] = set()
+    if not rollout_path.is_file():
+        return thread_ids
+    try:
+        for line in rollout_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "thread.started":
+                continue
+            thread_id = event.get("thread_id")
+            if isinstance(thread_id, str):
+                stripped = thread_id.strip()
+                if stripped:
+                    thread_ids.add(stripped)
+    except (OSError, UnicodeDecodeError):
+        return set()
+    return thread_ids
+
+
+def _recover_codex_rollout_thread_id(state_dir: Path | None) -> str | None:
+    if state_dir is None:
+        return None
+    sessions_dir = state_dir / "sessions"
+    if not sessions_dir.is_dir():
+        return None
+    thread_ids: set[str] = set()
+    for rollout_path in sessions_dir.rglob("rollout-*.jsonl"):
+        thread_ids.update(_read_codex_rollout_thread_ids(rollout_path))
+        if len(thread_ids) > 1:
+            return None
+    if len(thread_ids) != 1:
+        return None
+    return next(iter(thread_ids))
+
+
+def _codex_run_kind_for_state_dir(state_dir: Path) -> RunKind:
+    if _codex_is_resumable(state_dir):
+        return RunKind.RESUME
+    return RunKind.FRESH
+
+
+def _codex_seed_auth(provider_state_dir: Path) -> None:
+    provider_auth_path = provider_state_dir / "auth.json"
+    if provider_auth_path.exists():
+        return
+    host_auth_path = Path.home() / ".codex" / "auth.json"
+    if not host_auth_path.exists():
+        raise _missing_codex_auth_error()
+    shutil.copyfile(host_auth_path, provider_auth_path)
+
+
+def _extract_codex_provider_session_id(lines: list[str]) -> str | None:
+    thread_ids: set[str] = set()
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "thread.started":
+            continue
+        thread_id = event.get("thread_id")
+        if isinstance(thread_id, str):
+            stripped = thread_id.strip()
+            if stripped:
+                thread_ids.add(stripped)
+        if len(thread_ids) > 1:
+            return None
+    if len(thread_ids) != 1:
+        return None
+    return next(iter(thread_ids))
+
+
+def _build_codex_continuation(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    provider_session_id: str,
+    provider_state_dir_relpath: str,
+) -> Continuation:
+    return Continuation(
+        selected_service="codex",
+        selected_model=model,
+        selected_effort=effort,
+        tool_access=tool_access,
+        provider_resume_state={
+            "run_kind": RunKind.RESUME.value,
+            "provider_session_id": provider_session_id,
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": False,
+        },
+    )
 
 
 def _claude_provider_state_dir_relpath(
@@ -1365,6 +1503,100 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
             "RuntimeClient requires at least one supported built-in service candidate."
         )
     selected_stage = _select_builtin_stage(request.stage)
+    if selected_stage.service == "codex":
+        _validate_codex_stage(selected_stage)
+        provider_state_dir_relpath, provider_state_dir = _codex_prepare_runtime_state(
+            runtime_state_dir,
+            role=request.role,
+            session_namespace=request.session_namespace,
+        )
+        _codex_seed_auth(provider_state_dir)
+        recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
+        if _codex_is_resumable(provider_state_dir) and recovered_thread_id is not None:
+            return _run_builtin_resumed_session(
+                ResumedSessionRunRequest(
+                    prompt=request.prompt,
+                    worktree=cast(Any, request.worktree),
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=_build_codex_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=recovered_thread_id,
+                        provider_state_dir_relpath=provider_state_dir_relpath,
+                    ),
+                    role=request.role,
+                    provider_auth=request.provider_auth,
+                    usage_limit_scope=request.usage_limit_scope,
+                    session_namespace=request.session_namespace,
+                )
+            )
+        prompt_path = Path("/tmp/.pycastle_prompt")
+        prompt_path.write_text(request.prompt)
+        try:
+            process = subprocess.Popen(
+                _codex_command(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    run_kind=RunKind.FRESH,
+                    session_uuid=None,
+                ),
+                shell=True,
+                cwd=request.worktree,
+                env=_codex_env(
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout_lines = [] if process.stdout is None else list(process.stdout)
+            provider_session_id = _extract_codex_provider_session_id(stdout_lines)
+            result_text, usage = _reduce_codex_stream(stdout_lines)
+            process.wait()
+        except (UsageLimitError, RetryableProviderFailureError) as exc:
+            provider_session_id = _extract_codex_provider_session_id(stdout_lines)
+            exc.continuation = (
+                _build_codex_continuation(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                )
+                if exc.invocation_progress is InvocationProgress.STARTED
+                and provider_session_id is not None
+                else None
+            )
+            raise
+        finally:
+            prompt_path.unlink(missing_ok=True)
+        return RuntimeOutcome.completed(
+            output=result_text,
+            result=SessionRunResult(
+                output=result_text,
+                runtime_metadata=SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id=provider_session_id,
+                    run_kind=RunKind.FRESH,
+                    session_namespace=request.session_namespace,
+                    exact_transcript_match=False,
+                ),
+                continuation=(
+                    _build_codex_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=provider_session_id,
+                        provider_state_dir_relpath=provider_state_dir_relpath,
+                    )
+                    if provider_session_id is not None
+                    else None
+                ),
+            ),
+            usage=usage,
+        )
     if selected_stage.service != "claude":
         raise RuntimeConfigurationError(
             "RuntimeClient session-backed execution is only implemented for Claude."
@@ -1468,6 +1700,114 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
     if continuation is None:
         raise RuntimeConfigurationError(
             "RuntimeClient resumed-session execution requires a continuation."
+        )
+    if continuation.selected_service == "codex":
+        _validate_codex_stage(
+            StageSelection(
+                service="codex",
+                model=request.model,
+                effort=request.effort,
+            )
+        )
+        provider_resume_state = continuation.provider_resume_state
+        if not isinstance(provider_resume_state, dict):
+            raise RuntimeConfigurationError(
+                "Continuation provider_resume_state must be a JSON object."
+            )
+        provider_state_dir_relpath = cast(
+            str | None,
+            provider_resume_state.get("provider_state_dir_relpath"),
+        )
+        if not provider_state_dir_relpath:
+            raise RuntimeConfigurationError(
+                "Codex continuation is missing `provider_state_dir_relpath`."
+            )
+        provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+        provider_state_dir.mkdir(parents=True, exist_ok=True)
+        _codex_seed_auth(provider_state_dir)
+        recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
+        provider_session_id = cast(
+            str | None,
+            provider_resume_state.get("provider_session_id"),
+        )
+        if provider_session_id is None:
+            provider_session_id = recovered_thread_id
+        run_kind = (
+            RunKind.RESUME
+            if _codex_is_resumable(provider_state_dir)
+            and provider_session_id is not None
+            and recovered_thread_id is not None
+            else RunKind.FRESH
+        )
+        prompt_path = Path("/tmp/.pycastle_prompt")
+        prompt_path.write_text(request.prompt)
+        try:
+            process = subprocess.Popen(
+                _codex_command(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    run_kind=run_kind,
+                    session_uuid=provider_session_id,
+                ),
+                shell=True,
+                cwd=request.worktree.host_path,
+                env=_codex_env(
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout_lines = [] if process.stdout is None else list(process.stdout)
+            active_provider_session_id = (
+                _extract_codex_provider_session_id(stdout_lines) or provider_session_id
+            )
+            result_text, usage = _reduce_codex_stream(stdout_lines)
+            process.wait()
+        except (UsageLimitError, RetryableProviderFailureError) as exc:
+            active_provider_session_id = (
+                _extract_codex_provider_session_id(stdout_lines) or provider_session_id
+            )
+            exc.continuation = (
+                _build_codex_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=active_provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                )
+                if exc.invocation_progress is InvocationProgress.STARTED
+                and active_provider_session_id is not None
+                else None
+            )
+            raise
+        finally:
+            prompt_path.unlink(missing_ok=True)
+        return RuntimeOutcome.completed(
+            output=result_text,
+            result=SessionRunResult(
+                output=result_text,
+                runtime_metadata=SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id=active_provider_session_id,
+                    run_kind=run_kind,
+                    session_namespace=request.session_namespace,
+                    exact_transcript_match=False,
+                ),
+                continuation=(
+                    _build_codex_continuation(
+                        model=request.model,
+                        effort=request.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=active_provider_session_id,
+                        provider_state_dir_relpath=provider_state_dir_relpath,
+                    )
+                    if active_provider_session_id is not None
+                    else None
+                ),
+            ),
+            usage=usage,
         )
     if continuation.selected_service != "claude":
         raise RuntimeConfigurationError(
