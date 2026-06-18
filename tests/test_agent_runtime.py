@@ -3052,6 +3052,9 @@ def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     } <= set(prompt_runtime.__all__)
     assert hasattr(prompt_runtime, "ResumedSessionRunRequest")
     assert hasattr(prompt_runtime, "ResumedSessionRuntime")
+    assert prompt_runtime.ResumedSessionRunRequest.__name__ == (
+        "ResumedSessionRunRequest"
+    )
 
 
 def test_resumed_session_runtime_exposes_only_lifecycle_resume_method() -> None:
@@ -6905,6 +6908,96 @@ def test_resumable_run_request_from_continuation_rejects_tool_access_override() 
                 provider_resume_state={"run_kind": "resume"},
             ),
             tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+        )
+
+
+def test_resumable_run_request_from_continuation_requires_role() -> None:
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest requires a `role` value when constructed from a continuation."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            session_namespace="main",
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={"run_kind": "resume"},
+            ),
+        )
+
+
+def test_resumable_run_request_rejects_conflicting_continuation_and_session_plan(
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("/repo"),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            model="gpt-5.4",
+            effort="medium",
+            session_plan=session_plan,
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={"run_kind": "resume"},
+            ),
+            role=InvocationRole("implementer"),
+            tool_policy=runtime.ToolPolicy.FULL,
+        )
+
+
+def test_resumable_run_request_rejects_conflicting_tool_access_and_tool_policy() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            model="gpt-5.4",
+            effort="medium",
+            session_plan=ResumableSessionPlan(
+                role=InvocationRole("reviewer"),
+                worktree=Path("/repo"),
+                namespace="main",
+                service=cast(ExecutionProvider, _ExecutionService("codex")),
+                run_kind=RunKind.FRESH,
+                provider_state_dir=None,
+                provider_session_id=None,
+                auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+            ),
+            tool_access=runtime.ToolAccess.no_tools(),
+            tool_policy=runtime.ToolPolicy.FULL,
         )
 
 
