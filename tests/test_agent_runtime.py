@@ -2994,6 +2994,12 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
     assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
     assert {
+        "EphemeralRunRequest",
+        "EphemeralRunResult",
+        "EphemeralResultMetadata",
+        "EphemeralRuntime",
+        "EphemeralRuntimeExecutionAdapter",
+        "EphemeralRuntimeMetadata",
         "Continuation",
         "ResumableRunRequest",
         "ResumableRunResult",
@@ -3001,6 +3007,12 @@ def test_package_exports_runtime_surface() -> None:
         "ResumableRuntimeExecutionAdapter",
         "ResumableRuntimeMetadata",
     } <= set(prompt_runtime.__all__)
+    assert "OneShotRunRequest" not in prompt_runtime.__all__
+    assert "OneShotRunResult" not in prompt_runtime.__all__
+    assert "OneShotResultMetadata" not in prompt_runtime.__all__
+    assert "OneShotRuntime" not in prompt_runtime.__all__
+    assert "OneShotRuntimeExecutionAdapter" not in prompt_runtime.__all__
+    assert "OneShotRuntimeMetadata" not in prompt_runtime.__all__
 
 
 def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
