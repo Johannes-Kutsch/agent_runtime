@@ -1443,6 +1443,7 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
     label: str,
     execution_service_factory: Callable[..., ExecutionProvider],
     session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
     assert (
         ProviderSessionPlanningRequest(
@@ -1459,7 +1460,7 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
             namespace="",
             service=execution_service_factory(),
             session_store=session_store_factory(),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            provider_session_adapter=resident_provider_session_adapter,
         ).namespace
         == ""
     )
@@ -1478,7 +1479,7 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
             namespace=label,
             service=execution_service_factory(),
             session_store=session_store_factory(),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
 
 
@@ -2585,18 +2586,20 @@ def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
     )
 
 
-def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam() -> (
-    None
-):
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
+def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = execution_service_factory()
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
     )
 
@@ -2638,17 +2641,21 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
     )
 
 
-def test_resumable_runtime_uses_invocation_role_from_session_plan() -> None:
+def test_resumable_runtime_uses_invocation_role_from_session_plan(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
     role = InvocationRole("reviewer")
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    service = execution_service_factory()
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=Path("."),
             role=role,
             namespace="main",
             service=service,
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
     )
     execution_adapter = _RoleAwareResidentSeamExecutionAdapter()
@@ -2671,7 +2678,11 @@ def test_resumable_runtime_uses_invocation_role_from_session_plan() -> None:
     assert execution_adapter.observed_roles == [role]
 
 
-def test_resumable_runtime_preserves_planned_relative_provider_state_path() -> None:
+def test_resumable_runtime_preserves_planned_relative_provider_state_path(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    external_state_provider_session_adapter: _ExternalStateResidentPlanningProviderSessionAdapter,
+) -> None:
     worktree = Path("/repo")
     execution_adapter = _PlannedStatePathObservingResidentExecutionAdapter()
     session_plan = plan_resumable_session(
@@ -2679,11 +2690,9 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path() -> N
             worktree=worktree,
             role=InvocationRole("implementer"),
             namespace="main",
-            service=cast(ExecutionProvider, _ExecutionService("codex")),
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=(
-                _ExternalStateResidentPlanningProviderSessionAdapter()
-            ),
+            service=execution_service_factory(),
+            session_store=session_store_factory(),
+            provider_session_adapter=external_state_provider_session_adapter,
         )
     )
 
@@ -2713,6 +2722,8 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path() -> N
 @pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
 def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
     tool_policy: runtime.ToolPolicy,
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
     execution_adapter = _ToolPolicyObservingResidentExecutionAdapter()
     service = cast(
@@ -2728,8 +2739,8 @@ def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
     )
 
@@ -2755,33 +2766,18 @@ def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution
 @pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
 def test_prompt_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
     tool_policy: runtime.ToolPolicy,
+    prompt_run_request_factory: Callable[..., PromptRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
 ) -> None:
     execution_adapter = _ToolPolicyObservingPromptExecutionAdapter()
 
     output = asyncio.run(
         prompt_runtime._run_prompt(
             runner=execution_adapter,
-            service_registry=ServiceRegistry(
-                {
-                    "codex": cast(
-                        ServiceSelectionProvider,
-                        _Service(
-                            "codex",
-                            available=True,
-                            wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                        ),
-                    )
-                }
-            ),
-            request=PromptRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                ),
-                role=InvocationRole("implementer"),
+            service_registry=service_registry_factory("codex"),
+            request=prompt_run_request_factory(
+                stage=stage_selection_factory(),
                 tool_policy=tool_policy,
             ),
         )
@@ -2841,12 +2837,11 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
     )
 
 
-def test_select_resumable_provider_session_id_recovers_and_persists_state() -> None:
+def test_select_resumable_provider_session_id_recovers_and_persists_state(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
     state_dir = Path("state")
-    session_store = _SessionStore(
-        service_sessions={},
-        service_metadata={},
-    )
+    session_store = session_store_factory()
 
     selection = select_resumable_provider_session_id(
         session_store,
@@ -2865,14 +2860,11 @@ def test_select_resumable_provider_session_id_recovers_and_persists_state() -> N
     assert session_store.service_session_id("codex") == "provider-session"
 
 
-def test_select_resumable_provider_session_id_prefers_session_store_over_recovery() -> (
-    None
-):
+def test_select_resumable_provider_session_id_prefers_session_store_over_recovery(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
     recover_calls = 0
-    session_store = _SessionStore(
-        service_sessions={"codex": "stored-session"},
-        service_metadata={},
-    )
+    session_store = session_store_factory(service_sessions={"codex": "stored-session"})
 
     def recover_provider_session_id(_path: Path | None) -> str | None:
         nonlocal recover_calls
@@ -2895,10 +2887,10 @@ def test_select_resumable_provider_session_id_prefers_session_store_over_recover
     assert session_store.service_session_id("codex") == "stored-session"
 
 
-def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher() -> (
-    None
-):
-    session_store = _SessionStore(
+def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    session_store = session_store_factory(
         service_sessions={"codex": "provider-session"},
         service_metadata={"codex": {"provider_session_id": "provider-session"}},
         exact_transcript_service="codex",

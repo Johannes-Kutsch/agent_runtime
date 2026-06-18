@@ -19,10 +19,9 @@ class SelectionServiceFake:
         self.name = name
         self._available = available
         self._wake_time = wake_time
-        self.available_checks: list[datetime | None] = []
 
     def is_available(self, now: datetime | None = None) -> bool:
-        self.available_checks.append(now)
+        del now
         return self._available
 
     def next_wake_time(self) -> datetime:
@@ -53,10 +52,9 @@ class SelectionServiceFake:
 class ExecutionServiceFake:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.exhausted_reset_times: list[datetime | None] = []
 
     def mark_exhausted(self, reset_time: datetime | None) -> None:
-        self.exhausted_reset_times.append(reset_time)
+        del reset_time
 
     def build_command(
         self,
