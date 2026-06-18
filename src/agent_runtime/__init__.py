@@ -4,7 +4,7 @@ from ._import_isolation import (
     assert_runtime_import_isolation as _assert_runtime_import_isolation,
 )
 
-from .contracts import ExecutionProvider, ToolPolicy, ToolPolicyProfile
+from .contracts import ExecutionProvider, ToolAccess, ToolPolicy, ToolPolicyProfile
 from .errors import (
     AgentCredentialFailureError,
     AgentFailedError,
@@ -37,6 +37,7 @@ __all__ = [
     "RuntimeOutcome",
     "RunKind",
     "StageSelection",
+    "ToolAccess",
     "ToolPolicy",
     "ToolPolicyProfile",
     "TransientAgentError",

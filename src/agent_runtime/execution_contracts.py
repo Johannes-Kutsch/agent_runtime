@@ -5,9 +5,9 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, cast
 
-from .contracts import ExecutionProvider, ToolPolicy, ToolPolicyProfile
+from .contracts import ExecutionProvider, ToolAccess, ToolPolicy, ToolPolicyProfile
 from .identity import validate_session_namespace
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
@@ -53,7 +53,7 @@ class PromptRunRequest:
     worktree: WorktreeMount
     stage: StageSelection
     role: InvocationRole
-    tool_policy: ToolPolicy
+    tool_access: ToolAccess
     usage_limit_scope: UsageLimitScope | None = None
     name: str = "Runtime Agent"
     status_display: Any = None
@@ -69,6 +69,7 @@ class PromptRunRequest:
         role: InvocationRole | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
+        tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
@@ -87,9 +88,31 @@ class PromptRunRequest:
             raise TypeError("PromptRunRequest requires a `stage` value.")
         if role is None:
             raise TypeError("PromptRunRequest requires a `role` value.")
-        if tool_policy is _MISSING_TOOL_POLICY:
+        if (
+            isinstance(tool_access, ToolAccess)
+            and tool_policy is not _MISSING_TOOL_POLICY
+        ):
             raise TypeError(
-                "PromptRunRequest requires an explicit `tool_policy` value."
+                "PromptRunRequest received conflicting `tool_access` and `tool_policy` values."
+            )
+        if isinstance(tool_access, ToolAccess):
+            resolved_tool_access = tool_access
+        elif tool_policy is not _MISSING_TOOL_POLICY:
+            resolved_tool_access = ToolAccess.workspace_backed(
+                worktree.host_path,
+                tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
+            )
+        else:
+            resolved_tool_access = None
+        if tool_policy is _MISSING_TOOL_POLICY:
+            if resolved_tool_access is None:
+                raise TypeError(
+                    "PromptRunRequest requires an explicit `tool_policy` value."
+                )
+        if resolved_tool_access is not None:
+            resolved_tool_access.require_workspace(
+                worktree.host_path,
+                context="PromptRunRequest",
             )
         validate_stage_selection(stage)
 
@@ -98,7 +121,7 @@ class PromptRunRequest:
         object.__setattr__(self, "stage", stage)
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
-        object.__setattr__(self, "tool_policy", tool_policy)
+        object.__setattr__(self, "tool_access", resolved_tool_access)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
@@ -112,6 +135,10 @@ class PromptRunRequest:
     @property
     def mount_path(self) -> Path:
         return self.worktree.host_path
+
+    @property
+    def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
+        return self.tool_access.tool_policy
 
     @property
     def override(self) -> StageSelection:
@@ -590,7 +617,15 @@ class TextOutputAdapter:
         self,
         prompt: str,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
+        tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
+        workspace: Path | None = None,
     ) -> None:
+        if isinstance(tool_access, ToolAccess):
+            tool_access.require_workspace(
+                workspace,
+                context="TextOutputAdapter",
+            )
+            tool_policy = tool_access.tool_policy
         if tool_policy is _MISSING_TOOL_POLICY:
             raise TypeError(
                 "TextOutputAdapter requires an explicit `tool_policy` value."
