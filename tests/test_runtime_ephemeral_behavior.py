@@ -944,6 +944,140 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
     )
 
 
+def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_needed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module._time_module,
+        "now_local",
+        lambda: datetime(2026, 12, 31, 23, 0, tzinfo=timezone.utc),
+    )
+    _stub_codex_prompt_path(monkeypatch)
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                '{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. Try again at January 2, 5pm (UTC)."}}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_runtime_client_ignores_malformed_codex_lines_before_classifying_hard_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                '"not a dict"\n',
+                "not json\n",
+                '{"type":"error","message":"invalid token"}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    with pytest.raises(HardAgentError) as exc_info:
+        prompt_runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            )
+        )
+
+    assert str(exc_info.value) == "invalid token"
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.observations == (
+        ProviderErrorObservation(
+            service_name="codex",
+            raw_provider_text="invalid token",
+            source_stream="json_event.error",
+            status_code=401,
+        ),
+    )
+
+
 def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuation_state(
     stage_selection_factory: Callable[..., runtime.StageSelection],
     service_registry_factory: Callable[..., ServiceRegistry],

@@ -561,14 +561,25 @@ def _parse_codex_reset_time(retry_text: object) -> datetime | None:
         month = _CLAUDE_MONTHS.get(month_text.lower())
         if month is None:
             return None
-        return datetime(
+        utc_dt = datetime(
             utc_now.year,
             month,
             int(day_text),
             hour,
             minute,
             tzinfo=timezone.utc,
-        ).astimezone(now_local.tzinfo)
+        )
+        local_dt = utc_dt.astimezone(now_local.tzinfo)
+        if local_dt < now_local - timedelta(days=31):
+            return datetime(
+                utc_dt.year + 1,
+                month,
+                int(day_text),
+                hour,
+                minute,
+                tzinfo=timezone.utc,
+            ).astimezone(now_local.tzinfo)
+        return local_dt
     utc_dt = datetime.combine(
         utc_now.date(),
         datetime.min.time(),
