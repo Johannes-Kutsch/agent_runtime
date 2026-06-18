@@ -3011,6 +3011,7 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "ResumableRunResult")
     assert not hasattr(prompt_runtime, "ResumableRuntimeMetadata")
     assert "ResumableRunRequest" not in prompt_runtime.__all__
+    assert not hasattr(prompt_runtime, "ResumableRunRequest")
     assert "ResumableRuntime" not in prompt_runtime.__all__
     assert "ResumableRuntimeExecutionAdapter" not in prompt_runtime.__all__
     assert "OneShotRunRequest" not in prompt_runtime.__all__
@@ -3036,6 +3037,8 @@ def test_runtime_star_import_uses_lifecycle_surface_while_kept_one_shot_aliases_
     assert "ResumableRunRequest" not in exported_names
     assert "OneShotRuntime" not in exported_names
     assert "OneShotRunRequest" not in exported_names
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ResumableRunRequest", {}, {})
     assert prompt_runtime.OneShotRuntime is not None
     assert prompt_runtime.OneShotRunRequest is not None
 
@@ -3058,6 +3061,9 @@ def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     } <= set(prompt_runtime.__all__)
     assert hasattr(prompt_runtime, "ResumedSessionRunRequest")
     assert hasattr(prompt_runtime, "ResumedSessionRuntime")
+    assert prompt_runtime.ResumedSessionRunRequest.__name__ == (
+        "ResumedSessionRunRequest"
+    )
 
 
 def test_resumed_session_runtime_exposes_only_lifecycle_resume_method() -> None:
@@ -3344,7 +3350,7 @@ def test_tool_policy_profiles_stay_provider_neutral() -> None:
             "PromptRunRequest requires an explicit `tool_policy` value.",
         ),
         (
-            lambda: prompt_runtime.ResumableRunRequest(
+            lambda: prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -3360,7 +3366,7 @@ def test_tool_policy_profiles_stay_provider_neutral() -> None:
                     auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
                 ),
             ),
-            "ResumableRunRequest requires an explicit `tool_policy` value.",
+            "ResumedSessionRunRequest requires an explicit `tool_policy` value.",
         ),
     ],
 )
@@ -5179,7 +5185,7 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
         prompt_runtime.ResumableRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -5228,7 +5234,7 @@ def test_resumable_runtime_uses_invocation_role_from_session_plan(
         prompt_runtime.ResumableRuntime(
             execution_adapter=execution_adapter
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -5301,7 +5307,7 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 model="gpt-5.4",
@@ -5353,7 +5359,7 @@ def test_resumable_runtime_returns_portable_continuation_resume_data(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 model="gpt-5.4",
@@ -6237,7 +6243,7 @@ def test_resumable_runtime_resumes_from_portable_continuation_data() -> None:
         prompt_runtime.ResumableRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -6478,7 +6484,7 @@ def test_resumable_runtime_passes_continuation_provider_resume_state_to_adapter(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_ContinuationResumeStateExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -6527,7 +6533,7 @@ def test_resumable_runtime_completed_outcome_keeps_service_bound_in_continuation
         prompt_runtime.ResumableRuntime(
             execution_adapter=_ContinuationBoundServiceResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -6691,7 +6697,7 @@ def test_resumable_runtime_returns_latest_adapter_updated_provider_resume_state(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_LatestResumeStateExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -6861,7 +6867,7 @@ def test_resumable_runtime_keeps_frozen_adapter_session_seam_unchanged() -> None
         prompt_runtime.ResumableRuntime(
             execution_adapter=_FrozenPreparedSessionExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -6895,10 +6901,10 @@ def test_resumable_run_request_from_continuation_rejects_tool_access_override() 
     with pytest.raises(
         TypeError,
         match=re.escape(
-            "ResumableRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
+            "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
         ),
     ):
-        prompt_runtime.ResumableRunRequest(
+        prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             worktree=WorktreeMount(Path("/repo")),
             role=InvocationRole("implementer"),
@@ -6911,6 +6917,96 @@ def test_resumable_run_request_from_continuation_rejects_tool_access_override() 
                 provider_resume_state={"run_kind": "resume"},
             ),
             tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+        )
+
+
+def test_resumable_run_request_from_continuation_requires_role() -> None:
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest requires a `role` value when constructed from a continuation."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            session_namespace="main",
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={"run_kind": "resume"},
+            ),
+        )
+
+
+def test_resumable_run_request_rejects_conflicting_continuation_and_session_plan(
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("/repo"),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            model="gpt-5.4",
+            effort="medium",
+            session_plan=session_plan,
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={"run_kind": "resume"},
+            ),
+            role=InvocationRole("implementer"),
+            tool_policy=runtime.ToolPolicy.FULL,
+        )
+
+
+def test_resumable_run_request_rejects_conflicting_tool_access_and_tool_policy() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            model="gpt-5.4",
+            effort="medium",
+            session_plan=ResumableSessionPlan(
+                role=InvocationRole("reviewer"),
+                worktree=Path("/repo"),
+                namespace="main",
+                service=cast(ExecutionProvider, _ExecutionService("codex")),
+                run_kind=RunKind.FRESH,
+                provider_state_dir=None,
+                provider_session_id=None,
+                auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+            ),
+            tool_access=runtime.ToolAccess.no_tools(),
+            tool_policy=runtime.ToolPolicy.FULL,
         )
 
 
@@ -6935,7 +7031,7 @@ def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_ef
         prompt_runtime.ResumableRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -6948,7 +7044,7 @@ def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_ef
         prompt_runtime.ResumableRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -6998,7 +7094,7 @@ def test_resumable_runtime_started_usage_limit_keeps_service_bound_in_continuati
         prompt_runtime.ResumableRuntime(
             execution_adapter=_ContinuationBoundStartedUsageLimitResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7041,7 +7137,7 @@ def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
         prompt_runtime.ResumableRuntime(
             execution_adapter=execution_adapter
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7075,7 +7171,7 @@ def test_resumable_runtime_reports_started_progress_for_usage_limited_outcome(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_StartedUsageLimitResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7127,7 +7223,7 @@ def test_resumable_runtime_prefers_adapter_reported_model_activity_for_usage_lim
         prompt_runtime.ResumableRuntime(
             execution_adapter=_ModelActivityUsageLimitResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7189,7 +7285,7 @@ def test_resumable_runtime_returns_no_service_available_outcome_for_bound_servic
         prompt_runtime.ResumableRuntime(
             execution_adapter=_UnavailableBoundServiceExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7282,7 +7378,7 @@ def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_aft
         prompt_runtime.ResumableRuntime(
             execution_adapter=_StartedCancellationExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7309,7 +7405,7 @@ def test_resumable_runtime_returns_timed_out_outcome_with_input_continuation_aft
         prompt_runtime.ResumableRuntime(
             execution_adapter=_StartedTimeoutResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7336,7 +7432,7 @@ def test_resumable_runtime_returns_retryable_provider_failure_outcome_with_input
         prompt_runtime.ResumableRuntime(
             execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7447,7 +7543,7 @@ def test_resumable_runtime_returns_usage_limited_outcome_with_input_continuation
         prompt_runtime.ResumableRuntime(
             execution_adapter=_NotStartedUsageLimitExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7496,7 +7592,7 @@ def test_resumable_runtime_returns_no_service_available_outcome_with_input_conti
         prompt_runtime.ResumableRuntime(
             execution_adapter=_UnavailableBoundServiceExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7527,7 +7623,7 @@ def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_bef
         prompt_runtime.ResumableRuntime(
             execution_adapter=_TimeoutResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7572,7 +7668,7 @@ def test_resumable_runtime_preserves_input_continuation_for_not_started_interrup
         prompt_runtime.ResumableRuntime(
             execution_adapter=execution_adapter
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),
@@ -7613,7 +7709,7 @@ def test_resumable_runtime_returns_cancelled_outcome_for_pre_start_caller_cancel
         prompt_runtime.ResumableRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7660,7 +7756,7 @@ def test_runtime_boundaries_return_timed_out_outcomes_for_timeout_conditions(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_TimeoutResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7704,7 +7800,7 @@ def test_timed_out_outcomes_preserve_started_and_not_started_progress(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_TimeoutResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7745,7 +7841,7 @@ def test_resumable_runtime_reports_started_progress_for_timed_out_outcome(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_StartedTimeoutResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7803,7 +7899,7 @@ def test_runtime_boundaries_return_retryable_provider_failure_outcomes_for_retry
         prompt_runtime.ResumableRuntime(
             execution_adapter=_RetryableProviderFailureResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7847,7 +7943,7 @@ def test_retryable_provider_failure_outcomes_preserve_started_progress(
         prompt_runtime.ResumableRuntime(
             execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter()
         ).run_resumable_prompt(
-            prompt_runtime.ResumableRunRequest(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
                 model="gpt-5.4",
@@ -7929,7 +8025,7 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
             prompt_runtime.ResumableRuntime(
                 execution_adapter=cast(Any, object())
             ).run_resumable_prompt(
-                prompt_runtime.ResumableRunRequest(
+                prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),
                     model="gpt-5.4",
@@ -7945,7 +8041,7 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
             prompt_runtime.ResumableRuntime(
                 execution_adapter=_CredentialFailureResidentExecutionAdapter()
             ).run_resumable_prompt(
-                prompt_runtime.ResumableRunRequest(
+                prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),
                     model="gpt-5.4",
@@ -7961,7 +8057,7 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
             prompt_runtime.ResumableRuntime(
                 execution_adapter=_HardFailureResidentExecutionAdapter()
             ).run_resumable_prompt(
-                prompt_runtime.ResumableRunRequest(
+                prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),
                     model="gpt-5.4",
@@ -7985,7 +8081,7 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
             prompt_runtime.ResumableRuntime(
                 execution_adapter=_TransientProviderFailureResidentExecutionAdapter()
             ).run_resumable_prompt(
-                prompt_runtime.ResumableRunRequest(
+                prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),
                     model="gpt-5.4",
@@ -8113,7 +8209,7 @@ def test_resumable_run_request_carries_workspace_backed_tool_access() -> None:
         tool_policy=runtime.ToolPolicy.PARTIAL,
     )
 
-    request = prompt_runtime.ResumableRunRequest(
+    request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         worktree=WorktreeMount(Path("/repo")),
         model="gpt-5.4",
@@ -8136,7 +8232,7 @@ def test_resumable_run_request_carries_workspace_backed_tool_access() -> None:
 
 
 def test_resumable_run_request_accepts_explicit_no_tools_tool_access() -> None:
-    request = prompt_runtime.ResumableRunRequest(
+    request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         worktree=WorktreeMount(Path("/repo")),
         model="gpt-5.4",
@@ -8164,10 +8260,10 @@ def test_resumable_run_request_rejects_workspace_backed_tool_access_for_other_wo
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "ResumableRunRequest workspace-backed tool access requires worktree /repo, got /other."
+            "ResumedSessionRunRequest workspace-backed tool access requires worktree /repo, got /other."
         ),
     ):
-        prompt_runtime.ResumableRunRequest(
+        prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             worktree=WorktreeMount(Path("/other")),
             model="gpt-5.4",
@@ -8205,7 +8301,7 @@ def test_tool_access_none_rejects_non_toolless_policy() -> None:
 
 def test_resumable_runtime_request_rejects_request_level_invocation_role() -> None:
     with pytest.raises(TypeError):
-        prompt_runtime.ResumableRunRequest(
+        prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             worktree=WorktreeMount(Path(".")),
             model="gpt-5.4",
