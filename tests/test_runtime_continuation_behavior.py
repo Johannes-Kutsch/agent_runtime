@@ -1903,6 +1903,107 @@ def test_runtime_client_writes_resumed_session_invocation_log_to_logs_dir(
     assert '"type":"result"' in log_text
 
 
+def test_runtime_client_writes_resumed_opencode_session_log_with_observed_provider_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    logs_dir = tmp_path / "runtime-logs"
+    provider_state_dir_relpath = "implementer/main/opencode/"
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    worktree.mkdir()
+    provider_state_dir.mkdir(parents=True)
+    (provider_state_dir / "resume.jsonl").write_text("[]", encoding="utf-8")
+    (provider_state_dir / "session_id").write_text(
+        "recovered-session\n",
+        encoding="utf-8",
+    )
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                (
+                    '{"type":"text","sessionID":"observed-session","part":'
+                    '{"type":"text","text":"hello from opencode",'
+                    '"time":{"end":"2026-01-01T00:00:00Z"}}}\n'
+                ),
+                '{"type":"session.status","status":{"type":"idle"}}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": True,
+        },
+    )
+
+    outcome = asyncio.run(
+        prompt_runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="token"),
+                logs_dir=logs_dir,
+            )
+        )
+    )
+
+    assert outcome.output == "hello from opencode"
+    assert list(worktree.rglob("*.log")) == []
+    assert list(runtime_state_dir.rglob("*.log")) == []
+    log_paths = sorted(logs_dir.glob("*.log"))
+    assert len(log_paths) == 1
+    log_text = log_paths[0].read_text()
+    header = json.loads(log_text.splitlines()[0])
+    assert header == {
+        "type": "agent_invocation",
+        "invocation_role": "implementer",
+        "run_kind": "resume",
+        "provider_session_id": "observed-session",
+        "prompt": "already rendered prompt",
+    }
+    assert '"sessionID":"observed-session"' in log_text
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
+        "observed-session"
+    )
+
+
 def test_resumed_session_runtime_returns_usage_limited_outcome_with_input_continuation_before_model_activity() -> (
     None
 ):

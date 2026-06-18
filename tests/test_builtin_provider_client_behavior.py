@@ -381,6 +381,109 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
     )
 
 
+def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_invocation_seam(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationResult(
+                output="continued output",
+                usage=runtime.ProviderUsage(
+                    input_tokens=7,
+                    output_tokens=2,
+                ),
+                provider_session_id="observed-session",
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/claude"
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "session.jsonl").write_text("{}\n", encoding="utf-8")
+    continuation = prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "claude-session-123",
+            "provider_state_dir_relpath": "implementer/main/claude/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                model="opus",
+                effort="high",
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="observed-session",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="opus",
+                selected_effort="high",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "observed-session",
+                    "provider_state_dir_relpath": "implementer/main/claude/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=7,
+            output_tokens=2,
+        ),
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.content == "already rendered prompt"
+    assert recorded_request.prompt.path == tmp_path / ".pycastle_prompt"
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.RESUME
+    assert recorded_request.role == InvocationRole("implementer")
+    assert recorded_request.usage_limit_scope is None
+    assert recorded_request.provider_session_id == "claude-session-123"
+    assert recorded_request.environment["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
+    assert recorded_request.environment["CLAUDE_CONFIG_DIR"] == str(provider_state_dir)
+    assert "--resume claude-session-123" in recorded_request.command
+    assert "--model opus" in recorded_request.command
+    assert "--effort high" in recorded_request.command
+
+
 def test_runtime_client_runs_claude_resumed_session_from_continuation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2067,6 +2170,159 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     assert '"prompt": "already rendered prompt"' in log_text
     for stdout_line in prepared_invocation.stdout_lines:
         assert stdout_line in log_text
+
+
+def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_invocation_seam(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationResult(
+                output="continued output",
+                provider_session_id="persisted-session-2",
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    provider_state_dir_relpath = "implementer/main/opencode/"
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    worktree.mkdir()
+    provider_state_dir.mkdir(parents=True)
+    (provider_state_dir / "resume.jsonl").write_text("[]", encoding="utf-8")
+    (provider_state_dir / "session_id").write_text(
+        "persisted-session-1\n",
+        encoding="utf-8",
+    )
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": True,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="opencode",
+                provider_session_id="persisted-session-2",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="opencode",
+                selected_model="glm-5",
+                selected_effort="medium",
+                tool_access=continuation.tool_access,
+                provider_resume_state={
+                    "provider_session_id": "persisted-session-2",
+                    "provider_state_dir_relpath": provider_state_dir_relpath,
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=None,
+    )
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
+        "persisted-session-2"
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.content == "already rendered prompt"
+    assert recorded_request.prompt.path == worktree / ".pycastle_prompt"
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.worktree == worktree
+    assert recorded_request.run_kind is RunKind.RESUME
+    assert recorded_request.role == InvocationRole("implementer")
+    assert recorded_request.usage_limit_scope is None
+    assert recorded_request.provider_session_id == "persisted-session-1"
+    assert recorded_request.environment["OPENCODE_HOME"] == str(provider_state_dir)
+    assert recorded_request.environment["OPENCODE_GO_API_KEY"] == "go-key"
+    assert "--session persisted-session-1" in recorded_request.command
+    assert "--model opencode-go/glm-5" in recorded_request.command
+
+
+def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("SHOULD_NOT_LEAK", "host-value")
+    captured: dict[str, Any] = {}
+
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [json.dumps({"type": "result", "result": "final output"}) + "\n"]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _ClaudeProcess:
+        captured["env"] = env
+        return _ClaudeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert captured["env"] == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
 
 
 def test_runtime_client_reachable_opencode_stage_requires_api_key_without_falling_through(
