@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1857,3 +1858,94 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)
         )
+
+
+def test_runtime_client_writes_session_invocation_log_to_logs_dir_without_mixing_runtime_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    logs_dir = tmp_path / "runtime-logs"
+    worktree.mkdir()
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                (
+                    '{"type":"assistant","message":{"content":[{"type":"text",'
+                    '"text":"hello from claude"}],"usage":{"input_tokens":100}}}\n'
+                ),
+                '{"type":"result","result":"hello from claude"}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = asyncio.run(
+        prompt_runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                stage=stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.workspace_backed(worktree),
+                provider_auth=prompt_runtime.ProviderAuth(
+                    claude_code_oauth_token="token"
+                ),
+                logs_dir=logs_dir,
+            )
+        )
+    )
+
+    assert outcome.output == "hello from claude"
+    assert outcome.usage == runtime.ProviderUsage(
+        input_tokens=100,
+        output_tokens=None,
+        cache_read_input_tokens=None,
+        cache_creation_input_tokens=None,
+        cost_usd=None,
+        duration_seconds=None,
+    )
+    assert list(worktree.rglob("*.log")) == []
+    assert list(runtime_state_dir.rglob("*.log")) == []
+    log_paths = sorted(logs_dir.glob("*.log"))
+    assert len(log_paths) == 1
+    log_text = log_paths[0].read_text()
+    header = json.loads(log_text.splitlines()[0])
+    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
+    assert header == {
+        "type": "agent_invocation",
+        "invocation_role": "implementer",
+        "run_kind": "fresh",
+        "provider_session_id": outcome.result.runtime_metadata.provider_session_id,
+        "prompt": "already rendered prompt",
+    }
+    assert '"type":"assistant"' in log_text
+    assert '"type":"result"' in log_text

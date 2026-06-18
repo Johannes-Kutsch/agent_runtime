@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
 
+from .agent_log import AgentInvocationLog, WorkInvocationLog
 from . import _time as _time_module
 from ._runtime_lifecycle import (
     Continuation,
@@ -1129,6 +1130,21 @@ def _reduce_opencode_stream(lines: list[str]) -> str:
     )
 
 
+def _reduce_logged_opencode_stream(
+    lines: list[str],
+    *,
+    work_invocation_log: WorkInvocationLog,
+) -> str:
+    return reduce_text_output_events(
+        _parse_opencode_events(
+            lines,
+            on_provider_session_id=work_invocation_log.record_provider_session_id,
+        ),
+        lambda _turn: None,
+        provider="opencode",
+    )
+
+
 def _select_builtin_stage(stage: StageSelection) -> StageSelection:
     candidate = supported_builtin_stage(stage)
     if candidate is not None:
@@ -1197,6 +1213,19 @@ def _build_claude_continuation(
     )
 
 
+def _start_invocation_log(
+    *,
+    logs_dir: Path | None,
+    role: Any,
+) -> Any:
+    if logs_dir is None:
+        return None
+    return AgentInvocationLog().start_logical_session(
+        log_name=role.value,
+        logs_dir=logs_dir,
+    )
+
+
 def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
     *,
@@ -1225,6 +1254,10 @@ def _run_builtin_ephemeral(
     selected_service_path: Callable[..., tuple[str, ...]] = _selected_service_path,
 ) -> EphemeralRunResult:
     selected_stage = select_builtin_stage(request.stage)
+    invocation_log = _start_invocation_log(
+        logs_dir=request.logs_dir,
+        role=request.role,
+    )
     if selected_stage.service == "codex":
         validate_codex_stage(selected_stage)
         validate_codex_auth()
@@ -1259,62 +1292,133 @@ def _run_builtin_ephemeral(
         prompt_path = request.worktree / ".pycastle_prompt"
     prompt_path.write_text(request.prompt)
     try:
-        if selected_stage.service == "codex":
-            process = subprocess.Popen(
-                codex_command(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                ),
-                shell=True,
-                cwd=request.worktree,
-                env=codex_env(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-        elif selected_stage.service == "opencode":
-            process = subprocess.Popen(
-                opencode_command(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    run_kind=RunKind.FRESH,
-                    session_uuid=None,
-                ),
-                shell=True,
-                cwd=request.worktree,
-                env=opencode_env(
-                    auth=request.auth,
-                    state_dir_container_path=str(request.worktree),
-                ),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+        if invocation_log is None:
+            if selected_stage.service == "codex":
+                process = subprocess.Popen(
+                    codex_command(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                    ),
+                    shell=True,
+                    cwd=request.worktree,
+                    env=codex_env(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            elif selected_stage.service == "opencode":
+                process = subprocess.Popen(
+                    opencode_command(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        run_kind=RunKind.FRESH,
+                        session_uuid=None,
+                    ),
+                    shell=True,
+                    cwd=request.worktree,
+                    env=opencode_env(
+                        auth=request.auth,
+                        state_dir_container_path=str(request.worktree),
+                    ),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            else:
+                process = subprocess.Popen(
+                    claude_command(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        prompt_path=prompt_path,
+                    ),
+                    shell=True,
+                    cwd=request.worktree,
+                    env=claude_env(auth=request.auth),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            stdout_lines = [] if process.stdout is None else list(process.stdout)
+            usage: ProviderUsage | None = None
+            if selected_stage.service == "codex":
+                result_text, usage = reduce_codex_stream(stdout_lines)
+            elif selected_stage.service == "claude":
+                result_text, usage = reduce_claude_stream(stdout_lines)
+            else:
+                result_text = reduce_opencode_stream(stdout_lines)
+            process.wait()
         else:
-            process = subprocess.Popen(
-                claude_command(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    prompt_path=prompt_path,
-                ),
-                shell=True,
-                cwd=request.worktree,
-                env=claude_env(auth=request.auth),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-        stdout_lines = [] if process.stdout is None else list(process.stdout)
-        usage: ProviderUsage | None = None
-        if selected_stage.service == "codex":
-            result_text, usage = reduce_codex_stream(stdout_lines)
-        elif selected_stage.service == "claude":
-            result_text, usage = reduce_claude_stream(stdout_lines)
-        else:
-            result_text = reduce_opencode_stream(stdout_lines)
-        process.wait()
+            with invocation_log.open_work_invocation(
+                role=request.role,
+                run_kind=RunKind.FRESH,
+                session_uuid=None,
+                prompt=request.prompt,
+                usage_limit_scope=request.usage_limit_scope,
+            ) as work_invocation_log:
+                if selected_stage.service == "codex":
+                    process = subprocess.Popen(
+                        codex_command(
+                            model=selected_stage.model,
+                            effort=selected_stage.effort,
+                            tool_access=request.tool_access,
+                        ),
+                        shell=True,
+                        cwd=request.worktree,
+                        env=codex_env(),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                elif selected_stage.service == "opencode":
+                    process = subprocess.Popen(
+                        opencode_command(
+                            model=selected_stage.model,
+                            effort=selected_stage.effort,
+                            run_kind=RunKind.FRESH,
+                            session_uuid=None,
+                        ),
+                        shell=True,
+                        cwd=request.worktree,
+                        env=opencode_env(
+                            auth=request.auth,
+                            state_dir_container_path=str(request.worktree),
+                        ),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                else:
+                    process = subprocess.Popen(
+                        claude_command(
+                            model=selected_stage.model,
+                            effort=selected_stage.effort,
+                            tool_access=request.tool_access,
+                            prompt_path=prompt_path,
+                        ),
+                        shell=True,
+                        cwd=request.worktree,
+                        env=claude_env(auth=request.auth),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                stdout_lines = [] if process.stdout is None else list(process.stdout)
+                work_invocation_log.append_provider_chunk(
+                    "".join(stdout_lines).encode()
+                )
+                usage = None
+                if selected_stage.service == "codex":
+                    result_text, usage = reduce_codex_stream(stdout_lines)
+                elif selected_stage.service == "claude":
+                    result_text, usage = reduce_claude_stream(stdout_lines)
+                else:
+                    result_text = _reduce_logged_opencode_stream(
+                        stdout_lines,
+                        work_invocation_log=work_invocation_log,
+                    )
+                process.wait()
     finally:
         prompt_path.unlink(missing_ok=True)
     service_path = selected_service_path(
@@ -1391,36 +1495,75 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
                 provider_auth=request.provider_auth,
                 usage_limit_scope=request.usage_limit_scope,
                 session_namespace=request.session_namespace,
+                logs_dir=request.logs_dir,
             )
         )
     _validate_claude_stage(selected_stage)
     _require_claude_auth(request.provider_auth)
     provider_session_id = _new_provider_session_id()
+    invocation_log = _start_invocation_log(
+        logs_dir=request.logs_dir,
+        role=request.role,
+    )
     prompt_path = request.worktree / ".pycastle_prompt"
     prompt_path.write_text(request.prompt)
     try:
-        process = subprocess.Popen(
-            _claude_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
-                prompt_path=prompt_path,
+        if invocation_log is None:
+            process = subprocess.Popen(
+                _claude_command(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    prompt_path=prompt_path,
+                    run_kind=RunKind.FRESH,
+                    session_uuid=provider_session_id,
+                ),
+                shell=True,
+                cwd=request.worktree,
+                env=_claude_env(
+                    auth=request.provider_auth,
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout_lines = [] if process.stdout is None else list(process.stdout)
+            result_text, usage = _reduce_claude_stream(stdout_lines)
+            process.wait()
+        else:
+            with invocation_log.open_work_invocation(
+                role=request.role,
                 run_kind=RunKind.FRESH,
                 session_uuid=provider_session_id,
-            ),
-            shell=True,
-            cwd=request.worktree,
-            env=_claude_env(
-                auth=request.provider_auth,
-                state_dir_container_path=str(provider_state_dir),
-            ),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        stdout_lines = [] if process.stdout is None else list(process.stdout)
-        result_text, usage = _reduce_claude_stream(stdout_lines)
-        process.wait()
+                prompt=request.prompt,
+                usage_limit_scope=request.usage_limit_scope,
+            ) as work_invocation_log:
+                process = subprocess.Popen(
+                    _claude_command(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        prompt_path=prompt_path,
+                        run_kind=RunKind.FRESH,
+                        session_uuid=provider_session_id,
+                    ),
+                    shell=True,
+                    cwd=request.worktree,
+                    env=_claude_env(
+                        auth=request.provider_auth,
+                        state_dir_container_path=str(provider_state_dir),
+                    ),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                stdout_lines = [] if process.stdout is None else list(process.stdout)
+                work_invocation_log.append_provider_chunk(
+                    "".join(stdout_lines).encode()
+                )
+                result_text, usage = _reduce_claude_stream(stdout_lines)
+                process.wait()
     except (UsageLimitError, RetryableProviderFailureError) as exc:
         exc.continuation = (
             _build_claude_continuation(
@@ -1496,31 +1639,69 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     run_kind = _claude_run_kind_for_state_dir(provider_state_dir)
+    invocation_log = _start_invocation_log(
+        logs_dir=request.logs_dir,
+        role=request.role,
+    )
     prompt_path = request.worktree.host_path / ".pycastle_prompt"
     prompt_path.write_text(request.prompt)
     try:
-        process = subprocess.Popen(
-            _claude_command(
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                prompt_path=prompt_path,
+        if invocation_log is None:
+            process = subprocess.Popen(
+                _claude_command(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    prompt_path=prompt_path,
+                    run_kind=run_kind,
+                    session_uuid=provider_session_id,
+                ),
+                shell=True,
+                cwd=request.worktree.host_path,
+                env=_claude_env(
+                    auth=request.provider_auth,
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout_lines = [] if process.stdout is None else list(process.stdout)
+            result_text, usage = _reduce_claude_stream(stdout_lines)
+            process.wait()
+        else:
+            with invocation_log.open_work_invocation(
+                role=request.role,
                 run_kind=run_kind,
                 session_uuid=provider_session_id,
-            ),
-            shell=True,
-            cwd=request.worktree.host_path,
-            env=_claude_env(
-                auth=request.provider_auth,
-                state_dir_container_path=str(provider_state_dir),
-            ),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        stdout_lines = [] if process.stdout is None else list(process.stdout)
-        result_text, usage = _reduce_claude_stream(stdout_lines)
-        process.wait()
+                prompt=request.prompt,
+                usage_limit_scope=request.usage_limit_scope,
+            ) as work_invocation_log:
+                process = subprocess.Popen(
+                    _claude_command(
+                        model=request.model,
+                        effort=request.effort,
+                        tool_access=request.tool_access,
+                        prompt_path=prompt_path,
+                        run_kind=run_kind,
+                        session_uuid=provider_session_id,
+                    ),
+                    shell=True,
+                    cwd=request.worktree.host_path,
+                    env=_claude_env(
+                        auth=request.provider_auth,
+                        state_dir_container_path=str(provider_state_dir),
+                    ),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                stdout_lines = [] if process.stdout is None else list(process.stdout)
+                work_invocation_log.append_provider_chunk(
+                    "".join(stdout_lines).encode()
+                )
+                result_text, usage = _reduce_claude_stream(stdout_lines)
+                process.wait()
     except (UsageLimitError, RetryableProviderFailureError) as exc:
         exc.continuation = (
             _build_claude_continuation(

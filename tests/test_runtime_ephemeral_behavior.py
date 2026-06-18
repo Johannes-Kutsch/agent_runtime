@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
 from collections.abc import Callable
@@ -795,6 +796,83 @@ def test_runtime_client_exposes_codex_usage_on_completed_outcome(
         cost_usd=None,
         duration_seconds=None,
     )
+
+
+def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_supplied(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    logs_dir = tmp_path / "runtime-logs"
+    _stub_codex_prompt_path(monkeypatch)
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                (
+                    '{"type":"text","sessionID":"observed-session","part":'
+                    '{"type":"text","time":{"end":"2026-01-01T00:00:00Z"},'
+                    '"text":"hello from opencode"}}\n'
+                ),
+                (
+                    '{"type":"session.status","sessionID":"observed-session",'
+                    '"status":{"type":"idle"}}\n'
+                ),
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="opencode",
+                model="glm-5",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=prompt_runtime.ProviderAuth(opencode_api_key="token"),
+            logs_dir=logs_dir,
+        )
+    )
+
+    assert outcome.output == "hello from opencode"
+    log_paths = sorted(logs_dir.glob("*.log"))
+    assert len(log_paths) == 1
+    log_text = log_paths[0].read_text()
+    header = json.loads(log_text.splitlines()[0])
+    assert header == {
+        "type": "agent_invocation",
+        "invocation_role": "implementer",
+        "run_kind": "fresh",
+        "provider_session_id": "observed-session",
+        "prompt": "already rendered prompt",
+    }
+    assert '"sessionID":"observed-session"' in log_text
+    assert '"type":"session.status"' in log_text
 
 
 def test_runtime_client_exposes_claude_usage_on_completed_outcome(

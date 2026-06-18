@@ -333,6 +333,7 @@ class EphemeralRunResult:
 class EphemeralRunRequest:
     prompt: str
     worktree: Path
+    logs_dir: Path | None
     stage: StageSelection
     role: InvocationRole
     tool_access: ToolAccess
@@ -345,6 +346,7 @@ class EphemeralRunRequest:
         self,
         prompt: str,
         worktree: Path | WorktreeMount,
+        logs_dir: Path | None = None,
         stage: StageSelection | None = None,
         role: InvocationRole | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
@@ -396,6 +398,7 @@ class EphemeralRunRequest:
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree_path)
+        object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "stage", stage)
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "tool_access", resolved_tool_access)
@@ -422,6 +425,7 @@ class NewSessionRunRequest:
     prompt: str
     worktree: Path
     runtime_state_dir: Path | None
+    logs_dir: Path | None
     stage: StageSelection
     role: InvocationRole
     provider_auth: ProviderAuth | None
@@ -440,6 +444,7 @@ class NewSessionRunRequest:
         prompt: str,
         worktree: Path | WorktreeMount,
         runtime_state_dir: Path | None = None,
+        logs_dir: Path | None = None,
         stage: StageSelection | None = None,
         role: InvocationRole | None = None,
         provider_auth: ProviderAuth | None = None,
@@ -497,6 +502,7 @@ class NewSessionRunRequest:
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree_path)
         object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
+        object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "stage", stage)
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "provider_auth", provider_auth)
@@ -551,6 +557,7 @@ class ResumedSessionRunRequest:
     prompt: str
     worktree: WorktreeMount
     runtime_state_dir: Path | None
+    logs_dir: Path | None
     model: str
     effort: str
     role: InvocationRole
@@ -570,6 +577,7 @@ class ResumedSessionRunRequest:
         prompt: str,
         worktree: Path | WorktreeMount,
         runtime_state_dir: Path | None = None,
+        logs_dir: Path | None = None,
         model: str | None = None,
         effort: str | None = None,
         session_plan: ResumableSessionPlan | None = None,
@@ -656,6 +664,7 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", resolved_worktree)
         object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
+        object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "model", resolved_model)
         object.__setattr__(self, "effort", resolved_effort)
         object.__setattr__(self, "role", resolved_role)
