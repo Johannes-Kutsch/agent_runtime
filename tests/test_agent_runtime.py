@@ -2745,9 +2745,9 @@ def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_ma
     )
 
 
-def test_reduce_text_output_events_returns_result_and_maps_errors() -> None:
-    token_counts: list[int] = []
+def test_provider_output_reduction_returns_result() -> None:
     turns: list[str] = []
+
     result = reduce_text_output_events(
         [
             PromptTokens(2),
@@ -2756,29 +2756,50 @@ def test_reduce_text_output_events_returns_result_and_maps_errors() -> None:
             Result("done"),
         ],
         turns.append,
-        token_counts.append,
         provider="codex",
     )
 
     assert result == "done"
     assert turns == ["hello"]
+
+
+def test_provider_output_reduction_reports_prompt_tokens() -> None:
+    token_counts: list[int] = []
+
+    result = reduce_text_output_events(
+        [PromptTokens(2)],
+        lambda _turn: None,
+        token_counts.append,
+        provider="codex",
+    )
+
+    assert result == ""
     assert token_counts == [2]
 
+
+def test_provider_output_reduction_maps_usage_limit() -> None:
+    with pytest.raises(UsageLimitError):
+        reduce_text_output_events(
+            [UsageLimit(reset_time=None)], lambda _turn: None, provider="codex"
+        )
+
+
+def test_provider_output_reduction_maps_transient_error() -> None:
+    with pytest.raises(TransientAgentError):
+        reduce_text_output_events(
+            [TransientError(status_code=503, raw_message="retry")],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+def test_provider_output_reduction_maps_hard_error() -> None:
     observation = ProviderErrorObservation(
         service_name="codex",
         raw_provider_text="bad credential",
         source_stream="stderr",
     )
-    with pytest.raises(UsageLimitError):
-        reduce_text_output_events(
-            [UsageLimit(reset_time=None)], turns.append, provider="codex"
-        )
-    with pytest.raises(TransientAgentError):
-        reduce_text_output_events(
-            [TransientError(status_code=503, raw_message="retry")],
-            turns.append,
-            provider="codex",
-        )
+
     with pytest.raises(HardAgentError):
         reduce_text_output_events(
             [
@@ -2786,9 +2807,18 @@ def test_reduce_text_output_events_returns_result_and_maps_errors() -> None:
                     status_code=400, raw_message="bad", observations=(observation,)
                 )
             ],
-            turns.append,
+            lambda _turn: None,
             provider="codex",
         )
+
+
+def test_provider_output_reduction_maps_credential_failure() -> None:
+    observation = ProviderErrorObservation(
+        service_name="codex",
+        raw_provider_text="bad credential",
+        source_stream="stderr",
+    )
+
     with pytest.raises(AgentCredentialFailureError):
         reduce_text_output_events(
             [
@@ -2798,7 +2828,7 @@ def test_reduce_text_output_events_returns_result_and_maps_errors() -> None:
                     source_observations=(observation,),
                 )
             ],
-            turns.append,
+            lambda _turn: None,
             provider="codex",
         )
 
