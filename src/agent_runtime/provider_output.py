@@ -6,6 +6,7 @@ from .contracts import (
     AssistantTurn,
     CredentialFailure,
     HardError,
+    ModelActivity,
     ParsedTurn,
     PromptTokens,
     Result,
@@ -77,6 +78,9 @@ def reduce_text_output_events(
                 on_tokens(event.count)
             continue
         if isinstance(event, UnsupportedTokens):
+            continue
+        if isinstance(event, ModelActivity):
+            invocation_progress = InvocationProgress.STARTED
             continue
         if isinstance(event, AssistantTurn):
             on_turn(event.text)
