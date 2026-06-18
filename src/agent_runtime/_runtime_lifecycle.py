@@ -12,11 +12,17 @@ from .execution_contracts import CancellationToken, WorktreeMount
 from .identity import validate_session_namespace
 from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
+from ._request_normalization import (
+    normalize_stage_selection,
+    normalize_worktree_mount,
+    normalize_worktree_path,
+    require_invocation_role,
+)
 from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .session import RunKind
 from .session_planning import ResumableSessionPlan
-from .types import StageSelection, validate_stage_selection
+from .types import StageSelection
 from .usage_limit_scope import UsageLimitScope
 
 __all__ = [
@@ -358,19 +364,13 @@ class EphemeralRunRequest:
         *,
         override: StageSelection | None = None,
     ) -> None:
-        if stage is None:
-            stage = override
-        elif override is not None and override != stage:
-            raise TypeError(
-                "EphemeralRunRequest received conflicting `stage` and `override` values."
-            )
-        if stage is None:
-            raise TypeError("EphemeralRunRequest requires a `stage` value.")
-        if role is None:
-            raise TypeError("EphemeralRunRequest requires a `role` value.")
-        worktree_path = (
-            worktree.host_path if isinstance(worktree, WorktreeMount) else worktree
+        stage = normalize_stage_selection(
+            stage,
+            override=override,
+            context="EphemeralRunRequest",
         )
+        role = require_invocation_role(role, context="EphemeralRunRequest")
+        worktree_path = normalize_worktree_path(worktree)
         if (
             isinstance(tool_access, ToolAccess)
             and tool_policy is not _MISSING_TOOL_POLICY
@@ -393,7 +393,6 @@ class EphemeralRunRequest:
             worktree_path,
             context="EphemeralRunRequest",
         )
-        validate_stage_selection(stage)
         validate_session_namespace(session_namespace)
 
         object.__setattr__(self, "prompt", prompt)
@@ -461,19 +460,13 @@ class NewSessionRunRequest:
         *,
         override: StageSelection | None = None,
     ) -> None:
-        if stage is None:
-            stage = override
-        elif override is not None and override != stage:
-            raise TypeError(
-                "NewSessionRunRequest received conflicting `stage` and `override` values."
-            )
-        if stage is None:
-            raise TypeError("NewSessionRunRequest requires a `stage` value.")
-        if role is None:
-            raise TypeError("NewSessionRunRequest requires a `role` value.")
-        worktree_path = (
-            worktree.host_path if isinstance(worktree, WorktreeMount) else worktree
+        stage = normalize_stage_selection(
+            stage,
+            override=override,
+            context="NewSessionRunRequest",
         )
+        role = require_invocation_role(role, context="NewSessionRunRequest")
+        worktree_path = normalize_worktree_path(worktree)
         if (
             isinstance(tool_access, ToolAccess)
             and tool_policy is not _MISSING_TOOL_POLICY
@@ -496,7 +489,6 @@ class NewSessionRunRequest:
             worktree_path,
             context="NewSessionRunRequest",
         )
-        validate_stage_selection(stage)
         validate_session_namespace(session_namespace)
 
         object.__setattr__(self, "prompt", prompt)
@@ -597,9 +589,7 @@ class ResumedSessionRunRequest:
             raise TypeError(
                 "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
             )
-        worktree_path = (
-            worktree.host_path if isinstance(worktree, WorktreeMount) else worktree
-        )
+        worktree_path = normalize_worktree_path(worktree)
         if (
             isinstance(tool_access, ToolAccess)
             and tool_policy is not _MISSING_TOOL_POLICY
@@ -608,10 +598,14 @@ class ResumedSessionRunRequest:
                 "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
             )
         if continuation is not None:
-            if role is None:
-                raise TypeError(
-                    "ResumedSessionRunRequest requires a `role` value when constructed from a continuation."
-                )
+            role = require_invocation_role(
+                role,
+                context="ResumedSessionRunRequest",
+                message=(
+                    "ResumedSessionRunRequest requires a `role` value when "
+                    "constructed from a continuation."
+                ),
+            )
             if tool_policy is not _MISSING_TOOL_POLICY or isinstance(
                 tool_access, ToolAccess
             ):
@@ -657,9 +651,7 @@ class ResumedSessionRunRequest:
             worktree_path,
             context="ResumedSessionRunRequest",
         )
-        resolved_worktree = (
-            worktree if isinstance(worktree, WorktreeMount) else WorktreeMount(worktree)
-        )
+        resolved_worktree = normalize_worktree_mount(worktree)
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", resolved_worktree)
