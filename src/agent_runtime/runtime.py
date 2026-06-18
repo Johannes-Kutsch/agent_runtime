@@ -1553,8 +1553,9 @@ async def _run_resumable_prompt(
     )
     if request.continuation is not None:
         continuation = request.continuation
+        service_name = continuation.selected_service
         provider_resume_state = _continuation_resume_state(continuation)
-        service = resolve_service(continuation.selected_service)
+        service = resolve_service(service_name)
         run_kind = _continuation_run_kind(provider_resume_state)
         provider_session_id = cast(
             str | None,
@@ -1570,6 +1571,7 @@ async def _run_resumable_prompt(
     else:
         plan = cast(ResumableSessionPlan, request.session_plan)
         service = plan.service
+        service_name = service.name
         run_kind = plan.run_kind
         provider_session_id = plan.provider_session_id
         provider_state_dir_relpath = getattr(
@@ -1662,14 +1664,14 @@ async def _run_resumable_prompt(
     return ResumableRunResult(
         output=output,
         runtime_metadata=ResumableRuntimeMetadata(
-            service_name=service.name,
+            service_name=service_name,
             provider_session_id=provider_run_session.provider_session_id,
             run_kind=run_kind,
             session_namespace=request.session_namespace,
             exact_transcript_match=exact_transcript_match,
         ),
         continuation=_build_continuation(
-            service_name=service.name,
+            service_name=service_name,
             model=request.model,
             effort=request.effort,
             tool_access=request.tool_access,
