@@ -861,6 +861,75 @@ def test_runtime_client_exposes_claude_usage_on_completed_outcome(
     )
 
 
+def test_runtime_client_keeps_latest_claude_usage_facts_on_completed_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    class _FakeProcess:
+        stdout = iter(
+            [
+                (
+                    '{"type":"assistant","message":{"content":[{"type":"text",'
+                    '"text":"hello from claude"}],"usage":{"input_tokens":100}}}\n'
+                ),
+                (
+                    '{"type":"assistant","message":{"content":[{"type":"text",'
+                    '"text":"hello from claude"}],"usage":{"input_tokens":100,'
+                    '"cache_creation_input_tokens":20,'
+                    '"cache_read_input_tokens":30}}}\n'
+                ),
+                '{"type":"result","result":"hello from claude"}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert outcome.usage == runtime.ProviderUsage(
+        input_tokens=100,
+        output_tokens=None,
+        cache_read_input_tokens=30,
+        cache_creation_input_tokens=20,
+        cost_usd=None,
+        duration_seconds=None,
+    )
+
+
 def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -514,6 +514,46 @@ def _reduce_claude_stream(lines: list[str]) -> tuple[str, ProviderUsage | None]:
     )
 
 
+def _merge_provider_usage(
+    current: ProviderUsage | None,
+    observed: ProviderUsage | None,
+) -> ProviderUsage | None:
+    if observed is None:
+        return current
+    if current is None:
+        return observed
+    return ProviderUsage(
+        input_tokens=(
+            observed.input_tokens
+            if observed.input_tokens is not None
+            else current.input_tokens
+        ),
+        output_tokens=(
+            observed.output_tokens
+            if observed.output_tokens is not None
+            else current.output_tokens
+        ),
+        cache_read_input_tokens=(
+            observed.cache_read_input_tokens
+            if observed.cache_read_input_tokens is not None
+            else current.cache_read_input_tokens
+        ),
+        cache_creation_input_tokens=(
+            observed.cache_creation_input_tokens
+            if observed.cache_creation_input_tokens is not None
+            else current.cache_creation_input_tokens
+        ),
+        cost_usd=observed.cost_usd
+        if observed.cost_usd is not None
+        else current.cost_usd,
+        duration_seconds=(
+            observed.duration_seconds
+            if observed.duration_seconds is not None
+            else current.duration_seconds
+        ),
+    )
+
+
 def _reduce_claude_stream_with_dependencies(
     lines: list[str],
     *,
@@ -522,7 +562,7 @@ def _reduce_claude_stream_with_dependencies(
     usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
     for line in lines:
-        usage = usage or _parse_claude_usage(line)
+        usage = _merge_provider_usage(usage, _parse_claude_usage(line))
         parsed_events.extend(parse_claude_event(line))
     try:
         output = reduce_text_output_events(
@@ -627,7 +667,7 @@ def _reduce_codex_stream(lines: list[str]) -> tuple[str, ProviderUsage | None]:
     usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
     for line in lines:
-        usage = usage or _parse_codex_usage(line)
+        usage = _merge_provider_usage(usage, _parse_codex_usage(line))
         parsed_events.extend(_parse_codex_event(line))
     try:
         output = reduce_text_output_events(
