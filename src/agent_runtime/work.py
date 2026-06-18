@@ -184,6 +184,9 @@ class _DefaultStatusRow:
         if isinstance(exc, UsageLimitError):
             self._row.close("usage limit reached", shutdown_style="interrupted")
             return False
+        if isinstance(exc, AgentCancelledError):
+            self._row.close("cancelled", shutdown_style="interrupted")
+            return False
         if isinstance(exc, AgentTimeoutError):
             self._row.close("timed out", shutdown_style="interrupted")
             return False
@@ -414,6 +417,10 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                     )
                     retries_left -= 1
                     initial_attempt = False
+                except AgentCancelledError:
+                    token.cancel()
+                    row.close("cancelled", shutdown_style="interrupted")
+                    raise
                 except UsageLimitError as err:
                     if err.usage_limit_scope is None:
                         err.usage_limit_scope = (

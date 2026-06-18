@@ -499,6 +499,88 @@ class _StartedCancellationOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdap
         )
 
 
+class _RecordingStatusDisplay:
+    def __init__(self) -> None:
+        self.removals: list[tuple[str, str, str]] = []
+
+    def register(
+        self,
+        caller: str,
+        kind: str,
+        startup_message: str = "started",
+        work_body: str = "",
+        initial_phase: str = "Setup",
+        color_key: int | None = None,
+        model_display: Any = None,
+    ) -> None:
+        del (
+            caller,
+            kind,
+            startup_message,
+            work_body,
+            initial_phase,
+            color_key,
+            model_display,
+        )
+
+    def update_phase(self, name: str, phase: str) -> None:
+        del name, phase
+
+    def reset_idle_timer(self, name: str) -> None:
+        del name
+
+    def update_tokens(self, name: str, current_tokens: int) -> None:
+        del name, current_tokens
+
+    def remove(
+        self,
+        caller: str,
+        shutdown_message: str = "finished",
+        shutdown_style: str = "success",
+    ) -> None:
+        self.removals.append((caller, shutdown_message, shutdown_style))
+
+    def print(self, caller: str, message: object, style: str | None = None) -> None:
+        del caller, message, style
+
+
+class _StartedCancellationStatusOneShotExecutionAdapter(
+    _RoleAwareOneShotExecutionAdapter
+):
+    def __init__(self, status_display: _RecordingStatusDisplay) -> None:
+        self._status_display = status_display
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedCancellationOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(
+                status_display_factory=lambda: self._status_display
+            ),
+        )
+
+
 class _PromptOnlyOneShotWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
@@ -2929,6 +3011,28 @@ def test_one_shot_runtime_reports_started_progress_for_cancelled_outcome(
         output="",
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
     )
+
+
+def test_one_shot_runtime_closes_status_row_as_interrupted_for_cancelled_outcome(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    status_display = _RecordingStatusDisplay()
+
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_StartedCancellationStatusOneShotExecutionAdapter(
+                status_display
+            ),
+            service_registry=service_registry_factory("codex"),
+        ).run_one_shot(one_shot_request_factory())
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.cancelled(
+        output="",
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
+    assert status_display.removals == [("Runtime Agent", "cancelled", "interrupted")]
 
 
 @pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)
