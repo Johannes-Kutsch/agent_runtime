@@ -19,25 +19,25 @@ Execution entrypoints live under `agent_runtime.runtime`; the package root stays
 
 ## Consumer Integration
 
-Ordinary consumers should start with the canonical runtime entrypoints under `agent_runtime.runtime` together with the small package-root vocabulary such as `InvocationRole` and `StageSelection`.
+Ordinary consumers should start with the lifecycle entrypoints under `agent_runtime.runtime` together with the small package-root vocabulary such as `InvocationRole`, `StageSelection`, and `ToolAccess`.
 
-### One-shot Execution
+### Ephemeral Execution
 
-One-shot execution is the normal path for an already-rendered prompt. The caller provides an explicit `InvocationRole` so logs, provider metadata, and state partitioning reflect caller intent.
+Ephemeral execution is the normal path for an already-rendered prompt when the runtime should not prepare provider-session continuity. The caller provides an explicit `InvocationRole` so logs, provider metadata, and state partitioning reflect caller intent.
 
 ```python
 from pathlib import Path
 
-from agent_runtime import InvocationRole, StageSelection
-from agent_runtime.runtime import OneShotRunRequest, OneShotRuntime
+from agent_runtime import InvocationRole, StageSelection, ToolAccess
+from agent_runtime.runtime import EphemeralRunRequest, EphemeralRuntime
 
-runtime = OneShotRuntime(
+runtime = EphemeralRuntime(
     execution_adapter=build_execution_adapter(),
     service_registry=build_service_registry(),
 )
 
-result = await runtime.run_one_shot(
-    OneShotRunRequest(
+result = await runtime.run_ephemeral(
+    EphemeralRunRequest(
         prompt=rendered_prompt,
         worktree=Path("."),
         stage=StageSelection(
@@ -46,6 +46,7 @@ result = await runtime.run_one_shot(
             effort="medium",
         ),
         role=InvocationRole("issue-triage"),
+        tool_access=ToolAccess.no_tools(),
     )
 )
 
@@ -53,13 +54,13 @@ print(result.output)
 print(result.selected_service)
 ```
 
-Use the one-shot entrypoint when prompt rendering, issue orchestration, and application policy already live in the consuming application and the runtime only needs to execute the prepared prompt.
+Use the ephemeral entrypoint when prompt rendering, issue orchestration, and application policy already live in the consuming application and the runtime only needs to execute the prepared prompt without starting a continuity chain.
 
 ### Advanced Topics
 
-Resumable execution, provider session planning, and `ProviderSessionAdapter` integration are advanced seams. Use them when you need provider-backed continuity, recovery, or session-specific policy, but start with the one-shot path first.
+New-session execution, resumed-session execution, and `ProviderSessionAdapter` integration are advanced seams. Use them when you need provider-backed continuity, recovery, or session-specific policy.
 
-Tool-capable execution is a separate boundary from one-shot prompt execution. If an entrypoint can grant tool access, the caller must provide an explicit tool policy rather than relying on an implicit default. Follow the focused tool-policy documentation for that integration so provider-specific command rendering stays behind adapter contracts.
+Tool-capable execution is a separate concern from session lifecycle. If an entrypoint can grant tool access, the caller must provide explicit tool access rather than relying on an implicit default. Follow the focused tool-policy documentation for that integration so provider-specific command rendering stays behind adapter contracts.
 
 `ToolPolicyProfile` remains provider-neutral runtime data. Provider adapters translate runtime-owned tool policy values into backend-specific flags, arguments, and restrictions.
 
@@ -67,7 +68,7 @@ Tool-capable execution is a separate boundary from one-shot prompt execution. If
 
 Use these as the normal integration path:
 
-- `agent_runtime.runtime` canonical entrypoints for one-shot and resumable execution
+- `agent_runtime.runtime` lifecycle entrypoints for ephemeral, new-session, and resumed-session execution
 - Package-root vocabulary such as `InvocationRole` and `StageSelection`
 
 Use these only when you are building or extending adapters:
