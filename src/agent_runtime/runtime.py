@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import math
-from datetime import datetime
+import os
+import re
+import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
 from . import _time as _time_module
-from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
+from .contracts import (
+    AssistantTurn,
+    CredentialFailure,
+    HardError,
+    PromptTokens,
+    Result,
+    ToolAccess,
+    ToolPolicy,
+    ToolPolicyProfile,
+    TransientError,
+    UsageLimit,
+)
 from .execution_contracts import (
     CancellationToken,
     PromptRunRequest as _PromptRunRequest,
@@ -21,6 +36,7 @@ from .execution_contracts import (
 )
 from .errors import (
     AgentCancelledError,
+    AgentCredentialFailureError,
     NoServiceAvailableError,
     AgentTimeoutError,
     RetryableProviderFailureError,
@@ -30,6 +46,7 @@ from .errors import (
 from .identity import validate_session_namespace
 from .invocation_progress import InvocationProgress
 from .provider_session_adapter import ProviderSessionAdapter
+from .provider_output import reduce_text_output_events
 from .roles import InvocationRole
 from .service_registry import ServiceRegistry
 from .session import RunKind
@@ -55,9 +72,11 @@ __all__ = [
     "NewSessionRuntime",
     "NewSessionRuntimeExecutionAdapter",
     "InvocationProgress",
+    "ProviderAuth",
     "ResumedSessionRunRequest",
     "ResumedSessionRuntime",
     "ResumedSessionRuntimeExecutionAdapter",
+    "RuntimeClient",
     "RuntimeOutcome",
     "SessionRunResult",
     "SessionRuntimeMetadata",
@@ -73,6 +92,43 @@ ResumedSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
 
 _DEFAULT_RUNTIME_NAME = "Runtime Agent"
+_CLAUDE_VALID_MODELS = frozenset({"haiku", "sonnet", "opus"})
+_CLAUDE_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+_CLAUDE_SUBSCRIPTION_ACCESS_DENIAL_PHRASE = (
+    "disabled Claude subscription access for Claude Code"
+)
+_CLAUDE_RESET_PATTERN = re.compile(
+    r"resets\s+"
+    r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
+    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
+    re.IGNORECASE,
+)
+_CLAUDE_MONTHS = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sept": 9,
+    "sep": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
 
 
 def _require_json_compatible_resume_state(
@@ -139,6 +195,11 @@ class Continuation:
     @property
     def provider_resume_state(self) -> Any:
         return json.loads(self._provider_resume_state_json)
+
+
+@dataclasses.dataclass(frozen=True)
+class ProviderAuth:
+    claude_code_oauth_token: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -358,6 +419,7 @@ class EphemeralRunRequest:
     usage_limit_scope: UsageLimitScope | None = None
     session_namespace: str = ""
     token: CancellationToken | None = None
+    auth: ProviderAuth | None = None
 
     def __init__(
         self,
@@ -370,6 +432,7 @@ class EphemeralRunRequest:
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         session_namespace: str = "",
         token: CancellationToken | None = None,
+        auth: ProviderAuth | None = None,
         *,
         override: StageSelection | None = None,
     ) -> None:
@@ -419,6 +482,7 @@ class EphemeralRunRequest:
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
         object.__setattr__(self, "session_namespace", session_namespace)
         object.__setattr__(self, "token", token)
+        object.__setattr__(self, "auth", auth)
 
     @property
     def mount_path(self) -> Path:
@@ -752,6 +816,192 @@ def _selected_service_path(
     return (selected_service,)
 
 
+def _validate_claude_stage(stage: StageSelection) -> None:
+    if stage.model not in _CLAUDE_VALID_MODELS:
+        raise RuntimeConfigurationError(f"Unsupported Claude model {stage.model!r}.")
+    if stage.effort not in _CLAUDE_VALID_EFFORTS:
+        raise RuntimeConfigurationError(f"Unsupported Claude effort {stage.effort!r}.")
+
+
+def _claude_command(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+) -> str:
+    flags = (
+        "--verbose --dangerously-skip-permissions --output-format stream-json -p -"
+        " --disable-slash-commands --exclude-dynamic-system-prompt-sections"
+    )
+    if tool_access.kind == "none":
+        flags += ' --tools none --disallowedTools "all"'
+    flags += " --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'"
+    flags += f" --model {model}"
+    flags += f" --effort {effort}"
+    return f"claude {flags} < /tmp/.pycastle_prompt"
+
+
+def _claude_env(
+    *,
+    auth: ProviderAuth | None,
+    state_dir_container_path: str | None = None,
+) -> dict[str, str]:
+    env = dict(os.environ)
+    token = None if auth is None else auth.claude_code_oauth_token
+    if token:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    if state_dir_container_path:
+        env["CLAUDE_CONFIG_DIR"] = state_dir_container_path
+    return env
+
+
+def _is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
+    result = event.get("result")
+    return (
+        event.get("is_error") is True
+        and event.get("api_error_status") == 403
+        and isinstance(result, str)
+        and _CLAUDE_SUBSCRIPTION_ACCESS_DENIAL_PHRASE.lower() in result.lower()
+    )
+
+
+def _parse_claude_event(line: str) -> list[Any]:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(event, dict):
+        return []
+    if event.get("api_error_status") == 429:
+        return [
+            UsageLimit(
+                reset_time=_parse_claude_reset_time(event.get("result")),
+                raw_message=line,
+            )
+        ]
+    if _is_claude_subscription_access_denial(event):
+        return [
+            CredentialFailure(
+                raw_message=line,
+                service_name="claude",
+                source_observations=(),
+                status_code=403,
+            )
+        ]
+    if event.get("is_error") and event.get("type") == "result":
+        status = event.get("api_error_status")
+        if status is None or (isinstance(status, int) and status >= 500):
+            return [
+                TransientError(
+                    status_code=status if isinstance(status, int) else None,
+                    raw_message=line,
+                )
+            ]
+        if isinstance(status, int) and 400 <= status < 500:
+            return [HardError(status_code=status, raw_message=line)]
+        return []
+    if event.get("type") == "assistant":
+        message = event.get("message") or {}
+        content = message.get("content") or []
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+        usage = message.get("usage") or {}
+        total_tokens = (
+            int(usage.get("input_tokens") or 0)
+            + int(usage.get("cache_creation_input_tokens") or 0)
+            + int(usage.get("cache_read_input_tokens") or 0)
+        )
+        parsed_events: list[Any] = []
+        if total_tokens > 0:
+            parsed_events.append(PromptTokens(count=total_tokens))
+        if parts:
+            parsed_events.append(AssistantTurn(text="\n\n".join(parts)))
+        return parsed_events
+    if event.get("type") == "result" and isinstance(event.get("result"), str):
+        return [Result(text=cast(str, event["result"]))]
+    return []
+
+
+def _reduce_claude_stream(lines: list[str]) -> str:
+    parsed_events: list[Any] = []
+    for line in lines:
+        parsed_events.extend(_parse_claude_event(line))
+    return reduce_text_output_events(
+        parsed_events,
+        lambda _turn: None,
+        provider="claude",
+    )
+
+
+def _parse_claude_reset_time(retry_text: object) -> datetime | None:
+    if not isinstance(retry_text, str):
+        return None
+    match = _CLAUDE_RESET_PATTERN.search(retry_text)
+    if match is None:
+        return None
+    hour = int(match.group("hour"))
+    if not 1 <= hour <= 12:
+        return None
+    ampm = match.group("ampm").lower()
+    if ampm == "pm" and hour != 12:
+        hour += 12
+    elif ampm == "am" and hour == 12:
+        hour = 0
+    minute = int(match.group("minute") or 0)
+    if not 0 <= minute <= 59:
+        return None
+    now_local = _time_module.now_local()
+    utc_now = now_local.astimezone(timezone.utc)
+    month_text = match.group("month")
+    day_text = match.group("day")
+    if month_text is not None or day_text is not None:
+        if month_text is None or day_text is None:
+            return None
+        month = _CLAUDE_MONTHS.get(month_text.lower())
+        if month is None:
+            return None
+        utc_dt = datetime(
+            utc_now.year,
+            month,
+            int(day_text),
+            hour,
+            minute,
+            tzinfo=timezone.utc,
+        )
+        local_dt = utc_dt.astimezone(now_local.tzinfo)
+        if local_dt < now_local - timedelta(days=31):
+            return datetime(
+                utc_dt.year + 1,
+                month,
+                int(day_text),
+                hour,
+                minute,
+                tzinfo=timezone.utc,
+            ).astimezone(now_local.tzinfo)
+        return local_dt
+    utc_dt = datetime.combine(
+        utc_now.date(),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    ).replace(hour=hour, minute=minute)
+    if utc_dt < utc_now - timedelta(minutes=2):
+        utc_dt += timedelta(days=1)
+    return utc_dt.astimezone(now_local.tzinfo)
+
+
+def _select_builtin_stage(stage: StageSelection) -> StageSelection:
+    for candidate in iter_stage_chain(stage):
+        if candidate.service == "claude":
+            return candidate
+    raise RuntimeConfigurationError(
+        "RuntimeClient requires at least one supported built-in service candidate."
+    )
+
+
 def _require_execution_adapter_method(
     adapter: _PromptRuntimeExecutionAdapter,
     method_name: str,
@@ -1004,6 +1254,70 @@ class ResumedSessionRuntime:
             runner=self._execution_adapter,
             request=request,
         )
+
+
+class RuntimeClient:
+    def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
+        try:
+            result = asyncio.run(_run_builtin_ephemeral(request))
+        except UsageLimitError as exc:
+            return RuntimeOutcome.usage_limited(
+                output="",
+                service_name=exc.service_name,
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope
+                or UsageLimitScope(request.role.value),
+                invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
+            )
+        return RuntimeOutcome.completed(output=result.output, result=result)
+
+
+async def _run_builtin_ephemeral(request: EphemeralRunRequest) -> EphemeralRunResult:
+    selected_stage = _select_builtin_stage(request.stage)
+    _validate_claude_stage(selected_stage)
+    if request.auth is None or not request.auth.claude_code_oauth_token:
+        raise AgentCredentialFailureError(
+            message="Missing Claude Code OAuth token.",
+            service_name="claude",
+            observations=(),
+        )
+    process = subprocess.Popen(
+        _claude_command(
+            model=selected_stage.model,
+            effort=selected_stage.effort,
+            tool_access=request.tool_access,
+        ),
+        shell=True,
+        cwd=request.worktree,
+        env=_claude_env(auth=request.auth),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    stdout_lines = [] if process.stdout is None else list(process.stdout)
+    result_text = _reduce_claude_stream(stdout_lines)
+    process.wait()
+    selected_service_path = _selected_service_path(
+        request.stage,
+        selected_service="claude",
+    )
+    result = EphemeralRunResult(
+        output=result_text,
+        selected_service="claude",
+        selected_model=selected_stage.model,
+        selected_effort=selected_stage.effort,
+        tool_access=request.tool_access,
+        used_fallback=len(selected_service_path) > 1,
+        metadata=EphemeralResultMetadata(
+            selected_service_path=selected_service_path,
+            runtime=EphemeralRuntimeMetadata(
+                run_kind=RunKind.FRESH,
+                session_namespace=request.session_namespace,
+            ),
+        ),
+    )
+    return result
 
 
 async def _run_prompt(

@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import json
 import re
+import subprocess
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, dataclass, fields
 from datetime import datetime, timezone
@@ -2982,7 +2983,9 @@ def test_package_exports_runtime_surface() -> None:
         "ExecutionProvider",
         "InvocationRole",
         "InvocationProgress",
+        "ProviderAuth",
         "ProviderSessionAdapter",
+        "RuntimeClient",
         "RuntimeConfigurationError",
         "RuntimeOutcome",
         "RunKind",
@@ -7600,7 +7603,306 @@ def test_provider_output_reduction_stops_after_result() -> None:
 
     assert result == "done"
     assert turns == ["hello"]
-    assert token_counts == []
+
+
+def test_runtime_client_runs_claude_ephemeral_stage_through_builtin_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "assistant",
+                            "message": {
+                                "content": [{"type": "text", "text": "intermediate"}],
+                                "usage": {
+                                    "input_tokens": 5,
+                                    "cache_creation_input_tokens": 0,
+                                    "cache_read_input_tokens": 0,
+                                },
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps({"type": "result", "result": "final output"}) + "\n",
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _ClaudeProcess:
+        captured["command"] = command
+        captured["shell"] = shell
+        captured["cwd"] = cwd
+        captured["env"] = env
+        captured["stdout"] = stdout
+        captured["stderr"] = stderr
+        captured["text"] = text
+        return _ClaudeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="final output",
+        result=prompt_runtime.EphemeralRunResult(
+            output="final output",
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("claude",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert captured["cwd"] == tmp_path
+    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
+    assert "--output-format stream-json" in captured["command"]
+
+
+def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "is_error": True,
+                            "api_error_status": 429,
+                            "result": "Claude usage limit reached.",
+                        }
+                    )
+                    + "\n"
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: _ClaudeProcess(),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="claude",
+        reset_time=None,
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_runtime_client_reachable_claude_stage_requires_token_without_falling_through(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    subprocess_calls = 0
+
+    def _unexpected_popen(*args: Any, **kwargs: Any) -> Any:
+        nonlocal subprocess_calls
+        subprocess_calls += 1
+        raise AssertionError("subprocess should not start without Claude auth")
+
+    monkeypatch.setattr(subprocess, "Popen", _unexpected_popen)
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="missing",
+                    model="ignored",
+                    effort="low",
+                    fallback=runtime.StageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                        fallback=runtime.StageSelection(
+                            service="codex",
+                            model="gpt-5",
+                            effort="medium",
+                        ),
+                    ),
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+                auth=runtime.ProviderAuth(),
+            )
+        )
+
+    assert exc_info.value.service_name == "claude"
+    assert subprocess_calls == 0
+
+
+def test_runtime_client_maps_claude_transient_error_stream_to_transient_exception(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "is_error": True,
+                            "api_error_status": 500,
+                            "result": "temporary Claude failure",
+                        }
+                    )
+                    + "\n"
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: _ClaudeProcess(),
+    )
+
+    with pytest.raises(TransientAgentError) as exc_info:
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+                auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            )
+        )
+
+    assert exc_info.value.status_code == 500
+
+
+def test_runtime_client_parses_claude_usage_limit_reset_time(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "is_error": True,
+                            "api_error_status": 429,
+                            "result": "Claude usage limit reached, resets Jan 2, 4pm (UTC).",
+                        }
+                    )
+                    + "\n"
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: _ClaudeProcess(),
+    )
+    monkeypatch.setattr(
+        prompt_runtime._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="claude",
+        reset_time=datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
 
 
 def test_agent_timeout_error_is_an_agent_runtime_error() -> None:
