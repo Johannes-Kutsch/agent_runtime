@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .identity import validate_runtime_identity_label, validate_session_namespace
+from .invocation_progress import InvocationProgress
 from .provider_errors import ProviderErrorObservation
 from .usage_limit_scope import UsageLimitScope
 
@@ -38,6 +39,7 @@ class UsageLimitError(AgentRuntimeError):
         is_permanent: bool = False,
         account_label: str | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
+        invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
     ) -> None:
         self.reset_time = reset_time
         self.raw_message = raw_message
@@ -50,6 +52,7 @@ class UsageLimitError(AgentRuntimeError):
         self.is_permanent = is_permanent
         self.account_label = account_label
         self.usage_limit_scope = usage_limit_scope
+        self.invocation_progress = invocation_progress
         super().__init__(
             f"Usage limit reached (reset_time={reset_time.isoformat() if reset_time else None})"
         )

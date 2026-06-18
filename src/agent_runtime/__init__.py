@@ -15,6 +15,7 @@ from .errors import (
     TransientAgentError,
     UsageLimitError,
 )
+from .invocation_progress import InvocationProgress
 from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .runtime import RuntimeOutcome
@@ -30,6 +31,7 @@ __all__ = [
     "HardAgentError",
     "ExecutionProvider",
     "InvocationRole",
+    "InvocationProgress",
     "ProviderSessionAdapter",
     "RuntimeConfigurationError",
     "RuntimeOutcome",

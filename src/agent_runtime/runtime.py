@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from .execution_contracts import (
 )
 from .errors import RuntimeConfigurationError, UsageLimitError
 from .identity import validate_session_namespace
+from .invocation_progress import InvocationProgress
 from .roles import InvocationRole
 from .service_registry import ServiceRegistry
 from .session import RunKind
@@ -34,6 +36,7 @@ __all__ = [
     "OneShotRuntime",
     "OneShotRuntimeExecutionAdapter",
     "OneShotRuntimeMetadata",
+    "InvocationProgress",
     "RuntimeOutcome",
     "ResumableRunRequest",
     "ResumableRunResult",
@@ -56,7 +59,11 @@ _DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
 class RuntimeOutcome:
     kind: str
     output: str
-    result: OneShotRunResult | ResumableRunResult
+    result: OneShotRunResult | ResumableRunResult | None = None
+    service_name: str | None = None
+    reset_time: datetime | None = None
+    usage_limit_scope: UsageLimitScope | None = None
+    invocation_progress: InvocationProgress | None = None
 
     @classmethod
     def completed(
@@ -67,9 +74,30 @@ class RuntimeOutcome:
     ) -> RuntimeOutcome:
         return cls(kind="completed", output=output, result=result)
 
+    @classmethod
+    def usage_limited(
+        cls,
+        *,
+        output: str,
+        service_name: str | None,
+        reset_time: datetime | None,
+        usage_limit_scope: UsageLimitScope | None,
+        invocation_progress: InvocationProgress,
+    ) -> RuntimeOutcome:
+        return cls(
+            kind="usage_limited",
+            output=output,
+            service_name=service_name,
+            reset_time=reset_time,
+            usage_limit_scope=usage_limit_scope,
+            invocation_progress=invocation_progress,
+        )
+
     @property
     def runtime_metadata(self) -> OneShotRuntimeMetadata | ResumableRuntimeMetadata:
         result = self.result
+        if result is None:
+            raise AttributeError("Only completed outcomes carry runtime metadata.")
         if isinstance(result, OneShotRunResult):
             return result.runtime_metadata
         return result.runtime_metadata
@@ -469,11 +497,20 @@ class OneShotRuntime:
         self._execution_adapter = execution_adapter
 
     async def run_one_shot(self, request: OneShotRunRequest) -> RuntimeOutcome:
-        result = await _run_one_shot(
-            runner=self._execution_adapter,
-            service_registry=self._service_registry,
-            request=request,
-        )
+        try:
+            result = await _run_one_shot(
+                runner=self._execution_adapter,
+                service_registry=self._service_registry,
+                request=request,
+            )
+        except UsageLimitError as exc:
+            return RuntimeOutcome.usage_limited(
+                output="",
+                service_name=exc.service_name,
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope,
+                invocation_progress=exc.invocation_progress,
+            )
         return RuntimeOutcome.completed(output=result.output, result=result)
 
 
@@ -489,10 +526,19 @@ class ResumableRuntime:
         self,
         request: ResumableRunRequest,
     ) -> RuntimeOutcome:
-        result = await _run_resumable_prompt(
-            runner=self._execution_adapter,
-            request=request,
-        )
+        try:
+            result = await _run_resumable_prompt(
+                runner=self._execution_adapter,
+                request=request,
+            )
+        except UsageLimitError as exc:
+            return RuntimeOutcome.usage_limited(
+                output="",
+                service_name=exc.service_name,
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope,
+                invocation_progress=exc.invocation_progress,
+            )
         return RuntimeOutcome.completed(output=result.output, result=result)
 
 

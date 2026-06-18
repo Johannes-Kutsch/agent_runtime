@@ -917,6 +917,67 @@ class _RoleAwareResidentSeamExecutionAdapter:
         )
 
 
+class _StartedUsageLimitResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [
+                AssistantTurn("hello"),
+                UsageLimit(reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)),
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _StartedUsageLimitResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedUsageLimitResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 def test_package_exports_runtime_surface() -> None:
     assert runtime.__all__ == [
         "AgentCredentialFailureError",
@@ -926,6 +987,7 @@ def test_package_exports_runtime_surface() -> None:
         "HardAgentError",
         "ExecutionProvider",
         "InvocationRole",
+        "InvocationProgress",
         "ProviderSessionAdapter",
         "RuntimeConfigurationError",
         "RuntimeOutcome",
@@ -1441,10 +1503,9 @@ def test_one_shot_runtime_exposes_usage_limit_service_name_metadata(
         service_registry=service_registry_factory("codex", unavailable={"codex"}),
     )
 
-    with pytest.raises(UsageLimitError) as excinfo:
-        asyncio.run(runtime_instance.run_one_shot(one_shot_request_factory()))
+    result = asyncio.run(runtime_instance.run_one_shot(one_shot_request_factory()))
 
-    assert excinfo.value.service_name == "codex"
+    assert result.service_name == "codex"
 
 
 def test_permanent_usage_limit_account_label_remains_diagnostic_metadata() -> None:
@@ -2029,10 +2090,15 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
     )
     cancelled_token.cancel()
 
-    with pytest.raises(UsageLimitError) as excinfo:
-        asyncio.run(runtime_instance.run_one_shot(cancelled))
+    cancelled_result = asyncio.run(runtime_instance.run_one_shot(cancelled))
 
-    assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("reviewer")
+    assert cancelled_result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name=None,
+        reset_time=None,
+        usage_limit_scope=runtime.UsageLimitScope("reviewer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
 
 
 def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role(
@@ -2068,19 +2134,24 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role(
     cancelled_token = CancellationToken()
     cancelled_token.cancel()
 
-    with pytest.raises(UsageLimitError) as excinfo:
-        asyncio.run(
-            runtime_instance.run_one_shot(
-                one_shot_request_factory(
-                    override=stage_selection_factory(),
-                    role=role,
-                    usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-                    token=cancelled_token,
-                )
+    cancelled_result = asyncio.run(
+        runtime_instance.run_one_shot(
+            one_shot_request_factory(
+                override=stage_selection_factory(),
+                role=role,
+                usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+                token=cancelled_token,
             )
         )
+    )
 
-    assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("quota-review")
+    assert cancelled_result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name=None,
+        reset_time=None,
+        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
 
 
 def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook(
@@ -2095,19 +2166,24 @@ def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook(
         service_registry=service_registry_factory("codex"),
     )
 
-    with pytest.raises(UsageLimitError) as excinfo:
-        asyncio.run(
-            runtime_instance.run_one_shot(
-                one_shot_request_factory(
-                    stage=stage_selection_factory(),
-                    role=role,
-                    usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-                    session_namespace="main",
-                )
+    result = asyncio.run(
+        runtime_instance.run_one_shot(
+            one_shot_request_factory(
+                stage=stage_selection_factory(),
+                role=role,
+                usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+                session_namespace="main",
             )
         )
+    )
 
-    assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("quota-review")
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
 
 
 def test_one_shot_run_request_uses_stage_selection_vocabulary() -> None:
@@ -2646,6 +2722,46 @@ def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
     )
 
     assert result.output == _tool_policy_effect_text(tool_policy)
+
+
+def test_resumable_runtime_reports_started_progress_for_usage_limited_outcome(
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_StartedUsageLimitResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
 
 
 @pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)

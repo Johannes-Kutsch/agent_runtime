@@ -37,6 +37,7 @@ from .errors import (
     TransientAgentError,
     UsageLimitError,
 )
+from .invocation_progress import InvocationProgress
 from .roles import InvocationRole
 from .session import RunKind
 from .usage_limit_scope import UsageLimitScope
@@ -245,6 +246,7 @@ def reduce_text_output_events(
 
     result_text: str | None = None
     collected_turns: list[str] = []
+    invocation_progress = InvocationProgress.NOT_STARTED
     for event in events:
         if isinstance(event, UsageLimit):
             raise UsageLimitError(
@@ -252,6 +254,7 @@ def reduce_text_output_events(
                 raw_message=event.raw_message,
                 service_name=provider,
                 is_permanent=event.is_permanent,
+                invocation_progress=invocation_progress,
             )
         if isinstance(event, TransientError):
             raise TransientAgentError(
@@ -283,9 +286,11 @@ def reduce_text_output_events(
         if isinstance(event, AssistantTurn):
             on_turn(event.text)
             collected_turns.append(event.text)
+            invocation_progress = InvocationProgress.STARTED
             continue
         if isinstance(event, Result):
             result_text = event.text
+            invocation_progress = InvocationProgress.STARTED
             break
     if result_text is not None:
         return result_text
