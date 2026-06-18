@@ -104,6 +104,7 @@ class Continuation:
 @dataclasses.dataclass(frozen=True)
 class ProviderAuth:
     claude_code_oauth_token: str | None = None
+    opencode_api_key: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

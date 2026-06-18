@@ -118,12 +118,16 @@ for _runtime_export in (
 
 _selected_service_path = _builtin_runtime_client_module._selected_service_path
 _validate_claude_stage = _builtin_runtime_client_module._validate_claude_stage
+_validate_opencode_stage = _builtin_runtime_client_module._validate_opencode_stage
 _claude_command = _builtin_runtime_client_module._claude_command
 _claude_env = _builtin_runtime_client_module._claude_env
+_opencode_command = _builtin_runtime_client_module._opencode_command
+_opencode_env = _builtin_runtime_client_module._opencode_env
 _is_claude_subscription_access_denial = (
     _builtin_runtime_client_module._is_claude_subscription_access_denial
 )
 _parse_claude_reset_time = _builtin_runtime_client_module._parse_claude_reset_time
+_parse_opencode_reset_time = _builtin_runtime_client_module._parse_opencode_reset_time
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
 
 
@@ -140,6 +144,10 @@ def _reduce_claude_stream(lines: list[str]) -> str:
         lines,
         parse_claude_event=_parse_claude_event,
     )
+
+
+def _reduce_opencode_stream(lines: list[str]) -> str:
+    return _builtin_runtime_client_module._reduce_opencode_stream(lines)
 
 
 class EphemeralRuntime:
@@ -218,9 +226,13 @@ def _run_builtin_ephemeral(request: EphemeralRunRequest) -> EphemeralRunResult:
         request,
         select_builtin_stage=_select_builtin_stage,
         validate_claude_stage=_validate_claude_stage,
+        validate_opencode_stage=_validate_opencode_stage,
         claude_command=_claude_command,
         claude_env=_claude_env,
         reduce_claude_stream=_reduce_claude_stream,
+        opencode_command=_opencode_command,
+        opencode_env=_opencode_env,
+        reduce_opencode_stream=_reduce_opencode_stream,
         selected_service_path=_selected_service_path,
     )
 
