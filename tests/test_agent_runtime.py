@@ -5615,6 +5615,257 @@ def test_new_session_runtime_keeps_not_started_cancellation_without_continuation
     assert result.continuation is None
 
 
+def test_new_session_runtime_returns_timed_out_outcome_with_continuation_after_model_activity(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    worktree = Path("/repo")
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=_StartedTimeoutResidentExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "codex"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.timed_out(
+        output="",
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=tool_access,
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-codex",
+                "provider_state_dir_relpath": "codex-runtime-state/",
+                "exact_transcript_match": False,
+            },
+        ),
+    )
+
+
+def test_new_session_runtime_returns_retryable_provider_failure_outcome_with_continuation_after_model_activity(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    worktree = Path("/repo")
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "codex"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.retryable_provider_failure(
+        output="",
+        service_name="codex",
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=tool_access,
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-codex",
+                "provider_state_dir_relpath": "codex-runtime-state/",
+                "exact_transcript_match": False,
+            },
+        ),
+    )
+
+
+def test_new_session_runtime_keeps_not_started_timeout_without_continuation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    worktree = Path("/repo")
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+    execution_adapter = _TimeoutResidentExecutionAdapter()
+
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=execution_adapter,
+            service_registry=service_registry_factory("codex"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "codex"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.timed_out(
+        output="",
+        invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert result.continuation is None
+
+
+def test_new_session_runtime_keeps_not_started_retryable_provider_failure_without_continuation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    worktree = Path("/repo")
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=_RetryableProviderFailureResidentExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "codex"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.retryable_provider_failure(
+        output="",
+        service_name="codex",
+        invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert result.continuation is None
+
+
+def test_new_session_runtime_keeps_exceptional_failures_exceptional(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        worktree=WorktreeMount(Path("/repo")),
+        stage=stage_selection_factory(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        role=InvocationRole("implementer"),
+        session_namespace="main",
+        session_store=session_store_factory(),
+        provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+            "codex"
+        ),
+        tool_access=runtime.ToolAccess.workspace_backed(
+            Path("/repo"),
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+    )
+
+    with pytest.raises(runtime.RuntimeConfigurationError):
+        asyncio.run(
+            prompt_runtime.NewSessionRuntime(
+                execution_adapter=cast(Any, object()),
+                service_registry=service_registry_factory("codex"),
+            ).run_new_session(request)
+        )
+
+    with pytest.raises(AgentCredentialFailureError):
+        asyncio.run(
+            prompt_runtime.NewSessionRuntime(
+                execution_adapter=_CredentialFailureResidentExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_new_session(request)
+        )
+
+    with pytest.raises(HardAgentError):
+        asyncio.run(
+            prompt_runtime.NewSessionRuntime(
+                execution_adapter=_HardFailureResidentExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_new_session(request)
+        )
+
+    with pytest.raises(TransientAgentError):
+        asyncio.run(
+            prompt_runtime.NewSessionRuntime(
+                execution_adapter=_TransientProviderFailureResidentExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_new_session(request)
+        )
+
+
 def test_continuation_provider_resume_state_requires_json_compatible_data() -> None:
     continuation = prompt_runtime.Continuation(
         selected_service="codex",
