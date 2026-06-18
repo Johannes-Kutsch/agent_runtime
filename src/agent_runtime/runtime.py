@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import json
 import math
-import os
 import re
+import shlex
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -46,6 +45,7 @@ from .errors import (
 from .identity import validate_session_namespace
 from .invocation_progress import InvocationProgress
 from .provider_session_adapter import ProviderSessionAdapter
+from .provider_errors import ProviderErrorObservation
 from .provider_output import reduce_text_output_events
 from .roles import InvocationRole
 from .service_registry import ServiceRegistry
@@ -828,17 +828,28 @@ def _claude_command(
     model: str,
     effort: str,
     tool_access: ToolAccess,
+    prompt_path: Path,
 ) -> str:
+    profile = (
+        tool_access.tool_policy.profile
+        if isinstance(tool_access.tool_policy, ToolPolicy)
+        else tool_access.tool_policy
+    )
     flags = (
         "--verbose --dangerously-skip-permissions --output-format stream-json -p -"
         " --disable-slash-commands --exclude-dynamic-system-prompt-sections"
     )
-    if tool_access.kind == "none":
-        flags += ' --tools none --disallowedTools "all"'
-    flags += " --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'"
-    flags += f" --model {model}"
-    flags += f" --effort {effort}"
-    return f"claude {flags} < /tmp/.pycastle_prompt"
+    if profile.allowed_tools is not None:
+        flags += f" --tools {shlex.quote(' '.join(profile.allowed_tools))}"
+    if profile.disallowed_tools:
+        flags += f' --disallowedTools "{" ".join(profile.disallowed_tools)}"'
+    if profile.strict_mcp_config:
+        flags += " --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'"
+    if model:
+        flags += f" --model {model}"
+    if effort:
+        flags += f" --effort {effort}"
+    return f"claude {flags} < {shlex.quote(str(prompt_path))}"
 
 
 def _claude_env(
@@ -846,7 +857,7 @@ def _claude_env(
     auth: ProviderAuth | None,
     state_dir_container_path: str | None = None,
 ) -> dict[str, str]:
-    env = dict(os.environ)
+    env: dict[str, str] = {}
     token = None if auth is None else auth.claude_code_oauth_token
     if token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token
@@ -873,18 +884,29 @@ def _parse_claude_event(line: str) -> list[Any]:
     if not isinstance(event, dict):
         return []
     if event.get("api_error_status") == 429:
+        reset_time = _parse_claude_reset_time(event.get("result"))
         return [
             UsageLimit(
-                reset_time=_parse_claude_reset_time(event.get("result")),
-                raw_message=line,
+                reset_time=reset_time,
+                raw_message=None if reset_time is not None else line,
             )
         ]
     if _is_claude_subscription_access_denial(event):
+        denial_message = event.get("result")
         return [
             CredentialFailure(
                 raw_message=line,
                 service_name="claude",
-                source_observations=(),
+                source_observations=(
+                    ProviderErrorObservation(
+                        service_name="claude",
+                        raw_provider_text=(
+                            denial_message if isinstance(denial_message, str) else line
+                        ),
+                        source_stream="json_event.result",
+                        status_code=403,
+                    ),
+                ),
                 status_code=403,
             )
         ]
@@ -921,7 +943,11 @@ def _parse_claude_event(line: str) -> list[Any]:
         if parts:
             parsed_events.append(AssistantTurn(text="\n\n".join(parts)))
         return parsed_events
-    if event.get("type") == "result" and isinstance(event.get("result"), str):
+    if (
+        event.get("type") == "result"
+        and event.get("is_error") is not True
+        and isinstance(event.get("result"), str)
+    ):
         return [Result(text=cast(str, event["result"]))]
     return []
 
@@ -1259,7 +1285,7 @@ class ResumedSessionRuntime:
 class RuntimeClient:
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         try:
-            result = asyncio.run(_run_builtin_ephemeral(request))
+            result = _run_builtin_ephemeral(request)
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
                 output="",
@@ -1273,7 +1299,7 @@ class RuntimeClient:
         return RuntimeOutcome.completed(output=result.output, result=result)
 
 
-async def _run_builtin_ephemeral(request: EphemeralRunRequest) -> EphemeralRunResult:
+def _run_builtin_ephemeral(request: EphemeralRunRequest) -> EphemeralRunResult:
     selected_stage = _select_builtin_stage(request.stage)
     _validate_claude_stage(selected_stage)
     if request.auth is None or not request.auth.claude_code_oauth_token:
@@ -1282,22 +1308,28 @@ async def _run_builtin_ephemeral(request: EphemeralRunRequest) -> EphemeralRunRe
             service_name="claude",
             observations=(),
         )
-    process = subprocess.Popen(
-        _claude_command(
-            model=selected_stage.model,
-            effort=selected_stage.effort,
-            tool_access=request.tool_access,
-        ),
-        shell=True,
-        cwd=request.worktree,
-        env=_claude_env(auth=request.auth),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    stdout_lines = [] if process.stdout is None else list(process.stdout)
-    result_text = _reduce_claude_stream(stdout_lines)
-    process.wait()
+    prompt_path = request.worktree / ".pycastle_prompt"
+    prompt_path.write_text(request.prompt)
+    try:
+        process = subprocess.Popen(
+            _claude_command(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                tool_access=request.tool_access,
+                prompt_path=prompt_path,
+            ),
+            shell=True,
+            cwd=request.worktree,
+            env=_claude_env(auth=request.auth),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout_lines = [] if process.stdout is None else list(process.stdout)
+        result_text = _reduce_claude_stream(stdout_lines)
+        process.wait()
+    finally:
+        prompt_path.unlink(missing_ok=True)
     selected_service_path = _selected_service_path(
         request.stage,
         selected_service="claude",
