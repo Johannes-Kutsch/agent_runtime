@@ -66,6 +66,7 @@ _CODEX_VALID_MODELS = frozenset(
 _CODEX_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 _OPENCODE_GO_PROVIDER_ID = "opencode-go"
 _OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
+_OPENCODE_SESSION_ID_FILENAME = "session_id"
 _OPENCODE_GO_MODELS = frozenset(
     {
         "deepseek-v4-flash",
@@ -1169,6 +1170,55 @@ def _claude_prepare_runtime_state(
     return provider_state_dir_relpath, provider_state_dir
 
 
+def _opencode_provider_state_dir_relpath(
+    *,
+    role: Any,
+    session_namespace: str,
+) -> str:
+    return cast(str, provider_state_relpath(role, "opencode", session_namespace))
+
+
+def _opencode_prepare_runtime_state(
+    runtime_state_dir: Path,
+    *,
+    role: Any,
+    session_namespace: str,
+) -> tuple[str, Path]:
+    provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
+        role=role,
+        session_namespace=session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    return provider_state_dir_relpath, provider_state_dir
+
+
+def _load_opencode_state_dir_session_id(state_dir: Path | None) -> str | None:
+    if state_dir is None:
+        return None
+    path = state_dir / _OPENCODE_SESSION_ID_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value or None
+
+
+def _opencode_is_resumable(state_dir: Path) -> bool:
+    return (state_dir / "resume.jsonl").is_file() or (
+        state_dir / _OPENCODE_SESSION_ID_FILENAME
+    ).is_file()
+
+
+def _persist_opencode_session_id(state_dir: Path, provider_session_id: str) -> None:
+    (state_dir / _OPENCODE_SESSION_ID_FILENAME).write_text(
+        f"{provider_session_id}\n",
+        encoding="utf-8",
+    )
+
+
 def _claude_run_kind_for_state_dir(state_dir: Path) -> RunKind:
     if _claude_is_resumable(state_dir):
         return RunKind.RESUME
@@ -1194,6 +1244,30 @@ def _build_claude_continuation(
             "provider_state_dir_relpath": provider_state_dir_relpath,
             "exact_transcript_match": False,
         },
+    )
+
+
+def _build_opencode_continuation(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    provider_session_id: str,
+    provider_state_dir_relpath: str,
+    exact_transcript_match: bool | None = None,
+) -> Continuation:
+    provider_resume_state: dict[str, Any] = {
+        "provider_session_id": provider_session_id,
+        "provider_state_dir_relpath": provider_state_dir_relpath,
+    }
+    if exact_transcript_match is not None:
+        provider_resume_state["exact_transcript_match"] = exact_transcript_match
+    return Continuation(
+        selected_service="opencode",
+        selected_model=model,
+        selected_effort=effort,
+        tool_access=tool_access,
+        provider_resume_state=provider_resume_state,
     )
 
 
@@ -1355,6 +1429,26 @@ def _require_claude_auth(auth: ProviderAuth | None) -> None:
     )
 
 
+def _require_opencode_auth(auth: ProviderAuth | None) -> None:
+    if auth is not None and auth.opencode_api_key:
+        return
+    message = "Missing OpenCode API key."
+    raise AgentCredentialFailureError(
+        message=message,
+        service_name="opencode",
+        classification="operator_actionable_agent_credential_failure",
+        observations=(
+            ProviderErrorObservation(
+                service_name="opencode",
+                raw_provider_text=message,
+                source_stream="pre-dispatch auth check",
+                status_code=401,
+            ),
+        ),
+        status_code=401,
+    )
+
+
 def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
     runtime_state_dir = _require_runtime_state_dir(
         request.runtime_state_dir,
@@ -1365,74 +1459,147 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
             "RuntimeClient requires at least one supported built-in service candidate."
         )
     selected_stage = _select_builtin_stage(request.stage)
-    if selected_stage.service != "claude":
-        raise RuntimeConfigurationError(
-            "RuntimeClient session-backed execution is only implemented for Claude."
+    if selected_stage.service == "claude":
+        provider_state_dir_relpath, provider_state_dir = _claude_prepare_runtime_state(
+            runtime_state_dir,
+            role=request.role,
+            session_namespace=request.session_namespace,
         )
-    provider_state_dir_relpath, provider_state_dir = _claude_prepare_runtime_state(
-        runtime_state_dir,
-        role=request.role,
-        session_namespace=request.session_namespace,
-    )
-    if _claude_is_resumable(provider_state_dir):
-        return _run_builtin_resumed_session(
-            ResumedSessionRunRequest(
-                prompt=request.prompt,
-                worktree=cast(Any, request.worktree),
-                runtime_state_dir=runtime_state_dir,
-                continuation=_build_claude_continuation(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    provider_session_id=_new_provider_session_id(),
-                    provider_state_dir_relpath=provider_state_dir_relpath,
-                ),
+        if _claude_is_resumable(provider_state_dir):
+            return _run_builtin_resumed_session(
+                ResumedSessionRunRequest(
+                    prompt=request.prompt,
+                    worktree=cast(Any, request.worktree),
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=_build_claude_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=_new_provider_session_id(),
+                        provider_state_dir_relpath=provider_state_dir_relpath,
+                    ),
+                    role=request.role,
+                    provider_auth=request.provider_auth,
+                    usage_limit_scope=request.usage_limit_scope,
+                    session_namespace=request.session_namespace,
+                )
+            )
+        _validate_claude_stage(selected_stage)
+        _require_claude_auth(request.provider_auth)
+        provider_session_id = _new_provider_session_id()
+        prompt_path = request.worktree / ".pycastle_prompt"
+    elif selected_stage.service == "opencode":
+        provider_state_dir_relpath, provider_state_dir = (
+            _opencode_prepare_runtime_state(
+                runtime_state_dir,
                 role=request.role,
-                provider_auth=request.provider_auth,
-                usage_limit_scope=request.usage_limit_scope,
                 session_namespace=request.session_namespace,
             )
         )
-    _validate_claude_stage(selected_stage)
-    _require_claude_auth(request.provider_auth)
-    provider_session_id = _new_provider_session_id()
-    prompt_path = request.worktree / ".pycastle_prompt"
-    prompt_path.write_text(request.prompt)
-    try:
-        process = subprocess.Popen(
-            _claude_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
-                prompt_path=prompt_path,
-                run_kind=RunKind.FRESH,
-                session_uuid=provider_session_id,
-            ),
-            shell=True,
-            cwd=request.worktree,
-            env=_claude_env(
-                auth=request.provider_auth,
-                state_dir_container_path=str(provider_state_dir),
-            ),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        _validate_opencode_stage(selected_stage)
+        _require_opencode_auth(request.provider_auth)
+        recovered_state_dir_session_id = _load_opencode_state_dir_session_id(
+            provider_state_dir
         )
+        if (
+            _opencode_is_resumable(provider_state_dir)
+            and recovered_state_dir_session_id
+        ):
+            provider_session_id = recovered_state_dir_session_id
+            run_kind = RunKind.RESUME
+            exact_transcript_match = True
+        else:
+            provider_session_id = _new_provider_session_id()
+            run_kind = RunKind.FRESH
+            exact_transcript_match = False
+        prompt_path = request.worktree / ".pycastle_prompt"
+    else:
+        raise RuntimeConfigurationError(
+            "RuntimeClient session-backed execution is only implemented for Claude and OpenCode."
+        )
+    prompt_path.write_text(request.prompt)
+    observed_provider_session_id = provider_session_id
+
+    def _record_opencode_session_id(session_id: str) -> None:
+        nonlocal observed_provider_session_id
+        observed_provider_session_id = session_id
+
+    try:
+        if selected_stage.service == "claude":
+            process = subprocess.Popen(
+                _claude_command(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    prompt_path=prompt_path,
+                    run_kind=RunKind.FRESH,
+                    session_uuid=provider_session_id,
+                ),
+                shell=True,
+                cwd=request.worktree,
+                env=_claude_env(
+                    auth=request.provider_auth,
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        else:
+            process = subprocess.Popen(
+                _opencode_command(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    run_kind=run_kind,
+                    session_uuid=provider_session_id,
+                ),
+                shell=True,
+                cwd=request.worktree,
+                env=_opencode_env(
+                    auth=request.provider_auth,
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
         stdout_lines = [] if process.stdout is None else list(process.stdout)
-        result_text, usage = _reduce_claude_stream(stdout_lines)
+        usage: ProviderUsage | None = None
+        if selected_stage.service == "claude":
+            result_text, usage = _reduce_claude_stream(stdout_lines)
+        else:
+            result_text = reduce_text_output_events(
+                _parse_opencode_events(
+                    stdout_lines,
+                    on_provider_session_id=_record_opencode_session_id,
+                ),
+                lambda _turn: None,
+                provider="opencode",
+            )
+            provider_session_id = observed_provider_session_id
+            _persist_opencode_session_id(provider_state_dir, provider_session_id)
         process.wait()
     except (UsageLimitError, RetryableProviderFailureError) as exc:
-        exc.continuation = (
-            _build_claude_continuation(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
-                provider_session_id=provider_session_id,
-                provider_state_dir_relpath=provider_state_dir_relpath,
+        exc.continuation = None
+        if exc.invocation_progress is InvocationProgress.STARTED:
+            exc.continuation = (
+                _build_claude_continuation(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                )
+                if selected_stage.service == "claude"
+                else _build_opencode_continuation(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    exact_transcript_match=exact_transcript_match,
+                )
             )
-            if exc.invocation_progress is InvocationProgress.STARTED
-            else None
-        )
         raise
     finally:
         prompt_path.unlink(missing_ok=True)
@@ -1441,18 +1608,33 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
         result=SessionRunResult(
             output=result_text,
             runtime_metadata=SessionRuntimeMetadata(
-                service_name="claude",
+                service_name=selected_stage.service,
                 provider_session_id=provider_session_id,
-                run_kind=RunKind.FRESH,
+                run_kind=RunKind.FRESH
+                if selected_stage.service == "claude"
+                else run_kind,
                 session_namespace=request.session_namespace,
-                exact_transcript_match=False,
+                exact_transcript_match=False
+                if selected_stage.service == "claude"
+                else exact_transcript_match,
             ),
-            continuation=_build_claude_continuation(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
-                provider_session_id=provider_session_id,
-                provider_state_dir_relpath=provider_state_dir_relpath,
+            continuation=(
+                _build_claude_continuation(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                )
+                if selected_stage.service == "claude"
+                else _build_opencode_continuation(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    exact_transcript_match=exact_transcript_match,
+                )
             ),
         ),
         usage=usage,
@@ -1469,11 +1651,14 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
         raise RuntimeConfigurationError(
             "RuntimeClient resumed-session execution requires a continuation."
         )
-    if continuation.selected_service != "claude":
+    if continuation.selected_service not in {"claude", "opencode"}:
         raise RuntimeConfigurationError(
-            "RuntimeClient session-backed execution is only implemented for Claude."
+            "RuntimeClient session-backed execution is only implemented for Claude and OpenCode."
         )
-    _require_claude_auth(request.provider_auth)
+    if continuation.selected_service == "claude":
+        _require_claude_auth(request.provider_auth)
+    else:
+        _require_opencode_auth(request.provider_auth)
     provider_resume_state = continuation.provider_resume_state
     if not isinstance(provider_resume_state, dict):
         raise RuntimeConfigurationError(
@@ -1485,50 +1670,119 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
     )
     if not provider_state_dir_relpath:
         raise RuntimeConfigurationError(
-            "Claude continuation is missing `provider_state_dir_relpath`."
+            f"{continuation.selected_service.capitalize()} continuation is missing `provider_state_dir_relpath`."
         )
     provider_session_id = cast(
         str | None,
         provider_resume_state.get("provider_session_id"),
     )
-    if not provider_session_id:
-        provider_session_id = _new_provider_session_id()
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
     provider_state_dir.mkdir(parents=True, exist_ok=True)
-    run_kind = _claude_run_kind_for_state_dir(provider_state_dir)
+    state_dir_session_id = (
+        _load_opencode_state_dir_session_id(provider_state_dir)
+        if continuation.selected_service == "opencode"
+        else None
+    )
+    if continuation.selected_service == "opencode":
+        if provider_session_id is None:
+            provider_session_id = state_dir_session_id
+        if provider_session_id is None:
+            provider_session_id = _new_provider_session_id()
+        exact_transcript_match = (
+            state_dir_session_id is not None
+            and state_dir_session_id == provider_session_id
+        )
+    else:
+        if not provider_session_id:
+            provider_session_id = _new_provider_session_id()
+        exact_transcript_match = False
+    run_kind = (
+        _claude_run_kind_for_state_dir(provider_state_dir)
+        if continuation.selected_service == "claude"
+        else RunKind.RESUME
+    )
     prompt_path = request.worktree.host_path / ".pycastle_prompt"
     prompt_path.write_text(request.prompt)
+    observed_provider_session_id = provider_session_id
+
+    def _record_opencode_session_id(session_id: str) -> None:
+        nonlocal observed_provider_session_id
+        observed_provider_session_id = session_id
+
     try:
-        process = subprocess.Popen(
-            _claude_command(
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                prompt_path=prompt_path,
-                run_kind=run_kind,
-                session_uuid=provider_session_id,
-            ),
-            shell=True,
-            cwd=request.worktree.host_path,
-            env=_claude_env(
-                auth=request.provider_auth,
-                state_dir_container_path=str(provider_state_dir),
-            ),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        if continuation.selected_service == "claude":
+            process = subprocess.Popen(
+                _claude_command(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    prompt_path=prompt_path,
+                    run_kind=run_kind,
+                    session_uuid=provider_session_id,
+                ),
+                shell=True,
+                cwd=request.worktree.host_path,
+                env=_claude_env(
+                    auth=request.provider_auth,
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        else:
+            process = subprocess.Popen(
+                _opencode_command(
+                    model=request.model,
+                    effort=request.effort,
+                    run_kind=run_kind,
+                    session_uuid=provider_session_id,
+                ),
+                shell=True,
+                cwd=request.worktree.host_path,
+                env=_opencode_env(
+                    auth=request.provider_auth,
+                    state_dir_container_path=str(provider_state_dir),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
         stdout_lines = [] if process.stdout is None else list(process.stdout)
-        result_text, usage = _reduce_claude_stream(stdout_lines)
+        if continuation.selected_service == "claude":
+            result_text, usage = _reduce_claude_stream(stdout_lines)
+        else:
+            result_text = reduce_text_output_events(
+                _parse_opencode_events(
+                    stdout_lines,
+                    on_provider_session_id=_record_opencode_session_id,
+                ),
+                lambda _turn: None,
+                provider="opencode",
+            )
+            usage = None
+            provider_session_id = observed_provider_session_id
+            _persist_opencode_session_id(provider_state_dir, provider_session_id)
         process.wait()
     except (UsageLimitError, RetryableProviderFailureError) as exc:
         exc.continuation = (
-            _build_claude_continuation(
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                provider_session_id=provider_session_id,
-                provider_state_dir_relpath=provider_state_dir_relpath,
+            (
+                _build_claude_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                )
+                if continuation.selected_service == "claude"
+                else _build_opencode_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    exact_transcript_match=exact_transcript_match,
+                )
             )
             if exc.invocation_progress is InvocationProgress.STARTED
             else None
@@ -1541,18 +1795,29 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
         result=SessionRunResult(
             output=result_text,
             runtime_metadata=SessionRuntimeMetadata(
-                service_name="claude",
+                service_name=continuation.selected_service,
                 provider_session_id=provider_session_id,
                 run_kind=run_kind,
                 session_namespace=request.session_namespace,
-                exact_transcript_match=False,
+                exact_transcript_match=exact_transcript_match,
             ),
-            continuation=_build_claude_continuation(
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                provider_session_id=provider_session_id,
-                provider_state_dir_relpath=provider_state_dir_relpath,
+            continuation=(
+                _build_claude_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                )
+                if continuation.selected_service == "claude"
+                else _build_opencode_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    exact_transcript_match=exact_transcript_match,
+                )
             ),
         ),
         usage=usage,
