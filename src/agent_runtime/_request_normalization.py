@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from .roles import InvocationRole
 from .types import StageSelection, validate_stage_selection
 
 if TYPE_CHECKING:
+    from .contracts import ToolAccess
     from .execution_contracts import WorktreeMount
 
 
@@ -55,3 +56,31 @@ def normalize_worktree_mount(worktree: Path | WorktreeMount) -> WorktreeMount:
     if isinstance(worktree, WorktreeMount):
         return worktree
     return WorktreeMount(worktree)
+
+
+def normalize_tool_access(
+    *,
+    tool_access: Any,
+    tool_policy: Any,
+    missing_sentinel: object,
+    workspace: Path,
+    context: str,
+    missing_message: str,
+) -> ToolAccess:
+    from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
+
+    if isinstance(tool_access, ToolAccess) and tool_policy is not missing_sentinel:
+        raise TypeError(
+            f"{context} received conflicting `tool_access` and `tool_policy` values."
+        )
+    if isinstance(tool_access, ToolAccess):
+        resolved_tool_access = tool_access
+    elif tool_policy is not missing_sentinel:
+        resolved_tool_access = ToolAccess.workspace_backed(
+            workspace,
+            tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
+        )
+    else:
+        raise TypeError(missing_message)
+    resolved_tool_access.require_workspace(workspace, context=context)
+    return resolved_tool_access

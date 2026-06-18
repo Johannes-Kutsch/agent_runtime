@@ -5,7 +5,7 @@ import json
 import math
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .execution_contracts import CancellationToken, WorktreeMount
@@ -14,6 +14,7 @@ from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
 from ._request_normalization import (
     normalize_stage_selection,
+    normalize_tool_access,
     normalize_worktree_mount,
     normalize_worktree_path,
     require_invocation_role,
@@ -371,27 +372,13 @@ class EphemeralRunRequest:
         )
         role = require_invocation_role(role, context="EphemeralRunRequest")
         worktree_path = normalize_worktree_path(worktree)
-        if (
-            isinstance(tool_access, ToolAccess)
-            and tool_policy is not _MISSING_TOOL_POLICY
-        ):
-            raise TypeError(
-                "EphemeralRunRequest received conflicting `tool_access` and `tool_policy` values."
-            )
-        if isinstance(tool_access, ToolAccess):
-            resolved_tool_access = tool_access
-        elif tool_policy is not _MISSING_TOOL_POLICY:
-            resolved_tool_access = ToolAccess.workspace_backed(
-                worktree_path,
-                tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
-            )
-        else:
-            raise TypeError(
-                "EphemeralRunRequest requires an explicit `tool_access` value."
-            )
-        resolved_tool_access.require_workspace(
-            worktree_path,
+        resolved_tool_access = normalize_tool_access(
+            tool_access=tool_access,
+            tool_policy=tool_policy,
+            missing_sentinel=_MISSING_TOOL_POLICY,
+            workspace=worktree_path,
             context="EphemeralRunRequest",
+            missing_message="EphemeralRunRequest requires an explicit `tool_access` value.",
         )
         validate_session_namespace(session_namespace)
 
@@ -467,27 +454,13 @@ class NewSessionRunRequest:
         )
         role = require_invocation_role(role, context="NewSessionRunRequest")
         worktree_path = normalize_worktree_path(worktree)
-        if (
-            isinstance(tool_access, ToolAccess)
-            and tool_policy is not _MISSING_TOOL_POLICY
-        ):
-            raise TypeError(
-                "NewSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
-            )
-        if isinstance(tool_access, ToolAccess):
-            resolved_tool_access = tool_access
-        elif tool_policy is not _MISSING_TOOL_POLICY:
-            resolved_tool_access = ToolAccess.workspace_backed(
-                worktree_path,
-                tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
-            )
-        else:
-            raise TypeError(
-                "NewSessionRunRequest requires an explicit `tool_access` value."
-            )
-        resolved_tool_access.require_workspace(
-            worktree_path,
+        resolved_tool_access = normalize_tool_access(
+            tool_access=tool_access,
+            tool_policy=tool_policy,
+            missing_sentinel=_MISSING_TOOL_POLICY,
+            workspace=worktree_path,
             context="NewSessionRunRequest",
+            missing_message="NewSessionRunRequest requires an explicit `tool_access` value.",
         )
         validate_session_namespace(session_namespace)
 
@@ -631,17 +604,14 @@ class ResumedSessionRunRequest:
                 raise TypeError(
                     "ResumedSessionRunRequest does not accept request-level `role` when `session_plan` is supplied."
                 )
-            if isinstance(tool_access, ToolAccess):
-                resolved_tool_access = tool_access
-            elif tool_policy is not _MISSING_TOOL_POLICY:
-                resolved_tool_access = ToolAccess.workspace_backed(
-                    worktree_path,
-                    tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
-                )
-            else:
-                raise TypeError(
-                    "ResumedSessionRunRequest requires an explicit `tool_policy` value."
-                )
+            resolved_tool_access = normalize_tool_access(
+                tool_access=tool_access,
+                tool_policy=tool_policy,
+                missing_sentinel=_MISSING_TOOL_POLICY,
+                workspace=worktree_path,
+                context="ResumedSessionRunRequest",
+                missing_message="ResumedSessionRunRequest requires an explicit `tool_policy` value.",
+            )
             resolved_model = model
             resolved_effort = effort
             resolved_role = session_plan.role

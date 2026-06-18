@@ -5,10 +5,11 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import Any, Generic, Protocol, TypeVar, cast
+from typing import Any, Generic, Protocol, TypeVar
 
 from ._request_normalization import (
     normalize_stage_selection,
+    normalize_tool_access,
     normalize_worktree_mount,
     require_invocation_role,
 )
@@ -91,32 +92,14 @@ class PromptRunRequest:
         )
         role = require_invocation_role(role, context="PromptRunRequest")
         resolved_worktree = normalize_worktree_mount(worktree)
-        if (
-            isinstance(tool_access, ToolAccess)
-            and tool_policy is not _MISSING_TOOL_POLICY
-        ):
-            raise TypeError(
-                "PromptRunRequest received conflicting `tool_access` and `tool_policy` values."
-            )
-        if isinstance(tool_access, ToolAccess):
-            resolved_tool_access = tool_access
-        elif tool_policy is not _MISSING_TOOL_POLICY:
-            resolved_tool_access = ToolAccess.workspace_backed(
-                resolved_worktree.host_path,
-                tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
-            )
-        else:
-            resolved_tool_access = None
-        if tool_policy is _MISSING_TOOL_POLICY:
-            if resolved_tool_access is None:
-                raise TypeError(
-                    "PromptRunRequest requires an explicit `tool_policy` value."
-                )
-        if resolved_tool_access is not None:
-            resolved_tool_access.require_workspace(
-                resolved_worktree.host_path,
-                context="PromptRunRequest",
-            )
+        resolved_tool_access = normalize_tool_access(
+            tool_access=tool_access,
+            tool_policy=tool_policy,
+            missing_sentinel=_MISSING_TOOL_POLICY,
+            workspace=resolved_worktree.host_path,
+            context="PromptRunRequest",
+            missing_message="PromptRunRequest requires an explicit `tool_policy` value.",
+        )
         validate_stage_selection(stage)
 
         object.__setattr__(self, "prompt", prompt)
