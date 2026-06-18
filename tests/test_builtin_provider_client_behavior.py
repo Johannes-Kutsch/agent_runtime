@@ -17,39 +17,10 @@ from agent_runtime.errors import (
     HardAgentError,
     RuntimeConfigurationError,
     TransientAgentError,
-    UsageLimitError,
 )
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
-
-
-def _stub_builtin_tmp_prompt_path(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    on_write: Callable[[str], None] | None = None,
-    on_unlink: Callable[[], None] | None = None,
-) -> None:
-    prompt_path = Path("/tmp/.pycastle_prompt")
-    original_write_text = Path.write_text
-    original_unlink = Path.unlink
-
-    def _fake_write_text(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
-        if self == prompt_path:
-            if on_write is not None:
-                on_write(data)
-            return len(data)
-        return original_write_text(self, data, *args, **kwargs)
-
-    def _fake_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
-        if self == prompt_path:
-            if on_unlink is not None:
-                on_unlink()
-            return None
-        return original_unlink(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "write_text", _fake_write_text)
-    monkeypatch.setattr(Path, "unlink", _fake_unlink)
 
 
 def _write_codex_rollout(state_dir: Path, *thread_ids: str) -> None:
@@ -1266,55 +1237,24 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-
-    class _CodexProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    '{"type":"thread.started","thread_id":"thread-123"}\n',
-                    '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
-                    '{"type":"turn.completed"}\n',
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _CodexProcess:
-        captured["command"] = command
-        captured["cwd"] = cwd
-        captured["env"] = env
-        captured["stdout"] = stdout
-        captured["stderr"] = stderr
-        captured["text"] = text
-        return _CodexProcess()
-
-    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: host_home,
     )
-    _stub_builtin_tmp_prompt_path(
+    adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
-        on_write=lambda data: captured.__setitem__("prompt", data),
-        on_unlink=lambda: captured.__setitem__("prompt_deleted", True),
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                '{"type":"thread.started","thread_id":"thread-123"}\n',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
+                '{"type":"turn.completed"}\n',
+            ),
+        ),
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
@@ -1371,14 +1311,19 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
         ),
         usage=None,
     )
-    assert captured["cwd"] == tmp_path
-    assert captured["prompt"] == "already rendered prompt"
-    assert captured["prompt_deleted"] is True
-    assert captured["env"] == {
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.content == "already rendered prompt"
+    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.provider_session_id is None
+    assert recorded_request.environment == {
         "TZ": "UTC",
         "CODEX_HOME": str(provider_state_dir),
     }
-    assert captured["command"] == (
+    assert recorded_request.command == (
         "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
         "-c approval_policy=never --dangerously-bypass-approvals-and-sandbox "
         "--json < /tmp/.pycastle_prompt"
@@ -1392,48 +1337,24 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-
-    class _CodexProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
-                    '{"type":"turn.completed"}\n',
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _CodexProcess:
-        captured["command"] = command
-        captured["cwd"] = cwd
-        captured["env"] = env
-        return _CodexProcess()
-
-    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: host_home,
     )
-    _stub_builtin_tmp_prompt_path(monkeypatch)
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
+                '{"type":"turn.completed"}\n',
+            ),
+        ),
+    )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     provider_state_dir = runtime_state_dir / "implementer/main/codex"
@@ -1483,12 +1404,18 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
         ),
         usage=None,
     )
-    assert captured["cwd"] == tmp_path
-    assert captured["env"] == {
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.RESUME
+    assert recorded_request.provider_session_id == "thread-123"
+    assert recorded_request.environment == {
         "TZ": "UTC",
         "CODEX_HOME": str(provider_state_dir),
     }
-    assert captured["command"] == (
+    assert recorded_request.command == (
         "codex exec resume thread-123 -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never "
         "--sandbox danger-full-access --json < /tmp/.pycastle_prompt"
@@ -1499,48 +1426,31 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-
-    class _CodexProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
-                    '{"type":"turn.completed"}\n',
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _CodexProcess:
-        captured["command"] = command
-        captured["cwd"] = cwd
-        captured["env"] = env
-        return _CodexProcess()
-
-    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="continued output",
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=2,
+                cache_read_input_tokens=1,
+            ),
+            stdout_lines=(
+                '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
+                '{"type":"turn.completed","usage":{"input_tokens":3,"cached_tokens":1,"output_tokens":2}}\n',
+            ),
+            provider_session_id=None,
+        ),
+    )
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: host_home,
     )
-    _stub_builtin_tmp_prompt_path(monkeypatch)
 
     continuation = prompt_runtime.Continuation(
         selected_service="codex",
@@ -1595,14 +1505,24 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
                 },
             ),
         ),
-        usage=None,
+        usage=runtime.ProviderUsage(
+            input_tokens=3,
+            output_tokens=2,
+            cache_read_input_tokens=1,
+        ),
     )
-    assert captured["cwd"] == tmp_path
-    assert captured["env"] == {
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.RESUME
+    assert recorded_request.provider_session_id == "selected-thread"
+    assert recorded_request.environment == {
         "TZ": "UTC",
         "CODEX_HOME": str(provider_state_dir),
     }
-    assert captured["command"] == (
+    assert recorded_request.command == (
         "codex exec resume selected-thread -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never "
         "--sandbox danger-full-access --json < /tmp/.pycastle_prompt"
@@ -1613,45 +1533,26 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-
-    class _CodexProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(['{"type":"thread.started","thread_id":"thread-123"}\n'])
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationFailure(
+            error=runtime.UsageLimitError(
+                reset_time=None,
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+            ),
+            stdout_lines=('{"type":"thread.started","thread_id":"thread-123"}\n',),
+            provider_session_id=None,
+        ),
+    )
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: host_home,
-    )
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_reduce_codex_stream",
-        lambda _lines: (_ for _ in ()).throw(
-            UsageLimitError(
-                reset_time=None,
-                service_name="codex",
-                invocation_progress=runtime.InvocationProgress.STARTED,
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        provider_invocation_runtime.subprocess,
-        "Popen",
-        lambda *args, **kwargs: _CodexProcess(),
-    )
-    _stub_builtin_tmp_prompt_path(
-        monkeypatch,
-        on_unlink=lambda: captured.__setitem__("prompt_deleted", True),
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
@@ -1692,52 +1593,34 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
             },
         ),
     )
-    assert captured["prompt_deleted"] is True
+    assert len(adapter.recorded_requests) == 1
+    assert adapter.recorded_requests[0].provider_session_id is None
 
 
 def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_output_reduction_interrupts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-
-    class _CodexProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(['{"type":"thread.started","thread_id":"thread-456"}\n'])
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationFailure(
+            error=runtime.UsageLimitError(
+                reset_time=None,
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+            ),
+            stdout_lines=('{"type":"thread.started","thread_id":"thread-456"}\n',),
+            provider_session_id=None,
+        ),
+    )
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: host_home,
-    )
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_reduce_codex_stream",
-        lambda _lines: (_ for _ in ()).throw(
-            UsageLimitError(
-                reset_time=None,
-                service_name="codex",
-                invocation_progress=runtime.InvocationProgress.STARTED,
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        provider_invocation_runtime.subprocess,
-        "Popen",
-        lambda *args, **kwargs: _CodexProcess(),
-    )
-    _stub_builtin_tmp_prompt_path(
-        monkeypatch,
-        on_unlink=lambda: captured.__setitem__("prompt_deleted", True),
     )
 
     continuation = prompt_runtime.Continuation(
@@ -1788,7 +1671,8 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
             },
         ),
     )
-    assert captured["prompt_deleted"] is True
+    assert len(adapter.recorded_requests) == 1
+    assert adapter.recorded_requests[0].provider_session_id == "selected-thread"
 
 
 def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_state(
@@ -1799,24 +1683,12 @@ def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_stat
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    subprocess_calls = 0
-
-    def _unexpected_popen(*args: Any, **kwargs: Any) -> Any:
-        nonlocal subprocess_calls
-        subprocess_calls += 1
-        raise AssertionError("resumed Codex session should not fall back to fresh")
-
-    monkeypatch.setattr(
-        provider_invocation_runtime.subprocess,
-        "Popen",
-        _unexpected_popen,
-    )
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: host_home,
     )
-    _stub_builtin_tmp_prompt_path(monkeypatch)
 
     continuation = prompt_runtime.Continuation(
         selected_service="codex",
@@ -1854,7 +1726,7 @@ def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_stat
     assert str(exc_info.value) == (
         "Codex continuation is not recoverable from provider state."
     )
-    assert subprocess_calls == 0
+    assert adapter.recorded_requests == []
 
 
 def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_state(
@@ -1865,24 +1737,12 @@ def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_stat
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    subprocess_calls = 0
-
-    def _unexpected_popen(*args: Any, **kwargs: Any) -> Any:
-        nonlocal subprocess_calls
-        subprocess_calls += 1
-        raise AssertionError("resumed Codex session should not false-resume")
-
-    monkeypatch.setattr(
-        provider_invocation_runtime.subprocess,
-        "Popen",
-        _unexpected_popen,
-    )
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: host_home,
     )
-    _stub_builtin_tmp_prompt_path(monkeypatch)
 
     continuation = prompt_runtime.Continuation(
         selected_service="codex",
@@ -1931,7 +1791,7 @@ def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_stat
     assert str(exc_info.value) == (
         "Codex continuation is not recoverable from provider state."
     )
-    assert subprocess_calls == 0
+    assert adapter.recorded_requests == []
 
 
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
@@ -1940,24 +1800,12 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
     tmp_path: Path,
     entrypoint: str,
 ) -> None:
-    subprocess_calls = 0
-
-    def _unexpected_popen(*args: Any, **kwargs: Any) -> Any:
-        nonlocal subprocess_calls
-        subprocess_calls += 1
-        raise AssertionError("Codex subprocess should not start without host auth")
-
-    monkeypatch.setattr(
-        provider_invocation_runtime.subprocess,
-        "Popen",
-        _unexpected_popen,
-    )
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: tmp_path / "missing-home",
     )
-    _stub_builtin_tmp_prompt_path(monkeypatch)
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
 
@@ -2020,7 +1868,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
             status_code=401,
         ),
     )
-    assert subprocess_calls == 0
+    assert adapter.recorded_requests == []
 
 
 def test_runtime_client_treats_nested_claude_provider_state_as_resumable(

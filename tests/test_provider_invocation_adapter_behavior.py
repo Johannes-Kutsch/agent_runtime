@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 import agent_runtime._provider_invocation as provider_invocation_runtime
+import agent_runtime.runtime as prompt_runtime
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime.provider_usage import ProviderUsage
 from agent_runtime.roles import InvocationRole
@@ -180,6 +182,17 @@ def test_production_adapter_records_provider_chunks_and_session_id_when_log_cont
     )
     assert '"provider_session_id": "provider-session-123"' in log_text
     assert '{"session":"provider-session-123"}\nfinal line\n' in log_text
+    builtin_source = inspect.getsource(prompt_runtime._builtin_runtime_client_module)
+    provider_source = inspect.getsource(provider_invocation_runtime)
+    assert "subprocess.Popen(" not in builtin_source
+    assert "prompt_path.write_text(request.prompt.content" not in builtin_source
+    assert "prompt_path.unlink(missing_ok=True)" not in builtin_source
+    assert "subprocess.Popen(" in provider_source
+    assert "prompt_path.write_text(request.prompt.content" in provider_source
+    assert "prompt_path.unlink(missing_ok=True)" in provider_source
+    assert "append_provider_chunk" in provider_source
+    assert "stdout_lines=tuple(stdout_lines)" in provider_source
+    assert "provider_session_id=_observed_provider_session_id()" in provider_source
 
 
 @pytest.mark.parametrize("failure_mode", ["start_failure", "reduction_failure"])
