@@ -1145,6 +1145,20 @@ def _parse_opencode_events(
     return parsed_events
 
 
+def _extract_opencode_provider_session_id(lines: list[str]) -> str | None:
+    provider_session_id: str | None = None
+
+    def _record_provider_session_id(session_id: str) -> None:
+        nonlocal provider_session_id
+        provider_session_id = session_id
+
+    _parse_opencode_events(
+        lines,
+        on_provider_session_id=_record_provider_session_id,
+    )
+    return provider_session_id
+
+
 def _reduce_opencode_stream(lines: list[str]) -> str:
     return reduce_text_output_events(
         _parse_opencode_events(lines),
@@ -2302,21 +2316,13 @@ def _run_builtin_resumed_session(
         logs_dir=request.logs_dir,
         role=request.role,
     )
-    observed_provider_session_id = provider_session_id
-
-    def _record_opencode_session_id(session_id: str) -> None:
-        nonlocal observed_provider_session_id
-        observed_provider_session_id = session_id
 
     def _reduce_opencode_session_output(
         lines: list[str],
     ) -> tuple[str, ProviderUsage | None]:
         return (
             reduce_text_output_events(
-                _parse_opencode_events(
-                    lines,
-                    on_provider_session_id=_record_opencode_session_id,
-                ),
+                _parse_opencode_events(lines),
                 lambda _turn: None,
                 provider="opencode",
             ),
@@ -2327,15 +2333,11 @@ def _run_builtin_resumed_session(
         lines: list[str],
         work_invocation_log: WorkInvocationLog,
     ) -> tuple[str, ProviderUsage | None]:
-        def _record_session_id(session_id: str) -> None:
-            _record_opencode_session_id(session_id)
-            work_invocation_log.record_provider_session_id(session_id)
-
         return (
             reduce_text_output_events(
                 _parse_opencode_events(
                     lines,
-                    on_provider_session_id=_record_session_id,
+                    on_provider_session_id=work_invocation_log.record_provider_session_id,
                 ),
                 lambda _turn: None,
                 provider="opencode",
@@ -2345,61 +2347,60 @@ def _run_builtin_resumed_session(
 
     try:
         if continuation.selected_service == "claude":
-            invocation_result = _invoke_provider(
-                provider_invocation_adapter=invocation_adapter,
-                command=_claude_command(
-                    model=request.model,
-                    effort=request.effort,
-                    tool_access=request.tool_access,
-                    prompt_path=prompt_path,
-                    run_kind=run_kind,
-                    session_uuid=provider_session_id,
-                ),
-                worktree=request.worktree.host_path,
-                environment=_claude_env(
-                    auth=request.provider_auth,
-                    state_dir_container_path=str(provider_state_dir),
-                ),
-                prompt_content=request.prompt,
+            command = _claude_command(
+                model=request.model,
+                effort=request.effort,
+                tool_access=request.tool_access,
                 prompt_path=prompt_path,
-                cleanup_prompt_path=True,
                 run_kind=run_kind,
-                role=request.role,
-                usage_limit_scope=request.usage_limit_scope,
-                provider_session_id=provider_session_id,
-                reduce_output=_reduce_claude_stream,
-                invocation_log=invocation_log,
+                session_uuid=provider_session_id,
             )
+            environment = _claude_env(
+                auth=request.provider_auth,
+                state_dir_container_path=str(provider_state_dir),
+            )
+            reduce_output = _reduce_claude_stream
+            reduce_logged_output = None
+            extract_provider_session_id = None
         else:
-            invocation_result = _invoke_provider(
-                provider_invocation_adapter=invocation_adapter,
-                command=_opencode_command(
-                    model=request.model,
-                    effort=request.effort,
-                    run_kind=run_kind,
-                    session_uuid=provider_session_id,
-                ),
-                worktree=request.worktree.host_path,
-                environment=_opencode_env(
-                    auth=request.provider_auth,
-                    state_dir_container_path=str(provider_state_dir),
-                ),
-                prompt_content=request.prompt,
-                prompt_path=prompt_path,
-                cleanup_prompt_path=True,
+            command = _opencode_command(
+                model=request.model,
+                effort=request.effort,
                 run_kind=run_kind,
-                role=request.role,
-                usage_limit_scope=request.usage_limit_scope,
-                provider_session_id=provider_session_id,
-                reduce_output=_reduce_opencode_session_output,
-                invocation_log=invocation_log,
-                reduce_logged_output=_reduce_logged_opencode_session_output,
-                extract_provider_session_id=lambda _lines: observed_provider_session_id,
+                session_uuid=provider_session_id,
             )
-            provider_session_id = (
-                observed_provider_session_id or invocation_result.provider_session_id
+            environment = _opencode_env(
+                auth=request.provider_auth,
+                state_dir_container_path=str(provider_state_dir),
             )
+            reduce_output = _reduce_opencode_session_output
+            reduce_logged_output = _reduce_logged_opencode_session_output
+            extract_provider_session_id = _extract_opencode_provider_session_id
+        invocation_result = _invoke_provider(
+            provider_invocation_adapter=invocation_adapter,
+            command=command,
+            worktree=request.worktree.host_path,
+            environment=environment,
+            prompt_content=request.prompt,
+            prompt_path=prompt_path,
+            cleanup_prompt_path=True,
+            run_kind=run_kind,
+            role=request.role,
+            usage_limit_scope=request.usage_limit_scope,
+            provider_session_id=provider_session_id,
+            reduce_output=reduce_output,
+            invocation_log=invocation_log,
+            reduce_logged_output=reduce_logged_output,
+            extract_provider_session_id=extract_provider_session_id,
+        )
+        if continuation.selected_service == "opencode":
+            provider_session_id = invocation_result.provider_session_id
             assert provider_session_id is not None
+            exact_transcript_match = _opencode_exact_transcript_match(
+                saved_exact_transcript_match=saved_exact_transcript_match,
+                provider_session_id=provider_session_id,
+                state_dir_session_id=state_dir_session_id,
+            )
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
     except (UsageLimitError, RetryableProviderFailureError) as exc:
         observed_failure_provider_session_id = (
@@ -2408,8 +2409,11 @@ def _run_builtin_resumed_session(
         if observed_failure_provider_session_id is not None:
             provider_session_id = observed_failure_provider_session_id
         if continuation.selected_service == "opencode":
-            provider_session_id = (
-                observed_failure_provider_session_id or observed_provider_session_id
+            provider_session_id = observed_failure_provider_session_id
+            exact_transcript_match = _opencode_exact_transcript_match(
+                saved_exact_transcript_match=saved_exact_transcript_match,
+                provider_session_id=provider_session_id,
+                state_dir_session_id=state_dir_session_id,
             )
         exc.continuation = (
             (
