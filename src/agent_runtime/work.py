@@ -301,6 +301,11 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                     if initial_attempt
                     else prepared_session.resumable_provider_run_session()
                 )
+                setattr(
+                    prepared_session,
+                    "latest_provider_run_session",
+                    provider_run_session,
+                )
                 try:
                     prompt = await request.output_adapter.build_prompt(
                         run_kind=provider_run_session.run_kind,
@@ -313,6 +318,11 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                         runner=runner,
                         prompt=prompt,
                         provider_run_session=provider_run_session,
+                    )
+                    setattr(
+                        prepared_session,
+                        "latest_provider_run_session",
+                        successful_run_session,
                     )
                     if request.output_adapter.is_successful_result(result):
                         successful_run_session.record_successful_run()

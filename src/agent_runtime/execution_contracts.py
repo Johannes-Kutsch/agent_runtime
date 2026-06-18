@@ -163,6 +163,7 @@ class RunSessionPlan:
     usage_limit_scope: UsageLimitScope | None = None
     run_kind: RunKind = RunKind.FRESH
     provider_session_id: str | None = None
+    provider_resume_state: Any = None
     provider_state_dir_container_path: str | None = None
     exact_transcript_match: bool = False
     run_session_plan: Any = None

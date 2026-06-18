@@ -858,6 +858,7 @@ def _build_run_session(
     usage_limit_scope: UsageLimitScope | None = None,
     run_kind: RunKind = RunKind.FRESH,
     provider_session_id: str | None = None,
+    provider_resume_state: Any = None,
     provider_state_dir_container_path: str | None = None,
     exact_transcript_match: bool = False,
 ) -> RunSessionPlan:
@@ -870,6 +871,7 @@ def _build_run_session(
         usage_limit_scope=usage_limit_scope,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
+        provider_resume_state=provider_resume_state,
         provider_state_dir_container_path=provider_state_dir_container_path,
         exact_transcript_match=exact_transcript_match,
     )
@@ -1566,7 +1568,7 @@ async def _run_resumable_prompt(
         except NoServiceAvailableError as exc:
             exc.continuation = continuation
             raise
-        run_kind = _continuation_run_kind(provider_resume_state)
+        run_kind = RunKind.RESUME
         provider_session_id = cast(
             str | None,
             provider_resume_state.get("provider_session_id"),
@@ -1620,6 +1622,9 @@ async def _run_resumable_prompt(
         usage_limit_scope=request.usage_limit_scope,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
+        provider_resume_state=(
+            provider_resume_state if request.continuation is not None else None
+        ),
         provider_state_dir_container_path=_provider_state_dir_container_path(
             worktree=request.worktree.host_path,
             provider_state_dir=(
@@ -1674,7 +1679,11 @@ async def _run_resumable_prompt(
         raise
     if prepared_session is None:
         prepared_session = resumable_dependencies.execution.prepare_session(run_session)
-    provider_run_session = prepared_session.initial_provider_run_session()
+    provider_run_session = getattr(
+        prepared_session,
+        "latest_provider_run_session",
+        prepared_session.initial_provider_run_session(),
+    )
     return ResumableRunResult(
         output=output,
         runtime_metadata=ResumableRuntimeMetadata(
@@ -1693,6 +1702,8 @@ async def _run_resumable_prompt(
             provider_session_id=provider_run_session.provider_session_id,
             provider_state_dir_relpath=provider_state_dir_relpath,
             exact_transcript_match=exact_transcript_match,
+            prepared_session=prepared_session,
+            provider_run_session=provider_run_session,
         ),
     )
 
@@ -1740,18 +1751,40 @@ def _build_continuation(
     provider_session_id: str | None,
     provider_state_dir_relpath: str | None,
     exact_transcript_match: bool,
+    prepared_session: Any | None = None,
+    provider_run_session: Any | None = None,
 ) -> Continuation:
+    if provider_run_session is not None and hasattr(
+        provider_run_session, "latest_provider_resume_state"
+    ):
+        provider_resume_state = getattr(
+            provider_run_session,
+            "latest_provider_resume_state",
+        )
+    elif provider_run_session is not None and hasattr(
+        provider_run_session, "provider_resume_state"
+    ):
+        provider_resume_state = getattr(
+            provider_run_session,
+            "provider_resume_state",
+        )
+    elif prepared_session is not None and hasattr(
+        prepared_session, "provider_resume_state"
+    ):
+        provider_resume_state = getattr(prepared_session, "provider_resume_state")
+    else:
+        provider_resume_state = {
+            "run_kind": run_kind.value,
+            "provider_session_id": provider_session_id,
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": exact_transcript_match,
+        }
     return Continuation(
         selected_service=service_name,
         selected_model=model,
         selected_effort=effort,
         tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": run_kind.value,
-            "provider_session_id": provider_session_id,
-            "provider_state_dir_relpath": provider_state_dir_relpath,
-            "exact_transcript_match": exact_transcript_match,
-        },
+        provider_resume_state=provider_resume_state,
     )
 
 
@@ -1771,7 +1804,11 @@ def _interruption_continuation(
         return None
     if prepared_session is None:
         prepared_session = prepare_session(run_session)
-    provider_run_session = prepared_session.initial_provider_run_session()
+    provider_run_session = getattr(
+        prepared_session,
+        "latest_provider_run_session",
+        prepared_session.initial_provider_run_session(),
+    )
     return _build_continuation(
         service_name=service_name,
         model=request.model,
@@ -1781,15 +1818,6 @@ def _interruption_continuation(
         provider_session_id=provider_run_session.provider_session_id,
         provider_state_dir_relpath=provider_state_dir_relpath,
         exact_transcript_match=exact_transcript_match,
-    )
-
-
-def _continuation_run_kind(provider_resume_state: dict[str, Any]) -> RunKind:
-    run_kind_value = provider_resume_state.get("run_kind", RunKind.FRESH.value)
-    if run_kind_value == RunKind.FRESH.value:
-        return RunKind.FRESH
-    if run_kind_value == RunKind.RESUME.value:
-        return RunKind.RESUME
-    raise RuntimeConfigurationError(
-        "Continuation provider_resume_state must include a valid run_kind."
+        prepared_session=prepared_session,
+        provider_run_session=provider_run_session,
     )
