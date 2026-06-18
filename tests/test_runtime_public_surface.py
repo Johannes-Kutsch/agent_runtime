@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import fields
 from pathlib import Path
-from typing import Callable, cast
+from typing import cast
 
 import pytest
 
@@ -12,19 +12,7 @@ import agent_runtime.provider_session_adapter as provider_session_adapter_runtim
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 import agent_runtime.session_planning as session_planning_runtime
-from agent_runtime.contracts import ExecutionProvider, ResumabilityProvider
-from agent_runtime.roles import InvocationRole
-from agent_runtime.session import RunKind
-from agent_runtime.session_planning import (
-    ResumableSessionPlanRequest,
-    plan_resumable_session,
-)
 from agent_runtime.errors import AgentRuntimeError
-
-from tests.runtime_boundary_fakes import (
-    ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
-    SessionStoreFake as _SessionStore,
-)
 
 
 def test_package_exports_runtime_surface() -> None:
@@ -276,106 +264,6 @@ def test_provider_session_planning_surface_exposes_immutable_decision_only() -> 
         "ProviderSessionPlanRequest",
         "plan_provider_session",
     } <= set(session_planning_runtime.__all__)
-
-
-def test_provider_session_planning_returns_immutable_decision_value(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    provider_session_decision = session_planning_runtime.plan_provider_session(
-        session_planning_runtime.ProviderSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            resumability_service=cast(
-                ResumabilityProvider, execution_service_factory()
-            ),
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    assert (
-        provider_session_decision
-        == session_planning_runtime.ProviderSessionDecision(
-            run_kind=RunKind.RESUME,
-            provider_session_id="recovered-session",
-            state_dir_relpath="state/",
-            state_dir_path=Path("state"),
-            recovered_session_id_persistence=(
-                session_planning_runtime.RecoveredSessionIdPersistence.SKIP
-            ),
-            service_state_dir=Path("state"),
-            exact_transcript_match=False,
-            auth_seeding_requirement=(
-                session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
-            ),
-            auth_seed_action=None,
-        )
-    )
-    with pytest.raises(FrozenInstanceError):
-        setattr(provider_session_decision, "provider_session_id", "other")
-
-
-def test_resumable_session_plan_exposes_public_value_fields_only(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    service = execution_service_factory()
-
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    assert session_plan.role == InvocationRole("implementer")
-    assert session_plan.worktree == Path(".")
-    assert session_plan.namespace == "main"
-    assert session_plan.service is service
-    assert session_plan.run_kind is RunKind.RESUME
-    assert session_plan.provider_state_dir == Path("state")
-    assert session_plan.provider_session_id == "recovered-session"
-    assert (
-        session_plan.auth_seeding_requirement
-        is session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
-    )
-    assert session_plan.auth_seed_action is None
-    assert session_plan.exact_transcript_match is False
-    assert session_plan.usage_limit_scope is None
-    with pytest.raises(FrozenInstanceError):
-        setattr(session_plan, "provider_state_dir", Path("other-state"))
-
-
-def test_resumable_session_plan_hides_container_state_selection_metadata(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    service = execution_service_factory()
-
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    field_names = {field.name for field in fields(session_plan)}
-
-    assert "service_state_dir" not in field_names
-    assert "use_service_state_dir_for_container" not in field_names
 
 
 def test_provider_session_dtos_remain_on_focused_session_seam() -> None:

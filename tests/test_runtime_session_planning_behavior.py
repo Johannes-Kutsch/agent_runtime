@@ -1,0 +1,566 @@
+from __future__ import annotations
+
+from dataclasses import FrozenInstanceError, fields
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Callable, cast
+
+import pytest
+
+import agent_runtime as runtime
+import agent_runtime.session_planning as session_planning_runtime
+from agent_runtime.contracts import (
+    ExecutionProvider,
+    ResumabilityProvider,
+    ServiceSelectionProvider,
+)
+from agent_runtime.provider_session_adapter import ProviderSessionPlanningRequest
+from agent_runtime.roles import InvocationRole
+from agent_runtime.service_registry import ServiceRegistry
+from agent_runtime.session import (
+    ProviderSessionSelection,
+    RunKind,
+    is_exact_resumable_service_session,
+    normalize_state_dir_relpath,
+    provider_state_relpath,
+    provider_state_session_id_path,
+    select_resumable_provider_session_id,
+)
+from agent_runtime.session_planning import (
+    ResumableSessionPlanRequest,
+    plan_resumable_session,
+)
+from agent_runtime.stage_priority_chain import (
+    chain_entries,
+    render_chain_label,
+    select_configured_candidate_chain,
+)
+from tests.runtime_boundary_fakes import (
+    ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
+    SelectionServiceFake as _Service,
+    SessionStoreFake as _SessionStore,
+)
+
+
+@pytest.mark.parametrize("label", ["", " ", "a/b", "../escape"])
+def test_runtime_service_identities_reject_unsafe_labels(label: str) -> None:
+    with pytest.raises(ValueError):
+        runtime.StageSelection(
+            service=label,
+            model="provider model / ../ still allowed",
+            effort="high effort / ../ still allowed",
+        )
+
+    with pytest.raises(ValueError):
+        ServiceRegistry(
+            {
+                label: cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "codex",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                )
+            }
+        )
+
+
+@pytest.mark.parametrize("label", [" ", "a/b", "../escape"])
+def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsafe_non_empty_values(
+    label: str,
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    assert (
+        ProviderSessionPlanningRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="",
+        ).namespace
+        == ""
+    )
+    assert (
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="",
+            service=execution_service_factory(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        ).namespace
+        == ""
+    )
+
+    with pytest.raises(ValueError):
+        ProviderSessionPlanningRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace=label,
+        )
+
+    with pytest.raises(ValueError):
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace=label,
+            service=execution_service_factory(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+
+
+def test_provider_session_planning_returns_immutable_decision_value(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    provider_session_decision = session_planning_runtime.plan_provider_session(
+        session_planning_runtime.ProviderSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            resumability_service=cast(
+                ResumabilityProvider,
+                execution_service_factory(),
+            ),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    assert (
+        provider_session_decision
+        == session_planning_runtime.ProviderSessionDecision(
+            run_kind=RunKind.RESUME,
+            provider_session_id="recovered-session",
+            state_dir_relpath="state/",
+            state_dir_path=Path("state"),
+            recovered_session_id_persistence=(
+                session_planning_runtime.RecoveredSessionIdPersistence.SKIP
+            ),
+            service_state_dir=Path("state"),
+            exact_transcript_match=False,
+            auth_seeding_requirement=(
+                session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
+            ),
+            auth_seed_action=None,
+        )
+    )
+    with pytest.raises(FrozenInstanceError):
+        setattr(provider_session_decision, "provider_session_id", "other")
+
+
+def test_resumable_session_plan_exposes_public_value_fields_only(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = execution_service_factory()
+
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    assert session_plan.role == InvocationRole("implementer")
+    assert session_plan.worktree == Path(".")
+    assert session_plan.namespace == "main"
+    assert session_plan.service is service
+    assert session_plan.run_kind is RunKind.RESUME
+    assert session_plan.provider_state_dir == Path("state")
+    assert session_plan.provider_session_id == "recovered-session"
+    assert (
+        session_plan.auth_seeding_requirement
+        is session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
+    )
+    assert session_plan.auth_seed_action is None
+    assert session_plan.exact_transcript_match is False
+    assert session_plan.usage_limit_scope is None
+    with pytest.raises(FrozenInstanceError):
+        setattr(session_plan, "provider_state_dir", Path("other-state"))
+
+
+def test_resumable_session_plan_hides_container_state_selection_metadata(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = execution_service_factory()
+
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    field_names = {field.name for field in fields(session_plan)}
+
+    assert "service_state_dir" not in field_names
+    assert "use_service_state_dir_for_container" not in field_names
+
+
+@pytest.mark.parametrize("service_name", ["", " ", "a/b", "../escape"])
+def test_provider_state_path_helpers_reject_unsafe_runtime_service_labels(
+    service_name: str,
+) -> None:
+    role = InvocationRole("implementer")
+
+    with pytest.raises(ValueError):
+        provider_state_relpath(role, service_name, namespace="main")
+
+    with pytest.raises(ValueError):
+        normalize_state_dir_relpath(
+            role,
+            "main",
+            service_name,
+            ".runtime-session/implementer/main/codex/",
+        )
+
+
+def test_stage_chain_resolution_prefers_first_available_configured_service(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    override = stage_selection_factory(
+        service="missing",
+        model="ignored",
+        effort="medium",
+        fallback=stage_selection_factory(
+            service="codex",
+            fallback=stage_selection_factory(
+                service="claude",
+                model="sonnet",
+                effort="high",
+            ),
+        ),
+    )
+
+    selection = select_configured_candidate_chain(
+        override,
+        configured_service_names=("codex", "claude"),
+        available_service_names=("claude",),
+    )
+
+    assert selection.has_configured_candidate is True
+    assert selection.selected_chain == stage_selection_factory(
+        service="claude",
+        model="sonnet",
+        effort="high",
+    )
+    assert render_chain_label(override) == "missing -> codex -> claude"
+    assert [entry.service for entry in chain_entries(override)] == [
+        "missing",
+        "codex",
+        "claude",
+    ]
+
+
+def test_public_stage_selection_requires_non_empty_candidate_configuration() -> None:
+    with pytest.raises(ValueError, match="service"):
+        runtime.StageSelection(
+            service="",
+            model="gpt-5.4",
+            effort="medium",
+        )
+
+    with pytest.raises(ValueError, match="model"):
+        runtime.StageSelection(
+            service="codex",
+            model="",
+            effort="medium",
+        )
+
+    with pytest.raises(ValueError, match="effort"):
+        runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="",
+        )
+
+    with pytest.raises(ValueError, match="model"):
+        runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+            fallback=runtime.StageSelection(
+                service="claude",
+                model="",
+                effort="high",
+            ),
+        )
+
+
+def test_public_stage_selection_rejects_path_like_service_name() -> None:
+    with pytest.raises(ValueError, match="StageSelection service"):
+        runtime.StageSelection(
+            service="bad/name",
+            model="gpt-5.4",
+            effort="medium",
+        )
+
+
+def test_public_stage_selection_rejects_invalid_fallback_effort() -> None:
+    with pytest.raises(ValueError, match="effort"):
+        runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+            fallback=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="",
+            ),
+        )
+
+
+def test_service_registry_resolve_and_wake_time(
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        unavailable={"codex"},
+        wake_times={
+            "codex": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "claude": datetime(2026, 1, 2, tzinfo=timezone.utc),
+        },
+    )
+    override = stage_selection_factory(
+        service="codex",
+        fallback=stage_selection_factory(
+            service="claude",
+            model="sonnet",
+            effort="high",
+        ),
+    )
+
+    resolved = registry.resolve(override, datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+    assert resolved == stage_selection_factory(
+        service="claude",
+        model="sonnet",
+        effort="high",
+    )
+    assert registry.has_available(datetime(2026, 1, 1, tzinfo=timezone.utc)) is True
+    assert registry.next_wake_time(
+        datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ) == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_service_registry_rejects_invalid_public_service_name_configuration() -> None:
+    with pytest.raises(ValueError, match="ServiceRegistry service name"):
+        ServiceRegistry(
+            {
+                "bad/name": cast(
+                    ServiceSelectionProvider,
+                    _Service(
+                        "bad/name",
+                        available=True,
+                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                ),
+            }
+        )
+
+
+def test_application_can_render_service_availability_summary_from_registry(
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        unavailable={"codex"},
+        wake_times={
+            "codex": datetime(2026, 1, 2, tzinfo=timezone.utc),
+            "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
+        },
+    )
+
+    summary_lines = [
+        f"{name}: {'available' if service.is_available(now=now) else 'unavailable'}"
+        for name, service in registry.services.items()
+    ]
+
+    assert summary_lines == [
+        "codex: unavailable",
+        "claude: available",
+    ]
+
+
+def test_public_stage_selection_rejects_invalid_fallback_service_name() -> None:
+    with pytest.raises(ValueError, match="service"):
+        runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+            fallback=runtime.StageSelection(
+                service="",
+                model="sonnet",
+                effort="high",
+            ),
+        )
+
+
+def test_service_registry_preserves_per_candidate_configuration_on_filtered_chain(
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        "gemini",
+        unavailable={"codex"},
+    )
+    override = stage_selection_factory(
+        service="codex",
+        fallback=stage_selection_factory(
+            service="missing",
+            model="ignored",
+            effort="low",
+            fallback=stage_selection_factory(
+                service="claude",
+                model="sonnet",
+                effort="high",
+                fallback=stage_selection_factory(
+                    service="gemini",
+                    model="2.5-pro",
+                    effort="low",
+                ),
+            ),
+        ),
+    )
+
+    assert registry.resolve(
+        override,
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+    ) == stage_selection_factory(
+        service="claude",
+        model="sonnet",
+        effort="high",
+        fallback=stage_selection_factory(
+            service="gemini",
+            model="2.5-pro",
+            effort="low",
+        ),
+    )
+
+
+def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_path() -> (
+    None
+):
+    legacy = ".runtime-session/implementer/main/codex/"
+
+    assert (
+        provider_state_relpath(
+            InvocationRole("implementer"),
+            "codex",
+            session_root=".runtime-session",
+        )
+        == ".runtime-session/implementer/codex/"
+    )
+    assert (
+        normalize_state_dir_relpath(
+            InvocationRole("implementer"),
+            "main",
+            "codex",
+            legacy,
+        )
+        == ".runtime-session/implementer/main/codex/"
+    )
+    assert provider_state_session_id_path(Path("state"), "codex") == Path(
+        "state/thread_id"
+    )
+
+
+def test_select_resumable_provider_session_id_recovers_and_persists_state(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    state_dir = Path("state")
+    session_store = session_store_factory()
+
+    selection = select_resumable_provider_session_id(
+        session_store,
+        "codex",
+        provider_state_dir=state_dir,
+        has_resumable_provider_state=True,
+        recover_provider_session_id=lambda path: (
+            "provider-session" if path == state_dir else None
+        ),
+    )
+
+    assert selection == ProviderSessionSelection(
+        provider_session_id="provider-session",
+        persist_provider_session_id=True,
+    )
+    assert session_store.service_session_id("codex") == "provider-session"
+
+
+def test_select_resumable_provider_session_id_prefers_session_store_over_recovery(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    recover_calls = 0
+    session_store = session_store_factory(service_sessions={"codex": "stored-session"})
+
+    def recover_provider_session_id(_path: Path | None) -> str | None:
+        nonlocal recover_calls
+        recover_calls += 1
+        return "recovered-session"
+
+    selection = select_resumable_provider_session_id(
+        session_store,
+        "codex",
+        provider_state_dir=Path("state"),
+        has_resumable_provider_state=True,
+        recover_provider_session_id=recover_provider_session_id,
+    )
+
+    assert selection == ProviderSessionSelection(
+        provider_session_id="stored-session",
+        persist_provider_session_id=False,
+    )
+    assert recover_calls == 0
+    assert session_store.service_session_id("codex") == "stored-session"
+
+
+def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    session_store = session_store_factory(
+        service_sessions={"codex": "provider-session"},
+        service_metadata={"codex": {"provider_session_id": "provider-session"}},
+        exact_transcript_service="codex",
+    )
+
+    assert (
+        is_exact_resumable_service_session(
+            session_store,
+            "codex",
+            provider_session_id="provider-session",
+            provider_state_dir=Path("state"),
+        )
+        is True
+    )
+    assert (
+        is_exact_resumable_service_session(
+            session_store,
+            "codex",
+            provider_session_id="provider-session",
+            provider_state_dir=Path("state"),
+            exact_provider_session_matcher=lambda *_args: False,
+        )
+        is False
+    )
