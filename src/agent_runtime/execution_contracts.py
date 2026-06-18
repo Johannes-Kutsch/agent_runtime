@@ -618,8 +618,13 @@ class TextOutputAdapter:
         prompt: str,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
+        workspace: Path | None = None,
     ) -> None:
         if isinstance(tool_access, ToolAccess):
+            tool_access.require_workspace(
+                workspace,
+                context="TextOutputAdapter",
+            )
             tool_policy = tool_access.tool_policy
         if tool_policy is _MISSING_TOOL_POLICY:
             raise TypeError(

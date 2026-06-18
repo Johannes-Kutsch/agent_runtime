@@ -2688,6 +2688,38 @@ def test_text_output_adapter_explicit_no_tools_forbids_provider_tool_access() ->
     assert output == "allowed=none;disallowed=all"
 
 
+def test_text_output_adapter_rejects_workspace_backed_tool_access_without_workspace_context() -> (
+    None
+):
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "TextOutputAdapter workspace-backed tool access requires worktree /repo, got None."
+        ),
+    ):
+        TextOutputAdapter(
+            prompt="already rendered prompt",
+            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+        )
+
+
+def test_prompt_run_request_accepts_explicit_no_tools_tool_access() -> None:
+    request = PromptRunRequest(
+        prompt="already rendered prompt",
+        worktree=WorktreeMount(Path("/repo")),
+        stage=runtime.StageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        role=InvocationRole("implementer"),
+        tool_access=runtime.ToolAccess.no_tools(),
+    )
+
+    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_policy == runtime.ToolAccess.no_tools().tool_policy
+
+
 def test_resumable_run_request_carries_workspace_backed_tool_access() -> None:
     tool_access = runtime.ToolAccess.workspace_backed(
         Path("/repo"),
@@ -2714,6 +2746,29 @@ def test_resumable_run_request_carries_workspace_backed_tool_access() -> None:
 
     assert request.tool_access == tool_access
     assert request.tool_access.workspace == Path("/repo")
+
+
+def test_resumable_run_request_accepts_explicit_no_tools_tool_access() -> None:
+    request = prompt_runtime.ResumableRunRequest(
+        prompt="already rendered prompt",
+        worktree=WorktreeMount(Path("/repo")),
+        model="gpt-5.4",
+        effort="medium",
+        session_plan=ResumableSessionPlan(
+            role=InvocationRole("reviewer"),
+            worktree=Path("/repo"),
+            namespace="main",
+            service=cast(ExecutionProvider, _ExecutionService("codex")),
+            run_kind=RunKind.FRESH,
+            provider_state_dir=None,
+            provider_session_id=None,
+            auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+        ),
+        tool_access=runtime.ToolAccess.no_tools(),
+    )
+
+    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_policy == runtime.ToolAccess.no_tools().tool_policy
 
 
 def test_resumable_run_request_rejects_workspace_backed_tool_access_for_other_worktree() -> (
@@ -2744,6 +2799,20 @@ def test_resumable_run_request_rejects_workspace_backed_tool_access_for_other_wo
                 Path("/repo"),
                 tool_policy=runtime.ToolPolicy.FULL,
             ),
+        )
+
+
+def test_tool_access_none_rejects_non_toolless_policy() -> None:
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "ToolAccess.no_tools() must forbid provider tool access with the closed no-tools policy."
+        ),
+    ):
+        runtime.ToolAccess(
+            kind="none",
+            workspace=None,
+            tool_policy=runtime.ToolPolicy.FULL,
         )
 
 

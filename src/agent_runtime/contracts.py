@@ -105,6 +105,12 @@ class ToolPolicy(enum.Enum):
         return ToolPolicyProfile()
 
 
+_NO_TOOLS_POLICY = ToolPolicyProfile(
+    allowed_tools=("none",),
+    disallowed_tools=("all",),
+)
+
+
 @dataclasses.dataclass(frozen=True, init=False)
 class ToolAccess:
     kind: str
@@ -122,6 +128,10 @@ class ToolAccess:
             raise ValueError(f"Unsupported tool access kind: {kind}")
         if kind == "none" and workspace is not None:
             raise ValueError("ToolAccess.no_tools() cannot carry a workspace.")
+        if kind == "none" and tool_policy != _NO_TOOLS_POLICY:
+            raise ValueError(
+                "ToolAccess.no_tools() must forbid provider tool access with the closed no-tools policy."
+            )
         if kind == "workspace_backed" and workspace is None:
             raise ValueError("ToolAccess.workspace_backed() requires a workspace path.")
         object.__setattr__(self, "kind", kind)
@@ -133,10 +143,7 @@ class ToolAccess:
         return cls(
             kind="none",
             workspace=None,
-            tool_policy=ToolPolicyProfile(
-                allowed_tools=("none",),
-                disallowed_tools=("all",),
-            ),
+            tool_policy=_NO_TOOLS_POLICY,
         )
 
     @classmethod
@@ -158,7 +165,7 @@ class ToolAccess:
 
     def require_workspace(
         self,
-        workspace: Path,
+        workspace: Path | None,
         *,
         context: str,
     ) -> None:

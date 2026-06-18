@@ -558,6 +558,7 @@ async def _run_prompt(
             output_adapter=TextOutputAdapter(
                 prompt=request.prompt,
                 tool_access=request.tool_access,
+                workspace=request.worktree.host_path,
             ),
             dependencies=dependencies,
             presentation=WorkInvocationPresentation(
@@ -733,6 +734,7 @@ async def _run_resumable_prompt(
             output_adapter=TextOutputAdapter(
                 prompt=request.prompt,
                 tool_access=request.tool_access,
+                workspace=request.worktree.host_path,
             ),
             dependencies=resumable_dependencies,
             presentation=WorkInvocationPresentation(
