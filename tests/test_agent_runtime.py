@@ -8040,6 +8040,92 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
     )
 
 
+def test_runtime_module_claude_event_parser_keeps_runtime_reset_time_override() -> None:
+    reset_time = datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc)
+
+    def _fake_parse_claude_reset_time(_text: object) -> datetime | None:
+        return reset_time
+
+    original_parse_reset_time = prompt_runtime._parse_claude_reset_time
+    prompt_runtime._parse_claude_reset_time = cast(Any, _fake_parse_claude_reset_time)
+    try:
+        events = prompt_runtime._parse_claude_event(
+            json.dumps(
+                {
+                    "type": "result",
+                    "is_error": True,
+                    "api_error_status": 429,
+                    "result": "Claude usage limit reached.",
+                }
+            )
+        )
+    finally:
+        prompt_runtime._parse_claude_reset_time = original_parse_reset_time
+
+    assert events == [UsageLimit(reset_time=reset_time, raw_message=None)]
+
+
+def test_runtime_client_keeps_runtime_selected_service_path_override_in_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [json.dumps({"type": "result", "result": "final output"}) + "\n"]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: _ClaudeProcess(),
+    )
+    monkeypatch.setattr(
+        prompt_runtime,
+        "_selected_service_path",
+        lambda *_args, **_kwargs: ("patched", "claude"),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="final output",
+        result=prompt_runtime.EphemeralRunResult(
+            output="final output",
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            used_fallback=True,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("patched", "claude"),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+
+
 def test_runtime_client_preserves_claude_credential_failure_observations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

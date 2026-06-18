@@ -149,6 +149,19 @@ def _is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
 
 
 def _parse_claude_event(line: str) -> list[Any]:
+    return _parse_claude_event_with_dependencies(
+        line,
+        parse_claude_reset_time=_parse_claude_reset_time,
+        is_claude_subscription_access_denial=_is_claude_subscription_access_denial,
+    )
+
+
+def _parse_claude_event_with_dependencies(
+    line: str,
+    *,
+    parse_claude_reset_time: Callable[[object], datetime | None],
+    is_claude_subscription_access_denial: Callable[[dict[str, Any]], bool],
+) -> list[Any]:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
@@ -156,14 +169,14 @@ def _parse_claude_event(line: str) -> list[Any]:
     if not isinstance(event, dict):
         return []
     if event.get("api_error_status") == 429:
-        reset_time = _parse_claude_reset_time(event.get("result"))
+        reset_time = parse_claude_reset_time(event.get("result"))
         return [
             UsageLimit(
                 reset_time=reset_time,
                 raw_message=None if reset_time is not None else line,
             )
         ]
-    if _is_claude_subscription_access_denial(event):
+    if is_claude_subscription_access_denial(event):
         denial_message = event.get("result")
         return [
             CredentialFailure(
@@ -225,9 +238,20 @@ def _parse_claude_event(line: str) -> list[Any]:
 
 
 def _reduce_claude_stream(lines: list[str]) -> str:
+    return _reduce_claude_stream_with_dependencies(
+        lines,
+        parse_claude_event=_parse_claude_event,
+    )
+
+
+def _reduce_claude_stream_with_dependencies(
+    lines: list[str],
+    *,
+    parse_claude_event: Callable[[str], list[Any]],
+) -> str:
     parsed_events: list[Any] = []
     for line in lines:
-        parsed_events.extend(_parse_claude_event(line))
+        parsed_events.extend(parse_claude_event(line))
     return reduce_text_output_events(
         parsed_events,
         lambda _turn: None,
@@ -310,6 +334,7 @@ def _run_builtin_ephemeral(
     claude_command: Callable[..., str] = _claude_command,
     claude_env: Callable[..., dict[str, str]] = _claude_env,
     reduce_claude_stream: Callable[[list[str]], str] = _reduce_claude_stream,
+    selected_service_path: Callable[..., tuple[str, ...]] = _selected_service_path,
 ) -> EphemeralRunResult:
     selected_stage = select_builtin_stage(request.stage)
     validate_claude_stage(selected_stage)
@@ -341,7 +366,7 @@ def _run_builtin_ephemeral(
         process.wait()
     finally:
         prompt_path.unlink(missing_ok=True)
-    selected_service_path = _selected_service_path(
+    service_path = selected_service_path(
         request.stage,
         selected_service="claude",
     )
@@ -351,9 +376,9 @@ def _run_builtin_ephemeral(
         selected_model=selected_stage.model,
         selected_effort=selected_stage.effort,
         tool_access=request.tool_access,
-        used_fallback=len(selected_service_path) > 1,
+        used_fallback=len(service_path) > 1,
         metadata=EphemeralResultMetadata(
-            selected_service_path=selected_service_path,
+            selected_service_path=service_path,
             runtime=EphemeralRuntimeMetadata(
                 run_kind=RunKind.FRESH,
                 session_namespace=request.session_namespace,

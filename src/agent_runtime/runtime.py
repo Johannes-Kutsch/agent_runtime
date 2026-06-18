@@ -123,10 +123,23 @@ _claude_env = _builtin_runtime_client_module._claude_env
 _is_claude_subscription_access_denial = (
     _builtin_runtime_client_module._is_claude_subscription_access_denial
 )
-_parse_claude_event = _builtin_runtime_client_module._parse_claude_event
-_reduce_claude_stream = _builtin_runtime_client_module._reduce_claude_stream
 _parse_claude_reset_time = _builtin_runtime_client_module._parse_claude_reset_time
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
+
+
+def _parse_claude_event(line: str) -> list[Any]:
+    return _builtin_runtime_client_module._parse_claude_event_with_dependencies(
+        line,
+        parse_claude_reset_time=_parse_claude_reset_time,
+        is_claude_subscription_access_denial=_is_claude_subscription_access_denial,
+    )
+
+
+def _reduce_claude_stream(lines: list[str]) -> str:
+    return _builtin_runtime_client_module._reduce_claude_stream_with_dependencies(
+        lines,
+        parse_claude_event=_parse_claude_event,
+    )
 
 
 class EphemeralRuntime:
@@ -208,6 +221,7 @@ def _run_builtin_ephemeral(request: EphemeralRunRequest) -> EphemeralRunResult:
         claude_command=_claude_command,
         claude_env=_claude_env,
         reduce_claude_stream=_reduce_claude_stream,
+        selected_service_path=_selected_service_path,
     )
 
 
