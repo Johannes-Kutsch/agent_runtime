@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1949,3 +1950,338 @@ def test_runtime_client_writes_session_invocation_log_to_logs_dir_without_mixing
     }
     assert '"type":"assistant"' in log_text
     assert '"type":"result"' in log_text
+
+
+def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative_continuation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+    expected_state_relpath = session_runtime.provider_state_relpath(
+        InvocationRole("implementer"),
+        "opencode",
+        "main",
+    )
+    expected_state_dir = runtime_state_dir / expected_state_relpath
+    observed: dict[str, Any] = {}
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del stdout, stderr
+            observed["command"] = command
+            observed["shell"] = shell
+            observed["cwd"] = cwd
+            observed["env"] = env
+            observed["text"] = text
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "provider-session-123",
+                            "part": {
+                                "type": "text",
+                                "text": "OpenCode answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "session.status",
+                            "status": {"type": "idle"},
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                stage=stage_selection_factory(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert observed["command"].startswith("opencode run --format json")
+    assert "--model opencode-go/glm-5" in observed["command"]
+    assert observed["env"]["OPENCODE_HOME"] == str(expected_state_dir)
+    assert expected_state_dir.is_dir()
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=tool_access,
+        provider_resume_state={
+            "provider_session_id": "provider-session-123",
+            "provider_state_dir_relpath": expected_state_relpath,
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session_id(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+    provider_state_dir_relpath = session_runtime.provider_state_relpath(
+        InvocationRole("implementer"),
+        "opencode",
+        "main",
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True)
+    (provider_state_dir / "resume.jsonl").write_text("[]", encoding="utf-8")
+    (provider_state_dir / "session_id").write_text(
+        "recovered-state-dir-session\n",
+        encoding="utf-8",
+    )
+    observed: dict[str, Any] = {}
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del stdout, stderr
+            observed["command"] = command
+            observed["shell"] = shell
+            observed["cwd"] = cwd
+            observed["env"] = env
+            observed["text"] = text
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "continued-session-2",
+                            "part": {
+                                "type": "text",
+                                "text": "continued answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "session.status",
+                            "status": {"type": "idle"},
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                stage=stage_selection_factory(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert "--session recovered-state-dir-session" in observed["command"]
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
+        service_name="opencode",
+        provider_session_id="continued-session-2",
+        run_kind=RunKind.RESUME,
+        session_namespace="main",
+        exact_transcript_match=True,
+    )
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=tool_access,
+        provider_resume_state={
+            "provider_session_id": "continued-session-2",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": True,
+        },
+    )
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
+        "continued-session-2"
+    )
+
+
+def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_started_usage_limit(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del command, shell, cwd, env, stdout, stderr, text
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "provider-session-123",
+                            "part": {
+                                "type": "text",
+                                "text": "OpenCode answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "error",
+                            "sessionID": "provider-session-123",
+                            "error": {
+                                "name": "RateLimitError",
+                                "data": {
+                                    "message": "You have reached your OpenCode Go usage limit.",
+                                    "statusCode": 429,
+                                    "isRetryable": True,
+                                },
+                            },
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    provider_state_dir_relpath = session_runtime.provider_state_relpath(
+        InvocationRole("implementer"),
+        "opencode",
+        "main",
+    )
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                stage=stage_selection_factory(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="opencode",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="opencode",
+            selected_model="glm-5",
+            selected_effort="medium",
+            tool_access=tool_access,
+            provider_resume_state={
+                "provider_session_id": "provider-session-123",
+                "provider_state_dir_relpath": provider_state_dir_relpath,
+                "exact_transcript_match": False,
+            },
+        ),
+    )

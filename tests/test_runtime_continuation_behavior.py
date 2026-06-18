@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -2439,6 +2440,339 @@ def test_resumed_session_runtime_reports_started_progress_for_timed_out_outcome(
                 "run_kind": "resume",
                 "provider_session_id": "prepared:recovered-session",
                 "provider_state_dir_relpath": "state/",
+                "exact_transcript_match": False,
+            },
+        ),
+    )
+
+
+def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and_session_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    provider_state_dir_relpath = "continuations/opencode/"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+        },
+    )
+    observed: dict[str, Any] = {}
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del stdout, stderr
+            observed["command"] = command
+            observed["shell"] = shell
+            observed["cwd"] = cwd
+            observed["env"] = env
+            observed["text"] = text
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "persisted-session-2",
+                            "part": {
+                                "type": "text",
+                                "text": "resumed answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "session.status",
+                            "status": {"type": "idle"},
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+            )
+        )
+    )
+
+    assert "--session persisted-session-1" in observed["command"]
+    assert observed["env"]["OPENCODE_HOME"] == str(
+        runtime_state_dir / provider_state_dir_relpath
+    )
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
+        service_name="opencode",
+        provider_session_id="persisted-session-2",
+        run_kind=RunKind.RESUME,
+        session_namespace="main",
+        exact_transcript_match=False,
+    )
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=continuation.tool_access,
+        provider_resume_state={
+            "provider_session_id": "persisted-session-2",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    provider_state_dir_relpath = "continuations/opencode/"
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    worktree.mkdir()
+    provider_state_dir.mkdir(parents=True)
+    (provider_state_dir / "resume.jsonl").write_text("[]", encoding="utf-8")
+    (provider_state_dir / "session_id").write_text(
+        "persisted-session-1\n",
+        encoding="utf-8",
+    )
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": False,
+        },
+    )
+    observed: dict[str, Any] = {}
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del stdout, stderr, shell, cwd, text
+            observed["command"] = command
+            observed["env"] = env
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "persisted-session-1",
+                            "part": {
+                                "type": "text",
+                                "text": "resumed answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "session.status",
+                            "status": {"type": "idle"},
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+            )
+        )
+    )
+
+    assert "--session persisted-session-1" in observed["command"]
+    assert observed["env"]["OPENCODE_HOME"] == str(provider_state_dir)
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
+        service_name="opencode",
+        provider_session_id="persisted-session-1",
+        run_kind=RunKind.RESUME,
+        session_namespace="main",
+        exact_transcript_match=False,
+    )
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=continuation.tool_access,
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_started_usage_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    provider_state_dir_relpath = "continuations/opencode/"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": False,
+        },
+    )
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del command, shell, cwd, env, stdout, stderr, text
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "persisted-session-2",
+                            "part": {
+                                "type": "text",
+                                "text": "partial answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "error",
+                            "sessionID": "persisted-session-2",
+                            "error": {
+                                "name": "RateLimitError",
+                                "data": {
+                                    "message": "You have reached your OpenCode Go usage limit.",
+                                    "statusCode": 429,
+                                    "isRetryable": True,
+                                },
+                            },
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="opencode",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="opencode",
+            selected_model="glm-5",
+            selected_effort="medium",
+            tool_access=continuation.tool_access,
+            provider_resume_state={
+                "provider_session_id": "persisted-session-2",
+                "provider_state_dir_relpath": provider_state_dir_relpath,
                 "exact_transcript_match": False,
             },
         ),
