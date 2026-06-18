@@ -1922,6 +1922,7 @@ def test_package_exports_runtime_surface() -> None:
         "AgentFailedError",
         "AgentRuntimeError",
         "AgentTimeoutError",
+        "Continuation",
         "HardAgentError",
         "ExecutionProvider",
         "InvocationRole",
@@ -1961,6 +1962,7 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
     assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
     assert {
+        "Continuation",
         "ResumableRunRequest",
         "ResumableRunResult",
         "ResumableRuntime",
@@ -3805,6 +3807,158 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
                 exact_transcript_match=False,
             ),
         ),
+    )
+
+
+def test_resumable_runtime_returns_portable_continuation_resume_data(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    external_state_provider_session_adapter: _ExternalStateResidentPlanningProviderSessionAdapter,
+) -> None:
+    worktree = Path("/repo")
+    service = execution_service_factory()
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=worktree,
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=external_state_provider_session_adapter,
+        )
+    )
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert hasattr(runtime, "Continuation")
+    assert hasattr(prompt_runtime, "Continuation")
+    assert runtime.Continuation is prompt_runtime.Continuation
+    assert result.result is not None
+    assert getattr(result.result, "continuation") == prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=tool_access,
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "prepared:recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_continuation_provider_resume_state_requires_json_compatible_data() -> None:
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "prepared:recovered-session",
+            "attempts": [1, 2],
+            "exact_transcript_match": False,
+            "metadata": {"phase": "resume", "notes": None},
+        },
+    )
+
+    assert continuation.provider_resume_state == {
+        "provider_session_id": "prepared:recovered-session",
+        "attempts": [1, 2],
+        "exact_transcript_match": False,
+        "metadata": {"phase": "resume", "notes": None},
+    }
+
+    with pytest.raises(
+        TypeError,
+        match=re.escape("Continuation provider_resume_state must be JSON-compatible."),
+    ):
+        prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            provider_resume_state={"provider_state_dir": Path("/repo/state")},
+        )
+
+
+def test_resumable_runtime_resumes_from_portable_continuation_data() -> None:
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.completed(
+        output="resume:prepared:recovered-session:/workspace/runtime-state/",
+        result=prompt_runtime.ResumableRunResult(
+            output="resume:prepared:recovered-session:/workspace/runtime-state/",
+            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="prepared:recovered-session",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+        ),
+    )
+    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "prepared:recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
     )
 
 
