@@ -31,6 +31,7 @@ from .execution_contracts import (
     WorkStatusRow,
 )
 from .errors import (
+    AgentCancelledError,
     AgentCredentialFailureError,
     AgentTimeoutError,
     HardAgentError,
@@ -316,12 +317,8 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
 
     token = request.token if request.token is not None else CancellationToken()
     if token.is_cancelled:
-        raise UsageLimitError(
-            reset_time=None,
-            usage_limit_scope=(
-                request.run_session.usage_limit_scope
-                or UsageLimitScope(request.role.value)
-            ),
+        raise AgentCancelledError(
+            invocation_progress=InvocationProgress.NOT_STARTED,
         )
 
     run_session = request.run_session

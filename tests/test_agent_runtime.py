@@ -34,6 +34,7 @@ from agent_runtime.contracts import (
 )
 from agent_runtime.provider_session_adapter import ProviderSessionPlanningRequest
 from agent_runtime.errors import (
+    AgentCancelledError,
     AgentCredentialFailureError,
     AgentFailedError,
     AgentRuntimeError,
@@ -444,6 +445,52 @@ class _StartedUsageLimitOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapte
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
                     _StartedUsageLimitOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _StartedCancellationOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        raise AgentCancelledError(
+            invocation_progress=runtime.InvocationProgress.STARTED,
+        )
+
+
+class _StartedCancellationOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedCancellationOneShotRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -2141,11 +2188,8 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
 
     cancelled_result = asyncio.run(runtime_instance.run_one_shot(cancelled))
 
-    assert cancelled_result == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert cancelled_result == prompt_runtime.RuntimeOutcome.cancelled(
         output="",
-        service_name=None,
-        reset_time=None,
-        usage_limit_scope=runtime.UsageLimitScope("reviewer"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -2194,11 +2238,8 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role(
         )
     )
 
-    assert cancelled_result == prompt_runtime.RuntimeOutcome.usage_limited(
+    assert cancelled_result == prompt_runtime.RuntimeOutcome.cancelled(
         output="",
-        service_name=None,
-        reset_time=None,
-        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -2829,6 +2870,63 @@ def test_resumable_runtime_reports_started_progress_for_usage_limited_outcome(
         service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
+
+
+def test_resumable_runtime_returns_cancelled_outcome_for_pre_start_caller_cancellation(
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+    cancelled_token = CancellationToken()
+    cancelled_token.cancel()
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
+                token=cancelled_token,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.cancelled(
+        output="",
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_one_shot_runtime_reports_started_progress_for_cancelled_outcome(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_StartedCancellationOneShotExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_one_shot(one_shot_request_factory())
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.cancelled(
+        output="",
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
     )
 

@@ -17,6 +17,16 @@ class RuntimeConfigurationError(AgentRuntimeError):
     pass
 
 
+class AgentCancelledError(AgentRuntimeError):
+    def __init__(
+        self,
+        *,
+        invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+    ) -> None:
+        self.invocation_progress = invocation_progress
+        super().__init__("Agent run was cancelled.")
+
+
 class AgentTimeoutError(AgentRuntimeError, TimeoutError):
     def __init__(
         self,
@@ -146,6 +156,7 @@ class AgentFailedError(AgentRuntimeError):
 
 
 __all__ = [
+    "AgentCancelledError",
     "AgentCredentialFailureError",
     "AgentFailedError",
     "AgentRuntimeError",

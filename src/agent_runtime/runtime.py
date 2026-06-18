@@ -17,7 +17,7 @@ from .execution_contracts import (
     WorkInvocationRequest,
     WorktreeMount,
 )
-from .errors import RuntimeConfigurationError, UsageLimitError
+from .errors import AgentCancelledError, RuntimeConfigurationError, UsageLimitError
 from .identity import validate_session_namespace
 from .invocation_progress import InvocationProgress
 from .roles import InvocationRole
@@ -91,6 +91,19 @@ class RuntimeOutcome:
             service_name=service_name,
             reset_time=reset_time,
             usage_limit_scope=usage_limit_scope,
+            invocation_progress=invocation_progress,
+        )
+
+    @classmethod
+    def cancelled(
+        cls,
+        *,
+        output: str,
+        invocation_progress: InvocationProgress,
+    ) -> RuntimeOutcome:
+        return cls(
+            kind="cancelled",
+            output=output,
             invocation_progress=invocation_progress,
         )
 
@@ -527,6 +540,11 @@ class OneShotRuntime:
                 service_registry=self._service_registry,
                 request=request,
             )
+        except AgentCancelledError as exc:
+            return RuntimeOutcome.cancelled(
+                output="",
+                invocation_progress=exc.invocation_progress,
+            )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
                 output="",
@@ -554,6 +572,11 @@ class ResumableRuntime:
             result = await _run_resumable_prompt(
                 runner=self._execution_adapter,
                 request=request,
+            )
+        except AgentCancelledError as exc:
+            return RuntimeOutcome.cancelled(
+                output="",
+                invocation_progress=exc.invocation_progress,
             )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
@@ -638,10 +661,8 @@ async def _run_one_shot(
     while True:
         now = _time_module.now_local()
         if request.token is not None and request.token.is_cancelled:
-            raise UsageLimitError(
-                reset_time=None,
-                usage_limit_scope=request.usage_limit_scope
-                or UsageLimitScope(role.value),
+            raise AgentCancelledError(
+                invocation_progress=InvocationProgress.NOT_STARTED,
             )
         if not service_registry.has_available_for(request.stage, now):
             resolved_override = service_registry.resolve(request.stage, now)
