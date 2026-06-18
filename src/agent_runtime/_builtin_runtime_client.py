@@ -1975,7 +1975,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
             invocation_log=invocation_log,
             role=request.role,
             run_kind=run_kind,
-            session_uuid=provider_session_id,
+            session_uuid=claude_provider_session_id,
             prompt=request.prompt,
             usage_limit_scope=request.usage_limit_scope,
         )
