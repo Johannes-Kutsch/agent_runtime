@@ -343,6 +343,66 @@ class _ToolPolicyRenderingEphemeralExecutionAdapter:
         )
 
 
+class _RawSetupFailureEphemeralRunner:
+    async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
+        del git_name, git_email, work_body
+        raise RuntimeError("missing auth")
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise AssertionError("setup failure should stop execution before work_text")
+
+
+class _SetupTranslatedEphemeralExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _RawSetupFailureEphemeralRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(
+                timeout_retries=0,
+                translate_setup_failure=lambda role, exc: AgentCredentialFailureError(
+                    str(exc),
+                    service_name="claude",
+                    classification="credential",
+                    observations=(),
+                ),
+            ),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _RoleAwareOneShotWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
@@ -3140,6 +3200,34 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
         ),
     )
     assert result.tool_access == tool_access
+
+
+def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        asyncio.run(
+            prompt_runtime.EphemeralRuntime(
+                execution_adapter=_SetupTranslatedEphemeralExecutionAdapter(),
+                service_registry=service_registry_factory("claude"),
+            ).run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=Path("."),
+                    stage=stage_selection_factory(
+                        service="claude",
+                        model="gpt-5",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    tool_access=runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    assert str(exc_info.value) == "missing auth"
+    assert exc_info.value.service_name == "claude"
 
 
 def test_one_shot_runtime_preserves_one_shot_result_convenience_fields_on_completed_outcome(

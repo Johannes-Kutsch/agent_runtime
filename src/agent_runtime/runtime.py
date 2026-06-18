@@ -542,6 +542,37 @@ class _RuntimeIntent:
     allow_non_typed_resume_retry: bool = False
 
 
+@dataclasses.dataclass
+class _EphemeralPreparedProviderRunSession:
+    run_kind: RunKind = RunKind.FRESH
+    provider_session_id: str | None = None
+
+    def record_provider_session_id(self, provider_session_id: str) -> None:
+        self.provider_session_id = provider_session_id
+
+    def record_successful_run(self) -> None:
+        return None
+
+
+class _EphemeralPreparedRunSessionState:
+    provider_state_dir_container_path: str | None = None
+
+    def __init__(self) -> None:
+        self._provider_run_session = _EphemeralPreparedProviderRunSession()
+
+    def prepare_for_run(self) -> None:
+        return None
+
+    def initial_provider_run_session(self) -> _EphemeralPreparedProviderRunSession:
+        return self._provider_run_session
+
+    def resumable_provider_run_session(self) -> _EphemeralPreparedProviderRunSession:
+        return self._provider_run_session
+
+    def protocol_reprompt_provider_run_session(self) -> None:
+        return None
+
+
 def _selected_service_path(
     override: StageSelection,
     *,
@@ -1056,33 +1087,42 @@ async def _run_ephemeral(
             effort=resolved_override.effort,
             service=resolved_service,
         )
-        session = dependencies.execution.build_session(
-            request.mount_path,
-            resolved_service,
-            None,
-        )
-        runner_instance = dependencies.execution.build_runner(session, None)
-        git_name, git_email = dependencies.execution.get_git_identity()
-        await runner_instance.setup(git_name, git_email)
         try:
-            raw_output = await TextOutputAdapter(
-                prompt=request.prompt,
-                tool_access=request.tool_access,
-                workspace=request.worktree,
-            ).invoke(
-                runner=runner_instance,
-                role=role,
-                prompt=request.prompt,
-                run_kind=RunKind.FRESH,
-                session_uuid=None,
-                on_provider_session_id=lambda _provider_session_id: None,
+            raw_output = await _invoke_runtime_intent(
+                _RuntimeIntent(
+                    run_session=_build_run_session(
+                        mount_path=request.mount_path,
+                        role=role,
+                        session_namespace=request.session_namespace,
+                        service=resolved_service,
+                        container_workspace=dependencies.execution.container_workspace,
+                        usage_limit_scope=request.usage_limit_scope,
+                    ),
+                    model=resolved_override.model,
+                    effort=resolved_override.effort,
+                    output_adapter=TextOutputAdapter(
+                        prompt=request.prompt,
+                        tool_access=request.tool_access,
+                        workspace=request.worktree,
+                    ),
+                    dependencies=dataclasses.replace(
+                        dependencies,
+                        execution=dataclasses.replace(
+                            dependencies.execution,
+                            prepare_session=lambda _run_session: cast(
+                                Any,
+                                _EphemeralPreparedRunSessionState(),
+                            ),
+                        ),
+                    ),
+                    presentation=WorkInvocationPresentation(
+                        name=_DEFAULT_ONE_SHOT_NAME,
+                    ),
+                    token=request.token,
+                )
             )
         except Exception as exc:
             if isinstance(exc, UsageLimitError):
-                service_registry.mark_exhausted(
-                    resolved_override.service,
-                    reset_time=exc.reset_time,
-                )
                 exhausted_now = _time_module.now_local()
                 if not service_registry.has_available_for(request.stage, exhausted_now):
                     raise NoServiceAvailableError(
