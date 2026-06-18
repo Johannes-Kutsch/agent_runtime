@@ -206,13 +206,8 @@ def _run_builtin_session_outcome(
 
 
 class RuntimeClient:
-    def __init__(
-        self,
-        *,
-        _provider_invocation_adapter: "ProviderInvocationAdapter | None" = None,
-    ) -> None:
+    def __init__(self) -> None:
         self._availability = _BuiltInAvailabilityState()
-        self._provider_invocation_adapter = _provider_invocation_adapter
 
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         default_usage_limit_scope = request.usage_limit_scope or UsageLimitScope(
@@ -241,7 +236,6 @@ class RuntimeClient:
                 result = _run_builtin_ephemeral(
                     request,
                     select_builtin_stage=lambda _stage: selected_stage,
-                    provider_invocation_adapter=self._provider_invocation_adapter,
                 )
             except UsageLimitError as exc:
                 exhausted_now = _time_module.now_local()
@@ -276,22 +270,14 @@ class RuntimeClient:
             )
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
-        return _run_builtin_session_outcome(
-            lambda: _run_builtin_new_session(
-                request,
-                provider_invocation_adapter=self._provider_invocation_adapter,
-            )
-        )
+        return _run_builtin_session_outcome(lambda: _run_builtin_new_session(request))
 
     async def run_resumed_session(
         self,
         request: ResumedSessionRunRequest,
     ) -> RuntimeOutcome:
         return _run_builtin_session_outcome(
-            lambda: _run_builtin_resumed_session(
-                request,
-                provider_invocation_adapter=self._provider_invocation_adapter,
-            )
+            lambda: _run_builtin_resumed_session(request)
         )
 
 

@@ -381,24 +381,24 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    outcome = asyncio.run(
-        runtime.RuntimeClient(_provider_invocation_adapter=adapter).run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
-                ),
-                role=InvocationRole("implementer"),
-                session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
-                tool_access=runtime.ToolAccess.no_tools(),
-            )
+    request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        worktree=tmp_path,
+        runtime_state_dir=runtime_state_dir,
+        stage=runtime.StageSelection(
+            service="claude",
+            model="sonnet",
+            effort="medium",
+        ),
+        role=InvocationRole("implementer"),
+        session_namespace="main",
+        provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        tool_access=runtime.ToolAccess.no_tools(),
+    )
+    outcome = prompt_runtime._run_builtin_session_outcome(
+        lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
+            request,
+            provider_invocation_adapter=adapter,
         )
     )
 
@@ -431,21 +431,13 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
             output_tokens=2,
         ),
     )
-    assert [request.prompt.content for request in adapter.recorded_requests] == [
-        "already rendered prompt"
-    ]
-    assert [request.run_kind for request in adapter.recorded_requests] == [
-        RunKind.FRESH
-    ]
-    assert [request.role for request in adapter.recorded_requests] == [
-        InvocationRole("implementer")
-    ]
-    assert [request.usage_limit_scope for request in adapter.recorded_requests] == [
-        None
-    ]
-    assert [request.provider_session_id for request in adapter.recorded_requests] == [
-        "session-uuid"
-    ]
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.content == "already rendered prompt"
+    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.role == InvocationRole("implementer")
+    assert recorded_request.usage_limit_scope is None
+    assert recorded_request.provider_session_id == "session-uuid"
 
 
 def test_runtime_client_runs_claude_resumed_session_from_continuation(
@@ -604,8 +596,8 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
         ]
     )
 
-    outcome = asyncio.run(
-        runtime.RuntimeClient(_provider_invocation_adapter=adapter).run_new_session(
+    outcome = prompt_runtime._run_builtin_session_outcome(
+        lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
@@ -621,7 +613,8 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
                     claude_code_oauth_token="oauth-token"
                 ),
                 tool_access=runtime.ToolAccess.no_tools(),
-            )
+            ),
+            provider_invocation_adapter=adapter,
         )
     )
 
