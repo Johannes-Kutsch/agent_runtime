@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from .identity import validate_runtime_identity_label, validate_session_namespace
 from .invocation_progress import InvocationProgress
@@ -22,8 +23,10 @@ class AgentCancelledError(AgentRuntimeError):
         self,
         *,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+        continuation: Any | None = None,
     ) -> None:
         self.invocation_progress = invocation_progress
+        self.continuation = continuation
         super().__init__("Agent run was cancelled.")
 
 
@@ -34,10 +37,12 @@ class AgentTimeoutError(AgentRuntimeError, TimeoutError):
         invocation_role: str = "",
         worktree_path: Path | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+        continuation: Any | None = None,
     ) -> None:
         self.invocation_role = invocation_role
         self.worktree_path = worktree_path
         self.invocation_progress = invocation_progress
+        self.continuation = continuation
         super().__init__(message)
 
 
@@ -66,6 +71,7 @@ class UsageLimitError(AgentRuntimeError):
         account_label: str | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+        continuation: Any | None = None,
     ) -> None:
         self.reset_time = reset_time
         self.raw_message = raw_message
@@ -79,6 +85,7 @@ class UsageLimitError(AgentRuntimeError):
         self.account_label = account_label
         self.usage_limit_scope = usage_limit_scope
         self.invocation_progress = invocation_progress
+        self.continuation = continuation
         super().__init__(
             f"Usage limit reached (reset_time={reset_time.isoformat() if reset_time else None})"
         )
@@ -100,6 +107,7 @@ class RetryableProviderFailureError(AgentRuntimeError):
         classification: str | None = None,
         observations: tuple[ProviderErrorObservation, ...] = (),
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+        continuation: Any | None = None,
     ) -> None:
         self.status_code = status_code
         validate_runtime_identity_label(
@@ -110,6 +118,7 @@ class RetryableProviderFailureError(AgentRuntimeError):
         self.classification = classification
         self.observations = observations
         self.invocation_progress = invocation_progress
+        self.continuation = continuation
         super().__init__(message)
 
 

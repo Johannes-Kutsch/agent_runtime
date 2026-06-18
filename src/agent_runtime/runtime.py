@@ -157,6 +157,7 @@ class RuntimeOutcome:
     reset_time: datetime | None = None
     usage_limit_scope: UsageLimitScope | None = None
     invocation_progress: InvocationProgress | None = None
+    continuation: Continuation | None = None
 
     @classmethod
     def completed(
@@ -176,6 +177,7 @@ class RuntimeOutcome:
         reset_time: datetime | None,
         usage_limit_scope: UsageLimitScope | None,
         invocation_progress: InvocationProgress,
+        continuation: Continuation | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="usage_limited",
@@ -184,6 +186,7 @@ class RuntimeOutcome:
             reset_time=reset_time,
             usage_limit_scope=usage_limit_scope,
             invocation_progress=invocation_progress,
+            continuation=continuation,
         )
 
     @classmethod
@@ -194,6 +197,7 @@ class RuntimeOutcome:
         reset_time: datetime | None,
         usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress,
+        continuation: Continuation | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="no_service_available",
@@ -201,6 +205,7 @@ class RuntimeOutcome:
             reset_time=reset_time,
             usage_limit_scope=usage_limit_scope,
             invocation_progress=invocation_progress,
+            continuation=continuation,
         )
 
     @classmethod
@@ -209,11 +214,13 @@ class RuntimeOutcome:
         *,
         output: str,
         invocation_progress: InvocationProgress,
+        continuation: Continuation | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="cancelled",
             output=output,
             invocation_progress=invocation_progress,
+            continuation=continuation,
         )
 
     @classmethod
@@ -222,11 +229,13 @@ class RuntimeOutcome:
         *,
         output: str,
         invocation_progress: InvocationProgress,
+        continuation: Continuation | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="timed_out",
             output=output,
             invocation_progress=invocation_progress,
+            continuation=continuation,
         )
 
     @classmethod
@@ -236,12 +245,14 @@ class RuntimeOutcome:
         output: str,
         service_name: str,
         invocation_progress: InvocationProgress,
+        continuation: Continuation | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="retryable_provider_failure",
             output=output,
             service_name=service_name,
             invocation_progress=invocation_progress,
+            continuation=continuation,
         )
 
     @property
@@ -996,11 +1007,13 @@ class OneShotRuntime:
             return RuntimeOutcome.cancelled(
                 output="",
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except AgentTimeoutError as exc:
             return RuntimeOutcome.timed_out(
                 output="",
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except NoServiceAvailableError as exc:
             return RuntimeOutcome.no_service_available(
@@ -1014,6 +1027,7 @@ class OneShotRuntime:
                 output="",
                 service_name=exc.service_name,
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
@@ -1022,6 +1036,7 @@ class OneShotRuntime:
                 reset_time=exc.reset_time,
                 usage_limit_scope=exc.usage_limit_scope,
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         return RuntimeOutcome.completed(output=result.output, result=result)
 
@@ -1052,11 +1067,13 @@ class EphemeralRuntime:
             return RuntimeOutcome.cancelled(
                 output="",
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except AgentTimeoutError as exc:
             return RuntimeOutcome.timed_out(
                 output="",
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except NoServiceAvailableError as exc:
             return RuntimeOutcome.no_service_available(
@@ -1070,6 +1087,7 @@ class EphemeralRuntime:
                 output="",
                 service_name=exc.service_name,
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
@@ -1078,6 +1096,7 @@ class EphemeralRuntime:
                 reset_time=exc.reset_time,
                 usage_limit_scope=exc.usage_limit_scope,
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         return RuntimeOutcome.completed(output=result.output, result=result)
 
@@ -1108,11 +1127,13 @@ class NewSessionRuntime:
             return RuntimeOutcome.cancelled(
                 output="",
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except AgentTimeoutError as exc:
             return RuntimeOutcome.timed_out(
                 output="",
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except NoServiceAvailableError as exc:
             return RuntimeOutcome.no_service_available(
@@ -1126,6 +1147,7 @@ class NewSessionRuntime:
                 output="",
                 service_name=exc.service_name,
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
@@ -1134,6 +1156,7 @@ class NewSessionRuntime:
                 reset_time=exc.reset_time,
                 usage_limit_scope=exc.usage_limit_scope,
                 invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
             )
         return RuntimeOutcome.completed(output=result.output, result=result)
 
@@ -1595,25 +1618,44 @@ async def _run_resumable_prompt(
         ),
         exact_transcript_match=exact_transcript_match,
     )
-    output = await _invoke_runtime_intent(
-        _RuntimeIntent(
-            run_session=run_session,
-            model=request.model,
-            effort=request.effort,
-            output_adapter=TextOutputAdapter(
-                prompt=request.prompt,
-                tool_access=request.tool_access,
-                workspace=request.worktree.host_path,
-            ),
-            dependencies=resumable_dependencies,
-            presentation=WorkInvocationPresentation(
-                name=request.name,
-                status_display=request.status_display,
-                work_body=request.work_body,
-            ),
-            token=request.token,
+    try:
+        output = await _invoke_runtime_intent(
+            _RuntimeIntent(
+                run_session=run_session,
+                model=request.model,
+                effort=request.effort,
+                output_adapter=TextOutputAdapter(
+                    prompt=request.prompt,
+                    tool_access=request.tool_access,
+                    workspace=request.worktree.host_path,
+                ),
+                dependencies=resumable_dependencies,
+                presentation=WorkInvocationPresentation(
+                    name=request.name,
+                    status_display=request.status_display,
+                    work_body=request.work_body,
+                ),
+                token=request.token,
+            )
         )
-    )
+    except (
+        AgentCancelledError,
+        AgentTimeoutError,
+        RetryableProviderFailureError,
+        UsageLimitError,
+    ) as exc:
+        exc.continuation = _interruption_continuation(
+            request=request,
+            service_name=service.name,
+            run_kind=run_kind,
+            provider_state_dir_relpath=provider_state_dir_relpath,
+            exact_transcript_match=exact_transcript_match,
+            prepared_session=prepared_session,
+            prepare_session=resumable_dependencies.execution.prepare_session,
+            run_session=run_session,
+            invocation_progress=exc.invocation_progress,
+        )
+        raise
     if prepared_session is None:
         prepared_session = resumable_dependencies.execution.prepare_session(run_session)
     provider_run_session = prepared_session.initial_provider_run_session()
@@ -1626,17 +1668,15 @@ async def _run_resumable_prompt(
             session_namespace=request.session_namespace,
             exact_transcript_match=exact_transcript_match,
         ),
-        continuation=Continuation(
-            selected_service=service.name,
-            selected_model=request.model,
-            selected_effort=request.effort,
+        continuation=_build_continuation(
+            service_name=service.name,
+            model=request.model,
+            effort=request.effort,
             tool_access=request.tool_access,
-            provider_resume_state={
-                "run_kind": run_kind.value,
-                "provider_session_id": provider_run_session.provider_session_id,
-                "provider_state_dir_relpath": provider_state_dir_relpath,
-                "exact_transcript_match": exact_transcript_match,
-            },
+            run_kind=run_kind,
+            provider_session_id=provider_run_session.provider_session_id,
+            provider_state_dir_relpath=provider_state_dir_relpath,
+            exact_transcript_match=exact_transcript_match,
         ),
     )
 
@@ -1672,6 +1712,60 @@ def _continuation_resume_state(continuation: Continuation) -> dict[str, Any]:
             "Continuation provider_resume_state must be a JSON object."
         )
     return provider_resume_state
+
+
+def _build_continuation(
+    *,
+    service_name: str,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    run_kind: RunKind,
+    provider_session_id: str | None,
+    provider_state_dir_relpath: str | None,
+    exact_transcript_match: bool,
+) -> Continuation:
+    return Continuation(
+        selected_service=service_name,
+        selected_model=model,
+        selected_effort=effort,
+        tool_access=tool_access,
+        provider_resume_state={
+            "run_kind": run_kind.value,
+            "provider_session_id": provider_session_id,
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": exact_transcript_match,
+        },
+    )
+
+
+def _interruption_continuation(
+    *,
+    request: ResumableRunRequest,
+    service_name: str,
+    run_kind: RunKind,
+    provider_state_dir_relpath: str | None,
+    exact_transcript_match: bool,
+    prepared_session: Any,
+    prepare_session: Any,
+    run_session: RunSessionPlan,
+    invocation_progress: InvocationProgress,
+) -> Continuation | None:
+    if invocation_progress is not InvocationProgress.STARTED:
+        return None
+    if prepared_session is None:
+        prepared_session = prepare_session(run_session)
+    provider_run_session = prepared_session.initial_provider_run_session()
+    return _build_continuation(
+        service_name=service_name,
+        model=request.model,
+        effort=request.effort,
+        tool_access=request.tool_access,
+        run_kind=run_kind,
+        provider_session_id=provider_run_session.provider_session_id,
+        provider_state_dir_relpath=provider_state_dir_relpath,
+        exact_transcript_match=exact_transcript_match,
+    )
 
 
 def _continuation_run_kind(provider_resume_state: dict[str, Any]) -> RunKind:
