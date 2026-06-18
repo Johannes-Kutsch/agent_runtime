@@ -699,6 +699,46 @@ class _ResidentSeamExecutionAdapter:
         )
 
 
+class _RuntimePlannedPathResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path=(
+                    run_session.provider_state_dir_container_path
+                ),
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter, _ResidentSeamRunner(cast(_Session, session))
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _ToolPolicyObservingResidentRunner(_ResidentSeamRunner):
     def __init__(
         self,
@@ -2419,7 +2459,7 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
 
     result = asyncio.run(
         prompt_runtime.ResumableRuntime(
-            execution_adapter=_ResidentSeamExecutionAdapter()
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
             prompt_runtime.ResumableRunRequest(
                 prompt="already rendered prompt",
@@ -2433,7 +2473,7 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
     )
 
     assert result == prompt_runtime.ResumableRunResult(
-        output="resume:prepared:recovered-session:/workspace/runtime-state/",
+        output="resume:prepared:recovered-session:/workspace/state/",
         runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
             service_name="codex",
             provider_session_id="prepared:recovered-session",
@@ -2528,10 +2568,17 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
     )
     assert session_plan.provider_state_dir == Path("/host/runtime-state")
     assert session_plan.provider_session_id == "recovered-session"
+    assert (
+        provider_session_decision.container_state_dir_path(
+            worktree=worktree,
+            container_workspace="/workspace",
+        )
+        == "/workspace/runtime-state/"
+    )
 
     result = asyncio.run(
         prompt_runtime.ResumableRuntime(
-            execution_adapter=_ResidentSeamExecutionAdapter()
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
             prompt_runtime.ResumableRunRequest(
                 prompt="already rendered prompt",
