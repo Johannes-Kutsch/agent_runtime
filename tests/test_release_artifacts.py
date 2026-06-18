@@ -20,6 +20,22 @@ def _build_release_artifacts(tmp_path: Path) -> tuple[Path, Path]:
         shutil.rmtree(Path("build"), ignore_errors=True)
 
 
+def _run_release_build(outdir: Path) -> subprocess.CompletedProcess[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    return subprocess.run(
+        [
+            sys.executable,
+            "scripts/build_release_artifacts.py",
+            "--outdir",
+            str(outdir),
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def test_release_artifacts_ship_typing_marker_without_package_build_metadata(
     tmp_path: Path,
 ) -> None:
@@ -76,23 +92,19 @@ def test_release_build_output_contains_only_fresh_runtime_artifacts(
     stale_directory.mkdir()
     (stale_directory / "nested.txt").write_text("stale", encoding="utf-8")
 
-    repo_root = Path(__file__).resolve().parents[1]
-    result = subprocess.run(
-        [
-            sys.executable,
-            "scripts/build_release_artifacts.py",
-            "--outdir",
-            str(dist_dir),
-        ],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = _run_release_build(dist_dir)
 
     assert result.returncode == 0, result.stderr
     assert not stale_artifact.exists()
     assert not stale_directory.exists()
+
+
+def test_release_build_output_uses_runtime_artifact_names(tmp_path: Path) -> None:
+    dist_dir = tmp_path / "dist"
+
+    result = _run_release_build(dist_dir)
+
+    assert result.returncode == 0, result.stderr
 
     built_artifacts = sorted(path.name for path in dist_dir.iterdir())
     assert len(built_artifacts) == 2
