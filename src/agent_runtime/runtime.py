@@ -1183,7 +1183,7 @@ async def _run_resumed_session_outcome(
     request: ResumedSessionRunRequest,
 ) -> RuntimeOutcome:
     try:
-        result = await _run_resumable_prompt(
+        result = await _run_resumed_session(
             runner=runner,
             request=request,
         )
@@ -1546,7 +1546,7 @@ async def _run_new_session(
             )
         )
         try:
-            return await _run_resumable_prompt(
+            return await _run_resumed_session(
                 runner=runner,
                 request=ResumedSessionRunRequest(
                     prompt=request.prompt,
@@ -1580,7 +1580,7 @@ async def _run_new_session(
                 ) from exc
 
 
-async def _run_resumable_prompt(
+async def _run_resumed_session(
     *,
     runner: ResumedSessionRuntimeExecutionAdapter,
     request: ResumedSessionRunRequest,

@@ -3046,6 +3046,10 @@ def test_runtime_star_import_uses_lifecycle_surface_while_kept_one_shot_aliases_
 def test_runtime_direct_import_rejects_removed_resumable_completed_result_names() -> (
     None
 ):
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, "ResumableRuntime")
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, "ResumableRuntimeExecutionAdapter")
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ResumableRuntime", {}, {})
     with pytest.raises(ImportError):
@@ -5168,7 +5172,7 @@ def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
     )
 
 
-def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam(
+def test_resumed_session_runtime_preserves_resumed_session_behavior_through_run_session_seam(
     execution_service_factory: Callable[..., ExecutionProvider],
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
@@ -5226,7 +5230,7 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
     )
 
 
-def test_resumable_runtime_uses_invocation_role_from_session_plan(
+def test_resumed_session_runtime_uses_invocation_role_from_session_plan(
     execution_service_factory: Callable[..., ExecutionProvider],
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
@@ -5263,7 +5267,7 @@ def test_resumable_runtime_uses_invocation_role_from_session_plan(
     assert execution_adapter.observed_roles == [role]
 
 
-def test_resumable_runtime_preserves_planned_relative_provider_state_path(
+def test_resumed_session_runtime_preserves_planned_relative_provider_state_path(
     execution_service_factory: Callable[..., ExecutionProvider],
     session_store_factory: Callable[..., _SessionStore],
     external_state_provider_session_adapter: _ExternalStateResidentPlanningProviderSessionAdapter,
@@ -5348,7 +5352,7 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
     )
 
 
-def test_resumable_runtime_returns_portable_continuation_resume_data(
+def test_resumed_session_runtime_returns_portable_continuation_resume_data(
     execution_service_factory: Callable[..., ExecutionProvider],
     session_store_factory: Callable[..., _SessionStore],
     external_state_provider_session_adapter: _ExternalStateResidentPlanningProviderSessionAdapter,
@@ -6236,69 +6240,6 @@ def test_continuation_provider_resume_state_requires_json_compatible_data() -> N
         )
 
 
-def test_resumable_runtime_resumes_from_portable_continuation_data() -> None:
-    worktree = Path("/repo")
-    continuation = prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
-            worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
-        ),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "recovered-session",
-            "provider_state_dir_relpath": "runtime-state/",
-            "exact_transcript_match": False,
-        },
-    )
-
-    result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(worktree),
-                role=InvocationRole("implementer"),
-                session_namespace="main",
-                continuation=continuation,
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.completed(
-        output="resume:prepared:recovered-session:/workspace/runtime-state/",
-        result=prompt_runtime.SessionRunResult(
-            output="resume:prepared:recovered-session:/workspace/runtime-state/",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="prepared:recovered-session",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
-            ),
-        ),
-    )
-    assert isinstance(result.result, prompt_runtime.SessionRunResult)
-    assert result.result.continuation == prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
-            worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
-        ),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "prepared:recovered-session",
-            "provider_state_dir_relpath": "runtime-state/",
-            "exact_transcript_match": False,
-        },
-    )
-
-
 def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> None:
     worktree = Path("/repo")
     continuation = prompt_runtime.Continuation(
@@ -6362,7 +6303,7 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
     )
 
 
-def test_resumable_runtime_passes_continuation_provider_resume_state_to_adapter() -> (
+def test_resumed_session_runtime_passes_continuation_provider_resume_state_to_adapter() -> (
     None
 ):
     worktree = Path("/repo")
@@ -6527,7 +6468,7 @@ def test_resumable_runtime_passes_continuation_provider_resume_state_to_adapter(
     )
 
 
-def test_resumable_runtime_completed_outcome_keeps_service_bound_in_continuation() -> (
+def test_resumed_session_runtime_completed_outcome_keeps_service_bound_in_continuation() -> (
     None
 ):
     worktree = Path("/repo")
@@ -6574,7 +6515,7 @@ def test_resumable_runtime_completed_outcome_keeps_service_bound_in_continuation
     )
 
 
-def test_resumable_runtime_returns_latest_adapter_updated_provider_resume_state() -> (
+def test_resumed_session_runtime_returns_latest_adapter_updated_provider_resume_state() -> (
     None
 ):
     worktree = Path("/repo")
@@ -6741,7 +6682,7 @@ def test_resumable_runtime_returns_latest_adapter_updated_provider_resume_state(
     )
 
 
-def test_resumable_runtime_keeps_frozen_adapter_session_seam_unchanged() -> None:
+def test_resumed_session_runtime_keeps_frozen_adapter_session_seam_unchanged() -> None:
     worktree = Path("/repo")
     initial_resume_state = {
         "resume_cursor": {"session": "recovered-session", "turn": 7},
@@ -7025,7 +6966,7 @@ def test_resumable_run_request_rejects_conflicting_tool_access_and_tool_policy()
         )
 
 
-def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_effort() -> (
+def test_resumed_session_runtime_from_continuation_defaults_and_overrides_model_and_effort() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7099,7 +7040,7 @@ def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_ef
     )
 
 
-def test_resumable_runtime_started_usage_limit_keeps_service_bound_in_continuation() -> (
+def test_resumed_session_runtime_started_usage_limit_keeps_service_bound_in_continuation() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7130,7 +7071,7 @@ def test_resumable_runtime_started_usage_limit_keeps_service_bound_in_continuati
 
 
 @pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)
-def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
+def test_resumed_session_runtime_exposes_tool_policy_effects_through_runtime_result(
     tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
@@ -7166,7 +7107,7 @@ def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
     assert result.output == _tool_policy_effect_text(tool_policy)
 
 
-def test_resumable_runtime_reports_started_progress_for_usage_limited_outcome(
+def test_resumed_session_runtime_reports_started_progress_for_usage_limited_outcome(
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
@@ -7218,7 +7159,7 @@ def test_resumable_runtime_reports_started_progress_for_usage_limited_outcome(
     )
 
 
-def test_resumable_runtime_prefers_adapter_reported_model_activity_for_usage_limited_outcome(
+def test_resumed_session_runtime_prefers_adapter_reported_model_activity_for_usage_limited_outcome(
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
@@ -7270,7 +7211,7 @@ def test_resumable_runtime_prefers_adapter_reported_model_activity_for_usage_lim
     )
 
 
-def test_resumable_runtime_returns_no_service_available_outcome_for_bound_service_unavailability() -> (
+def test_resumed_session_runtime_returns_no_service_available_outcome_for_bound_service_unavailability() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7319,7 +7260,7 @@ def test_resumable_runtime_returns_no_service_available_outcome_for_bound_servic
     )
 
 
-def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_after_model_activity() -> (
+def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuation_after_model_activity() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7410,7 +7351,7 @@ def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_aft
     )
 
 
-def test_resumable_runtime_returns_timed_out_outcome_with_input_continuation_after_model_activity() -> (
+def test_resumed_session_runtime_returns_timed_out_outcome_with_input_continuation_after_model_activity() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7437,7 +7378,7 @@ def test_resumable_runtime_returns_timed_out_outcome_with_input_continuation_aft
     )
 
 
-def test_resumable_runtime_returns_retryable_provider_failure_outcome_with_input_continuation_after_model_activity() -> (
+def test_resumed_session_runtime_returns_retryable_provider_failure_outcome_with_input_continuation_after_model_activity() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7482,7 +7423,7 @@ def _bound_service_resumed_continuation(
     )
 
 
-def test_resumable_runtime_returns_usage_limited_outcome_with_input_continuation_before_model_activity() -> (
+def test_resumed_session_runtime_returns_usage_limited_outcome_with_input_continuation_before_model_activity() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7578,7 +7519,7 @@ def test_resumable_runtime_returns_usage_limited_outcome_with_input_continuation
     )
 
 
-def test_resumable_runtime_returns_no_service_available_outcome_with_input_continuation_before_model_activity() -> (
+def test_resumed_session_runtime_returns_no_service_available_outcome_with_input_continuation_before_model_activity() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7626,7 +7567,7 @@ def test_resumable_runtime_returns_no_service_available_outcome_with_input_conti
     )
 
 
-def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_before_model_activity() -> (
+def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuation_before_model_activity() -> (
     None
 ):
     worktree = Path("/repo")
@@ -7671,7 +7612,7 @@ def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_bef
         ),
     ],
 )
-def test_resumable_runtime_preserves_input_continuation_for_not_started_interruption_outcomes(
+def test_resumed_session_runtime_preserves_input_continuation_for_not_started_interruption_outcomes(
     execution_adapter: Any,
     expected_kind: str,
     service_name: str | None,
@@ -7702,7 +7643,7 @@ def test_resumable_runtime_preserves_input_continuation_for_not_started_interrup
     )
 
 
-def test_resumable_runtime_returns_cancelled_outcome_for_pre_start_caller_cancellation(
+def test_resumed_session_runtime_returns_cancelled_outcome_for_pre_start_caller_cancellation(
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
@@ -7836,7 +7777,7 @@ def test_timed_out_outcomes_preserve_started_and_not_started_progress(
     )
 
 
-def test_resumable_runtime_reports_started_progress_for_timed_out_outcome(
+def test_resumed_session_runtime_reports_started_progress_for_timed_out_outcome(
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
