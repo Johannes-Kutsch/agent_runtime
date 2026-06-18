@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
+import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -37,6 +39,7 @@ from .usage_limit_scope import UsageLimitScope
 from .work import invoke_work
 
 __all__ = [
+    "Continuation",
     "EphemeralRunRequest",
     "EphemeralRunResult",
     "EphemeralResultMetadata",
@@ -68,6 +71,72 @@ ResumableRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
 
 _DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
+
+
+def _require_json_compatible_resume_state(
+    value: Any,
+    *,
+    path: str = "provider_resume_state",
+) -> None:
+    if value is None or isinstance(value, str | bool | int):
+        return
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return
+        raise TypeError("Continuation provider_resume_state must be JSON-compatible.")
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _require_json_compatible_resume_state(item, path=f"{path}[{index}]")
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(
+                    "Continuation provider_resume_state must be JSON-compatible."
+                )
+            _require_json_compatible_resume_state(item, path=f"{path}.{key}")
+        return
+    raise TypeError("Continuation provider_resume_state must be JSON-compatible.")
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class Continuation:
+    selected_service: str
+    selected_model: str
+    selected_effort: str
+    tool_access: ToolAccess
+    _provider_resume_state_json: str = dataclasses.field(
+        repr=False,
+    )
+
+    def __init__(
+        self,
+        *,
+        selected_service: str,
+        selected_model: str,
+        selected_effort: str,
+        tool_access: ToolAccess,
+        provider_resume_state: Any,
+    ) -> None:
+        _require_json_compatible_resume_state(provider_resume_state)
+        object.__setattr__(self, "selected_service", selected_service)
+        object.__setattr__(self, "selected_model", selected_model)
+        object.__setattr__(self, "selected_effort", selected_effort)
+        object.__setattr__(self, "tool_access", tool_access)
+        object.__setattr__(
+            self,
+            "_provider_resume_state_json",
+            json.dumps(
+                provider_resume_state,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
+
+    @property
+    def provider_resume_state(self) -> Any:
+        return json.loads(self._provider_resume_state_json)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -456,6 +525,10 @@ class ResumableRuntimeMetadata:
 class ResumableRunResult:
     output: str
     runtime_metadata: ResumableRuntimeMetadata
+    continuation: Continuation | None = dataclasses.field(
+        default=None,
+        compare=False,
+    )
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -464,8 +537,12 @@ class ResumableRunRequest:
     worktree: WorktreeMount
     model: str
     effort: str
-    session_plan: ResumableSessionPlan
+    role: InvocationRole
+    session_namespace: str
+    session_plan: ResumableSessionPlan | None
+    continuation: Continuation | None
     tool_access: ToolAccess
+    usage_limit_scope: UsageLimitScope | None = None
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
@@ -475,9 +552,13 @@ class ResumableRunRequest:
         self,
         prompt: str,
         worktree: WorktreeMount,
-        model: str,
-        effort: str,
-        session_plan: ResumableSessionPlan,
+        model: str | None = None,
+        effort: str | None = None,
+        session_plan: ResumableSessionPlan | None = None,
+        continuation: Continuation | None = None,
+        role: InvocationRole | None = None,
+        session_namespace: str = "",
+        usage_limit_scope: UsageLimitScope | None = None,
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         name: str = "Runtime Agent",
@@ -485,6 +566,10 @@ class ResumableRunRequest:
         work_body: str = "",
         token: CancellationToken | None = None,
     ) -> None:
+        if continuation is not None and session_plan is not None:
+            raise TypeError(
+                "ResumableRunRequest received conflicting `session_plan` and `continuation` values."
+            )
         if (
             isinstance(tool_access, ToolAccess)
             and tool_policy is not _MISSING_TOOL_POLICY
@@ -492,17 +577,52 @@ class ResumableRunRequest:
             raise TypeError(
                 "ResumableRunRequest received conflicting `tool_access` and `tool_policy` values."
             )
-        if isinstance(tool_access, ToolAccess):
-            resolved_tool_access = tool_access
-        elif tool_policy is not _MISSING_TOOL_POLICY:
-            resolved_tool_access = ToolAccess.workspace_backed(
-                worktree.host_path,
-                tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
-            )
+        if continuation is not None:
+            if role is None:
+                raise TypeError(
+                    "ResumableRunRequest requires a `role` value when constructed from a continuation."
+                )
+            if tool_policy is not _MISSING_TOOL_POLICY or isinstance(
+                tool_access, ToolAccess
+            ):
+                raise TypeError(
+                    "ResumableRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
+                )
+            validate_session_namespace(session_namespace)
+            resolved_model = continuation.selected_model if model is None else model
+            resolved_effort = continuation.selected_effort if effort is None else effort
+            resolved_tool_access = continuation.tool_access
+            resolved_role = role
+            resolved_session_namespace = session_namespace
         else:
-            raise TypeError(
-                "ResumableRunRequest requires an explicit `tool_policy` value."
-            )
+            if session_plan is None:
+                raise TypeError(
+                    "ResumableRunRequest requires either a `session_plan` or `continuation` value."
+                )
+            if model is None or effort is None:
+                raise TypeError(
+                    "ResumableRunRequest requires `model` and `effort` when constructed from a session plan."
+                )
+            if role is not None:
+                raise TypeError(
+                    "ResumableRunRequest does not accept request-level `role` when `session_plan` is supplied."
+                )
+            if isinstance(tool_access, ToolAccess):
+                resolved_tool_access = tool_access
+            elif tool_policy is not _MISSING_TOOL_POLICY:
+                resolved_tool_access = ToolAccess.workspace_backed(
+                    worktree.host_path,
+                    tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
+                )
+            else:
+                raise TypeError(
+                    "ResumableRunRequest requires an explicit `tool_policy` value."
+                )
+            resolved_model = model
+            resolved_effort = effort
+            resolved_role = session_plan.role
+            resolved_session_namespace = session_plan.namespace
+            usage_limit_scope = session_plan.usage_limit_scope
         resolved_tool_access.require_workspace(
             worktree.host_path,
             context="ResumableRunRequest",
@@ -510,10 +630,14 @@ class ResumableRunRequest:
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree)
-        object.__setattr__(self, "model", model)
-        object.__setattr__(self, "effort", effort)
+        object.__setattr__(self, "model", resolved_model)
+        object.__setattr__(self, "effort", resolved_effort)
+        object.__setattr__(self, "role", resolved_role)
+        object.__setattr__(self, "session_namespace", resolved_session_namespace)
         object.__setattr__(self, "session_plan", session_plan)
+        object.__setattr__(self, "continuation", continuation)
         object.__setattr__(self, "tool_access", resolved_tool_access)
+        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
@@ -1162,16 +1286,43 @@ async def _run_resumable_prompt(
     runner: ResumableRuntimeExecutionAdapter,
     request: ResumableRunRequest,
 ) -> ResumableRunResult:
+    resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
         runner,
         "build_work_dependencies",
     )
-    plan = request.session_plan
+    if request.continuation is not None:
+        continuation = request.continuation
+        provider_resume_state = _continuation_resume_state(continuation)
+        service = resolve_service(continuation.selected_service)
+        run_kind = _continuation_run_kind(provider_resume_state)
+        provider_session_id = cast(
+            str | None,
+            provider_resume_state.get("provider_session_id"),
+        )
+        provider_state_dir_relpath = cast(
+            str | None,
+            provider_resume_state.get("provider_state_dir_relpath"),
+        )
+        exact_transcript_match = bool(
+            provider_resume_state.get("exact_transcript_match", False)
+        )
+    else:
+        plan = cast(ResumableSessionPlan, request.session_plan)
+        service = plan.service
+        run_kind = plan.run_kind
+        provider_session_id = plan.provider_session_id
+        provider_state_dir_relpath = getattr(
+            plan,
+            "_provider_state_dir_relpath",
+            None,
+        )
+        exact_transcript_match = plan.exact_transcript_match
     dependencies = build_work_dependencies(
         name=request.name,
         model=request.model,
         effort=request.effort,
-        service=plan.service,
+        service=service,
     )
     prepared_session: Any = None
 
@@ -1189,23 +1340,23 @@ async def _run_resumable_prompt(
         ),
     )
     run_session = _build_run_session(
-        mount_path=plan.worktree,
-        role=plan.role,
-        session_namespace=plan.namespace,
-        service=plan.service,
+        mount_path=request.worktree.host_path,
+        role=request.role,
+        session_namespace=request.session_namespace,
+        service=service,
         container_workspace=dependencies.execution.container_workspace,
-        usage_limit_scope=plan.usage_limit_scope,
-        run_kind=plan.run_kind,
-        provider_session_id=plan.provider_session_id,
+        usage_limit_scope=request.usage_limit_scope,
+        run_kind=run_kind,
+        provider_session_id=provider_session_id,
         provider_state_dir_container_path=_provider_state_dir_container_path(
-            worktree=plan.worktree,
-            provider_state_dir=plan.provider_state_dir,
-            provider_state_dir_relpath=getattr(
-                plan, "_provider_state_dir_relpath", None
+            worktree=request.worktree.host_path,
+            provider_state_dir=(
+                None if request.continuation is not None else plan.provider_state_dir
             ),
+            provider_state_dir_relpath=provider_state_dir_relpath,
             container_workspace=dependencies.execution.container_workspace,
         ),
-        exact_transcript_match=plan.exact_transcript_match,
+        exact_transcript_match=exact_transcript_match,
     )
     output = await _invoke_runtime_intent(
         _RuntimeIntent(
@@ -1232,11 +1383,23 @@ async def _run_resumable_prompt(
     return ResumableRunResult(
         output=output,
         runtime_metadata=ResumableRuntimeMetadata(
-            service_name=plan.service.name,
+            service_name=service.name,
             provider_session_id=provider_run_session.provider_session_id,
-            run_kind=plan.run_kind,
-            session_namespace=plan.namespace,
-            exact_transcript_match=plan.exact_transcript_match,
+            run_kind=run_kind,
+            session_namespace=request.session_namespace,
+            exact_transcript_match=exact_transcript_match,
+        ),
+        continuation=Continuation(
+            selected_service=service.name,
+            selected_model=request.model,
+            selected_effort=request.effort,
+            tool_access=request.tool_access,
+            provider_resume_state={
+                "run_kind": run_kind.value,
+                "provider_session_id": provider_run_session.provider_session_id,
+                "provider_state_dir_relpath": provider_state_dir_relpath,
+                "exact_transcript_match": exact_transcript_match,
+            },
         ),
     )
 
@@ -1263,3 +1426,23 @@ def _provider_state_dir_container_path(
             else f"{container_workspace}/{provider_state_dir_relpath}"
         )
     return f"{container_workspace}/{container_relpath.as_posix()}/"
+
+
+def _continuation_resume_state(continuation: Continuation) -> dict[str, Any]:
+    provider_resume_state = continuation.provider_resume_state
+    if not isinstance(provider_resume_state, dict):
+        raise RuntimeConfigurationError(
+            "Continuation provider_resume_state must be a JSON object."
+        )
+    return provider_resume_state
+
+
+def _continuation_run_kind(provider_resume_state: dict[str, Any]) -> RunKind:
+    run_kind_value = provider_resume_state.get("run_kind", RunKind.FRESH.value)
+    if run_kind_value == RunKind.FRESH.value:
+        return RunKind.FRESH
+    if run_kind_value == RunKind.RESUME.value:
+        return RunKind.RESUME
+    raise RuntimeConfigurationError(
+        "Continuation provider_resume_state must include a valid run_kind."
+    )
