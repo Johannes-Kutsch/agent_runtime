@@ -60,6 +60,23 @@ Use the ephemeral entrypoint when prompt rendering, issue orchestration, and app
 
 New-session execution, resumed-session execution, and `ProviderSessionAdapter` integration are advanced seams. Use them when you need provider-backed continuity, recovery, or session-specific policy.
 
+When you need to continue a provider-backed continuity chain, import the lifecycle session entrypoints directly:
+
+```python
+from agent_runtime.runtime import ResumedSessionRunRequest, ResumedSessionRuntime
+
+result = await ResumedSessionRuntime(
+    execution_adapter=build_execution_adapter(),
+).run_resumed_session(
+    ResumedSessionRunRequest(
+        prompt=rendered_prompt,
+        worktree=worktree_mount,
+        role=invocation_role,
+        continuation=continuation,
+    )
+)
+```
+
 Tool-capable execution is a separate concern from session lifecycle. If an entrypoint can grant tool access, the caller must provide explicit tool access rather than relying on an implicit default. Follow the focused tool-policy documentation for that integration so provider-specific command rendering stays behind adapter contracts.
 
 `ToolPolicyProfile` remains provider-neutral runtime data. Provider adapters translate runtime-owned tool policy values into backend-specific flags, arguments, and restrictions.

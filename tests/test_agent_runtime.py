@@ -3002,12 +3002,15 @@ def test_package_exports_runtime_surface() -> None:
         "EphemeralRuntimeExecutionAdapter",
         "EphemeralRuntimeMetadata",
         "Continuation",
-        "ResumableRunRequest",
+        "ResumedSessionRunRequest",
         "ResumableRunResult",
-        "ResumableRuntime",
-        "ResumableRuntimeExecutionAdapter",
+        "ResumedSessionRuntime",
+        "ResumedSessionRuntimeExecutionAdapter",
         "ResumableRuntimeMetadata",
     } <= set(prompt_runtime.__all__)
+    assert "ResumableRunRequest" not in prompt_runtime.__all__
+    assert "ResumableRuntime" not in prompt_runtime.__all__
+    assert "ResumableRuntimeExecutionAdapter" not in prompt_runtime.__all__
     assert "OneShotRunRequest" not in prompt_runtime.__all__
     assert "OneShotRunResult" not in prompt_runtime.__all__
     assert "OneShotResultMetadata" not in prompt_runtime.__all__
@@ -3025,10 +3028,36 @@ def test_runtime_star_import_uses_lifecycle_surface_while_kept_one_shot_aliases_
 
     assert "EphemeralRuntime" in exported_names
     assert "EphemeralRunRequest" in exported_names
+    assert "ResumedSessionRuntime" in exported_names
+    assert "ResumedSessionRunRequest" in exported_names
+    assert "ResumableRuntime" not in exported_names
+    assert "ResumableRunRequest" not in exported_names
     assert "OneShotRuntime" not in exported_names
     assert "OneShotRunRequest" not in exported_names
     assert prompt_runtime.OneShotRuntime is not None
     assert prompt_runtime.OneShotRunRequest is not None
+    assert prompt_runtime.ResumableRuntime is not None
+    assert prompt_runtime.ResumableRunRequest is not None
+
+
+def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
+    assert {
+        "NewSessionRunRequest",
+        "NewSessionRuntime",
+        "ResumedSessionRunRequest",
+        "ResumedSessionRuntime",
+    } <= set(prompt_runtime.__all__)
+    assert hasattr(prompt_runtime, "ResumedSessionRunRequest")
+    assert hasattr(prompt_runtime, "ResumedSessionRuntime")
+
+
+def test_readme_guides_consumers_to_lifecycle_session_entrypoints() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "ResumedSessionRuntime" in readme
+    assert "ResumedSessionRunRequest" in readme
+    assert "run_resumed_session" in readme
+    assert "run_resumable_prompt" not in readme
 
 
 def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
@@ -6188,6 +6217,69 @@ def test_resumable_runtime_resumes_from_portable_continuation_data() -> None:
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
         ).run_resumable_prompt(
             prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.completed(
+        output="resume:prepared:recovered-session:/workspace/runtime-state/",
+        result=prompt_runtime.ResumableRunResult(
+            output="resume:prepared:recovered-session:/workspace/runtime-state/",
+            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="prepared:recovered-session",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+        ),
+    )
+    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "prepared:recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> None:
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.PARTIAL,
+        ),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumedSessionRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+        ).run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
                 role=InvocationRole("implementer"),

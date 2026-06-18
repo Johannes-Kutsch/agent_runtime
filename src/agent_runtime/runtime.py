@@ -55,11 +55,11 @@ __all__ = [
     "NewSessionRuntime",
     "NewSessionRuntimeExecutionAdapter",
     "InvocationProgress",
+    "ResumedSessionRunRequest",
+    "ResumedSessionRuntime",
+    "ResumedSessionRuntimeExecutionAdapter",
     "RuntimeOutcome",
-    "ResumableRunRequest",
     "ResumableRunResult",
-    "ResumableRuntime",
-    "ResumableRuntimeExecutionAdapter",
     "ResumableRuntimeMetadata",
     "ToolAccess",
     "ToolPolicy",
@@ -70,6 +70,7 @@ __all__ = [
 EphemeralRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 NewSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
+ResumedSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResumableRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
 
@@ -1231,6 +1232,17 @@ class ResumableRuntime:
                 continuation=exc.continuation,
             )
         return RuntimeOutcome.completed(output=result.output, result=result)
+
+
+ResumedSessionRunRequest = ResumableRunRequest
+
+
+class ResumedSessionRuntime(ResumableRuntime):
+    async def run_resumed_session(
+        self,
+        request: ResumedSessionRunRequest,
+    ) -> RuntimeOutcome:
+        return await self.run_resumable_prompt(request)
 
 
 async def _run_prompt(
