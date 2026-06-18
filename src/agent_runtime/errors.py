@@ -33,9 +33,11 @@ class AgentTimeoutError(AgentRuntimeError, TimeoutError):
         message: str = "",
         invocation_role: str = "",
         worktree_path: Path | None = None,
+        invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
     ) -> None:
         self.invocation_role = invocation_role
         self.worktree_path = worktree_path
+        self.invocation_progress = invocation_progress
         super().__init__(message)
 
 

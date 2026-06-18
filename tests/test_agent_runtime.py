@@ -581,6 +581,97 @@ class _StartedCancellationStatusOneShotExecutionAdapter(
         )
 
 
+class _TimeoutOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        raise AgentTimeoutError("timed out")
+
+
+class _TimeoutOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _TimeoutOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _StartedTimeoutOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        raise AgentTimeoutError(
+            "timed out",
+            invocation_progress=runtime.InvocationProgress.STARTED,
+        )
+
+
+class _StartedTimeoutOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedTimeoutOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _PromptOnlyOneShotWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
@@ -1147,6 +1238,210 @@ class _StartedUsageLimitResidentExecutionAdapter:
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
                     _StartedUsageLimitResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _TimeoutResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise AgentTimeoutError("timed out")
+
+
+class _TimeoutResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _TimeoutResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _StartedTimeoutResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise AgentTimeoutError(
+            "timed out",
+            invocation_progress=runtime.InvocationProgress.STARTED,
+        )
+
+
+class _StartedTimeoutResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedTimeoutResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _CredentialFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        raise AgentCredentialFailureError(
+            "missing auth",
+            service_name="codex",
+            classification="credential",
+            observations=(),
+        )
+
+
+class _CredentialFailureOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _CredentialFailureOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _HardFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        raise HardAgentError("hard failure", service_name="codex")
+
+
+class _HardFailureOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _HardFailureOneShotRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -2994,6 +3289,129 @@ def test_resumable_runtime_returns_cancelled_outcome_for_pre_start_caller_cancel
         output="",
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
+
+
+def test_runtime_boundaries_return_timed_out_outcomes_for_timeout_conditions(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    one_shot_result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_TimeoutOneShotExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_one_shot(one_shot_request_factory())
+    )
+
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    resumable_result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_TimeoutResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
+            )
+        )
+    )
+
+    assert one_shot_result.kind == "timed_out"
+    assert resumable_result.kind == "timed_out"
+
+
+def test_timed_out_outcomes_preserve_started_and_not_started_progress(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    one_shot_result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_StartedTimeoutOneShotExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_one_shot(one_shot_request_factory())
+    )
+
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    resumable_result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_TimeoutResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
+            )
+        )
+    )
+
+    assert one_shot_result == prompt_runtime.RuntimeOutcome.timed_out(
+        output="",
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
+    assert resumable_result == prompt_runtime.RuntimeOutcome.timed_out(
+        output="",
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    with pytest.raises(runtime.RuntimeConfigurationError):
+        asyncio.run(
+            prompt_runtime.OneShotRuntime(
+                execution_adapter=_MissingPromptOnlyOneShotExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_one_shot(one_shot_request_factory())
+        )
+
+    with pytest.raises(AgentCredentialFailureError):
+        asyncio.run(
+            prompt_runtime.OneShotRuntime(
+                execution_adapter=_CredentialFailureOneShotExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_one_shot(one_shot_request_factory())
+        )
+
+    with pytest.raises(HardAgentError):
+        asyncio.run(
+            prompt_runtime.OneShotRuntime(
+                execution_adapter=_HardFailureOneShotExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_one_shot(one_shot_request_factory())
+        )
 
 
 def test_one_shot_runtime_reports_started_progress_for_cancelled_outcome(

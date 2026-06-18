@@ -17,7 +17,12 @@ from .execution_contracts import (
     WorkInvocationRequest,
     WorktreeMount,
 )
-from .errors import AgentCancelledError, RuntimeConfigurationError, UsageLimitError
+from .errors import (
+    AgentCancelledError,
+    AgentTimeoutError,
+    RuntimeConfigurationError,
+    UsageLimitError,
+)
 from .identity import validate_session_namespace
 from .invocation_progress import InvocationProgress
 from .roles import InvocationRole
@@ -103,6 +108,19 @@ class RuntimeOutcome:
     ) -> RuntimeOutcome:
         return cls(
             kind="cancelled",
+            output=output,
+            invocation_progress=invocation_progress,
+        )
+
+    @classmethod
+    def timed_out(
+        cls,
+        *,
+        output: str,
+        invocation_progress: InvocationProgress,
+    ) -> RuntimeOutcome:
+        return cls(
+            kind="timed_out",
             output=output,
             invocation_progress=invocation_progress,
         )
@@ -545,6 +563,11 @@ class OneShotRuntime:
                 output="",
                 invocation_progress=exc.invocation_progress,
             )
+        except AgentTimeoutError as exc:
+            return RuntimeOutcome.timed_out(
+                output="",
+                invocation_progress=exc.invocation_progress,
+            )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
                 output="",
@@ -575,6 +598,11 @@ class ResumableRuntime:
             )
         except AgentCancelledError as exc:
             return RuntimeOutcome.cancelled(
+                output="",
+                invocation_progress=exc.invocation_progress,
+            )
+        except AgentTimeoutError as exc:
+            return RuntimeOutcome.timed_out(
                 output="",
                 invocation_progress=exc.invocation_progress,
             )
