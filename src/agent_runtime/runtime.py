@@ -29,10 +29,15 @@ from .errors import (
 )
 from .identity import validate_session_namespace
 from .invocation_progress import InvocationProgress
+from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .service_registry import ServiceRegistry
 from .session import RunKind
-from .session_planning import ResumableSessionPlan
+from .session_planning import (
+    ResumableSessionPlan,
+    ResumableSessionPlanRequest,
+    plan_resumable_session,
+)
 from .stage_priority_chain import iter_stage_chain
 from .types import StageSelection, validate_stage_selection
 from .usage_limit_scope import UsageLimitScope
@@ -46,6 +51,9 @@ __all__ = [
     "EphemeralRuntime",
     "EphemeralRuntimeExecutionAdapter",
     "EphemeralRuntimeMetadata",
+    "NewSessionRunRequest",
+    "NewSessionRuntime",
+    "NewSessionRuntimeExecutionAdapter",
     "OneShotRunRequest",
     "OneShotRunResult",
     "OneShotResultMetadata",
@@ -66,6 +74,7 @@ __all__ = [
 ]
 
 EphemeralRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
+NewSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResumableRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
@@ -497,6 +506,116 @@ class EphemeralRunRequest:
         object.__setattr__(self, "tool_access", resolved_tool_access)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
         object.__setattr__(self, "session_namespace", session_namespace)
+        object.__setattr__(self, "token", token)
+
+    @property
+    def mount_path(self) -> Path:
+        return self.worktree
+
+    @property
+    def override(self) -> StageSelection:
+        return self.stage
+
+    @property
+    def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
+        return self.tool_access.tool_policy
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class NewSessionRunRequest:
+    prompt: str
+    worktree: Path
+    stage: StageSelection
+    role: InvocationRole
+    session_store: Any
+    provider_session_adapter: ProviderSessionAdapter
+    tool_access: ToolAccess
+    usage_limit_scope: UsageLimitScope | None = None
+    session_namespace: str = ""
+    name: str = "Runtime Agent"
+    status_display: Any = None
+    work_body: str = ""
+    token: CancellationToken | None = None
+
+    def __init__(
+        self,
+        prompt: str,
+        worktree: Path | WorktreeMount,
+        stage: StageSelection | None = None,
+        role: InvocationRole | None = None,
+        session_store: Any | None = None,
+        provider_session_adapter: ProviderSessionAdapter | None = None,
+        usage_limit_scope: UsageLimitScope | None = None,
+        tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
+        tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
+        session_namespace: str = "",
+        name: str = "Runtime Agent",
+        status_display: Any = None,
+        work_body: str = "",
+        token: CancellationToken | None = None,
+        *,
+        override: StageSelection | None = None,
+    ) -> None:
+        if stage is None:
+            stage = override
+        elif override is not None and override != stage:
+            raise TypeError(
+                "NewSessionRunRequest received conflicting `stage` and `override` values."
+            )
+        if stage is None:
+            raise TypeError("NewSessionRunRequest requires a `stage` value.")
+        if role is None:
+            raise TypeError("NewSessionRunRequest requires a `role` value.")
+        if session_store is None:
+            raise TypeError("NewSessionRunRequest requires a `session_store` value.")
+        if provider_session_adapter is None:
+            raise TypeError(
+                "NewSessionRunRequest requires a `provider_session_adapter` value."
+            )
+        worktree_path = (
+            worktree.host_path if isinstance(worktree, WorktreeMount) else worktree
+        )
+        if (
+            isinstance(tool_access, ToolAccess)
+            and tool_policy is not _MISSING_TOOL_POLICY
+        ):
+            raise TypeError(
+                "NewSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
+            )
+        if isinstance(tool_access, ToolAccess):
+            resolved_tool_access = tool_access
+        elif tool_policy is not _MISSING_TOOL_POLICY:
+            resolved_tool_access = ToolAccess.workspace_backed(
+                worktree_path,
+                tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
+            )
+        else:
+            raise TypeError(
+                "NewSessionRunRequest requires an explicit `tool_access` value."
+            )
+        resolved_tool_access.require_workspace(
+            worktree_path,
+            context="NewSessionRunRequest",
+        )
+        validate_stage_selection(stage)
+        validate_session_namespace(session_namespace)
+
+        object.__setattr__(self, "prompt", prompt)
+        object.__setattr__(self, "worktree", worktree_path)
+        object.__setattr__(self, "stage", stage)
+        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "session_store", session_store)
+        object.__setattr__(
+            self,
+            "provider_session_adapter",
+            provider_session_adapter,
+        )
+        object.__setattr__(self, "tool_access", resolved_tool_access)
+        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
+        object.__setattr__(self, "session_namespace", session_namespace)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "status_display", status_display)
+        object.__setattr__(self, "work_body", work_body)
         object.__setattr__(self, "token", token)
 
     @property
@@ -963,6 +1082,62 @@ class EphemeralRuntime:
         return RuntimeOutcome.completed(output=result.output, result=result)
 
 
+class NewSessionRuntime:
+    def __init__(
+        self,
+        *,
+        execution_adapter: NewSessionRuntimeExecutionAdapter,
+        service_registry: ServiceRegistry | dict[str, Any] | None = None,
+    ) -> None:
+        registry = (
+            service_registry
+            if isinstance(service_registry, ServiceRegistry)
+            else ServiceRegistry(service_registry or {})
+        )
+        self._service_registry = registry
+        self._execution_adapter = execution_adapter
+
+    async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
+        try:
+            result = await _run_new_session(
+                runner=self._execution_adapter,
+                service_registry=self._service_registry,
+                request=request,
+            )
+        except AgentCancelledError as exc:
+            return RuntimeOutcome.cancelled(
+                output="",
+                invocation_progress=exc.invocation_progress,
+            )
+        except AgentTimeoutError as exc:
+            return RuntimeOutcome.timed_out(
+                output="",
+                invocation_progress=exc.invocation_progress,
+            )
+        except NoServiceAvailableError as exc:
+            return RuntimeOutcome.no_service_available(
+                output="",
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope,
+                invocation_progress=exc.invocation_progress,
+            )
+        except RetryableProviderFailureError as exc:
+            return RuntimeOutcome.retryable_provider_failure(
+                output="",
+                service_name=exc.service_name,
+                invocation_progress=exc.invocation_progress,
+            )
+        except UsageLimitError as exc:
+            return RuntimeOutcome.usage_limited(
+                output="",
+                service_name=exc.service_name,
+                reset_time=exc.reset_time,
+                usage_limit_scope=exc.usage_limit_scope,
+                invocation_progress=exc.invocation_progress,
+            )
+        return RuntimeOutcome.completed(output=result.output, result=result)
+
+
 class ResumableRuntime:
     def __init__(
         self,
@@ -1269,6 +1444,60 @@ async def _run_ephemeral(
                 ),
             ),
         )
+
+
+async def _run_new_session(
+    *,
+    runner: NewSessionRuntimeExecutionAdapter,
+    service_registry: ServiceRegistry,
+    request: NewSessionRunRequest,
+) -> ResumableRunResult:
+    if not service_registry.has_configured_candidate(request.stage):
+        raise RuntimeConfigurationError(
+            "New-session runtime requires at least one configured service candidate."
+        )
+
+    now = _time_module.now_local()
+    if request.token is not None and request.token.is_cancelled:
+        raise AgentCancelledError(
+            invocation_progress=InvocationProgress.NOT_STARTED,
+        )
+    if not service_registry.has_available_for(request.stage, now):
+        raise NoServiceAvailableError(
+            reset_time=service_registry.next_wake_time_for(request.stage, now),
+            usage_limit_scope=request.usage_limit_scope
+            or UsageLimitScope(request.role.value),
+        )
+
+    resolved_override = service_registry.resolve(request.stage, now)
+    resolve_service = _require_execution_adapter_method(runner, "resolve_service")
+    resolved_service = resolve_service(resolved_override.service)
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=request.worktree,
+            role=request.role,
+            namespace=request.session_namespace,
+            service=resolved_service,
+            session_store=request.session_store,
+            provider_session_adapter=request.provider_session_adapter,
+            usage_limit_scope=request.usage_limit_scope,
+        )
+    )
+    return await _run_resumable_prompt(
+        runner=runner,
+        request=ResumableRunRequest(
+            prompt=request.prompt,
+            worktree=WorktreeMount(request.worktree),
+            model=resolved_override.model,
+            effort=resolved_override.effort,
+            session_plan=session_plan,
+            tool_access=request.tool_access,
+            name=request.name,
+            status_display=request.status_display,
+            work_body=request.work_body,
+            token=request.token,
+        ),
+    )
 
 
 async def _run_resumable_prompt(

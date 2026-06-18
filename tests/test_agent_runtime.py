@@ -1631,6 +1631,54 @@ class _RuntimePlannedPathResidentExecutionAdapter:
         )
 
 
+class _NamedExternalStateResidentPlanningProviderSessionAdapter:
+    def __init__(self, service_name: str) -> None:
+        self._service_name = service_name
+        self._state_dir_relpath = f"{service_name}-runtime-state/"
+        self._provider_state_dir = Path(f"/host/{service_name}-runtime-state")
+
+    @property
+    def service_name(self) -> str:
+        return self._service_name
+
+    def provider_session_planning_facts(
+        self,
+        request: ProviderSessionPlanningRequest,
+    ) -> Any:
+        del request
+        return provider_session_adapter_runtime.ProviderSessionPlanningFacts(
+            state_dir_relpath=self._state_dir_relpath,
+            provider_state_dir=self._provider_state_dir,
+            has_resumable_provider_state=True,
+        )
+
+    def provider_session_state(self, request: Any) -> Any:
+        del request
+        return session_runtime.ProviderSessionState(
+            run_kind=RunKind.RESUME,
+            provider_session_id=f"recovered-{self._service_name}",
+            state_dir_relpath=self._state_dir_relpath,
+            state_dir_path=self._provider_state_dir,
+        )
+
+    def prepare_local_provider_run_state(
+        self,
+        provider_state_dir: Path | None,
+        auth_seed_action: Any | None = None,
+    ) -> None:
+        del provider_state_dir, auth_seed_action
+
+    def record_provider_session_id(
+        self,
+        *,
+        session_store: Any,
+        provider_session_id: str,
+        service_state_dir: Path | None = None,
+    ) -> None:
+        del service_state_dir
+        session_store.save_service_session_id(self._service_name, provider_session_id)
+
+
 def _tool_policy_effect_text(tool_policy: Any) -> str:
     profile = (
         tool_policy.profile
@@ -4789,6 +4837,64 @@ def test_resumable_runtime_returns_portable_continuation_resume_data(
             "run_kind": "resume",
             "provider_session_id": "prepared:recovered-session",
             "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_new_session_runtime_selects_fallback_service_before_binding_continuation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    worktree = Path("/repo")
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter(),
+            service_registry=service_registry_factory("claude"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                stage=stage_selection_factory(
+                    service="missing",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "claude"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert (
+        result.output
+        == "resume:prepared:recovered-claude:/workspace/claude-runtime-state/"
+    )
+    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert result.result.runtime_metadata.service_name == "claude"
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="high",
+        tool_access=tool_access,
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "prepared:recovered-claude",
+            "provider_state_dir_relpath": "claude-runtime-state/",
             "exact_transcript_match": False,
         },
     )
