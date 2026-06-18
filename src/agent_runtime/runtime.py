@@ -21,6 +21,7 @@ from .errors import (
     AgentCancelledError,
     NoServiceAvailableError,
     AgentTimeoutError,
+    RetryableProviderFailureError,
     RuntimeConfigurationError,
     UsageLimitError,
 )
@@ -140,6 +141,21 @@ class RuntimeOutcome:
         return cls(
             kind="timed_out",
             output=output,
+            invocation_progress=invocation_progress,
+        )
+
+    @classmethod
+    def retryable_provider_failure(
+        cls,
+        *,
+        output: str,
+        service_name: str,
+        invocation_progress: InvocationProgress,
+    ) -> RuntimeOutcome:
+        return cls(
+            kind="retryable_provider_failure",
+            output=output,
+            service_name=service_name,
             invocation_progress=invocation_progress,
         )
 
@@ -593,6 +609,12 @@ class OneShotRuntime:
                 usage_limit_scope=exc.usage_limit_scope,
                 invocation_progress=exc.invocation_progress,
             )
+        except RetryableProviderFailureError as exc:
+            return RuntimeOutcome.retryable_provider_failure(
+                output="",
+                service_name=exc.service_name,
+                invocation_progress=exc.invocation_progress,
+            )
         except UsageLimitError as exc:
             return RuntimeOutcome.usage_limited(
                 output="",
@@ -629,6 +651,12 @@ class ResumableRuntime:
         except AgentTimeoutError as exc:
             return RuntimeOutcome.timed_out(
                 output="",
+                invocation_progress=exc.invocation_progress,
+            )
+        except RetryableProviderFailureError as exc:
+            return RuntimeOutcome.retryable_provider_failure(
+                output="",
+                service_name=exc.service_name,
                 invocation_progress=exc.invocation_progress,
             )
         except UsageLimitError as exc:

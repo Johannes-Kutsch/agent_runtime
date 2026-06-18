@@ -453,6 +453,169 @@ class _StartedUsageLimitOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapte
         )
 
 
+class _RetryableProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [
+                TransientError(
+                    status_code=503,
+                    raw_message="retry later",
+                    classification="retryable",
+                )
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _RetryableProviderFailureOneShotExecutionAdapter(
+    _RoleAwareOneShotExecutionAdapter
+):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _RetryableProviderFailureOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _StartedRetryableProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [
+                AssistantTurn("hello"),
+                TransientError(
+                    status_code=503,
+                    raw_message="retry later",
+                    classification="retryable",
+                ),
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _StartedRetryableProviderFailureOneShotExecutionAdapter(
+    _RoleAwareOneShotExecutionAdapter
+):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedRetryableProviderFailureOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _TransientProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [TransientError(status_code=503, raw_message="retry later")],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _TransientProviderFailureOneShotExecutionAdapter(
+    _RoleAwareOneShotExecutionAdapter
+):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _TransientProviderFailureOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _StartedCancellationOneShotRunner(_RoleAwareOneShotWorkRunner):
     async def prompt_only(
         self,
@@ -1238,6 +1401,195 @@ class _StartedUsageLimitResidentExecutionAdapter:
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
                     _StartedUsageLimitResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _RetryableProviderFailureResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [
+                TransientError(
+                    status_code=503,
+                    raw_message="retry later",
+                    classification="retryable",
+                )
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _RetryableProviderFailureResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _RetryableProviderFailureResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _StartedRetryableProviderFailureResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [
+                AssistantTurn("hello"),
+                TransientError(
+                    status_code=503,
+                    raw_message="retry later",
+                    classification="retryable",
+                ),
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _StartedRetryableProviderFailureResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedRetryableProviderFailureResidentRunner(
+                        cast(_Session, session)
+                    ),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _TransientProviderFailureResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [TransientError(status_code=503, raw_message="retry later")],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _TransientProviderFailureResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _TransientProviderFailureResidentRunner(cast(_Session, session)),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -3703,6 +4055,102 @@ def test_resumable_runtime_reports_started_progress_for_timed_out_outcome(
     )
 
 
+def test_runtime_boundaries_return_retryable_provider_failure_outcomes_for_retryable_provider_failures(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    one_shot_result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_RetryableProviderFailureOneShotExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_one_shot(one_shot_request_factory())
+    )
+
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    resumable_result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_RetryableProviderFailureResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
+            )
+        )
+    )
+
+    assert one_shot_result.kind == "retryable_provider_failure"
+    assert resumable_result.kind == "retryable_provider_failure"
+
+
+def test_retryable_provider_failure_outcomes_preserve_started_progress(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    one_shot_result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_StartedRetryableProviderFailureOneShotExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_one_shot(one_shot_request_factory())
+    )
+
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    resumable_result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
+            )
+        )
+    )
+
+    assert one_shot_result == prompt_runtime.RuntimeOutcome.retryable_provider_failure(
+        output="",
+        service_name="codex",
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
+    assert resumable_result == prompt_runtime.RuntimeOutcome.retryable_provider_failure(
+        output="",
+        service_name="codex",
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
+
+
 def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
     one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
     service_registry_factory: Callable[..., ServiceRegistry],
@@ -3781,6 +4229,30 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
         asyncio.run(
             prompt_runtime.ResumableRuntime(
                 execution_adapter=_HardFailureResidentExecutionAdapter()
+            ).run_resumable_prompt(
+                prompt_runtime.ResumableRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=WorktreeMount(Path(".")),
+                    model="gpt-5.4",
+                    effort="medium",
+                    session_plan=session_plan,
+                    tool_policy=runtime.ToolPolicy.FULL,
+                )
+            )
+        )
+
+    with pytest.raises(TransientAgentError):
+        asyncio.run(
+            prompt_runtime.OneShotRuntime(
+                execution_adapter=_TransientProviderFailureOneShotExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_one_shot(one_shot_request_factory())
+        )
+
+    with pytest.raises(TransientAgentError):
+        asyncio.run(
+            prompt_runtime.ResumableRuntime(
+                execution_adapter=_TransientProviderFailureResidentExecutionAdapter()
             ).run_resumable_prompt(
                 prompt_runtime.ResumableRunRequest(
                     prompt="already rendered prompt",

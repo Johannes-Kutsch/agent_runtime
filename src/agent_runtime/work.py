@@ -35,6 +35,7 @@ from .errors import (
     AgentCredentialFailureError,
     AgentTimeoutError,
     HardAgentError,
+    RetryableProviderFailureError,
     TransientAgentError,
     UsageLimitError,
 )
@@ -261,6 +262,15 @@ def reduce_text_output_events(
                 invocation_progress=invocation_progress,
             )
         if isinstance(event, TransientError):
+            if event.classification == "retryable":
+                raise RetryableProviderFailureError(
+                    message=event.raw_message,
+                    status_code=event.status_code,
+                    service_name=provider,
+                    classification=event.classification,
+                    observations=event.observations,
+                    invocation_progress=invocation_progress,
+                )
             raise TransientAgentError(
                 message=event.raw_message,
                 status_code=event.status_code,
@@ -443,6 +453,9 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                             request.name,
                             transient_status_message(err),
                         )
+                    raise
+                except RetryableProviderFailureError:
+                    token.cancel()
                     raise
                 except AgentCredentialFailureError as err:
                     token.cancel()

@@ -44,6 +44,7 @@ class UsageLimit:
 class TransientError:
     status_code: int | None
     raw_message: str
+    classification: str | None = None
     observations: tuple[ProviderErrorObservation, ...] = dataclasses.field(
         default=(),
         compare=False,

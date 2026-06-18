@@ -90,6 +90,29 @@ class TransientAgentError(AgentRuntimeError):
         super().__init__(message)
 
 
+class RetryableProviderFailureError(AgentRuntimeError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        status_code: int | None = None,
+        service_name: str,
+        classification: str | None = None,
+        observations: tuple[ProviderErrorObservation, ...] = (),
+        invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+    ) -> None:
+        self.status_code = status_code
+        validate_runtime_identity_label(
+            service_name,
+            kind="RetryableProviderFailureError service name",
+        )
+        self.service_name = service_name
+        self.classification = classification
+        self.observations = observations
+        self.invocation_progress = invocation_progress
+        super().__init__(message)
+
+
 class HardAgentError(AgentRuntimeError):
     def __init__(
         self,
@@ -179,6 +202,7 @@ __all__ = [
     "AgentTimeoutError",
     "HardAgentError",
     "NoServiceAvailableError",
+    "RetryableProviderFailureError",
     "RuntimeConfigurationError",
     "TransientAgentError",
     "UsageLimitError",
