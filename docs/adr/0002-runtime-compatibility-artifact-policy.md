@@ -1,5 +1,7 @@
 # Runtime compatibility artifact policy
 
+Status: Partially superseded by [0009 - Built-in provider-only runtime](0009-built-in-provider-only-runtime.md) for provider dependencies shipped with built-in Claude, Codex, and OpenCode integrations.
+
 The runtime package should expose neutral public vocabulary. Compatibility names, legacy paths, or older record shapes may exist only as adapter-layer shims when they are needed to preserve existing behavior.
 
 ## Decision

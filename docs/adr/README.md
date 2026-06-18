@@ -8,3 +8,4 @@
 - [0006 - Runtime session lifecycle entrypoints](0006-runtime-session-lifecycle-entrypoints.md): Model runtime execution around ephemeral, new-session, and resumed-session lifecycle entrypoints with consumer-owned continuation state.
 - [0007 - Session-backed result vocabulary](0007-session-backed-result-vocabulary.md): Use session vocabulary for completed session-backed runtime results and metadata.
 - [0008 - Resumed-session request construction](0008-resumed-session-request-construction.md): Keep the canonical resumed-session request name while preserving ordinary continuation and advanced session-plan construction paths.
+- [0009 - Built-in provider-only runtime](0009-built-in-provider-only-runtime.md): Ship Claude, Codex, and OpenCode integrations inside the runtime distribution and remove consumer-defined provider services as an extension point.

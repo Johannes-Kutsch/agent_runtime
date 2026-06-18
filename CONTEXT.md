@@ -9,15 +9,19 @@
 | Term | Meaning |
 | --- | --- |
 | `agent_runtime` | The reusable runtime package and its stable core public surface. |
-| `Runtime Public Surface` | The documented stability surface made of runtime consumer entrypoints and focused adapter seams, not every importable runtime symbol. |
+| `Runtime Public Surface` | The documented stability surface made of runtime consumer entrypoints, runtime value objects, and built-in provider selection, not every importable runtime symbol. |
 | `Runtime Compatibility Alias` | A transitional older runtime spelling or import path kept only to smooth pre-release migration and not part of the Runtime Public Surface. |
 | `Runtime Consumer Surface` | The entrypoint surface intended for ordinary consuming projects that execute prepared agent work without implementing runtime or provider adapters. |
-| `Advanced Focused Seam` | A documented runtime public seam for consumers or adapter authors assembling service selection, session planning, provider output, or log lifecycle behavior directly. |
-| `Runtime Adapter Seam` | A focused runtime seam implemented by adapter authors who connect the runtime to provider or application infrastructure. |
+| `Advanced Focused Seam` | A non-consumer runtime seam for maintainers assembling built-in service selection, session planning, provider output, or log lifecycle behavior directly. |
+| `Runtime Adapter Seam` | An internal runtime seam implemented by built-in provider integrations, not a supported extension point for consumer-defined services. |
+| `Built-in Provider Adapter` | A runtime-shipped provider integration for a supported external agent provider such as Claude, Codex, or OpenCode that ordinary consumers select but do not import or implement. |
+| `Built-in Execution Substrate` | The runtime-owned mechanism that runs built-in provider commands for ordinary consumers without application-owned provider services. |
+| `ProviderAuth` | Immutable caller-supplied runtime credential data for built-in provider execution. |
+| `ClaudeCodeOAuthToken` | The Claude Code OAuth token supplied to the built-in Claude provider integration. |
 | `StageSelection` | A single stage selection node containing service, model, effort, and optional fallback. |
 | `ServiceName` | A path-safe runtime service identity used for selection, provider state paths, logs, and diagnostics. |
-| `ServiceRegistry` | The runtime-owned resolver that maps configured services and stage chains to an executable candidate. |
-| `ExecutionProvider` | The focused protocol implemented by provider adapters for execution behavior. |
+| `ServiceRegistry` | The runtime-owned resolver that maps built-in services and stage chains to an executable candidate. |
+| `ExecutionProvider` | The internal execution contract implemented by runtime-shipped provider integrations. |
 | `RunKind` | The runtime mode for a service invocation, such as fresh or resumable. |
 | `ToolPolicyProfile` | A provider-neutral runtime description of coarse tool-access policy used by provider adapters to render provider-specific command flags. |
 | `Tool-less Run` | A runtime invocation whose provider tool access is explicitly forbidden rather than left to provider defaults. |
@@ -25,7 +29,7 @@
 | `UsageLimitScope` | A caller-defined, validated grouping key used for usage-limit continuation policy. |
 | `ProviderSessionState` | The provider-owned session state that records how a run should start or resume. |
 | `ProviderSessionId` | The external provider or tool session identifier associated with a runtime service invocation. |
-| `ProviderSessionAdapter` | The narrow adapter seam that owns provider-specific session policy. |
+| `ProviderSessionAdapter` | The internal provider-session seam that owns built-in provider session policy. |
 | `SessionIntent` | The caller's pre-run declaration of whether an invocation should prepare provider-session continuity or remain ephemeral. |
 | `Ephemeral Run` | A runtime invocation that does not prepare or promise provider-session continuity. |
 | `Start Session Run` | A runtime invocation that selects a service and prepares provider-session continuity for future invocations. |
@@ -34,8 +38,12 @@
 | `SessionRuntimeMetadata` | Runtime metadata for completed session-backed execution. |
 | `Continuation` | A runtime value containing all consumer-owned data needed to resume a provider-session continuity chain across process calls, including selected service, model, effort, tool access, and provider resume state. |
 | `ProviderResumeState` | Provider-owned JSON-compatible data carried inside a continuation and interpreted by the provider adapter when resuming. |
+| `RuntimeStateDir` | Caller-supplied directory root where built-in provider integrations keep provider-native session state for session-backed runs. |
+| `RuntimeLogsDir` | Caller-supplied directory root where runtime invocation logs are written. |
+| `RuntimeClient` | Caller-owned runtime object that holds in-process built-in provider availability state across calls without owning durable provider session storage. |
 | `InvocationProgress` | Two-state runtime outcome metadata indicating whether the model showed activity before an interruption, such as reasoning, messages, or tool invocation; unknown progress is treated as not started. |
 | `RuntimeOutcome` | A canonical runtime result category for expected orchestration outcomes such as completion, usage limits, cancellation, timeout, temporary service unavailability, or confidently retryable provider failure. |
+| `ProviderUsage` | Provider-reported usage metadata for a runtime invocation: input tokens, output tokens, cache-read input tokens, cache-creation input tokens, optional cost in USD, and optional provider duration in seconds. |
 | `SessionNamespace` | An optional path-safe label that partitions provider session state for an invocation role. |
 | `WorkInvocation` | The runtime-owned work lifecycle that turns caller intent plus execution dependencies into a text result. |
 | `InvocationRole` | A caller-defined, path-safe runtime invocation label used for provider execution metadata, not a runtime-owned workflow model. |
@@ -48,6 +56,9 @@
 - The runtime/request seam stays a single vertical flow from caller intent through session planning to work invocation.
 - The package root should stay a narrow compatibility entrypoint, not a catch-all export surface.
 - The documented Runtime Public Surface is a stability promise rather than an inventory of every importable runtime symbol.
+- External provider adapter seams should be removed from the documented Runtime Public Surface.
+- Provider event DTOs are internal built-in adapter details, not consumer-facing API.
+- Public provider failure errors may expose provider diagnostic observations; consumers own storage, display, and redaction policy for those diagnostics.
 - Removing runtime compatibility aliases does not move lifecycle runtime entrypoints to the package root.
 - Runtime Compatibility Aliases are not Runtime Public Surface promises.
 - Runtime entrypoints should be canonical per mode rather than duplicated across equivalent facades.
@@ -57,22 +68,48 @@
 - Pre-release runtime compatibility aliases may be removed immediately when accepted cleanup requires strict absence.
 - Lifecycle-specific runtime execution adapter names are canonical public spellings even when they share the same underlying adapter protocol.
 - Request-construction compatibility spellings may remain when they do not create alternate public type names or lifecycle entrypoints.
-- Ordinary consuming projects should use runtime entrypoints and adapter seams rather than low-level work invocation internals.
+- Ordinary consuming projects should use runtime entrypoints rather than low-level work invocation internals or provider adapter seams.
+- Ordinary consuming projects should select Built-in Provider Adapters through runtime call arguments rather than constructing provider services or service registries.
+- Consumer-defined provider services are not supported runtime functionality.
+- Provider selection remains caller-supplied through `StageSelection`; the runtime validates and executes built-in service names but does not own application workflow default chains.
+- Built-in service, model, and effort values are validated by the runtime before provider execution.
+- Lifecycle runtime constructors should not expose execution adapter or service registry injection on the consumer API.
+- Ordinary runtime execution uses a Built-in Execution Substrate; application-owned Docker orchestration, dependency installation, managed worktrees, and preflight setup remain outside the runtime boundary.
+- Built-in provider credentials are supplied through per-request `ProviderAuth` data rather than process-global runtime setup.
+- `ProviderAuth` only needs credentials for explicit-credential providers reachable from the request's `StageSelection` chain; Codex uses host auth state.
+- Missing built-in provider credentials are credential failures, not malformed runtime configuration.
+- Built-in provider credential failures stop execution rather than falling through to stage fallback.
 - Runtime-owned selection, availability, and resumability policy stay in the runtime boundary.
+- Built-in provider availability and exhaustion state live in the caller-owned `RuntimeClient`, not in process globals or consumer-created service objects.
+- `RuntimeClient` is safe to reuse across concurrent runtime requests and synchronizes built-in provider availability updates internally.
+- Built-in Provider Adapters are runtime-owned provider integrations, not application orchestration.
+- Built-in Provider Adapter internals are not ordinary consumer API even though the runtime distribution ships them.
 - Session continuity and tool access are independent runtime concerns.
 - Provider-session continuity is a pre-run intent, not a post-run side effect.
 - Ephemeral execution means the runtime does not intentionally prepare provider-session continuity, not merely that the caller discards continuation state.
 - The runtime returns continuation state; consuming projects own persistence and retention decisions for that state.
 - Continuations are portable but semantically immutable runtime data from the consumer's perspective.
 - Continuations may carry provider-owned serializable resume state that the runtime transports but does not interpret.
+- Continuations carry provider state identifiers relative to `RuntimeStateDir`, not absolute provider state paths.
 - Session-backed runtime results return the latest continuation needed for the next resume.
+- Session-backed execution is in scope for all built-in provider integrations.
+- Session-backed built-in provider execution must preserve provider-native transcript continuity.
+- Session-backed built-in provider state lives under a caller-supplied `RuntimeStateDir`; consumers own persistence and retention of that directory.
+- New-session and resumed-session requests require an explicit `RuntimeStateDir`; ephemeral requests do not.
+- Worktree, `RuntimeStateDir`, and `RuntimeLogsDir` are separate runtime concepts even when a caller chooses nearby filesystem paths.
+- Durable runtime invocation logging is opt-in through `RuntimeLogsDir`; omitted logs do not create hidden log files by default.
 - The runtime must not own durable provider-session storage or cleanup policy.
 - Fallback service selection can start a continuity chain but must not silently replace an existing provider-session continuity chain.
 - Resumed-session availability or usage-limit failures do not invalidate the continuation and must not trigger automatic fallback.
 - Session-backed interruptions should report invocation progress so callers can choose retry or continuation prompts.
-- Provider adapters may explicitly report invocation progress, while runtime-owned event reduction may infer progress from known provider events.
+- Built-in Provider Adapters may explicitly report invocation progress, while runtime-owned event reduction may infer progress from known provider events.
 - Invocation progress is runtime-wide failure metadata; only session-backed invocations can pair it with continuation state.
 - Expected interruption outcomes use two-state invocation progress: started or not started.
+- Provider-reported usage metadata belongs on runtime outcomes whenever the provider reports it, including interrupted outcomes.
+- `RuntimeOutcome` carries `ProviderUsage` as top-level optional outcome metadata.
+- Cached provider input tokens map to `ProviderUsage.cache_read_input_tokens` when the provider semantics are cached prompt/input tokens.
+- Built-in provider parsers should emit rich `ProviderUsage` events for usage reporting rather than treating prompt-token-only events as the usage contract.
+- Cancellation and timeout outcomes report only provider usage observed before interruption; the runtime does not perform provider-specific post-kill usage recovery.
 - Runtime errors remain classified by failure cause, with interruption progress attached as metadata where relevant.
 - Usage limits, cancellation, timeout, temporary service unavailability, and confidently retryable provider failures are normal runtime outcomes at canonical entrypoints rather than exceptional failures.
 - Documentation for lifecycle entrypoints should teach expected interruption outcomes through `RuntimeOutcome` before describing lower-level exception classes.
@@ -82,6 +119,7 @@
 - A new continuation becomes meaningful only after provider work has started, not merely after provider session allocation.
 - Resumed-session execution keeps service and tool access fixed while defaulting model and effort from the continuation and allowing explicit model or effort overrides.
 - Canonical runtime entrypoints should be named around session lifecycle: ephemeral execution, new-session execution, and resumed-session execution.
+- Ordinary consumer execution should go through a caller-owned `RuntimeClient` with lifecycle methods for ephemeral, new-session, and resumed-session runs.
 - With lifecycle-specific entrypoints, session intent is expressed by the entrypoint rather than a defaulted request field.
 - The lifecycle entrypoints replace the previous one-shot/resumable canonical API split rather than layering over it.
 - Session-backed result and metadata names should use session vocabulary rather than the older resumable runtime-mode vocabulary.
@@ -89,14 +127,18 @@
 - Shared session-backed results should have one canonical public name rather than lifecycle-specific aliases.
 - Advanced provider-session planning and provider-capability seams may retain resumable vocabulary when they describe provider resumability rather than canonical lifecycle entrypoints.
 - Tool-less execution means provider tool access is explicitly forbidden at the runtime boundary.
-- A provider-session continuity chain keeps the same tool policy for its lifetime.
+- Built-in Provider Adapters enforce `ToolAccess` with the strongest provider-supported mechanism, but enforcement strength may differ by provider.
+- A provider-session continuity chain keeps the same `ToolAccess` for its lifetime.
 - Resumed-session execution derives tool policy from the resumed continuity state rather than accepting a caller override.
 - Workspace access belongs to tool-access configuration rather than session lifecycle.
+- Under the host subprocess execution substrate, workspace-backed tool access runs the provider process in the requested worktree.
+- Runtime requests carry a worktree even for tool-less execution; tool-less execution does not grant workspace-backed provider tool access.
 - Runtime-facing tool settings should be closed tool-access values rather than a loose tool-policy enum plus unrelated workspace fields.
+- `ToolAccess` is the consumer-facing tool contract; provider flag profiles are internal built-in adapter policy.
 - Canonical runtime requests should represent session intent and tool access as explicit mode values rather than nullable optional fields.
 - StageSelection is the canonical stage-chain value; StageOverride is retired compatibility vocabulary.
-- Provider execution behavior stays behind focused adapter contracts.
-- Provider-specific session details must stay behind explicit adapter contracts.
+- Provider execution behavior stays behind runtime-owned internal adapter contracts.
+- Provider-specific session details must stay behind runtime-owned internal adapter contracts.
 - Work invocation dependencies should stay focused on execution intent rather than presentation or orchestration concerns.
 - Runtime-owned public names should be neutral and caller-supplied where paths or log roots are involved.
 
@@ -107,7 +149,7 @@
 - Caller intent through session planning and work invocation remains one vertical flow.
 - Package-root imports stay narrow while behaviorful entrypoints live under focused modules.
 - Service selection across nested `StageSelection` chains.
-- Provider execution behind adapter contracts.
+- Built-in provider execution behind runtime-owned internal adapter contracts.
 - Provider session planning and state recovery.
 - Provider-session mutation stays behind the provider-facing seam rather than the plan value.
 - Text-output reduction from parsed provider events.
@@ -118,3 +160,6 @@
 - "Resumable" previously named the provider-session-backed runtime mode; resolved: lifecycle APIs use **Start Session Run** and **Resume Session Run**, shared completed values use **SessionRunResult** and **SessionRuntimeMetadata**, and resumable vocabulary remains acceptable for provider resumability capabilities or lower-level session planning seams.
 - "One-shot" previously named standalone single-prompt execution; resolved: public and domain language should use **Ephemeral Run** for execution without provider-session continuity, while one-shot remains only historical compatibility vocabulary.
 - "StageOverride" previously named the stage-chain value; resolved: use **StageSelection**.
+- "OpenAI" was used in issue #93 for the third built-in provider; resolved: the intended provider is **OpenCode**, matching the existing pycastle service.
+- "Claude API key" was used loosely for Claude credentials; resolved: the migrated Claude provider uses **ClaudeCodeOAuthToken**, not a generic Anthropic API key.
+- "Adapter author" previously named an external runtime audience; resolved: custom provider services are not a supported runtime extension point.

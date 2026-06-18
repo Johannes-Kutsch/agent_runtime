@@ -118,6 +118,12 @@ _NO_TOOLS_POLICY = ToolPolicyProfile(
 )
 
 
+def _format_workspace_for_message(workspace: Path | None) -> str:
+    if workspace is None:
+        return "None"
+    return workspace.as_posix()
+
+
 @dataclasses.dataclass(frozen=True, init=False)
 class ToolAccess:
     kind: str
@@ -181,7 +187,9 @@ class ToolAccess:
         if self.workspace == workspace:
             return
         raise ValueError(
-            f"{context} workspace-backed tool access requires worktree {self.workspace}, got {workspace}."
+            f"{context} workspace-backed tool access requires worktree "
+            f"{_format_workspace_for_message(self.workspace)}, got "
+            f"{_format_workspace_for_message(workspace)}."
         )
 
 
