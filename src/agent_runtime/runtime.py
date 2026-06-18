@@ -34,6 +34,7 @@ __all__ = [
     "OneShotRuntime",
     "OneShotRuntimeExecutionAdapter",
     "OneShotRuntimeMetadata",
+    "RuntimeOutcome",
     "ResumableRunRequest",
     "ResumableRunResult",
     "ResumableRuntime",
@@ -49,6 +50,72 @@ ResumableRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
 
 _DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
+
+
+@dataclasses.dataclass(frozen=True)
+class RuntimeOutcome:
+    kind: str
+    output: str
+    result: OneShotRunResult | ResumableRunResult
+
+    @classmethod
+    def completed(
+        cls,
+        *,
+        output: str,
+        result: OneShotRunResult | ResumableRunResult,
+    ) -> RuntimeOutcome:
+        return cls(kind="completed", output=output, result=result)
+
+    @property
+    def runtime_metadata(self) -> OneShotRuntimeMetadata | ResumableRuntimeMetadata:
+        result = self.result
+        if isinstance(result, OneShotRunResult):
+            return result.runtime_metadata
+        return result.runtime_metadata
+
+    @property
+    def metadata(self) -> OneShotResultMetadata:
+        result = self.result
+        if not isinstance(result, OneShotRunResult):
+            raise AttributeError("Completed outcome does not carry one-shot metadata.")
+        return result.metadata
+
+    @property
+    def selected_service(self) -> str:
+        result = self.result
+        if not isinstance(result, OneShotRunResult):
+            raise AttributeError(
+                "Completed outcome does not carry one-shot selection metadata."
+            )
+        return result.selected_service
+
+    @property
+    def selected_model(self) -> str:
+        result = self.result
+        if not isinstance(result, OneShotRunResult):
+            raise AttributeError(
+                "Completed outcome does not carry one-shot selection metadata."
+            )
+        return result.selected_model
+
+    @property
+    def selected_effort(self) -> str:
+        result = self.result
+        if not isinstance(result, OneShotRunResult):
+            raise AttributeError(
+                "Completed outcome does not carry one-shot selection metadata."
+            )
+        return result.selected_effort
+
+    @property
+    def used_fallback(self) -> bool:
+        result = self.result
+        if not isinstance(result, OneShotRunResult):
+            raise AttributeError(
+                "Completed outcome does not carry one-shot selection metadata."
+            )
+        return result.used_fallback
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -388,12 +455,13 @@ class OneShotRuntime:
         self._service_registry = registry
         self._execution_adapter = execution_adapter
 
-    async def run_one_shot(self, request: OneShotRunRequest) -> OneShotRunResult:
-        return await _run_one_shot(
+    async def run_one_shot(self, request: OneShotRunRequest) -> RuntimeOutcome:
+        result = await _run_one_shot(
             runner=self._execution_adapter,
             service_registry=self._service_registry,
             request=request,
         )
+        return RuntimeOutcome.completed(output=result.output, result=result)
 
 
 class ResumableRuntime:
@@ -407,11 +475,12 @@ class ResumableRuntime:
     async def run_resumable_prompt(
         self,
         request: ResumableRunRequest,
-    ) -> ResumableRunResult:
-        return await _run_resumable_prompt(
+    ) -> RuntimeOutcome:
+        result = await _run_resumable_prompt(
             runner=self._execution_adapter,
             request=request,
         )
+        return RuntimeOutcome.completed(output=result.output, result=result)
 
 
 async def _run_prompt(

@@ -928,6 +928,7 @@ def test_package_exports_runtime_surface() -> None:
         "InvocationRole",
         "ProviderSessionAdapter",
         "RuntimeConfigurationError",
+        "RuntimeOutcome",
         "RunKind",
         "StageSelection",
         "ToolPolicy",
@@ -939,6 +940,7 @@ def test_package_exports_runtime_surface() -> None:
     assert runtime.StageSelection.__module__.startswith("agent_runtime")
     assert not hasattr(runtime, "StageOverride")
     assert runtime.AgentRuntimeError is AgentRuntimeError
+    assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
     assert not hasattr(runtime, "assert_runtime_import_isolation")
     assert not hasattr(runtime, "run_prompt")
     assert not hasattr(runtime, "ServiceRegistry")
@@ -1897,18 +1899,61 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
         )
     )
 
-    assert result == prompt_runtime.OneShotRunResult(
+    assert result == prompt_runtime.RuntimeOutcome.completed(
         output="claude:already rendered prompt",
-        selected_service="claude",
-        selected_model="sonnet",
-        selected_effort="high",
-        used_fallback=True,
-        metadata=prompt_runtime.OneShotResultMetadata(
-            selected_service_path=("codex", "claude"),
-            runtime=prompt_runtime.OneShotRuntimeMetadata(
-                provider_session_id="provider-claude",
-                run_kind=RunKind.FRESH,
-                session_namespace="",
+        result=prompt_runtime.OneShotRunResult(
+            output="claude:already rendered prompt",
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="high",
+            used_fallback=True,
+            metadata=prompt_runtime.OneShotResultMetadata(
+                selected_service_path=("codex", "claude"),
+                runtime=prompt_runtime.OneShotRuntimeMetadata(
+                    provider_session_id="provider-claude",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+
+
+def test_one_shot_runtime_returns_completed_outcome_with_normalized_output(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_OneShotExecutionAdapter(),
+            service_registry=service_registry_factory("claude"),
+        ).run_one_shot(
+            one_shot_request_factory(
+                stage=stage_selection_factory(
+                    service="claude",
+                    model="gpt-5",
+                    effort="medium",
+                )
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.completed(
+        output="claude:already rendered prompt",
+        result=prompt_runtime.OneShotRunResult(
+            output="claude:already rendered prompt",
+            selected_service="claude",
+            selected_model="gpt-5",
+            selected_effort="medium",
+            used_fallback=False,
+            metadata=prompt_runtime.OneShotResultMetadata(
+                selected_service_path=("claude",),
+                runtime=prompt_runtime.OneShotRuntimeMetadata(
+                    provider_session_id="provider-claude",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
             ),
         ),
     )
@@ -2405,14 +2450,17 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
         )
     )
 
-    assert result == prompt_runtime.ResumableRunResult(
+    assert result == prompt_runtime.RuntimeOutcome.completed(
         output="resume:prepared:recovered-session:/workspace/state/",
-        runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
-            service_name="codex",
-            provider_session_id="prepared:recovered-session",
-            run_kind=RunKind.RESUME,
-            session_namespace="main",
-            exact_transcript_match=False,
+        result=prompt_runtime.ResumableRunResult(
+            output="resume:prepared:recovered-session:/workspace/state/",
+            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="prepared:recovered-session",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
         ),
     )
 
@@ -2524,14 +2572,17 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
         )
     )
 
-    assert result == prompt_runtime.ResumableRunResult(
+    assert result == prompt_runtime.RuntimeOutcome.completed(
         output="resume:prepared:recovered-session:/workspace/runtime-state/",
-        runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
-            service_name="codex",
-            provider_session_id="prepared:recovered-session",
-            run_kind=RunKind.RESUME,
-            session_namespace="main",
-            exact_transcript_match=False,
+        result=prompt_runtime.ResumableRunResult(
+            output="resume:prepared:recovered-session:/workspace/runtime-state/",
+            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="prepared:recovered-session",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
         ),
     )
 

@@ -17,6 +17,7 @@ from .errors import (
 )
 from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
+from .runtime import RuntimeOutcome
 from .session import RunKind
 from .types import StageSelection
 from .usage_limit_scope import UsageLimitScope
@@ -31,6 +32,7 @@ __all__ = [
     "InvocationRole",
     "ProviderSessionAdapter",
     "RuntimeConfigurationError",
+    "RuntimeOutcome",
     "RunKind",
     "StageSelection",
     "ToolPolicy",
