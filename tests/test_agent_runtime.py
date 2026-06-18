@@ -3040,6 +3040,15 @@ def test_runtime_star_import_uses_lifecycle_surface_while_kept_one_shot_aliases_
     assert prompt_runtime.OneShotRunRequest is not None
 
 
+def test_types_module_exposes_stage_selection_as_the_only_stage_chain_value() -> None:
+    types_module = importlib.import_module("agent_runtime.types")
+
+    assert types_module.StageSelection.__module__.startswith("agent_runtime")
+    assert not hasattr(types_module, "StageOverride")
+    with pytest.raises(ImportError, match="StageOverride"):
+        exec("from agent_runtime.types import StageOverride", {})
+
+
 def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     assert {
         "NewSessionRunRequest",
