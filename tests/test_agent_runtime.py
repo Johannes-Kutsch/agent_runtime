@@ -153,7 +153,7 @@ def provider_error_observation() -> ProviderErrorObservation:
     )
 
 
-class _OneShotWorkRunner:
+class _EphemeralCompatWorkRunner:
     def __init__(
         self,
         service: _ExecutionService,
@@ -185,7 +185,7 @@ class _OneShotWorkRunner:
 
         if service_name == "codex":
             if attempt_count > 1:
-                raise AssertionError("one-shot retried the exhausted primary service")
+                raise AssertionError("ephemeral retried the exhausted primary service")
             raise UsageLimitError(
                 reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
                 service_name=service_name,
@@ -233,7 +233,7 @@ class _OneShotWorkRunner:
         )
 
 
-class _OneShotExecutionAdapter:
+class _EphemeralCompatExecutionAdapter:
     def __init__(self) -> None:
         self._attempts_by_service: dict[str, int] = {}
 
@@ -261,7 +261,7 @@ class _OneShotExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _OneShotWorkRunner(
+                    _EphemeralCompatWorkRunner(
                         execution_service,
                         attempts_by_service=self._attempts_by_service,
                     ),
@@ -303,7 +303,7 @@ class _EphemeralExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _RoleAwareOneShotWorkRunner(),
+                    _RoleAwareEphemeralCompatWorkRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -405,7 +405,7 @@ class _SetupTranslatedEphemeralExecutionAdapter:
         )
 
 
-class _RoleAwareOneShotWorkRunner:
+class _RoleAwareEphemeralCompatWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
 
@@ -463,7 +463,7 @@ class _RoleAwareOneShotWorkRunner:
         )
 
 
-class _RoleAwareOneShotExecutionAdapter:
+class _RoleAwareEphemeralCompatExecutionAdapter:
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
@@ -487,7 +487,7 @@ class _RoleAwareOneShotExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _RoleAwareOneShotWorkRunner(),
+                    _RoleAwareEphemeralCompatWorkRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -496,7 +496,7 @@ class _RoleAwareOneShotExecutionAdapter:
         )
 
 
-class _UsageLimitWithoutMappingRunner(_RoleAwareOneShotWorkRunner):
+class _UsageLimitWithoutMappingRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def work(
         self,
         role: InvocationRole,
@@ -510,7 +510,9 @@ class _UsageLimitWithoutMappingRunner(_RoleAwareOneShotWorkRunner):
         raise UsageLimitError(reset_time=None, service_name="codex")
 
 
-class _UsageLimitWithoutMappingExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+class _UsageLimitWithoutMappingExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
+):
     def build_work_dependencies(
         self,
         *,
@@ -540,7 +542,7 @@ class _UsageLimitWithoutMappingExecutionAdapter(_RoleAwareOneShotExecutionAdapte
         )
 
 
-class _StartedUsageLimitOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _StartedUsageLimitEphemeralCompatRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def prompt_only(
         self,
         prompt: str,
@@ -558,7 +560,9 @@ class _StartedUsageLimitOneShotRunner(_RoleAwareOneShotWorkRunner):
         )
 
 
-class _ModelActivityUsageLimitOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _ModelActivityUsageLimitEphemeralCompatRunner(
+    _RoleAwareEphemeralCompatWorkRunner
+):
     async def prompt_only(
         self,
         prompt: str,
@@ -581,8 +585,8 @@ class _ModelActivityUsageLimitOneShotRunner(_RoleAwareOneShotWorkRunner):
         )
 
 
-class _ModelActivityUsageLimitOneShotExecutionAdapter(
-    _RoleAwareOneShotExecutionAdapter
+class _ModelActivityUsageLimitEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
 ):
     def build_work_dependencies(
         self,
@@ -604,7 +608,7 @@ class _ModelActivityUsageLimitOneShotExecutionAdapter(
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _ModelActivityUsageLimitOneShotRunner(),
+                    _ModelActivityUsageLimitEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -613,7 +617,9 @@ class _ModelActivityUsageLimitOneShotExecutionAdapter(
         )
 
 
-class _StartedUsageLimitOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+class _StartedUsageLimitEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
+):
     def build_work_dependencies(
         self,
         *,
@@ -634,7 +640,7 @@ class _StartedUsageLimitOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapte
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _StartedUsageLimitOneShotRunner(),
+                    _StartedUsageLimitEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -643,7 +649,7 @@ class _StartedUsageLimitOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapte
         )
 
 
-class _UsageLimitThenSuccessEphemeralRunner(_RoleAwareOneShotWorkRunner):
+class _UsageLimitThenSuccessEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
     def __init__(self) -> None:
         self._attempts = 0
 
@@ -710,7 +716,7 @@ class _UsageLimitThenSuccessEphemeralExecutionAdapter:
         )
 
 
-class _TimeoutEphemeralRunner(_RoleAwareOneShotWorkRunner):
+class _TimeoutEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def work_text(
         self,
         prompt: str,
@@ -758,7 +764,7 @@ class _TimeoutEphemeralExecutionAdapter:
         )
 
 
-class _RetryableProviderFailureEphemeralRunner(_RoleAwareOneShotWorkRunner):
+class _RetryableProviderFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def work_text(
         self,
         prompt: str,
@@ -816,7 +822,7 @@ class _RetryableProviderFailureEphemeralExecutionAdapter:
         )
 
 
-class _HardFailureEphemeralRunner(_RoleAwareOneShotWorkRunner):
+class _HardFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def work_text(
         self,
         prompt: str,
@@ -864,7 +870,7 @@ class _HardFailureEphemeralExecutionAdapter:
         )
 
 
-class _TransientProviderFailureEphemeralRunner(_RoleAwareOneShotWorkRunner):
+class _TransientProviderFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def work_text(
         self,
         prompt: str,
@@ -916,7 +922,9 @@ class _TransientProviderFailureEphemeralExecutionAdapter:
         )
 
 
-class _RetryableProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _RetryableProviderFailureEphemeralCompatRunner(
+    _RoleAwareEphemeralCompatWorkRunner
+):
     async def prompt_only(
         self,
         prompt: str,
@@ -940,8 +948,8 @@ class _RetryableProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
         )
 
 
-class _RetryableProviderFailureOneShotExecutionAdapter(
-    _RoleAwareOneShotExecutionAdapter
+class _RetryableProviderFailureEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
 ):
     def build_work_dependencies(
         self,
@@ -963,7 +971,7 @@ class _RetryableProviderFailureOneShotExecutionAdapter(
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _RetryableProviderFailureOneShotRunner(),
+                    _RetryableProviderFailureEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -972,7 +980,9 @@ class _RetryableProviderFailureOneShotExecutionAdapter(
         )
 
 
-class _StartedRetryableProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _StartedRetryableProviderFailureEphemeralCompatRunner(
+    _RoleAwareEphemeralCompatWorkRunner
+):
     async def prompt_only(
         self,
         prompt: str,
@@ -997,8 +1007,8 @@ class _StartedRetryableProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner)
         )
 
 
-class _StartedRetryableProviderFailureOneShotExecutionAdapter(
-    _RoleAwareOneShotExecutionAdapter
+class _StartedRetryableProviderFailureEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
 ):
     def build_work_dependencies(
         self,
@@ -1020,7 +1030,7 @@ class _StartedRetryableProviderFailureOneShotExecutionAdapter(
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _StartedRetryableProviderFailureOneShotRunner(),
+                    _StartedRetryableProviderFailureEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1029,7 +1039,9 @@ class _StartedRetryableProviderFailureOneShotExecutionAdapter(
         )
 
 
-class _TransientProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _TransientProviderFailureEphemeralCompatRunner(
+    _RoleAwareEphemeralCompatWorkRunner
+):
     async def prompt_only(
         self,
         prompt: str,
@@ -1047,8 +1059,8 @@ class _TransientProviderFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
         )
 
 
-class _TransientProviderFailureOneShotExecutionAdapter(
-    _RoleAwareOneShotExecutionAdapter
+class _TransientProviderFailureEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
 ):
     def build_work_dependencies(
         self,
@@ -1070,7 +1082,7 @@ class _TransientProviderFailureOneShotExecutionAdapter(
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _TransientProviderFailureOneShotRunner(),
+                    _TransientProviderFailureEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1079,7 +1091,7 @@ class _TransientProviderFailureOneShotExecutionAdapter(
         )
 
 
-class _StartedCancellationOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _StartedCancellationEphemeralCompatRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def prompt_only(
         self,
         prompt: str,
@@ -1095,7 +1107,9 @@ class _StartedCancellationOneShotRunner(_RoleAwareOneShotWorkRunner):
         )
 
 
-class _StartedCancellationOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+class _StartedCancellationEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
+):
     def build_work_dependencies(
         self,
         *,
@@ -1116,7 +1130,7 @@ class _StartedCancellationOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdap
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _StartedCancellationOneShotRunner(),
+                    _StartedCancellationEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1170,8 +1184,8 @@ class _RecordingStatusDisplay:
         del caller, message, style
 
 
-class _StartedCancellationStatusOneShotExecutionAdapter(
-    _RoleAwareOneShotExecutionAdapter
+class _StartedCancellationStatusEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
 ):
     def __init__(self, status_display: _RecordingStatusDisplay) -> None:
         self._status_display = status_display
@@ -1196,7 +1210,7 @@ class _StartedCancellationStatusOneShotExecutionAdapter(
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _StartedCancellationOneShotRunner(),
+                    _StartedCancellationEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1207,7 +1221,7 @@ class _StartedCancellationStatusOneShotExecutionAdapter(
         )
 
 
-class _TimeoutOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _TimeoutEphemeralCompatRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def prompt_only(
         self,
         prompt: str,
@@ -1221,7 +1235,9 @@ class _TimeoutOneShotRunner(_RoleAwareOneShotWorkRunner):
         raise AgentTimeoutError("timed out")
 
 
-class _TimeoutOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+class _TimeoutEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
+):
     def build_work_dependencies(
         self,
         *,
@@ -1242,7 +1258,7 @@ class _TimeoutOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _TimeoutOneShotRunner(),
+                    _TimeoutEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1251,7 +1267,7 @@ class _TimeoutOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
         )
 
 
-class _StartedTimeoutOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _StartedTimeoutEphemeralCompatRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def prompt_only(
         self,
         prompt: str,
@@ -1268,7 +1284,9 @@ class _StartedTimeoutOneShotRunner(_RoleAwareOneShotWorkRunner):
         )
 
 
-class _StartedTimeoutOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+class _StartedTimeoutEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
+):
     def build_work_dependencies(
         self,
         *,
@@ -1289,7 +1307,7 @@ class _StartedTimeoutOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _StartedTimeoutOneShotRunner(),
+                    _StartedTimeoutEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1298,7 +1316,7 @@ class _StartedTimeoutOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
         )
 
 
-class _PromptOnlyOneShotWorkRunner:
+class _PromptOnlyEphemeralCompatWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
 
@@ -1312,7 +1330,7 @@ class _PromptOnlyOneShotWorkRunner:
         on_provider_session_id: Any = None,
     ) -> str:
         del role, prompt, run_kind, session_uuid, on_provider_session_id
-        raise AssertionError("one-shot used tool-capable work invocation")
+        raise AssertionError("ephemeral used tool-capable work invocation")
 
     async def work_text(
         self,
@@ -1325,7 +1343,7 @@ class _PromptOnlyOneShotWorkRunner:
         on_provider_session_id: Any = None,
     ) -> str:
         del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
-        raise AssertionError("one-shot used tool-capable work_text invocation")
+        raise AssertionError("ephemeral used tool-capable work_text invocation")
 
     async def prompt_only(
         self,
@@ -1343,7 +1361,7 @@ class _PromptOnlyOneShotWorkRunner:
         return f"{role.value}:{prompt}:prompt_only"
 
 
-class _PromptOnlyOneShotExecutionAdapter:
+class _PromptOnlyEphemeralCompatExecutionAdapter:
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
@@ -1367,7 +1385,7 @@ class _PromptOnlyOneShotExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _PromptOnlyOneShotWorkRunner(),
+                    _PromptOnlyEphemeralCompatWorkRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1376,7 +1394,7 @@ class _PromptOnlyOneShotExecutionAdapter:
         )
 
 
-class _NormalizedPromptOnlyOneShotWorkRunner:
+class _NormalizedPromptOnlyEphemeralCompatWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
 
@@ -1397,7 +1415,7 @@ class _NormalizedPromptOnlyOneShotWorkRunner:
         return f"normalized:{prompt}"
 
 
-class _NormalizedPromptOnlyOneShotExecutionAdapter:
+class _NormalizedPromptOnlyEphemeralCompatExecutionAdapter:
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
@@ -1421,7 +1439,7 @@ class _NormalizedPromptOnlyOneShotExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _NormalizedPromptOnlyOneShotWorkRunner(),
+                    _NormalizedPromptOnlyEphemeralCompatWorkRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -1430,7 +1448,7 @@ class _NormalizedPromptOnlyOneShotExecutionAdapter:
         )
 
 
-class _ToolCapableOnlyOneShotWorkRunner:
+class _ToolCapableOnlyEphemeralCompatWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
 
@@ -1444,7 +1462,7 @@ class _ToolCapableOnlyOneShotWorkRunner:
         on_provider_session_id: Any = None,
     ) -> dict[str, str]:
         del role, prompt, run_kind, session_uuid, on_provider_session_id
-        raise AssertionError("one-shot fell back to tool-capable work invocation")
+        raise AssertionError("ephemeral fell back to tool-capable work invocation")
 
     async def work_text(
         self,
@@ -1457,10 +1475,10 @@ class _ToolCapableOnlyOneShotWorkRunner:
         on_provider_session_id: Any = None,
     ) -> str:
         del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
-        raise AssertionError("one-shot fell back to tool-capable work_text invocation")
+        raise AssertionError("ephemeral fell back to tool-capable work_text invocation")
 
 
-class _MissingPromptOnlyOneShotExecutionAdapter:
+class _MissingPromptOnlyEphemeralCompatExecutionAdapter:
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
@@ -1484,7 +1502,7 @@ class _MissingPromptOnlyOneShotExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _ToolCapableOnlyOneShotWorkRunner(),
+                    _ToolCapableOnlyEphemeralCompatWorkRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -2635,7 +2653,7 @@ class _StartedTimeoutResidentExecutionAdapter:
         )
 
 
-class _CredentialFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _CredentialFailureEphemeralCompatRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def prompt_only(
         self,
         prompt: str,
@@ -2654,7 +2672,9 @@ class _CredentialFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
         )
 
 
-class _CredentialFailureOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+class _CredentialFailureEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
+):
     def build_work_dependencies(
         self,
         *,
@@ -2675,7 +2695,7 @@ class _CredentialFailureOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapte
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _CredentialFailureOneShotRunner(),
+                    _CredentialFailureEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -2684,7 +2704,7 @@ class _CredentialFailureOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapte
         )
 
 
-class _HardFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
+class _HardFailureEphemeralCompatRunner(_RoleAwareEphemeralCompatWorkRunner):
     async def prompt_only(
         self,
         prompt: str,
@@ -2698,7 +2718,9 @@ class _HardFailureOneShotRunner(_RoleAwareOneShotWorkRunner):
         raise HardAgentError("hard failure", service_name="codex")
 
 
-class _HardFailureOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+class _HardFailureEphemeralCompatExecutionAdapter(
+    _RoleAwareEphemeralCompatExecutionAdapter
+):
     def build_work_dependencies(
         self,
         *,
@@ -2719,7 +2741,7 @@ class _HardFailureOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _HardFailureOneShotRunner(),
+                    _HardFailureEphemeralCompatRunner(),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -2986,7 +3008,7 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "PromptRuntime")
     assert not hasattr(prompt_runtime, "PromptRunRequest")
     assert not hasattr(prompt_runtime, "PromptRuntimeExecutionAdapter")
-    assert not hasattr(prompt_runtime, "run_one_shot")
+    assert not hasattr(prompt_runtime, "run_ephemeral")
     assert not hasattr(prompt_runtime, "run_prompt")
     assert not hasattr(prompt_runtime, "run_resumable_prompt")
     assert not hasattr(prompt_runtime, "ResidentRunRequest")
@@ -3022,7 +3044,7 @@ def test_package_exports_runtime_surface() -> None:
     assert "OneShotRuntimeMetadata" not in prompt_runtime.__all__
 
 
-def test_runtime_star_import_uses_lifecycle_surface_while_kept_one_shot_aliases_stay_directly_importable() -> (
+def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases_fail_direct_import() -> (
     None
 ):
     exported_names: dict[str, object] = {}
@@ -3039,8 +3061,25 @@ def test_runtime_star_import_uses_lifecycle_surface_while_kept_one_shot_aliases_
     assert "OneShotRunRequest" not in exported_names
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ResumableRunRequest", {}, {})
-    assert prompt_runtime.OneShotRuntime is not None
-    assert prompt_runtime.OneShotRunRequest is not None
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import OneShotRuntime", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import OneShotRunRequest", {}, {})
+
+
+def test_runtime_direct_import_rejects_removed_legacy_names() -> None:
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, "OneShotRuntime")
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, "OneShotRunRequest")
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, "OneShotRunResult")
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, "OneShotResultMetadata")
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, "OneShotRuntimeExecutionAdapter")
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, "OneShotRuntimeMetadata")
 
 
 def test_runtime_direct_import_rejects_removed_resumable_completed_result_names() -> (
@@ -3570,22 +3609,6 @@ def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
     assert error.usage_limit_scope == runtime.UsageLimitScope("quota-review")
 
 
-def test_one_shot_runtime_exposes_no_service_available_timing_metadata(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=_RoleAwareOneShotExecutionAdapter(),
-        service_registry=service_registry_factory("codex", unavailable={"codex"}),
-    )
-
-    result = asyncio.run(runtime_instance.run_one_shot(one_shot_request_factory()))
-
-    assert result.kind == "no_service_available"
-    assert result.service_name is None
-    assert result.reset_time == datetime(2026, 1, 1, tzinfo=timezone.utc)
-
-
 def test_permanent_usage_limit_account_label_remains_diagnostic_metadata() -> None:
     decision = decide_usage_limit_continuation(
         UsageLimitOutcome(
@@ -3633,16 +3656,16 @@ def test_provider_state_path_helpers_reject_unsafe_runtime_service_labels(
 
 
 def test_model_and_effort_values_remain_provider_execution_parameters(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    ephemeral_request_factory: Callable[..., prompt_runtime.EphemeralRunRequest],
     service_registry_factory: Callable[..., ServiceRegistry],
     stage_selection_factory: Callable[..., runtime.StageSelection],
 ) -> None:
     result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_RoleAwareOneShotExecutionAdapter(),
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_RoleAwareEphemeralCompatExecutionAdapter(),
             service_registry=service_registry_factory("codex"),
-        ).run_one_shot(
-            one_shot_request_factory(
+        ).run_ephemeral(
+            ephemeral_request_factory(
                 stage=stage_selection_factory(
                     service="codex",
                     model="../gpt 5 / provider specific",
@@ -4005,95 +4028,6 @@ def test_service_registry_preserves_per_candidate_configuration_on_filtered_chai
             service="gemini",
             model="2.5-pro",
             effort="low",
-        ),
-    )
-
-
-def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolution(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-) -> None:
-    registry = service_registry_factory(
-        "codex",
-        "claude",
-        wake_times={"claude": datetime(2026, 1, 2, tzinfo=timezone.utc)},
-    )
-
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_OneShotExecutionAdapter(),
-            service_registry=registry,
-        ).run_one_shot(
-            one_shot_request_factory(
-                stage=stage_selection_factory(
-                    service="codex",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
-                    ),
-                )
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.completed(
-        output="claude:already rendered prompt",
-        result=prompt_runtime.OneShotRunResult(
-            output="claude:already rendered prompt",
-            selected_service="claude",
-            selected_model="sonnet",
-            selected_effort="high",
-            used_fallback=True,
-            metadata=prompt_runtime.OneShotResultMetadata(
-                selected_service_path=("codex", "claude"),
-                runtime=prompt_runtime.OneShotRuntimeMetadata(
-                    provider_session_id="provider-claude",
-                    run_kind=RunKind.FRESH,
-                    session_namespace="",
-                ),
-            ),
-        ),
-    )
-
-
-def test_one_shot_runtime_returns_completed_outcome_with_normalized_output(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_OneShotExecutionAdapter(),
-            service_registry=service_registry_factory("claude"),
-        ).run_one_shot(
-            one_shot_request_factory(
-                stage=stage_selection_factory(
-                    service="claude",
-                    model="gpt-5",
-                    effort="medium",
-                )
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.completed(
-        output="claude:already rendered prompt",
-        result=prompt_runtime.OneShotRunResult(
-            output="claude:already rendered prompt",
-            selected_service="claude",
-            selected_model="gpt-5",
-            selected_effort="medium",
-            used_fallback=False,
-            metadata=prompt_runtime.OneShotResultMetadata(
-                selected_service_path=("claude",),
-                runtime=prompt_runtime.OneShotRuntimeMetadata(
-                    provider_session_id="provider-claude",
-                    run_kind=RunKind.FRESH,
-                    session_namespace="",
-                ),
-            ),
         ),
     )
 
@@ -4484,668 +4418,6 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                 )
             )
         )
-
-
-def test_one_shot_runtime_preserves_one_shot_result_convenience_fields_on_completed_outcome(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_OneShotExecutionAdapter(),
-            service_registry=service_registry_factory("claude"),
-        ).run_one_shot(
-            one_shot_request_factory(
-                stage=stage_selection_factory(
-                    service="claude",
-                    model="gpt-5",
-                    effort="medium",
-                )
-            )
-        )
-    )
-
-    assert result.raw_output == "claude:already rendered prompt"
-    assert result.selected_service_path == ("claude",)
-
-
-def test_one_shot_runtime_request_requires_explicit_invocation_role(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    with pytest.raises(TypeError):
-        prompt_runtime.OneShotRunRequest(
-            prompt="already rendered prompt",
-            worktree=WorktreeMount(Path(".")),
-            override=stage_selection_factory(),
-        )  # type: ignore[call-arg]
-
-
-def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surfaces(
-    service_registry_factory: Callable[..., ServiceRegistry],
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    role = InvocationRole("reviewer")
-    execution_adapter = _RoleAwareOneShotExecutionAdapter()
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=execution_adapter,
-        service_registry=service_registry_factory("codex"),
-    )
-    request = one_shot_request_factory(
-        override=stage_selection_factory(),
-        role=role,
-        session_namespace="main",
-    )
-
-    result = asyncio.run(runtime_instance.run_one_shot(request))
-
-    assert result.output == "reviewer:already rendered prompt"
-    assert result.runtime_metadata == prompt_runtime.OneShotRuntimeMetadata(
-        provider_session_id="provider-reviewer",
-        run_kind=RunKind.FRESH,
-        session_namespace="main",
-    )
-    assert request.stage == stage_selection_factory()
-    assert request.override == request.stage
-    cancelled_token = CancellationToken()
-    cancelled = one_shot_request_factory(
-        override=stage_selection_factory(),
-        role=role,
-        token=cancelled_token,
-    )
-    cancelled_token.cancel()
-
-    cancelled_result = asyncio.run(runtime_instance.run_one_shot(cancelled))
-
-    assert cancelled_result == prompt_runtime.RuntimeOutcome.cancelled(
-        output="",
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
-def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role(
-    service_registry_factory: Callable[..., ServiceRegistry],
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    role = InvocationRole("reviewer")
-    execution_adapter = _RoleAwareOneShotExecutionAdapter()
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=execution_adapter,
-        service_registry=service_registry_factory("codex"),
-    )
-
-    result = asyncio.run(
-        runtime_instance.run_one_shot(
-            one_shot_request_factory(
-                stage=stage_selection_factory(),
-                role=role,
-                usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-                session_namespace="main",
-            )
-        )
-    )
-
-    assert result.output == "reviewer:already rendered prompt"
-    assert result.runtime_metadata == prompt_runtime.OneShotRuntimeMetadata(
-        provider_session_id="provider-reviewer",
-        run_kind=RunKind.FRESH,
-        session_namespace="main",
-    )
-
-    cancelled_token = CancellationToken()
-    cancelled_token.cancel()
-
-    cancelled_result = asyncio.run(
-        runtime_instance.run_one_shot(
-            one_shot_request_factory(
-                override=stage_selection_factory(),
-                role=role,
-                usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-                token=cancelled_token,
-            )
-        )
-    )
-
-    assert cancelled_result == prompt_runtime.RuntimeOutcome.cancelled(
-        output="",
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
-def test_one_shot_runtime_preserves_usage_limit_scope_on_no_service_available_outcome(
-    service_registry_factory: Callable[..., ServiceRegistry],
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    role = InvocationRole("reviewer")
-    execution_adapter = _UsageLimitWithoutMappingExecutionAdapter()
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=execution_adapter,
-        service_registry=service_registry_factory("codex"),
-    )
-
-    result = asyncio.run(
-        runtime_instance.run_one_shot(
-            one_shot_request_factory(
-                stage=stage_selection_factory(),
-                role=role,
-                usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-                session_namespace="main",
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
-def test_one_shot_runtime_reports_started_progress_for_no_service_available_outcome(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_StartedUsageLimitOneShotExecutionAdapter(),
-            service_registry=service_registry_factory("codex"),
-        ).run_one_shot(one_shot_request_factory())
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
-        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-    )
-
-
-def test_one_shot_runtime_prefers_adapter_reported_model_activity_for_no_service_available_outcome(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_ModelActivityUsageLimitOneShotExecutionAdapter(),
-            service_registry=service_registry_factory("codex"),
-        ).run_one_shot(one_shot_request_factory())
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
-        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-    )
-
-
-def test_one_shot_runtime_returns_no_service_available_outcome_when_all_configured_candidates_are_temporarily_unavailable(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_OneShotExecutionAdapter(),
-            service_registry=service_registry_factory(
-                "codex",
-                "claude",
-                unavailable={"codex", "claude"},
-                wake_times={
-                    "codex": datetime(2026, 1, 2, tzinfo=timezone.utc),
-                    "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
-                },
-            ),
-        ).run_one_shot(
-            one_shot_request_factory(
-                stage=stage_selection_factory(
-                    service="codex",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
-                    ),
-                )
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
-def test_one_shot_runtime_treats_missing_then_temporarily_unavailable_configured_candidate_as_no_service_available(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_OneShotExecutionAdapter(),
-            service_registry=service_registry_factory(
-                "claude",
-                unavailable={"claude"},
-                wake_times={
-                    "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
-                },
-            ),
-        ).run_one_shot(
-            one_shot_request_factory(
-                stage=stage_selection_factory(
-                    service="missing",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
-                    ),
-                )
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 3, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
-def test_one_shot_runtime_preserves_explicit_usage_limit_scope_when_configured_candidates_are_temporarily_unavailable(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_OneShotExecutionAdapter(),
-            service_registry=service_registry_factory("codex", unavailable={"codex"}),
-        ).run_one_shot(
-            one_shot_request_factory(
-                usage_limit_scope=runtime.UsageLimitScope("quota-review")
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
-def test_one_shot_runtime_returns_no_service_available_outcome_when_all_configured_candidates_become_exhausted(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_OneShotExecutionAdapter(),
-            service_registry=service_registry_factory(
-                "codex",
-                "claude",
-                unavailable={"claude"},
-                wake_times={
-                    "codex": datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
-                },
-            ),
-        ).run_one_shot(
-            one_shot_request_factory(
-                stage=stage_selection_factory(
-                    service="codex",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
-                    ),
-                )
-            )
-        )
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
-def test_one_shot_runtime_keeps_invalid_service_references_as_runtime_configuration_failures(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=_OneShotExecutionAdapter(),
-        service_registry=service_registry_factory("codex"),
-    )
-
-    with pytest.raises(
-        runtime.RuntimeConfigurationError,
-        match="requires at least one configured service candidate",
-    ):
-        asyncio.run(
-            runtime_instance.run_one_shot(
-                one_shot_request_factory(
-                    stage=stage_selection_factory(
-                        service="missing",
-                        fallback=stage_selection_factory(
-                            service="also-missing",
-                            model="sonnet",
-                            effort="high",
-                        ),
-                    )
-                )
-            )
-        )
-
-
-def test_one_shot_run_request_uses_stage_selection_vocabulary() -> None:
-    stage = runtime.StageSelection(
-        service="codex",
-        model="gpt-5.4",
-        effort="medium",
-    )
-
-    request = prompt_runtime.OneShotRunRequest(
-        prompt="already rendered prompt",
-        worktree=WorktreeMount(Path(".")),
-        stage=stage,
-        role=InvocationRole("implementer"),
-    )
-
-    assert request.stage is stage
-    assert request.override is stage
-
-
-def test_one_shot_run_request_accepts_plain_worktree_path() -> None:
-    request = prompt_runtime.OneShotRunRequest(
-        prompt="already rendered prompt",
-        worktree=Path("."),
-        stage=runtime.StageSelection(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-        ),
-        role=InvocationRole("implementer"),
-    )
-
-    assert request.worktree == Path(".")
-    assert request.mount_path == Path(".")
-
-
-def test_one_shot_run_request_preserves_override_keyword_compatibility() -> None:
-    stage = runtime.StageSelection(
-        service="codex",
-        model="gpt-5.4",
-        effort="medium",
-        fallback=runtime.StageSelection(
-            service="claude",
-            model="sonnet",
-            effort="high",
-        ),
-    )
-
-    request = prompt_runtime.OneShotRunRequest(
-        prompt="already rendered prompt",
-        worktree=WorktreeMount(Path(".")),
-        override=stage,
-        role=InvocationRole("implementer"),
-    )
-
-    assert request.stage == stage
-    assert request.override == stage
-
-
-def test_one_shot_run_request_uses_direct_session_namespace_field() -> None:
-    request = prompt_runtime.OneShotRunRequest(
-        prompt="already rendered prompt",
-        worktree=Path("."),
-        stage=runtime.StageSelection(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-        ),
-        role=InvocationRole("implementer"),
-        session_namespace="main",
-    )
-
-    assert request.session_namespace == "main"
-
-
-def test_one_shot_run_request_does_not_expose_tool_policy() -> None:
-    stage = runtime.StageSelection(
-        service="codex",
-        model="gpt-5.4",
-        effort="medium",
-    )
-
-    with pytest.raises(TypeError):
-        prompt_runtime.OneShotRunRequest(
-            prompt="already rendered prompt",
-            worktree=WorktreeMount(Path(".")),
-            stage=stage,
-            role=InvocationRole("implementer"),
-            tool_policy=runtime.ToolPolicy.FULL,
-        )  # type: ignore[call-arg]
-
-
-def test_one_shot_runtime_uses_prompt_only_provider_invocation() -> None:
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=_PromptOnlyOneShotExecutionAdapter(),
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
-    )
-
-    result = asyncio.run(
-        runtime_instance.run_one_shot(
-            prompt_runtime.OneShotRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                ),
-                role=InvocationRole("implementer"),
-            )
-        )
-    )
-
-    assert result.output == "implementer:already rendered prompt:prompt_only"
-    assert result.runtime_metadata == prompt_runtime.OneShotRuntimeMetadata(
-        provider_session_id="provider-prompt-only",
-        run_kind=RunKind.FRESH,
-        session_namespace="",
-    )
-
-
-def test_one_shot_runtime_requires_prompt_only_provider_invocation() -> None:
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=_MissingPromptOnlyOneShotExecutionAdapter(),
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
-    )
-
-    with pytest.raises(runtime.RuntimeConfigurationError) as excinfo:
-        asyncio.run(
-            runtime_instance.run_one_shot(
-                prompt_runtime.OneShotRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=WorktreeMount(Path(".")),
-                    stage=runtime.StageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
-                    role=InvocationRole("implementer"),
-                )
-            )
-        )
-
-    assert str(excinfo.value) == (
-        "One-shot runtime requires a work runner with callable `prompt_only()`."
-    )
-
-
-def test_one_shot_runtime_returns_normalized_text_output() -> None:
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=_NormalizedPromptOnlyOneShotExecutionAdapter(),
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
-    )
-
-    result = asyncio.run(
-        runtime_instance.run_one_shot(
-            prompt_runtime.OneShotRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                ),
-                role=InvocationRole("implementer"),
-            )
-        )
-    )
-
-    assert result.output == "normalized:already rendered prompt"
-
-
-def test_one_shot_run_result_groups_runtime_metadata_under_metadata() -> None:
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=_PromptOnlyOneShotExecutionAdapter(),
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
-    )
-
-    result = asyncio.run(
-        runtime_instance.run_one_shot(
-            prompt_runtime.OneShotRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                ),
-                role=InvocationRole("implementer"),
-            )
-        )
-    )
-
-    assert result.metadata == prompt_runtime.OneShotResultMetadata(
-        selected_service_path=("codex",),
-        runtime=prompt_runtime.OneShotRuntimeMetadata(
-            provider_session_id="provider-prompt-only",
-            run_kind=RunKind.FRESH,
-            session_namespace="",
-        ),
-    )
-
-
-def test_one_shot_runtime_reports_selected_service_path_without_fallback() -> None:
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=_PromptOnlyOneShotExecutionAdapter(),
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                ),
-                "claude": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "claude",
-                        available=True,
-                        wake_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
-                    ),
-                ),
-            }
-        ),
-    )
-
-    result = asyncio.run(
-        runtime_instance.run_one_shot(
-            prompt_runtime.OneShotRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                    fallback=runtime.StageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
-                    ),
-                ),
-                role=InvocationRole("implementer"),
-            )
-        )
-    )
-
-    assert result.selected_service == "codex"
-    assert result.selected_model == "gpt-5.4"
-    assert result.selected_effort == "medium"
-    assert result.used_fallback is False
-    assert result.metadata.selected_service_path == ("codex",)
 
 
 def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
@@ -7683,100 +6955,6 @@ def test_resumed_session_runtime_returns_cancelled_outcome_for_pre_start_caller_
     )
 
 
-def test_runtime_boundaries_return_timed_out_outcomes_for_timeout_conditions(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    one_shot_result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_TimeoutOneShotExecutionAdapter(),
-            service_registry=service_registry_factory("codex"),
-        ).run_one_shot(one_shot_request_factory())
-    )
-
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    resumable_result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_TimeoutResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-            )
-        )
-    )
-
-    assert one_shot_result.kind == "timed_out"
-    assert resumable_result.kind == "timed_out"
-
-
-def test_timed_out_outcomes_preserve_started_and_not_started_progress(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    one_shot_result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_StartedTimeoutOneShotExecutionAdapter(),
-            service_registry=service_registry_factory("codex"),
-        ).run_one_shot(one_shot_request_factory())
-    )
-
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    resumable_result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_TimeoutResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-            )
-        )
-    )
-
-    assert one_shot_result == prompt_runtime.RuntimeOutcome.timed_out(
-        output="",
-        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-    )
-    assert resumable_result == prompt_runtime.RuntimeOutcome.timed_out(
-        output="",
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-
-
 def test_resumed_session_runtime_reports_started_progress_for_timed_out_outcome(
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
@@ -7824,268 +7002,6 @@ def test_resumed_session_runtime_reports_started_progress_for_timed_out_outcome(
             },
         ),
     )
-
-
-def test_runtime_boundaries_return_retryable_provider_failure_outcomes_for_retryable_provider_failures(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    one_shot_result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_RetryableProviderFailureOneShotExecutionAdapter(),
-            service_registry=service_registry_factory("codex"),
-        ).run_one_shot(one_shot_request_factory())
-    )
-
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    resumable_result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_RetryableProviderFailureResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-            )
-        )
-    )
-
-    assert one_shot_result.kind == "retryable_provider_failure"
-    assert resumable_result.kind == "retryable_provider_failure"
-
-
-def test_retryable_provider_failure_outcomes_preserve_started_progress(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    one_shot_result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_StartedRetryableProviderFailureOneShotExecutionAdapter(),
-            service_registry=service_registry_factory("codex"),
-        ).run_one_shot(one_shot_request_factory())
-    )
-
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    resumable_result = asyncio.run(
-        prompt_runtime.ResumedSessionRuntime(
-            execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
-            )
-        )
-    )
-
-    assert one_shot_result == prompt_runtime.RuntimeOutcome.retryable_provider_failure(
-        output="",
-        service_name="codex",
-        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-    )
-    assert resumable_result == prompt_runtime.RuntimeOutcome.retryable_provider_failure(
-        output="",
-        service_name="codex",
-        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "prepared:recovered-session",
-                "provider_state_dir_relpath": "state/",
-                "exact_transcript_match": False,
-            },
-        ),
-    )
-
-
-def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    session_store_factory: Callable[..., _SessionStore],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    with pytest.raises(runtime.RuntimeConfigurationError):
-        asyncio.run(
-            prompt_runtime.OneShotRuntime(
-                execution_adapter=_MissingPromptOnlyOneShotExecutionAdapter(),
-                service_registry=service_registry_factory("codex"),
-            ).run_one_shot(one_shot_request_factory())
-        )
-
-    with pytest.raises(AgentCredentialFailureError):
-        asyncio.run(
-            prompt_runtime.OneShotRuntime(
-                execution_adapter=_CredentialFailureOneShotExecutionAdapter(),
-                service_registry=service_registry_factory("codex"),
-            ).run_one_shot(one_shot_request_factory())
-        )
-
-    with pytest.raises(HardAgentError):
-        asyncio.run(
-            prompt_runtime.OneShotRuntime(
-                execution_adapter=_HardFailureOneShotExecutionAdapter(),
-                service_registry=service_registry_factory("codex"),
-            ).run_one_shot(one_shot_request_factory())
-        )
-
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=session_store_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    with pytest.raises(runtime.RuntimeConfigurationError):
-        asyncio.run(
-            prompt_runtime.ResumedSessionRuntime(
-                execution_adapter=cast(Any, object())
-            ).run_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=WorktreeMount(Path(".")),
-                    model="gpt-5.4",
-                    effort="medium",
-                    session_plan=session_plan,
-                    tool_policy=runtime.ToolPolicy.FULL,
-                )
-            )
-        )
-
-    with pytest.raises(AgentCredentialFailureError):
-        asyncio.run(
-            prompt_runtime.ResumedSessionRuntime(
-                execution_adapter=_CredentialFailureResidentExecutionAdapter()
-            ).run_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=WorktreeMount(Path(".")),
-                    model="gpt-5.4",
-                    effort="medium",
-                    session_plan=session_plan,
-                    tool_policy=runtime.ToolPolicy.FULL,
-                )
-            )
-        )
-
-    with pytest.raises(HardAgentError):
-        asyncio.run(
-            prompt_runtime.ResumedSessionRuntime(
-                execution_adapter=_HardFailureResidentExecutionAdapter()
-            ).run_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=WorktreeMount(Path(".")),
-                    model="gpt-5.4",
-                    effort="medium",
-                    session_plan=session_plan,
-                    tool_policy=runtime.ToolPolicy.FULL,
-                )
-            )
-        )
-
-    with pytest.raises(TransientAgentError):
-        asyncio.run(
-            prompt_runtime.OneShotRuntime(
-                execution_adapter=_TransientProviderFailureOneShotExecutionAdapter(),
-                service_registry=service_registry_factory("codex"),
-            ).run_one_shot(one_shot_request_factory())
-        )
-
-    with pytest.raises(TransientAgentError):
-        asyncio.run(
-            prompt_runtime.ResumedSessionRuntime(
-                execution_adapter=_TransientProviderFailureResidentExecutionAdapter()
-            ).run_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=WorktreeMount(Path(".")),
-                    model="gpt-5.4",
-                    effort="medium",
-                    session_plan=session_plan,
-                    tool_policy=runtime.ToolPolicy.FULL,
-                )
-            )
-        )
-
-
-def test_one_shot_runtime_reports_started_progress_for_cancelled_outcome(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_StartedCancellationOneShotExecutionAdapter(),
-            service_registry=service_registry_factory("codex"),
-        ).run_one_shot(one_shot_request_factory())
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.cancelled(
-        output="",
-        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-    )
-
-
-def test_one_shot_runtime_closes_status_row_as_interrupted_for_cancelled_outcome(
-    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    status_display = _RecordingStatusDisplay()
-
-    result = asyncio.run(
-        prompt_runtime.OneShotRuntime(
-            execution_adapter=_StartedCancellationStatusOneShotExecutionAdapter(
-                status_display
-            ),
-            service_registry=service_registry_factory("codex"),
-        ).run_one_shot(one_shot_request_factory())
-    )
-
-    assert result == prompt_runtime.RuntimeOutcome.cancelled(
-        output="",
-        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-    )
-    assert status_display.removals == [("Runtime Agent", "cancelled", "interrupted")]
 
 
 @pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)

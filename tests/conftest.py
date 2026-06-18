@@ -109,9 +109,9 @@ def service_registry_factory() -> Callable[..., ServiceRegistry]:
 
 
 @pytest.fixture
-def one_shot_request_factory(
+def ephemeral_request_factory(
     stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> Callable[..., prompt_runtime.OneShotRunRequest]:
+) -> Callable[..., prompt_runtime.EphemeralRunRequest]:
     def _factory(
         *,
         prompt: str = "already rendered prompt",
@@ -119,16 +119,18 @@ def one_shot_request_factory(
         stage: runtime.StageSelection | None = None,
         override: runtime.StageSelection | None = None,
         role: InvocationRole = InvocationRole("implementer"),
+        tool_access: runtime.ToolAccess = runtime.ToolAccess.no_tools(),
         usage_limit_scope: UsageLimitScope | None = None,
         session_namespace: str = "",
         token: Any = None,
-    ) -> prompt_runtime.OneShotRunRequest:
-        return prompt_runtime.OneShotRunRequest(
+    ) -> prompt_runtime.EphemeralRunRequest:
+        return prompt_runtime.EphemeralRunRequest(
             prompt=prompt,
             worktree=worktree,
             stage=stage or override or stage_selection_factory(),
             override=override,
             role=role,
+            tool_access=tool_access,
             usage_limit_scope=usage_limit_scope,
             session_namespace=session_namespace,
             token=token,

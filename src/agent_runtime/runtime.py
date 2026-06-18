@@ -69,11 +69,10 @@ __all__ = [
 
 EphemeralRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 NewSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
-OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResumedSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
 
-_DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
+_DEFAULT_RUNTIME_NAME = "Runtime Agent"
 
 
 def _require_json_compatible_resume_state(
@@ -146,7 +145,7 @@ class Continuation:
 class RuntimeOutcome:
     kind: str
     output: str
-    result: EphemeralRunResult | OneShotRunResult | SessionRunResult | None = None
+    result: EphemeralRunResult | SessionRunResult | None = None
     service_name: str | None = None
     reset_time: datetime | None = None
     usage_limit_scope: UsageLimitScope | None = None
@@ -158,7 +157,7 @@ class RuntimeOutcome:
         cls,
         *,
         output: str,
-        result: EphemeralRunResult | OneShotRunResult | SessionRunResult,
+        result: EphemeralRunResult | SessionRunResult,
     ) -> RuntimeOutcome:
         return cls(kind="completed", output=output, result=result)
 
@@ -252,53 +251,53 @@ class RuntimeOutcome:
     @property
     def runtime_metadata(
         self,
-    ) -> EphemeralRuntimeMetadata | OneShotRuntimeMetadata | SessionRuntimeMetadata:
+    ) -> EphemeralRuntimeMetadata | SessionRuntimeMetadata:
         result = self.result
         if result is None:
             raise AttributeError("Only completed outcomes carry runtime metadata.")
-        if isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+        if isinstance(result, EphemeralRunResult):
             return result.runtime_metadata
         return result.runtime_metadata
 
     @property
-    def metadata(self) -> OneShotResultMetadata:
+    def metadata(self) -> EphemeralResultMetadata:
         result = self.result
-        if not isinstance(result, OneShotRunResult):
-            raise AttributeError("Completed outcome does not carry one-shot metadata.")
+        if not isinstance(result, EphemeralRunResult):
+            raise AttributeError("Completed outcome does not carry ephemeral metadata.")
         return result.metadata
 
     @property
     def selected_service_path(self) -> tuple[str, ...]:
         result = self.result
-        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+        if not isinstance(result, EphemeralRunResult):
             raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.selected_service_path
 
     @property
     def selected_service(self) -> str:
         result = self.result
-        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+        if not isinstance(result, EphemeralRunResult):
             raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.selected_service
 
     @property
     def selected_model(self) -> str:
         result = self.result
-        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+        if not isinstance(result, EphemeralRunResult):
             raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.selected_model
 
     @property
     def selected_effort(self) -> str:
         result = self.result
-        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+        if not isinstance(result, EphemeralRunResult):
             raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.selected_effort
 
     @property
     def used_fallback(self) -> bool:
         result = self.result
-        if not isinstance(result, (EphemeralRunResult, OneShotRunResult)):
+        if not isinstance(result, EphemeralRunResult):
             raise AttributeError("Completed outcome does not carry selection metadata.")
         return result.used_fallback
 
@@ -312,70 +311,6 @@ class RuntimeOutcome:
     @property
     def raw_output(self) -> str:
         return self.output
-
-
-@dataclasses.dataclass(frozen=True, init=False)
-class OneShotRunRequest:
-    prompt: str
-    worktree: Path
-    stage: StageSelection
-    role: InvocationRole
-    usage_limit_scope: UsageLimitScope | None = None
-    session_namespace: str = ""
-    token: CancellationToken | None = None
-
-    def __init__(
-        self,
-        prompt: str,
-        worktree: Path | WorktreeMount,
-        stage: StageSelection | None = None,
-        role: InvocationRole | None = None,
-        usage_limit_scope: UsageLimitScope | None = None,
-        session_namespace: str = "",
-        token: CancellationToken | None = None,
-        *,
-        override: StageSelection | None = None,
-    ) -> None:
-        if stage is None:
-            stage = override
-        elif override is not None and override != stage:
-            raise TypeError(
-                "OneShotRunRequest received conflicting `stage` and `override` values."
-            )
-        if stage is None:
-            raise TypeError("OneShotRunRequest requires a `stage` value.")
-        if role is None:
-            raise TypeError("OneShotRunRequest requires a `role` value.")
-        validate_stage_selection(stage)
-
-        validate_session_namespace(session_namespace)
-
-        object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(
-            self,
-            "worktree",
-            worktree.host_path if isinstance(worktree, WorktreeMount) else worktree,
-        )
-        object.__setattr__(self, "stage", stage)
-        object.__setattr__(self, "role", role)
-        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
-        object.__setattr__(self, "session_namespace", session_namespace)
-        object.__setattr__(self, "token", token)
-
-    @property
-    def mount_path(self) -> Path:
-        return self.worktree
-
-    @property
-    def override(self) -> StageSelection:
-        return self.stage
-
-
-@dataclasses.dataclass(frozen=True)
-class OneShotRuntimeMetadata:
-    provider_session_id: str | None
-    run_kind: RunKind
-    session_namespace: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -406,34 +341,6 @@ class EphemeralRunResult:
 
     @property
     def runtime_metadata(self) -> EphemeralRuntimeMetadata:
-        return self.metadata.runtime
-
-    @property
-    def raw_output(self) -> str:
-        return self.output
-
-
-@dataclasses.dataclass(frozen=True)
-class OneShotResultMetadata:
-    selected_service_path: tuple[str, ...]
-    runtime: OneShotRuntimeMetadata
-
-
-@dataclasses.dataclass(frozen=True)
-class OneShotRunResult:
-    output: str
-    selected_service: str
-    selected_model: str
-    selected_effort: str
-    used_fallback: bool
-    metadata: OneShotResultMetadata
-
-    @property
-    def selected_service_path(self) -> tuple[str, ...]:
-        return self.metadata.selected_service_path
-
-    @property
-    def runtime_metadata(self) -> OneShotRuntimeMetadata:
         return self.metadata.runtime
 
     @property
@@ -912,151 +819,6 @@ async def _invoke_runtime_intent(intent: _RuntimeIntent) -> Any:
     )
 
 
-class _OneShotOutputAdapter:
-    def __init__(self, *, prompt: str, session_namespace: str) -> None:
-        self._prompt = prompt
-        self._session_namespace = session_namespace
-        self.runtime_metadata = OneShotRuntimeMetadata(
-            provider_session_id=None,
-            run_kind=RunKind.FRESH,
-            session_namespace=session_namespace,
-        )
-
-    async def build_prompt(
-        self,
-        *,
-        run_kind: RunKind,
-        container_exec: Any,
-    ) -> str:
-        del run_kind, container_exec
-        return self._prompt
-
-    async def invoke(
-        self,
-        *,
-        runner: Any,
-        role: InvocationRole,
-        prompt: str,
-        run_kind: RunKind,
-        session_uuid: str | None,
-        on_provider_session_id: Any,
-    ) -> Any:
-        provider_session_id: str | None = None
-
-        def _record_provider_session_id(value: str) -> None:
-            nonlocal provider_session_id
-            provider_session_id = value
-            on_provider_session_id(value)
-
-        prompt_only = getattr(runner, "prompt_only", None)
-        if not callable(prompt_only):
-            raise RuntimeConfigurationError(
-                "One-shot runtime requires a work runner with callable `prompt_only()`."
-            )
-
-        raw_output = await prompt_only(
-            prompt,
-            role=role,
-            run_kind=run_kind,
-            session_uuid=session_uuid,
-            on_provider_session_id=_record_provider_session_id,
-        )
-        self.runtime_metadata = OneShotRuntimeMetadata(
-            provider_session_id=provider_session_id or session_uuid,
-            run_kind=run_kind,
-            session_namespace=self._session_namespace,
-        )
-        return raw_output
-
-    def is_successful_result(self, result: Any) -> bool:
-        del result
-        return True
-
-    def protocol_reprompt_message(self) -> str | None:
-        return None
-
-    def protocol_error_result(self) -> Any | None:
-        return None
-
-    def non_typed_failure_result(self) -> Any | None:
-        return None
-
-    def protocol_error_types(self) -> tuple[type[BaseException], ...]:
-        return ()
-
-    def finalize_result(
-        self,
-        result: Any,
-        *,
-        role: InvocationRole,
-        mount_path: Any,
-        session_namespace: str,
-        service_name: str,
-    ) -> Any:
-        del role, mount_path, session_namespace, service_name
-        return result
-
-
-class OneShotRuntime:
-    def __init__(
-        self,
-        *,
-        execution_adapter: OneShotRuntimeExecutionAdapter,
-        service_registry: ServiceRegistry | dict[str, Any] | None = None,
-    ) -> None:
-        registry = (
-            service_registry
-            if isinstance(service_registry, ServiceRegistry)
-            else ServiceRegistry(service_registry or {})
-        )
-        self._service_registry = registry
-        self._execution_adapter = execution_adapter
-
-    async def run_one_shot(self, request: OneShotRunRequest) -> RuntimeOutcome:
-        try:
-            result = await _run_one_shot(
-                runner=self._execution_adapter,
-                service_registry=self._service_registry,
-                request=request,
-            )
-        except AgentCancelledError as exc:
-            return RuntimeOutcome.cancelled(
-                output="",
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        except AgentTimeoutError as exc:
-            return RuntimeOutcome.timed_out(
-                output="",
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        except NoServiceAvailableError as exc:
-            return RuntimeOutcome.no_service_available(
-                output="",
-                reset_time=exc.reset_time,
-                usage_limit_scope=exc.usage_limit_scope,
-                invocation_progress=exc.invocation_progress,
-            )
-        except RetryableProviderFailureError as exc:
-            return RuntimeOutcome.retryable_provider_failure(
-                output="",
-                service_name=exc.service_name,
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        except UsageLimitError as exc:
-            return RuntimeOutcome.usage_limited(
-                output="",
-                service_name=exc.service_name,
-                reset_time=exc.reset_time,
-                usage_limit_scope=exc.usage_limit_scope,
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        return RuntimeOutcome.completed(output=result.output, result=result)
-
-
 class EphemeralRuntime:
     def __init__(
         self,
@@ -1295,116 +1057,6 @@ async def _run_prompt(
     )
 
 
-async def _run_one_shot(
-    *,
-    runner: OneShotRuntimeExecutionAdapter,
-    service_registry: ServiceRegistry,
-    request: OneShotRunRequest,
-) -> OneShotRunResult:
-    if not service_registry.has_configured_candidate(request.stage):
-        raise RuntimeConfigurationError(
-            "One-shot runtime requires at least one configured service candidate."
-        )
-
-    role = request.role
-    resolve_service = _require_execution_adapter_method(runner, "resolve_service")
-    build_work_dependencies = _require_execution_adapter_method(
-        runner,
-        "build_work_dependencies",
-    )
-
-    while True:
-        now = _time_module.now_local()
-        if request.token is not None and request.token.is_cancelled:
-            raise AgentCancelledError(
-                invocation_progress=InvocationProgress.NOT_STARTED,
-            )
-        if not service_registry.has_available_for(request.stage, now):
-            next_wake_time = service_registry.next_wake_time_for(
-                request.stage,
-                now,
-            )
-            raise NoServiceAvailableError(
-                reset_time=next_wake_time,
-                usage_limit_scope=request.usage_limit_scope
-                or UsageLimitScope(role.value),
-            )
-
-        resolved_override = service_registry.resolve(
-            request.stage,
-            now,
-        )
-        resolved_service = resolve_service(resolved_override.service)
-        dependencies = build_work_dependencies(
-            name=_DEFAULT_ONE_SHOT_NAME,
-            model=resolved_override.model,
-            effort=resolved_override.effort,
-            service=resolved_service,
-        )
-        output_adapter = _OneShotOutputAdapter(
-            prompt=request.prompt,
-            session_namespace=request.session_namespace,
-        )
-        attempt_token = (
-            CancellationToken() if request.token is not None else request.token
-        )
-        try:
-            raw_output = await _invoke_runtime_intent(
-                _RuntimeIntent(
-                    run_session=_build_run_session(
-                        mount_path=request.mount_path,
-                        role=role,
-                        session_namespace=request.session_namespace,
-                        service=resolved_service,
-                        container_workspace=dependencies.execution.container_workspace,
-                        usage_limit_scope=request.usage_limit_scope,
-                    ),
-                    model=resolved_override.model,
-                    effort=resolved_override.effort,
-                    output_adapter=output_adapter,
-                    dependencies=dependencies,
-                    presentation=WorkInvocationPresentation(
-                        name=_DEFAULT_ONE_SHOT_NAME,
-                    ),
-                    token=attempt_token,
-                )
-            )
-        except Exception as exc:
-            if isinstance(exc, UsageLimitError):
-                service_registry.mark_exhausted(
-                    resolved_override.service,
-                    reset_time=exc.reset_time,
-                )
-                exhausted_now = _time_module.now_local()
-                if not service_registry.has_available_for(request.stage, exhausted_now):
-                    raise NoServiceAvailableError(
-                        reset_time=service_registry.next_wake_time_for(
-                            request.stage,
-                            exhausted_now,
-                        ),
-                        usage_limit_scope=exc.usage_limit_scope,
-                        invocation_progress=exc.invocation_progress,
-                    ) from exc
-                continue
-            raise
-
-        selected_service_path = _selected_service_path(
-            request.stage,
-            selected_service=resolved_service.name,
-        )
-        return OneShotRunResult(
-            output=raw_output if isinstance(raw_output, str) else str(raw_output),
-            selected_service=resolved_service.name,
-            selected_model=resolved_override.model,
-            selected_effort=resolved_override.effort,
-            used_fallback=len(selected_service_path) > 1,
-            metadata=OneShotResultMetadata(
-                selected_service_path=selected_service_path,
-                runtime=output_adapter.runtime_metadata,
-            ),
-        )
-
-
 async def _run_ephemeral(
     *,
     runner: EphemeralRuntimeExecutionAdapter,
@@ -1443,7 +1095,7 @@ async def _run_ephemeral(
         resolved_override = service_registry.resolve(request.stage, now)
         resolved_service = resolve_service(resolved_override.service)
         dependencies = build_work_dependencies(
-            name=_DEFAULT_ONE_SHOT_NAME,
+            name=_DEFAULT_RUNTIME_NAME,
             model=resolved_override.model,
             effort=resolved_override.effort,
             service=resolved_service,
@@ -1477,7 +1129,7 @@ async def _run_ephemeral(
                         ),
                     ),
                     presentation=WorkInvocationPresentation(
-                        name=_DEFAULT_ONE_SHOT_NAME,
+                        name=_DEFAULT_RUNTIME_NAME,
                     ),
                     token=request.token,
                 )
