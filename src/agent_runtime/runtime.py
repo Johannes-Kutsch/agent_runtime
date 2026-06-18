@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import _time as _time_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
@@ -42,6 +42,9 @@ from ._runtime_lifecycle import (
 )
 from .service_registry import ServiceRegistry
 from .usage_limit_scope import UsageLimitScope
+
+if TYPE_CHECKING:
+    from ._provider_invocation import ProviderInvocationAdapter
 
 __all__ = [
     "Continuation",
@@ -203,8 +206,13 @@ def _run_builtin_session_outcome(
 
 
 class RuntimeClient:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        _provider_invocation_adapter: "ProviderInvocationAdapter | None" = None,
+    ) -> None:
         self._availability = _BuiltInAvailabilityState()
+        self._provider_invocation_adapter = _provider_invocation_adapter
 
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         default_usage_limit_scope = request.usage_limit_scope or UsageLimitScope(
@@ -233,6 +241,7 @@ class RuntimeClient:
                 result = _run_builtin_ephemeral(
                     request,
                     select_builtin_stage=lambda _stage: selected_stage,
+                    provider_invocation_adapter=self._provider_invocation_adapter,
                 )
             except UsageLimitError as exc:
                 exhausted_now = _time_module.now_local()
@@ -267,24 +276,34 @@ class RuntimeClient:
             )
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
-        return _run_builtin_session_outcome(lambda: _run_builtin_new_session(request))
+        return _run_builtin_session_outcome(
+            lambda: _run_builtin_new_session(
+                request,
+                provider_invocation_adapter=self._provider_invocation_adapter,
+            )
+        )
 
     async def run_resumed_session(
         self,
         request: ResumedSessionRunRequest,
     ) -> RuntimeOutcome:
         return _run_builtin_session_outcome(
-            lambda: _run_builtin_resumed_session(request)
+            lambda: _run_builtin_resumed_session(
+                request,
+                provider_invocation_adapter=self._provider_invocation_adapter,
+            )
         )
 
 
 def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
     *,
+    provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     select_builtin_stage: Any = _select_builtin_stage,
 ) -> EphemeralRunResult:
     return _builtin_runtime_client_module._run_builtin_ephemeral(
         request,
+        provider_invocation_adapter=provider_invocation_adapter,
         select_builtin_stage=select_builtin_stage,
         validate_claude_stage=_validate_claude_stage,
         validate_opencode_stage=_validate_opencode_stage,

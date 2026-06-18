@@ -10,6 +10,7 @@ from typing import Any, Callable
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.errors import (
     AgentCredentialFailureError,
@@ -354,6 +355,99 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     assert provider_state_dir.is_dir()
 
 
+def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invocation_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationResult(
+                output="final output",
+                usage=runtime.ProviderUsage(
+                    input_tokens=5,
+                    output_tokens=2,
+                ),
+                stdout_lines=(
+                    '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}\n',
+                ),
+                provider_session_id="observed-session",
+            )
+        ]
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    outcome = asyncio.run(
+        runtime.RuntimeClient(_provider_invocation_adapter=adapter).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="final output",
+        result=prompt_runtime.SessionRunResult(
+            output="final output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="observed-session",
+                run_kind=RunKind.FRESH,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "observed-session",
+                    "provider_state_dir_relpath": "implementer/main/claude/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=5,
+            output_tokens=2,
+        ),
+    )
+    assert [request.prompt.content for request in adapter.recorded_requests] == [
+        "already rendered prompt"
+    ]
+    assert [request.run_kind for request in adapter.recorded_requests] == [
+        RunKind.FRESH
+    ]
+    assert [request.role for request in adapter.recorded_requests] == [
+        InvocationRole("implementer")
+    ]
+    assert [request.usage_limit_scope for request in adapter.recorded_requests] == [
+        None
+    ]
+    assert [request.provider_session_id for request in adapter.recorded_requests] == [
+        "session-uuid"
+    ]
+
+
 def test_runtime_client_runs_claude_resumed_session_from_continuation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -479,6 +573,81 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     assert "--session-id" not in captured["command"]
     assert "--model opus" in captured["command"]
     assert "--effort high" in captured["command"]
+
+
+def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_provider_invocation_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationFailure(
+                error=runtime.UsageLimitError(
+                    reset_time=None,
+                    service_name="claude",
+                    invocation_progress=runtime.InvocationProgress.STARTED,
+                    usage=runtime.ProviderUsage(
+                        input_tokens=3,
+                        output_tokens=1,
+                    ),
+                ),
+                stdout_lines=(
+                    '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}\n',
+                ),
+                provider_session_id="observed-session",
+            )
+        ]
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient(_provider_invocation_adapter=adapter).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="claude",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "observed-session",
+                "provider_state_dir_relpath": "implementer/main/claude/",
+                "exact_transcript_match": False,
+            },
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=3,
+            output_tokens=1,
+        ),
+    )
 
 
 def test_runtime_client_runs_claude_resumed_session_with_generated_provider_session_id(
