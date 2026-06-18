@@ -4,7 +4,7 @@ This is the documented `Runtime Public Surface` for `agent_runtime`. It is a sta
 
 The distribution name is `ruhken-agent-runtime`; the import package is `agent_runtime`. The package requires Python 3.11 or newer and has no install-time provider dependencies. Provider-specific adapters live outside this package.
 
-Compatibility aliases that remain directly importable but are not exported through a documented `__all__` surface are intentionally omitted.
+Pre-release runtime compatibility aliases are intentionally absent from the documented surface and from direct module attribute access. Canonical lifecycle entrypoints and focused seams are the public contract.
 
 ## Consumer Surface
 
@@ -251,22 +251,22 @@ Properties:
 - `mount_path -> Path`
 - `tool_policy -> ToolPolicy | ToolPolicyProfile`
 
-#### `ResumableRunResult`
+#### `SessionRunResult`
 
 ```python
-ResumableRunResult(
+SessionRunResult(
     output: str,
-    runtime_metadata: ResumableRuntimeMetadata,
+    runtime_metadata: SessionRuntimeMetadata,
     continuation: Continuation | None = None,
 ) -> None
 ```
 
 Completed result for session-backed execution. Store `continuation` if the consuming project wants to resume later.
 
-#### `ResumableRuntimeMetadata`
+#### `SessionRuntimeMetadata`
 
 ```python
-ResumableRuntimeMetadata(
+SessionRuntimeMetadata(
     service_name: str,
     provider_session_id: str | None,
     run_kind: RunKind,
@@ -295,7 +295,7 @@ These aliases name the adapter contract expected by each lifecycle runtime.
 RuntimeOutcome(
     kind: str,
     output: str,
-    result: EphemeralRunResult | ResumableRunResult | None = None,
+    result: EphemeralRunResult | SessionRunResult | None = None,
     service_name: str | None = None,
     reset_time: datetime | None = None,
     usage_limit_scope: UsageLimitScope | None = None,
@@ -309,7 +309,7 @@ Lifecycle entrypoints return `RuntimeOutcome` for both completed work and expect
 Factory constructors:
 
 ```python
-RuntimeOutcome.completed(*, output: str, result: EphemeralRunResult | ResumableRunResult) -> RuntimeOutcome
+RuntimeOutcome.completed(*, output: str, result: EphemeralRunResult | SessionRunResult) -> RuntimeOutcome
 RuntimeOutcome.usage_limited(*, output: str, service_name: str | None, reset_time: datetime | None, usage_limit_scope: UsageLimitScope | None, invocation_progress: InvocationProgress, continuation: Continuation | None = None) -> RuntimeOutcome
 RuntimeOutcome.no_service_available(*, output: str, reset_time: datetime | None, usage_limit_scope: UsageLimitScope | None = None, invocation_progress: InvocationProgress, continuation: Continuation | None = None) -> RuntimeOutcome
 RuntimeOutcome.cancelled(*, output: str, invocation_progress: InvocationProgress, continuation: Continuation | None = None) -> RuntimeOutcome

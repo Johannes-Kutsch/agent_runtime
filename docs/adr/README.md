@@ -6,3 +6,5 @@
 - [0004 - Runtime boundary closure](0004-runtime-boundary-closure.md): Keep application orchestration out of the runtime distribution and require every shipped module to remain standalone-importable.
 - [0005 - Runtime public surface narrowing](0005-runtime-public-surface-narrowing.md): Narrow the package root, collapse duplicate runtime entrypoints, and keep work and session seams focused on runtime intent.
 - [0006 - Runtime session lifecycle entrypoints](0006-runtime-session-lifecycle-entrypoints.md): Model runtime execution around ephemeral, new-session, and resumed-session lifecycle entrypoints with consumer-owned continuation state.
+- [0007 - Session-backed result vocabulary](0007-session-backed-result-vocabulary.md): Use session vocabulary for completed session-backed runtime results and metadata.
+- [0008 - Resumed-session request construction](0008-resumed-session-request-construction.md): Keep the canonical resumed-session request name while preserving ordinary continuation and advanced session-plan construction paths.
