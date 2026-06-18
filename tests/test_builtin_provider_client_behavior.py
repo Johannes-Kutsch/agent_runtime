@@ -1104,11 +1104,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
         captured["text"] = text
         return _CodexProcess()
 
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.subprocess,
-        "Popen",
-        _fake_popen,
-    )
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
@@ -1230,11 +1226,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
         captured["env"] = env
         return _CodexProcess()
 
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.subprocess,
-        "Popen",
-        _fake_popen,
-    )
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
@@ -1341,11 +1333,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
         captured["env"] = env
         return _CodexProcess()
 
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.subprocess,
-        "Popen",
-        _fake_popen,
-    )
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
@@ -1456,7 +1444,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
         ),
     )
     monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.subprocess,
+        provider_invocation_runtime.subprocess,
         "Popen",
         lambda *args, **kwargs: _CodexProcess(),
     )
@@ -1542,7 +1530,7 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
         ),
     )
     monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.subprocess,
+        provider_invocation_runtime.subprocess,
         "Popen",
         lambda *args, **kwargs: _CodexProcess(),
     )
@@ -1618,7 +1606,7 @@ def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_stat
         raise AssertionError("resumed Codex session should not fall back to fresh")
 
     monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.subprocess,
+        provider_invocation_runtime.subprocess,
         "Popen",
         _unexpected_popen,
     )
@@ -1684,7 +1672,7 @@ def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_stat
         raise AssertionError("resumed Codex session should not false-resume")
 
     monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.subprocess,
+        provider_invocation_runtime.subprocess,
         "Popen",
         _unexpected_popen,
     )
@@ -1759,7 +1747,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
         raise AssertionError("Codex subprocess should not start without host auth")
 
     monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.subprocess,
+        provider_invocation_runtime.subprocess,
         "Popen",
         _unexpected_popen,
     )

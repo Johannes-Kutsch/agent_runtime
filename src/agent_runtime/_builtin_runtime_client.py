@@ -23,6 +23,7 @@ from ._provider_invocation import (
     ProviderInvocationResult,
     ProviderOutputReductionHooks,
     provider_invocation_failure_provider_session_id,
+    provider_invocation_failure_stdout_lines,
 )
 from ._runtime_lifecycle import (
     Continuation,
@@ -1607,6 +1608,41 @@ def _invoke_claude_new_session_provider(
     )
 
 
+def _invoke_codex_new_session_provider(
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter,
+    request: NewSessionRunRequest,
+    stage: StageSelection,
+    provider_state_dir: Path,
+) -> ProviderInvocationResult:
+    return _invoke_provider(
+        provider_invocation_adapter=provider_invocation_adapter,
+        command=_codex_command(
+            model=stage.model,
+            effort=stage.effort,
+            tool_access=request.tool_access,
+            run_kind=RunKind.FRESH,
+            session_uuid=None,
+        ),
+        worktree=request.worktree,
+        environment=_codex_env(
+            state_dir_container_path=str(provider_state_dir),
+        ),
+        prompt_content=request.prompt,
+        prompt_path=Path("/tmp/.pycastle_prompt"),
+        cleanup_prompt_path=True,
+        run_kind=RunKind.FRESH,
+        role=request.role,
+        usage_limit_scope=request.usage_limit_scope,
+        provider_session_id=None,
+        reduce_output=_reduce_codex_stream,
+        invocation_log=_start_invocation_log(
+            logs_dir=request.logs_dir,
+            role=request.role,
+        ),
+    )
+
+
 def _invoke_opencode_new_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
@@ -1942,40 +1978,28 @@ def _run_builtin_new_session(
                 ),
                 provider_invocation_adapter=invocation_adapter,
             )
-        prompt_path = Path("/tmp/.pycastle_prompt")
         provider_session_id: str | None = None
         try:
-            invocation_result = _invoke_provider(
+            invocation_result = _invoke_codex_new_session_provider(
                 provider_invocation_adapter=invocation_adapter,
-                command=_codex_command(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    run_kind=RunKind.FRESH,
-                    session_uuid=None,
-                ),
-                worktree=request.worktree,
-                environment=_codex_env(
-                    state_dir_container_path=str(provider_state_dir),
-                ),
-                prompt_content=request.prompt,
-                prompt_path=prompt_path,
-                cleanup_prompt_path=True,
-                run_kind=RunKind.FRESH,
-                role=request.role,
-                usage_limit_scope=request.usage_limit_scope,
-                provider_session_id=None,
-                reduce_output=_reduce_codex_stream,
-                invocation_log=None,
-                extract_provider_session_id=_extract_codex_provider_session_id,
+                request=request,
+                stage=selected_stage,
+                provider_state_dir=provider_state_dir,
             )
-            provider_session_id = invocation_result.provider_session_id
+            provider_session_id = _extract_codex_provider_session_id(
+                list(invocation_result.stdout_lines)
+            )
             result_text = invocation_result.output
             usage = invocation_result.usage
         except (UsageLimitError, RetryableProviderFailureError) as exc:
-            provider_session_id = cast(
-                str | None,
-                getattr(exc, "provider_session_id", provider_session_id),
+            provider_session_id = (
+                _extract_codex_provider_session_id(
+                    list(provider_invocation_failure_stdout_lines(exc))
+                )
+                or provider_invocation_failure_provider_session_id(exc)
+                or cast(
+                    str | None, getattr(exc, "provider_session_id", provider_session_id)
+                )
             )
             exc.continuation = (
                 _build_codex_continuation(
