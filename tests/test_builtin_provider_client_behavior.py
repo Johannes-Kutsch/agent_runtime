@@ -59,58 +59,32 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
-
-    class _ClaudeProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    json.dumps(
-                        {
-                            "type": "assistant",
-                            "message": {
-                                "content": [{"type": "text", "text": "intermediate"}],
-                                "usage": {
-                                    "input_tokens": 5,
-                                    "cache_creation_input_tokens": 0,
-                                    "cache_read_input_tokens": 0,
-                                },
-                            },
-                        }
-                    )
-                    + "\n",
-                    json.dumps({"type": "result", "result": "final output"}) + "\n",
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _ClaudeProcess:
-        captured["command"] = command
-        captured["cwd"] = cwd
-        captured["env"] = env
-        captured["stdout"] = stdout
-        captured["stderr"] = stderr
-        captured["text"] = text
-        return _ClaudeProcess()
-
-    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_new_provider_session_id",
         lambda: "session-uuid",
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "intermediate"}],
+                            "usage": {
+                                "input_tokens": 5,
+                                "cache_creation_input_tokens": 0,
+                                "cache_read_input_tokens": 0,
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "result", "result": "final output"}) + "\n",
+            ),
+        ),
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
@@ -171,11 +145,17 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
             duration_seconds=None,
         ),
     )
-    assert captured["cwd"] == tmp_path
-    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
-    assert captured["env"]["CLAUDE_CONFIG_DIR"] == str(provider_state_dir)
-    assert "--session-id session-uuid" in captured["command"]
-    assert "--resume" not in captured["command"]
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.provider_session_id == "session-uuid"
+    assert recorded_request.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+        "CLAUDE_CONFIG_DIR": str(provider_state_dir),
+    }
+    assert "--session-id session-uuid" in recorded_request.command
+    assert "--resume" not in recorded_request.command
     assert provider_state_dir.is_dir()
 
 
@@ -459,51 +439,28 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
-
-    class _ClaudeProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    json.dumps(
-                        {
-                            "type": "assistant",
-                            "message": {
-                                "content": [{"type": "text", "text": "intermediate"}],
-                                "usage": {
-                                    "input_tokens": 7,
-                                    "cache_creation_input_tokens": 0,
-                                    "cache_read_input_tokens": 1,
-                                },
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "intermediate"}],
+                            "usage": {
+                                "input_tokens": 7,
+                                "cache_creation_input_tokens": 0,
+                                "cache_read_input_tokens": 1,
                             },
-                        }
-                    )
-                    + "\n",
-                    json.dumps({"type": "result", "result": "continued output"}) + "\n",
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _ClaudeProcess:
-        captured["command"] = command
-        captured["cwd"] = cwd
-        captured["env"] = env
-        return _ClaudeProcess()
-
-    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "result", "result": "continued output"}) + "\n",
+            ),
+        ),
+    )
 
     continuation = prompt_runtime.Continuation(
         selected_service="claude",
@@ -573,13 +530,19 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
             duration_seconds=None,
         ),
     )
-    assert captured["cwd"] == tmp_path
-    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
-    assert captured["env"]["CLAUDE_CONFIG_DIR"] == str(provider_state_dir)
-    assert "--resume claude-session-123" in captured["command"]
-    assert "--session-id" not in captured["command"]
-    assert "--model opus" in captured["command"]
-    assert "--effort high" in captured["command"]
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.RESUME
+    assert recorded_request.provider_session_id == "claude-session-123"
+    assert recorded_request.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+        "CLAUDE_CONFIG_DIR": str(provider_state_dir),
+    }
+    assert "--resume claude-session-123" in recorded_request.command
+    assert "--session-id" not in recorded_request.command
+    assert "--model opus" in recorded_request.command
+    assert "--effort high" in recorded_request.command
 
 
 def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_invocation_seam(
@@ -863,41 +826,18 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
-
-    class _ClaudeProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    json.dumps({"type": "result", "result": "generated output"}) + "\n",
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _ClaudeProcess:
-        captured["command"] = command
-        captured["cwd"] = cwd
-        captured["env"] = env
-        return _ClaudeProcess()
-
-    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_new_provider_session_id",
         lambda: "generated-session-id",
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "generated output"}) + "\n",
+            ),
+        ),
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
@@ -956,10 +896,17 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
         ),
         usage=None,
     )
-    assert captured["cwd"] == tmp_path
-    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
-    assert "--session-id generated-session-id" in captured["command"]
-    assert "--resume" not in captured["command"]
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.provider_session_id == "generated-session-id"
+    assert recorded_request.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+        "CLAUDE_CONFIG_DIR": str(runtime_state_dir / provider_state_dir_relpath),
+    }
+    assert "--session-id generated-session-id" in recorded_request.command
+    assert "--resume" not in recorded_request.command
 
 
 @pytest.mark.parametrize("create_state_dir", [False, True])
@@ -968,37 +915,14 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
     tmp_path: Path,
     create_state_dir: bool,
 ) -> None:
-    captured: dict[str, Any] = {}
-
-    class _ClaudeProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    json.dumps({"type": "result", "result": "fresh output"}) + "\n",
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _ClaudeProcess:
-        captured["command"] = command
-        captured["cwd"] = cwd
-        captured["env"] = env
-        return _ClaudeProcess()
-
-    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "fresh output"}) + "\n",
+            ),
+        ),
+    )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     provider_state_dir_relpath = "implementer/main/claude/"
@@ -1060,10 +984,17 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
         ),
         usage=None,
     )
-    assert captured["cwd"] == tmp_path
-    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
-    assert "--session-id claude-session-123" in captured["command"]
-    assert "--resume" not in captured["command"]
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.provider_session_id == "claude-session-123"
+    assert recorded_request.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+        "CLAUDE_CONFIG_DIR": str(runtime_state_dir / provider_state_dir_relpath),
+    }
+    assert "--session-id claude-session-123" in recorded_request.command
+    assert "--resume" not in recorded_request.command
 
 
 def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_session(
@@ -1875,41 +1806,19 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
-
-    class _ClaudeProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    json.dumps({"type": "result", "result": "continued output"}) + "\n",
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _ClaudeProcess:
-        captured["command"] = command
-        captured["env"] = env
-        return _ClaudeProcess()
-
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "continued output"}) + "\n",
+            ),
+        ),
+    )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     provider_state_dir = runtime_state_dir / "implementer/main/claude" / "nested"
@@ -1939,8 +1848,12 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
 
     assert outcome.result is not None
     assert outcome.result.runtime_metadata.run_kind is RunKind.RESUME
-    assert "--resume session-uuid" in captured["command"]
-    assert "--session-id" not in captured["command"]
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.run_kind is RunKind.RESUME
+    assert recorded_request.provider_session_id == "session-uuid"
+    assert "--resume session-uuid" in recorded_request.command
+    assert "--session-id" not in recorded_request.command
 
 
 @pytest.mark.parametrize(
