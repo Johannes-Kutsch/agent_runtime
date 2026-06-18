@@ -6607,6 +6607,177 @@ def test_resumable_runtime_returns_latest_adapter_updated_provider_resume_state(
     )
 
 
+def test_resumable_runtime_keeps_frozen_adapter_session_seam_unchanged() -> None:
+    worktree = Path("/repo")
+    initial_resume_state = {
+        "resume_cursor": {"session": "recovered-session", "turn": 7},
+        "phase": "initial",
+    }
+    initial_provider_run_session_calls: list[None] = []
+
+    @dataclass
+    class _UpdatingProviderRunSession:
+        run_kind: RunKind
+        provider_session_id: str | None
+        latest_provider_resume_state: dict[str, Any]
+
+        def record_provider_session_id(self, provider_session_id: str) -> None:
+            self.provider_session_id = provider_session_id
+            self.latest_provider_resume_state = {
+                "resume_cursor": {"session": provider_session_id, "turn": 8},
+                "phase": "running",
+            }
+
+        def record_successful_run(self) -> None:
+            self.latest_provider_resume_state = {
+                "resume_cursor": {
+                    "session": self.provider_session_id,
+                    "turn": 9,
+                },
+                "phase": "completed",
+            }
+
+    @dataclass(frozen=True, slots=True)
+    class _FrozenPreparedRunSession:
+        provider_state_dir_container_path: str | None
+        provider_resume_state: dict[str, Any]
+        provider_run_session: _UpdatingProviderRunSession
+
+        def prepare_for_run(self) -> None:
+            return None
+
+        def initial_provider_run_session(self) -> _UpdatingProviderRunSession:
+            initial_provider_run_session_calls.append(None)
+            if len(initial_provider_run_session_calls) > 1:
+                raise AssertionError(
+                    "Runtime should not recreate the initial provider run session."
+                )
+            return self.provider_run_session
+
+        def resumable_provider_run_session(self) -> _UpdatingProviderRunSession:
+            return self.initial_provider_run_session()
+
+        def protocol_reprompt_provider_run_session(self) -> None:
+            return None
+
+    class _FrozenSessionRunner:
+        async def setup(
+            self,
+            git_name: str,
+            git_email: str,
+            work_body: str = "",
+        ) -> None:
+            del git_name, git_email, work_body
+
+        async def work(
+            self,
+            role: InvocationRole,
+            prompt: str,
+            *,
+            run_kind: RunKind = RunKind.FRESH,
+            session_uuid: str | None = None,
+            on_provider_session_id: Any = None,
+        ) -> str:
+            del role, prompt, run_kind, session_uuid
+            assert callable(on_provider_session_id)
+            on_provider_session_id("prepared:next-session")
+            return "completed"
+
+        async def work_text(
+            self,
+            prompt: str,
+            *,
+            role: InvocationRole = InvocationRole("implementer"),
+            tool_policy: Any = runtime.ToolPolicy.FULL,
+            run_kind: RunKind = RunKind.FRESH,
+            session_uuid: str | None = None,
+            on_provider_session_id: Any = None,
+        ) -> str:
+            del tool_policy
+            return await self.work(
+                role,
+                prompt,
+                run_kind=run_kind,
+                session_uuid=session_uuid,
+                on_provider_session_id=on_provider_session_id,
+            )
+
+    class _FrozenPreparedSessionExecutionAdapter:
+        def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+            return _ExecutionService(service_name)
+
+        def build_work_dependencies(
+            self,
+            *,
+            name: str,
+            model: str,
+            effort: str,
+            service: ExecutionProvider,
+        ) -> WorkInvocationDependencies:
+            del name, model, effort, service
+
+            def _prepare_session(run_session: Any) -> _FrozenPreparedRunSession:
+                return _FrozenPreparedRunSession(
+                    provider_state_dir_container_path="/workspace/runtime-state/",
+                    provider_resume_state=dict(run_session.provider_resume_state),
+                    provider_run_session=_UpdatingProviderRunSession(
+                        run_kind=RunKind.RESUME,
+                        provider_session_id="recovered-session",
+                        latest_provider_resume_state=dict(initial_resume_state),
+                    ),
+                )
+
+            return WorkInvocationDependencies(
+                execution=WorkExecutionDependencies(
+                    container_workspace="/workspace",
+                    prepare_session=cast(Any, _prepare_session),
+                    build_session=lambda mount_path, service, provider_state_dir: (
+                        _Session(provider_state_dir)
+                    ),
+                    build_runner=lambda session, status_display: cast(
+                        WorkExecutionAdapter,
+                        _FrozenSessionRunner(),
+                    ),
+                    get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+                ),
+                failure_handling=WorkFailureHandling(timeout_retries=0),
+                presentation=WorkPresentationDependencies(),
+            )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_FrozenPreparedSessionExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=runtime.ToolAccess.workspace_backed(worktree),
+                    provider_resume_state=initial_resume_state,
+                ),
+            )
+        )
+    )
+
+    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert initial_provider_run_session_calls == [None]
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        provider_resume_state={
+            "resume_cursor": {"session": "prepared:next-session", "turn": 9},
+            "phase": "completed",
+        },
+    )
+
+
 def test_resumable_run_request_from_continuation_rejects_tool_access_override() -> None:
     with pytest.raises(
         TypeError,

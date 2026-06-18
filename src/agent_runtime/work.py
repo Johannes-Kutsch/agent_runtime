@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .contracts import ExecutionProvider
 from .execution_contracts import (
@@ -133,6 +133,16 @@ class _StatusRowHandle:
     @property
     def closed(self) -> bool:
         return self._closed
+
+
+def _record_latest_provider_run_session(
+    prepared_session: PreparedSession,
+    provider_run_session: PreparedProviderRunSession,
+) -> None:
+    try:
+        cast(Any, prepared_session).latest_provider_run_session = provider_run_session
+    except AttributeError:
+        return None
 
 
 class _DefaultStatusRow:
@@ -301,9 +311,8 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                     if initial_attempt
                     else prepared_session.resumable_provider_run_session()
                 )
-                setattr(
+                _record_latest_provider_run_session(
                     prepared_session,
-                    "latest_provider_run_session",
                     provider_run_session,
                 )
                 try:
@@ -319,9 +328,8 @@ async def invoke_work(request: WorkInvocationRequest[WorkResultT]) -> WorkResult
                         prompt=prompt,
                         provider_run_session=provider_run_session,
                     )
-                    setattr(
+                    _record_latest_provider_run_session(
                         prepared_session,
-                        "latest_provider_run_session",
                         successful_run_session,
                     )
                     if request.output_adapter.is_successful_result(result):

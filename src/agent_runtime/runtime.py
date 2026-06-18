@@ -821,6 +821,15 @@ class _EphemeralPreparedRunSessionState:
         return None
 
 
+@dataclasses.dataclass
+class _TrackedPreparedSessionState:
+    _prepared_session: Any
+    latest_provider_run_session: Any | None = None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._prepared_session, name)
+
+
 def _selected_service_path(
     override: StageSelection,
     *,
@@ -875,6 +884,17 @@ def _build_run_session(
         provider_state_dir_container_path=provider_state_dir_container_path,
         exact_transcript_match=exact_transcript_match,
     )
+
+
+def _latest_provider_run_session(prepared_session: Any) -> Any:
+    provider_run_session = getattr(
+        prepared_session,
+        "latest_provider_run_session",
+        None,
+    )
+    if provider_run_session is not None:
+        return provider_run_session
+    return prepared_session.initial_provider_run_session()
 
 
 async def _invoke_runtime_intent(intent: _RuntimeIntent) -> Any:
@@ -1603,7 +1623,9 @@ async def _run_resumable_prompt(
     def _prepare_session(run_session: RunSessionPlan) -> Any:
         nonlocal prepared_session
         if prepared_session is None:
-            prepared_session = dependencies.execution.prepare_session(run_session)
+            prepared_session = _TrackedPreparedSessionState(
+                dependencies.execution.prepare_session(run_session)
+            )
         return prepared_session
 
     resumable_dependencies = dataclasses.replace(
@@ -1679,11 +1701,7 @@ async def _run_resumable_prompt(
         raise
     if prepared_session is None:
         prepared_session = resumable_dependencies.execution.prepare_session(run_session)
-    provider_run_session = getattr(
-        prepared_session,
-        "latest_provider_run_session",
-        prepared_session.initial_provider_run_session(),
-    )
+    provider_run_session = _latest_provider_run_session(prepared_session)
     return ResumableRunResult(
         output=output,
         runtime_metadata=ResumableRuntimeMetadata(
@@ -1804,11 +1822,7 @@ def _interruption_continuation(
         return None
     if prepared_session is None:
         prepared_session = prepare_session(run_session)
-    provider_run_session = getattr(
-        prepared_session,
-        "latest_provider_run_session",
-        prepared_session.initial_provider_run_session(),
-    )
+    provider_run_session = _latest_provider_run_session(prepared_session)
     return _build_continuation(
         service_name=service_name,
         model=request.model,
