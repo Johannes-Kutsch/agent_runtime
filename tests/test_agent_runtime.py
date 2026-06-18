@@ -3133,6 +3133,31 @@ def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     )
 
 
+def test_runtime_lifecycle_values_keep_runtime_module_names_after_extraction() -> None:
+    for exported_name in (
+        "Continuation",
+        "EphemeralResultMetadata",
+        "EphemeralRunRequest",
+        "EphemeralRunResult",
+        "EphemeralRuntimeMetadata",
+        "NewSessionRunRequest",
+        "ProviderAuth",
+        "ResumedSessionRunRequest",
+        "RuntimeOutcome",
+        "SessionRunResult",
+        "SessionRuntimeMetadata",
+    ):
+        assert getattr(prompt_runtime, exported_name).__module__ == (
+            "agent_runtime.runtime"
+        )
+
+
+def test_runtime_package_root_exports_keep_runtime_lifecycle_identity() -> None:
+    assert runtime.Continuation is prompt_runtime.Continuation
+    assert runtime.ProviderAuth is prompt_runtime.ProviderAuth
+    assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
+
+
 def test_resumed_session_runtime_exposes_only_lifecycle_resume_method() -> None:
     runtime_instance = prompt_runtime.ResumedSessionRuntime(
         execution_adapter=cast(
