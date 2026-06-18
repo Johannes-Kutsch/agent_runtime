@@ -2416,6 +2416,219 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
     assert adapter.recorded_requests == []
 
 
+def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocation_seam(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                '{"type":"thread.started","thread_id":"thread-123"}\n',
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": "continued output",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "turn.completed",
+                        "usage": {
+                            "input_tokens": 3,
+                            "cached_tokens": 1,
+                            "output_tokens": 2,
+                        },
+                    }
+                )
+                + "\n",
+            ),
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                logs_dir=tmp_path / "logs",
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    provider_state_dir_relpath = "implementer/main/codex/"
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="thread-123",
+                run_kind=RunKind.FRESH,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "thread-123",
+                    "provider_state_dir_relpath": provider_state_dir_relpath,
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=3,
+            output_tokens=2,
+            cache_read_input_tokens=1,
+        ),
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.content == "already rendered prompt"
+    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.role == InvocationRole("implementer")
+    assert recorded_request.provider_session_id is None
+    assert recorded_request.log_context is not None
+    assert recorded_request.log_context.role == InvocationRole("implementer")
+    assert recorded_request.environment == {
+        "TZ": "UTC",
+        "CODEX_HOME": str(provider_state_dir),
+    }
+    assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
+        '{"token":"host-auth"}\n'
+    )
+    log_path = next((tmp_path / "logs").glob("*.log"))
+    log_text = log_path.read_text(encoding="utf-8")
+    assert '"prompt": "already rendered prompt"' in log_text
+    assert '"thread_id":"thread-123"' in log_text
+    assert '"text": "continued output"' in log_text
+
+
+def test_runtime_client_keeps_started_codex_new_session_continuation_from_provider_invocation_failure_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationFailure(
+            error=runtime.UsageLimitError(
+                reset_time=None,
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(
+                    input_tokens=3,
+                    output_tokens=1,
+                    cache_read_input_tokens=1,
+                ),
+            ),
+            stdout_lines=(
+                '{"type":"thread.started","thread_id":"thread-123"}\n',
+                json.dumps(
+                    {
+                        "type": "turn.failed",
+                        "error": {
+                            "message": (
+                                "You've hit your usage limit. "
+                                "Try again at January 2, 5pm (UTC)."
+                            )
+                        },
+                    }
+                )
+                + "\n",
+            ),
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                logs_dir=tmp_path / "logs",
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "thread-123",
+                "provider_state_dir_relpath": "implementer/main/codex/",
+                "exact_transcript_match": False,
+            },
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=3,
+            output_tokens=1,
+            cache_read_input_tokens=1,
+        ),
+    )
+    assert len(adapter.recorded_requests) == 1
+    assert adapter.recorded_requests[0].log_context is not None
+
+
 def test_runtime_client_preserves_opencode_invalid_api_key_observations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
