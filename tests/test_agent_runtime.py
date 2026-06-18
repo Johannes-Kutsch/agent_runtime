@@ -1466,7 +1466,7 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
         )
 
 
-def test_agent_failed_error_rejects_unsafe_runtime_identity_labels_before_building_diagnostics() -> (
+def test_agent_failed_error_rejects_unsafe_session_namespace_before_building_diagnostics() -> (
     None
 ):
     with pytest.raises(ValueError):
@@ -1476,6 +1476,10 @@ def test_agent_failed_error_rejects_unsafe_runtime_identity_labels_before_buildi
             namespace="../escape",
         )
 
+
+def test_agent_failed_error_rejects_unsafe_service_name_before_building_diagnostics() -> (
+    None
+):
     with pytest.raises(ValueError):
         AgentFailedError(
             invocation_role="implementer",
@@ -1484,12 +1488,17 @@ def test_agent_failed_error_rejects_unsafe_runtime_identity_labels_before_buildi
         )
 
 
-def test_runtime_errors_expose_invocation_role_metadata() -> None:
+def test_agent_timeout_error_exposes_invocation_role_metadata() -> None:
     timeout = AgentTimeoutError(
         "timed out",
         invocation_role="reviewer",
         worktree_path=Path("worktree"),
     )
+
+    assert timeout.invocation_role == "reviewer"
+
+
+def test_agent_failed_error_exposes_invocation_role_metadata() -> None:
     failed = AgentFailedError(
         invocation_role="reviewer",
         worktree_path=Path("worktree"),
@@ -1497,8 +1506,17 @@ def test_runtime_errors_expose_invocation_role_metadata() -> None:
         service_name="codex",
     )
 
-    assert timeout.invocation_role == "reviewer"
     assert failed.invocation_role == "reviewer"
+
+
+def test_agent_failed_error_builds_session_dir_from_public_metadata() -> None:
+    failed = AgentFailedError(
+        invocation_role="reviewer",
+        worktree_path=Path("worktree"),
+        namespace="main",
+        service_name="codex",
+    )
+
     assert failed.session_dir == "reviewer/main/codex"
 
 
@@ -1650,7 +1668,7 @@ def test_agent_invocation_log_uses_log_name_and_logs_dir_parameters(
     assert logical_log.log_path.name == "issue-51-review-20260101T0000-2.log"
 
 
-def test_agent_invocation_log_records_conditional_usage_limit_scope(
+def test_agent_invocation_log_omits_default_usage_limit_scope(
     tmp_path: Path,
 ) -> None:
     log_path = tmp_path / "agent.log"
@@ -1668,6 +1686,19 @@ def test_agent_invocation_log_records_conditional_usage_limit_scope(
     ):
         pass
 
+    header = json.loads(log_path.read_text().splitlines()[0])
+
+    assert "usage_limit_scope" not in header
+
+
+def test_agent_invocation_log_records_non_default_usage_limit_scope(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "agent.log"
+    invocation_log = AgentInvocationLog(
+        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
+    )
+
     with invocation_log.open_work_invocation(
         log_path=log_path,
         role=InvocationRole("implementer"),
@@ -1678,18 +1709,33 @@ def test_agent_invocation_log_records_conditional_usage_limit_scope(
     ) as work_invocation:
         work_invocation.record_provider_session_id("provider-session")
 
-    headers = [
-        record
-        for record in (
-            json.loads(line) for line in log_path.read_text().splitlines() if line
-        )
-        if record.get("type") == "agent_invocation"
-    ]
+    header = json.loads(log_path.read_text().splitlines()[0])
 
-    assert "usage_limit_scope" not in headers[0]
-    assert headers[1]["invocation_role"] == "implementer"
-    assert headers[1]["usage_limit_scope"] == "repo-write"
-    assert headers[1]["provider_session_id"] == "provider-session"
+    assert header["invocation_role"] == "implementer"
+    assert header["usage_limit_scope"] == "repo-write"
+
+
+def test_agent_invocation_log_records_provider_session_id_in_header(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "agent.log"
+    invocation_log = AgentInvocationLog(
+        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
+    )
+
+    with invocation_log.open_work_invocation(
+        log_path=log_path,
+        role=InvocationRole("implementer"),
+        usage_limit_scope=runtime.UsageLimitScope("repo-write"),
+        run_kind=RunKind.RESUME,
+        session_uuid=None,
+        prompt="different scope from role",
+    ) as work_invocation:
+        work_invocation.record_provider_session_id("provider-session")
+
+    header = json.loads(log_path.read_text().splitlines()[0])
+
+    assert header["provider_session_id"] == "provider-session"
 
 
 def test_stage_chain_resolution_prefers_first_available_configured_service(
@@ -2889,15 +2935,31 @@ def test_provider_output_reduction_stops_after_result() -> None:
     assert token_counts == []
 
 
-def test_runtime_errors_capture_context() -> None:
+def test_agent_timeout_error_is_an_agent_runtime_error() -> None:
     timeout = AgentTimeoutError("timed out")
-    usage_limit = UsageLimitError(reset_time=None)
-    transient = TransientAgentError("transient", status_code=502)
-    hard = HardAgentError("hard", status_code=400, service_name="codex")
-    failed = AgentFailedError("implementer", Path("worktree"), service_name="codex")
 
     assert isinstance(timeout, AgentRuntimeError)
+
+
+def test_usage_limit_error_defaults_service_name_metadata_to_none() -> None:
+    usage_limit = UsageLimitError(reset_time=None)
+
     assert usage_limit.service_name is None
+
+
+def test_transient_agent_error_exposes_status_code_metadata() -> None:
+    transient = TransientAgentError("transient", status_code=502)
+
     assert transient.status_code == 502
+
+
+def test_hard_agent_error_exposes_service_name_metadata() -> None:
+    hard = HardAgentError("hard", status_code=400, service_name="codex")
+
     assert hard.service_name == "codex"
+
+
+def test_agent_failed_error_builds_session_dir_from_service_name_metadata() -> None:
+    failed = AgentFailedError("implementer", Path("worktree"), service_name="codex")
+
     assert failed.session_dir == "implementer/codex"
