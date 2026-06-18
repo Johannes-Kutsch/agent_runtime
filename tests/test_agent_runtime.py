@@ -1427,6 +1427,67 @@ class _StartedUsageLimitResidentRunner(_ResidentSeamRunner):
         )
 
 
+class _ModelActivityUsageLimitResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [
+                ModelActivity(),
+                UsageLimit(reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)),
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _ModelActivityUsageLimitResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _ModelActivityUsageLimitResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _StartedUsageLimitResidentExecutionAdapter:
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
@@ -3960,6 +4021,46 @@ def test_resumable_runtime_reports_started_progress_for_usage_limited_outcome(
     )
 
 
+def test_resumable_runtime_prefers_adapter_reported_model_activity_for_usage_limited_outcome(
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    result = asyncio.run(
+        prompt_runtime.ResumableRuntime(
+            execution_adapter=_ModelActivityUsageLimitResidentExecutionAdapter()
+        ).run_resumable_prompt(
+            prompt_runtime.ResumableRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path(".")),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=session_plan,
+                tool_policy=runtime.ToolPolicy.FULL,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
+
+
 def test_resumable_runtime_returns_cancelled_outcome_for_pre_start_caller_cancellation(
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
@@ -4717,6 +4818,19 @@ def test_provider_output_reduction_maps_usage_limit() -> None:
 
     assert exc_info.value.service_name == "codex"
     assert exc_info.value.reset_time is None
+
+
+def test_provider_output_reduction_accepts_explicit_model_activity_for_usage_limit() -> (
+    None
+):
+    with pytest.raises(UsageLimitError) as exc_info:
+        reduce_text_output_events(
+            [ModelActivity(), UsageLimit(reset_time=None)],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+    assert exc_info.value.invocation_progress is runtime.InvocationProgress.STARTED
 
 
 def test_provider_output_reduction_keeps_unknown_activity_usage_limits_not_started() -> (
