@@ -91,7 +91,6 @@ from tests.runtime_boundary_fakes import (
     ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
     SelectionServiceFake as _Service,
     SessionStoreFake as _SessionStore,
-    ToolPolicyObservingExecutionServiceFake as _ToolPolicyObservingExecutionService,
 )
 
 
@@ -739,16 +738,25 @@ class _RuntimePlannedPathResidentExecutionAdapter:
         )
 
 
-class _ToolPolicyObservingResidentRunner(_ResidentSeamRunner):
+def _tool_policy_effect_text(tool_policy: Any) -> str:
+    profile = (
+        tool_policy.profile
+        if isinstance(tool_policy, runtime.ToolPolicy)
+        else tool_policy
+    )
+    allowed_tools = profile.allowed_tools or ()
+    disallowed_tools = profile.disallowed_tools or ()
+    allowed = ",".join(allowed_tools) or "all"
+    disallowed = ",".join(disallowed_tools) or "none"
+    return f"allowed={allowed};disallowed={disallowed}"
+
+
+class _ToolPolicyRenderingResidentRunner(_ResidentSeamRunner):
     def __init__(
         self,
         session: _Session,
-        service: _ExecutionService,
-        observed_tool_policies: list[Any],
     ) -> None:
         super().__init__(session)
-        self._service = service
-        self._observed_tool_policies = observed_tool_policies
 
     async def work_text(
         self,
@@ -760,35 +768,13 @@ class _ToolPolicyObservingResidentRunner(_ResidentSeamRunner):
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
     ) -> str:
-        self._service.build_command(
-            role,
-            "gpt-5.4",
-            "medium",
-            run_kind,
-            session_uuid,
-            tool_policy=tool_policy,
-        )
-        self._observed_tool_policies.append(tool_policy)
-        return await super().work_text(
-            prompt,
-            role=role,
-            tool_policy=tool_policy,
-            run_kind=run_kind,
-            session_uuid=session_uuid,
-            on_provider_session_id=on_provider_session_id,
-        )
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        return _tool_policy_effect_text(tool_policy)
 
 
-class _ToolPolicyObservingResidentExecutionAdapter:
-    def __init__(self) -> None:
-        self.observed_tool_policies: list[Any] = []
-        self.observed_service_tool_policies: list[Any] = []
-
+class _ToolPolicyRenderingResidentExecutionAdapter:
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
-        return _ToolPolicyObservingExecutionService(
-            service_name,
-            self.observed_service_tool_policies,
-        )
+        return _ExecutionService(service_name)
 
     def build_work_dependencies(
         self,
@@ -798,8 +784,7 @@ class _ToolPolicyObservingResidentExecutionAdapter:
         effort: str,
         service: ExecutionProvider,
     ) -> WorkInvocationDependencies:
-        del name, model, effort
-        execution_service = cast(_ExecutionService, service)
+        del name, model, effort, service
 
         def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
             return _ResidentAdapterPreparedRunSession(
@@ -817,11 +802,7 @@ class _ToolPolicyObservingResidentExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _ToolPolicyObservingResidentRunner(
-                        cast(_Session, session),
-                        execution_service,
-                        self.observed_tool_policies,
-                    ),
+                    _ToolPolicyRenderingResidentRunner(cast(_Session, session)),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
@@ -830,15 +811,7 @@ class _ToolPolicyObservingResidentExecutionAdapter:
         )
 
 
-class _ToolPolicyObservingPromptRunner:
-    def __init__(
-        self,
-        service: _ExecutionService,
-        observed_tool_policies: list[Any],
-    ) -> None:
-        self._service = service
-        self._observed_tool_policies = observed_tool_policies
-
+class _ToolPolicyRenderingPromptRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
 
@@ -852,63 +825,10 @@ class _ToolPolicyObservingPromptRunner:
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
     ) -> str:
-        del prompt
-        self._service.build_command(
-            role,
-            "gpt-5.4",
-            "medium",
-            run_kind,
-            session_uuid,
-            tool_policy=tool_policy,
-        )
-        self._observed_tool_policies.append(tool_policy)
+        del prompt, role, run_kind, session_uuid
         assert callable(on_provider_session_id)
         on_provider_session_id("provider-session")
-        return "tool-capable-output"
-
-
-class _ToolPolicyObservingPromptExecutionAdapter:
-    def __init__(self) -> None:
-        self.observed_tool_policies: list[Any] = []
-        self.observed_service_tool_policies: list[Any] = []
-
-    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
-        return _ToolPolicyObservingExecutionService(
-            service_name,
-            self.observed_service_tool_policies,
-        )
-
-    def build_work_dependencies(
-        self,
-        *,
-        name: str,
-        model: str,
-        effort: str,
-        service: ExecutionProvider,
-    ) -> WorkInvocationDependencies:
-        del name, model, effort
-        execution_service = cast(_ExecutionService, service)
-        return WorkInvocationDependencies(
-            execution=WorkExecutionDependencies(
-                container_workspace="/workspace",
-                prepare_session=lambda _run_session: cast(
-                    PreparedRunSessionState, _PreparedRunSession()
-                ),
-                build_session=lambda mount_path, service, provider_state_dir: (
-                    _Session()
-                ),
-                build_runner=lambda session, status_display: cast(
-                    WorkExecutionAdapter,
-                    _ToolPolicyObservingPromptRunner(
-                        execution_service,
-                        self.observed_tool_policies,
-                    ),
-                ),
-                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
-            ),
-            failure_handling=WorkFailureHandling(timeout_retries=0),
-            presentation=WorkPresentationDependencies(),
-        )
+        return _tool_policy_effect_text(tool_policy)
 
 
 class _RoleAwareResidentSeamRunner(_ResidentSeamRunner):
@@ -2604,19 +2524,13 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
 
 
 @pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
-def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
+def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
     tool_policy: runtime.ToolPolicy,
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
-    execution_adapter = _ToolPolicyObservingResidentExecutionAdapter()
-    service = cast(
-        ExecutionProvider,
-        _ToolPolicyObservingExecutionService(
-            "codex",
-            execution_adapter.observed_service_tool_policies,
-        ),
-    )
+    execution_adapter = _ToolPolicyRenderingResidentExecutionAdapter()
+    service = cast(ExecutionProvider, _ExecutionService("codex"))
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=Path("."),
@@ -2628,7 +2542,7 @@ def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution
         )
     )
 
-    asyncio.run(
+    result = asyncio.run(
         prompt_runtime.ResumableRuntime(
             execution_adapter=execution_adapter
         ).run_resumable_prompt(
@@ -2643,33 +2557,28 @@ def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution
         )
     )
 
-    assert execution_adapter.observed_tool_policies == [tool_policy]
-    assert execution_adapter.observed_service_tool_policies == [tool_policy]
+    assert result.output == _tool_policy_effect_text(tool_policy)
 
 
 @pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
-def test_prompt_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
+def test_text_output_adapter_exposes_tool_policy_effects_through_public_adapter_seam(
     tool_policy: runtime.ToolPolicy,
-    prompt_run_request_factory: Callable[..., PromptRunRequest],
-    service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
 ) -> None:
-    execution_adapter = _ToolPolicyObservingPromptExecutionAdapter()
-
     output = asyncio.run(
-        prompt_runtime._run_prompt(
-            runner=execution_adapter,
-            service_registry=service_registry_factory("codex"),
-            request=prompt_run_request_factory(
-                stage=stage_selection_factory(),
-                tool_policy=tool_policy,
-            ),
+        TextOutputAdapter(
+            prompt="already rendered prompt",
+            tool_policy=tool_policy,
+        ).invoke(
+            runner=cast(WorkExecutionAdapter, _ToolPolicyRenderingPromptRunner()),
+            role=InvocationRole("implementer"),
+            prompt="already rendered prompt",
+            run_kind=RunKind.FRESH,
+            session_uuid=None,
+            on_provider_session_id=lambda _provider_session_id: None,
         )
     )
 
-    assert output == "tool-capable-output"
-    assert execution_adapter.observed_tool_policies == [tool_policy]
-    assert execution_adapter.observed_service_tool_policies == [tool_policy]
+    assert output == _tool_policy_effect_text(tool_policy)
 
 
 def test_resumable_runtime_request_rejects_request_level_invocation_role() -> None:
