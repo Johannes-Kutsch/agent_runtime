@@ -6,6 +6,8 @@ The distribution name is `ruhken-agent-runtime`; the import package is `agent_ru
 
 Pre-release runtime compatibility aliases are intentionally absent from the documented surface and from direct module attribute access. Current implementation seams may remain importable until the migration removes them, but importability does not make them consumer API.
 
+The runtime implementation may be split across internal modules. That internal module layout is not part of the `Runtime Public Surface`; consumers should rely on the documented `agent_runtime` and `agent_runtime.runtime` import paths.
+
 ## Consumer Surface
 
 Ordinary consumers execute already-rendered prompts through a caller-owned `RuntimeClient`. They provide provider selection, credentials, tool access, worktree, and session lifecycle data as call arguments. They do not construct provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.

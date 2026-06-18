@@ -12,6 +12,8 @@ The accepted runtime direction is to ship Claude, Codex, and OpenCode execution 
 
 For complete target signatures, invariants, and migration notes, see [the public API reference](docs/public-api.md).
 
+Only the documented import paths are stable. Internal runtime modules may be reorganized as the implementation is split, but ordinary consumers should continue importing from `agent_runtime` and `agent_runtime.runtime`.
+
 ## Consumer Integration
 
 Ordinary consumers should use a caller-owned `RuntimeClient` and the small package vocabulary such as `InvocationRole`, `StageSelection`, `ToolAccess`, and `ProviderAuth`.
