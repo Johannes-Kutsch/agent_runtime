@@ -3047,6 +3047,12 @@ def test_runtime_direct_import_rejects_removed_resumable_completed_result_names(
     None
 ):
     with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ResumableRuntime", {}, {})
+    with pytest.raises(ImportError):
+        exec(
+            "from agent_runtime.runtime import ResumableRuntimeExecutionAdapter", {}, {}
+        )
+    with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ResumableRunResult", {}, {})
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ResumableRuntimeMetadata", {}, {})
@@ -5191,9 +5197,9 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -5240,9 +5246,9 @@ def test_resumable_runtime_uses_invocation_role_from_session_plan(
     execution_adapter = _RoleAwareResidentSeamExecutionAdapter()
 
     asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=execution_adapter
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -5313,9 +5319,9 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -5365,9 +5371,9 @@ def test_resumable_runtime_returns_portable_continuation_resume_data(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -6249,9 +6255,9 @@ def test_resumable_runtime_resumes_from_portable_continuation_data() -> None:
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -6490,9 +6496,9 @@ def test_resumable_runtime_passes_continuation_provider_resume_state_to_adapter(
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_ContinuationResumeStateExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -6539,9 +6545,9 @@ def test_resumable_runtime_completed_outcome_keeps_service_bound_in_continuation
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_ContinuationBoundServiceResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -6703,9 +6709,9 @@ def test_resumable_runtime_returns_latest_adapter_updated_provider_resume_state(
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_LatestResumeStateExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -6873,9 +6879,9 @@ def test_resumable_runtime_keeps_frozen_adapter_session_seam_unchanged() -> None
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_FrozenPreparedSessionExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7037,9 +7043,9 @@ def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_ef
     )
 
     defaulted_result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7050,9 +7056,9 @@ def test_resumable_runtime_from_continuation_defaults_and_overrides_model_and_ef
         )
     )
     overridden_result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7100,9 +7106,9 @@ def test_resumable_runtime_started_usage_limit_keeps_service_bound_in_continuati
     continuation = _bound_service_resumed_continuation(worktree)
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_ContinuationBoundStartedUsageLimitResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7143,9 +7149,9 @@ def test_resumable_runtime_exposes_tool_policy_effects_through_runtime_result(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=execution_adapter
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -7177,9 +7183,9 @@ def test_resumable_runtime_reports_started_progress_for_usage_limited_outcome(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedUsageLimitResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -7229,9 +7235,9 @@ def test_resumable_runtime_prefers_adapter_reported_model_activity_for_usage_lim
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_ModelActivityUsageLimitResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -7291,9 +7297,9 @@ def test_resumable_runtime_returns_no_service_available_outcome_for_bound_servic
             raise AssertionError("bound service unavailability should stop before work")
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_UnavailableBoundServiceExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7384,9 +7390,9 @@ def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_aft
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedCancellationExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7411,9 +7417,9 @@ def test_resumable_runtime_returns_timed_out_outcome_with_input_continuation_aft
     continuation = _bound_service_resumed_continuation(worktree)
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedTimeoutResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7438,9 +7444,9 @@ def test_resumable_runtime_returns_retryable_provider_failure_outcome_with_input
     continuation = _bound_service_resumed_continuation(worktree)
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7549,9 +7555,9 @@ def test_resumable_runtime_returns_usage_limited_outcome_with_input_continuation
             )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_NotStartedUsageLimitExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7598,9 +7604,9 @@ def test_resumable_runtime_returns_no_service_available_outcome_with_input_conti
             raise AssertionError("bound service unavailability should stop before work")
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_UnavailableBoundServiceExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7629,9 +7635,9 @@ def test_resumable_runtime_returns_cancelled_outcome_with_input_continuation_bef
     cancelled_token.cancel()
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_TimeoutResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7674,9 +7680,9 @@ def test_resumable_runtime_preserves_input_continuation_for_not_started_interrup
     continuation = _bound_service_resumed_continuation(worktree)
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=execution_adapter
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
@@ -7715,9 +7721,9 @@ def test_resumable_runtime_returns_cancelled_outcome_for_pre_start_caller_cancel
     cancelled_token.cancel()
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -7762,9 +7768,9 @@ def test_runtime_boundaries_return_timed_out_outcomes_for_timeout_conditions(
     )
 
     resumable_result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_TimeoutResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -7806,9 +7812,9 @@ def test_timed_out_outcomes_preserve_started_and_not_started_progress(
     )
 
     resumable_result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_TimeoutResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -7847,9 +7853,9 @@ def test_resumable_runtime_reports_started_progress_for_timed_out_outcome(
     )
 
     result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedTimeoutResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -7905,9 +7911,9 @@ def test_runtime_boundaries_return_retryable_provider_failure_outcomes_for_retry
     )
 
     resumable_result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_RetryableProviderFailureResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -7949,9 +7955,9 @@ def test_retryable_provider_failure_outcomes_preserve_started_progress(
     )
 
     resumable_result = asyncio.run(
-        prompt_runtime.ResumableRuntime(
+        prompt_runtime.ResumedSessionRuntime(
             execution_adapter=_StartedRetryableProviderFailureResidentExecutionAdapter()
-        ).run_resumable_prompt(
+        ).run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
@@ -8031,9 +8037,9 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
 
     with pytest.raises(runtime.RuntimeConfigurationError):
         asyncio.run(
-            prompt_runtime.ResumableRuntime(
+            prompt_runtime.ResumedSessionRuntime(
                 execution_adapter=cast(Any, object())
-            ).run_resumable_prompt(
+            ).run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),
@@ -8047,9 +8053,9 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
 
     with pytest.raises(AgentCredentialFailureError):
         asyncio.run(
-            prompt_runtime.ResumableRuntime(
+            prompt_runtime.ResumedSessionRuntime(
                 execution_adapter=_CredentialFailureResidentExecutionAdapter()
-            ).run_resumable_prompt(
+            ).run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),
@@ -8063,9 +8069,9 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
 
     with pytest.raises(HardAgentError):
         asyncio.run(
-            prompt_runtime.ResumableRuntime(
+            prompt_runtime.ResumedSessionRuntime(
                 execution_adapter=_HardFailureResidentExecutionAdapter()
-            ).run_resumable_prompt(
+            ).run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),
@@ -8087,9 +8093,9 @@ def test_runtime_timeout_mapping_does_not_swallow_exceptional_failures(
 
     with pytest.raises(TransientAgentError):
         asyncio.run(
-            prompt_runtime.ResumableRuntime(
+            prompt_runtime.ResumedSessionRuntime(
                 execution_adapter=_TransientProviderFailureResidentExecutionAdapter()
-            ).run_resumable_prompt(
+            ).run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=WorktreeMount(Path(".")),

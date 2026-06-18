@@ -71,7 +71,6 @@ EphemeralRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 NewSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 OneShotRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 ResumedSessionRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
-ResumableRuntimeExecutionAdapter = _PromptRuntimeExecutionAdapter
 _MISSING_TOOL_POLICY = object()
 
 _DEFAULT_ONE_SHOT_NAME = "Runtime Agent"
@@ -1180,7 +1179,7 @@ class NewSessionRuntime:
 
 async def _run_resumed_session_outcome(
     *,
-    runner: ResumableRuntimeExecutionAdapter,
+    runner: ResumedSessionRuntimeExecutionAdapter,
     request: ResumedSessionRunRequest,
 ) -> RuntimeOutcome:
     try:
@@ -1225,24 +1224,6 @@ async def _run_resumed_session_outcome(
             continuation=exc.continuation,
         )
     return RuntimeOutcome.completed(output=result.output, result=result)
-
-
-class ResumableRuntime:
-    def __init__(
-        self,
-        *,
-        execution_adapter: ResumableRuntimeExecutionAdapter,
-    ) -> None:
-        self._execution_adapter = execution_adapter
-
-    async def run_resumable_prompt(
-        self,
-        request: ResumedSessionRunRequest,
-    ) -> RuntimeOutcome:
-        return await _run_resumed_session_outcome(
-            runner=self._execution_adapter,
-            request=request,
-        )
 
 
 class ResumedSessionRuntime:
@@ -1601,7 +1582,7 @@ async def _run_new_session(
 
 async def _run_resumable_prompt(
     *,
-    runner: ResumableRuntimeExecutionAdapter,
+    runner: ResumedSessionRuntimeExecutionAdapter,
     request: ResumedSessionRunRequest,
 ) -> SessionRunResult:
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
