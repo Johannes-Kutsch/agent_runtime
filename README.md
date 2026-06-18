@@ -23,7 +23,7 @@ Ordinary consumers should start with the lifecycle entrypoints under `agent_runt
 
 ### Ephemeral Execution
 
-Ephemeral execution is the normal path for an already-rendered prompt when the runtime should not prepare provider-session continuity. The caller provides an explicit `InvocationRole` so logs, provider metadata, and state partitioning reflect caller intent.
+Ephemeral execution is the canonical entrypoint for an already-rendered prompt when the runtime should not prepare provider-session continuity. Tool access is explicit and defaults to no tools, so callers should pass `ToolAccess.no_tools()` when they want tool-less execution.
 
 ```python
 from pathlib import Path
@@ -56,28 +56,74 @@ print(result.selected_service)
 
 Use the ephemeral entrypoint when prompt rendering, issue orchestration, and application policy already live in the consuming application and the runtime only needs to execute the prepared prompt without starting a continuity chain.
 
-### Advanced Topics
+### New-Session Execution
 
-New-session execution, resumed-session execution, and `ProviderSessionAdapter` integration are advanced seams. Use them when you need provider-backed continuity, recovery, or session-specific policy.
-
-When you need to continue a provider-backed continuity chain, import the lifecycle session entrypoints directly:
+New-session execution is the canonical entrypoint when the runtime should prepare provider-session continuity and return consumer-owned continuation state for later calls. Tool access is still separate from session lifecycle, so tool-capable runs must pass an explicit `ToolAccess` value.
 
 ```python
+from pathlib import Path
+
+from agent_runtime import InvocationRole, StageSelection
+from agent_runtime.runtime import NewSessionRunRequest, NewSessionRuntime
+
+workspace_tool_access = build_workspace_tool_access()
+
+result = await NewSessionRuntime(
+    execution_adapter=build_execution_adapter(),
+    service_registry=build_service_registry(),
+).run_new_session(
+    NewSessionRunRequest(
+        prompt=rendered_prompt,
+        worktree=Path("."),
+        stage=StageSelection(
+            service="openai/default",
+            model="gpt-5",
+            effort="medium",
+        ),
+        role=InvocationRole("issue-implementation"),
+        tool_access=workspace_tool_access,
+    )
+)
+
+print(result.output)
+print(result.continuation)
+```
+
+For workspace-backed execution, provide a workspace-backed `ToolAccess` value for the mounted worktree instead of relying on provider defaults. Consumers own persistence for the returned continuation and may store it, discard it, or hand it to a later process.
+
+### Resumed-Session Execution
+
+Resumed-session execution is the canonical entrypoint for continuing an existing provider-session continuity chain. The caller supplies the last continuation, and the runtime resumes without service fallback or tool-policy changes.
+
+```python
+from pathlib import Path
+
+from agent_runtime import InvocationRole
 from agent_runtime.runtime import ResumedSessionRunRequest, ResumedSessionRuntime
 
 result = await ResumedSessionRuntime(
     execution_adapter=build_execution_adapter(),
+    service_registry=build_service_registry(),
 ).run_resumed_session(
     ResumedSessionRunRequest(
         prompt=rendered_prompt,
-        worktree=worktree_mount,
-        role=invocation_role,
+        worktree=Path("."),
+        role=InvocationRole("issue-implementation"),
         continuation=continuation,
     )
 )
+
+print(result.output)
+print(result.continuation)
 ```
 
-Tool-capable execution is a separate concern from session lifecycle. If an entrypoint can grant tool access, the caller must provide explicit tool access rather than relying on an implicit default. Follow the focused tool-policy documentation for that integration so provider-specific command rendering stays behind adapter contracts.
+Resumed-session execution derives service selection and tool access from the continuation. Callers may continue the chain with a new prompt while keeping the same continuity state.
+
+### Runtime Outcomes
+
+Lifecycle entrypoints report normal runtime outcomes for both completed work and expected interruptions. Completion returns final output and, for session-backed runs, the latest continuation needed for future resumes.
+
+Expected interruptions such as usage limits, cancellation, timeout, temporary service unavailability, and confidently retryable provider failures are canonical runtime outcomes rather than the normal exception path. Session-backed interruption outcomes also report invocation progress so consumers can decide whether to retry immediately or resume from the returned continuation.
 
 `ToolPolicyProfile` remains provider-neutral runtime data. Provider adapters translate runtime-owned tool policy values into backend-specific flags, arguments, and restrictions.
 
