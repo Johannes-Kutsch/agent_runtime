@@ -2001,6 +2001,156 @@ def test_runtime_client_runs_opencode_ephemeral_stage_through_builtin_provider(
     )
 
 
+@pytest.mark.parametrize(
+    (
+        "service_name",
+        "stage",
+        "auth",
+        "expected_prompt_path",
+        "expected_env",
+        "expected_command_parts",
+    ),
+    [
+        pytest.param(
+            "claude",
+            runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            lambda worktree: worktree / ".pycastle_prompt",
+            {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"},
+            ("claude", "--output-format stream-json", "--model sonnet"),
+            id="claude",
+        ),
+        pytest.param(
+            "codex",
+            runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            None,
+            lambda _worktree: Path("/tmp/.pycastle_prompt"),
+            {"TZ": "UTC"},
+            (
+                "codex exec",
+                "-m gpt-5.4",
+                "-c model_reasoning_effort=medium",
+                "< /tmp/.pycastle_prompt",
+            ),
+            id="codex",
+        ),
+        pytest.param(
+            "opencode",
+            runtime.StageSelection(
+                service="opencode",
+                model="kimi-k2.6",
+                effort="medium",
+            ),
+            runtime.ProviderAuth(opencode_api_key="go-key"),
+            lambda _worktree: Path("/tmp/.pycastle_prompt"),
+            {
+                "TZ": "UTC",
+                "OPENCODE_GO_API_KEY": "go-key",
+            },
+            (
+                "opencode run",
+                "--format json",
+                "--model opencode-go/kimi-k2.6",
+                '"$(cat /tmp/.pycastle_prompt)"',
+            ),
+            id="opencode",
+        ),
+    ],
+)
+def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    service_name: str,
+    stage: runtime.StageSelection,
+    auth: runtime.ProviderAuth | None,
+    expected_prompt_path: Callable[[Path], Path],
+    expected_env: dict[str, str],
+    expected_command_parts: tuple[str, ...],
+) -> None:
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationResult(
+                output=f"{service_name} output",
+                usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+    if service_name == "codex":
+        host_home = tmp_path / "host-home"
+        host_auth_path = host_home / ".codex" / "auth.json"
+        host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+        host_auth_path.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(
+            prompt_runtime._builtin_runtime_client_module.Path,
+            "home",
+            lambda: host_home,
+        )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            logs_dir=tmp_path / "logs",
+            stage=stage,
+            role=InvocationRole("implementer"),
+            session_namespace="ephemeral-main",
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=auth,
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output=f"{service_name} output",
+        result=prompt_runtime.EphemeralRunResult(
+            output=f"{service_name} output",
+            selected_service=service_name,
+            selected_model=stage.model,
+            selected_effort=stage.effort,
+            tool_access=runtime.ToolAccess.no_tools(),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=(service_name,),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="ephemeral-main",
+                ),
+            ),
+            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+        ),
+        usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.content == "already rendered prompt"
+    assert recorded_request.prompt.path == expected_prompt_path(tmp_path)
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.role == InvocationRole("implementer")
+    assert recorded_request.usage_limit_scope is None
+    assert recorded_request.provider_session_id is None
+    assert recorded_request.log_context is not None
+    assert recorded_request.log_context.role == InvocationRole("implementer")
+    assert recorded_request.log_context.usage_limit_scope is None
+    for key, value in expected_env.items():
+        assert recorded_request.environment[key] == value
+    for command_part in expected_command_parts:
+        assert command_part in recorded_request.command
+
+
 def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
