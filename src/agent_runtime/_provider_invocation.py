@@ -104,8 +104,26 @@ class ProductionProviderInvocationAdapter:
                 )
                 stdout_lines = [] if process.stdout is None else list(process.stdout)
                 process.wait()
+
+                def _observed_provider_session_id() -> str | None:
+                    provider_session_id = request.provider_session_id
+                    if request.output_hooks.extract_provider_session_id is not None:
+                        provider_session_id = (
+                            request.output_hooks.extract_provider_session_id(
+                                stdout_lines
+                            )
+                            or provider_session_id
+                        )
+                    return provider_session_id
+
                 if work_invocation_log is None:
-                    output, usage = request.output_hooks.reduce_output(stdout_lines)
+                    try:
+                        output, usage = request.output_hooks.reduce_output(stdout_lines)
+                    except Exception as exc:
+                        setattr(
+                            exc, "provider_session_id", _observed_provider_session_id()
+                        )
+                        raise
                 else:
                     work_invocation_log.append_provider_chunk(
                         "".join(stdout_lines).encode()
@@ -115,18 +133,18 @@ class ProductionProviderInvocationAdapter:
                             request.output_hooks.reduce_output(lines)
                         )
                     )
-                    output, usage = reducer(stdout_lines, work_invocation_log)
-                provider_session_id = request.provider_session_id
-                if request.output_hooks.extract_provider_session_id is not None:
-                    provider_session_id = (
-                        request.output_hooks.extract_provider_session_id(stdout_lines)
-                        or provider_session_id
-                    )
+                    try:
+                        output, usage = reducer(stdout_lines, work_invocation_log)
+                    except Exception as exc:
+                        setattr(
+                            exc, "provider_session_id", _observed_provider_session_id()
+                        )
+                        raise
                 return ProviderInvocationResult(
                     output=output,
                     usage=usage,
                     stdout_lines=tuple(stdout_lines),
-                    provider_session_id=provider_session_id,
+                    provider_session_id=_observed_provider_session_id(),
                 )
         finally:
             if request.prompt.cleanup_path and prompt_path is not None:

@@ -1782,6 +1782,7 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
                 )
             )
         prompt_path = Path("/tmp/.pycastle_prompt")
+        provider_session_id: str | None = None
         try:
             invocation_result = ProductionProviderInvocationAdapter().execute(
                 ProviderInvocationRequest(
@@ -1816,6 +1817,10 @@ def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
             result_text = invocation_result.output
             usage = invocation_result.usage
         except (UsageLimitError, RetryableProviderFailureError) as exc:
+            provider_session_id = cast(
+                str | None,
+                getattr(exc, "provider_session_id", provider_session_id),
+            )
             exc.continuation = (
                 _build_codex_continuation(
                     model=selected_stage.model,
@@ -2120,6 +2125,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
         )
         run_kind = RunKind.RESUME
         prompt_path = Path("/tmp/.pycastle_prompt")
+        active_provider_session_id: str | None = provider_session_id
         try:
             invocation_result = ProductionProviderInvocationAdapter().execute(
                 ProviderInvocationRequest(
@@ -2156,6 +2162,10 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
             result_text = invocation_result.output
             usage = invocation_result.usage
         except (UsageLimitError, RetryableProviderFailureError) as exc:
+            active_provider_session_id = cast(
+                str | None,
+                getattr(exc, "provider_session_id", active_provider_session_id),
+            )
             exc.continuation = (
                 _build_codex_continuation(
                     model=request.model,

@@ -16,6 +16,7 @@ from agent_runtime.errors import (
     HardAgentError,
     RuntimeConfigurationError,
     TransientAgentError,
+    UsageLimitError,
 )
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import InvocationRole
@@ -1212,6 +1213,188 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
         "-c model_reasoning_effort=medium -c approval_policy=never "
         "--sandbox danger-full-access --json < /tmp/.pycastle_prompt"
     )
+
+
+def test_runtime_client_keeps_started_codex_new_session_continuation_when_output_reduction_interrupts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    class _CodexProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(['{"type":"thread.started","thread_id":"thread-123"}\n'])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_reduce_codex_stream",
+        lambda _lines: (_ for _ in ()).throw(
+            UsageLimitError(
+                reset_time=None,
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _CodexProcess(),
+    )
+    _stub_builtin_tmp_prompt_path(
+        monkeypatch,
+        on_unlink=lambda: captured.__setitem__("prompt_deleted", True),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "thread-123",
+                "provider_state_dir_relpath": "implementer/main/codex/",
+                "exact_transcript_match": False,
+            },
+        ),
+    )
+    assert captured["prompt_deleted"] is True
+
+
+def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_output_reduction_interrupts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    class _CodexProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(['{"type":"thread.started","thread_id":"thread-456"}\n'])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_reduce_codex_stream",
+        lambda _lines: (_ for _ in ()).throw(
+            UsageLimitError(
+                reset_time=None,
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _CodexProcess(),
+    )
+    _stub_builtin_tmp_prompt_path(
+        monkeypatch,
+        on_unlink=lambda: captured.__setitem__("prompt_deleted", True),
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "selected-thread",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+            "exact_transcript_match": False,
+        },
+    )
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    _write_codex_rollout(provider_state_dir, "recovered-thread")
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "thread-456",
+                "provider_state_dir_relpath": "implementer/main/codex/",
+                "exact_transcript_match": False,
+            },
+        ),
+    )
+    assert captured["prompt_deleted"] is True
 
 
 def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_state(
