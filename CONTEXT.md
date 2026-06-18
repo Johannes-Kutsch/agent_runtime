@@ -9,8 +9,10 @@
 | Term | Meaning |
 | --- | --- |
 | `agent_runtime` | The reusable runtime package and its stable core public surface. |
-| `Runtime Consumer Surface` | The entrypoint surface intended for ordinary consuming projects. |
-| `Runtime Adapter Seam` | A focused runtime seam implemented by consuming-project or provider adapters. |
+| `Runtime Public Surface` | The documented stability surface made of runtime consumer entrypoints and focused adapter seams, not every importable runtime symbol. |
+| `Runtime Consumer Surface` | The entrypoint surface intended for ordinary consuming projects that execute prepared agent work without implementing runtime or provider adapters. |
+| `Advanced Focused Seam` | A documented runtime public seam for consumers or adapter authors assembling service selection, session planning, provider output, or log lifecycle behavior directly. |
+| `Runtime Adapter Seam` | A focused runtime seam implemented by adapter authors who connect the runtime to provider or application infrastructure. |
 | `StageSelection` | A single stage selection node containing service, model, effort, and optional fallback. |
 | `ServiceName` | A path-safe runtime service identity used for selection, provider state paths, logs, and diagnostics. |
 | `ServiceRegistry` | The runtime-owned resolver that maps configured services and stage chains to an executable candidate. |
@@ -42,6 +44,7 @@
 - Application-specific prompt rendering, CLI wiring, issue orchestration, and output parsing belong outside the runtime boundary.
 - The runtime/request seam stays a single vertical flow from caller intent through session planning to work invocation.
 - The package root should stay a narrow compatibility entrypoint, not a catch-all export surface.
+- The documented Runtime Public Surface is a stability promise rather than an inventory of every importable runtime symbol.
 - Runtime entrypoints should be canonical per mode rather than duplicated across equivalent facades.
 - Ordinary consuming projects should use runtime entrypoints and adapter seams rather than low-level work invocation internals.
 - Runtime-owned selection, availability, and resumability policy stay in the runtime boundary.
@@ -61,6 +64,7 @@
 - Expected interruption outcomes use two-state invocation progress: started or not started.
 - Runtime errors remain classified by failure cause, with interruption progress attached as metadata where relevant.
 - Usage limits, cancellation, timeout, temporary service unavailability, and confidently retryable provider failures are normal runtime outcomes at canonical entrypoints rather than exceptional failures.
+- Documentation for lifecycle entrypoints should teach expected interruption outcomes through `RuntimeOutcome` before describing lower-level exception classes.
 - Cancellation outcomes represent caller- or user-initiated cancellation, not provider-side aborts.
 - Invalid service references or malformed service registry configuration remain exceptional failures.
 - Credential failures, runtime configuration errors, hard provider failures, adapter/protocol bugs, unclassified provider failures, and unexpected exceptions remain exceptional failures.
