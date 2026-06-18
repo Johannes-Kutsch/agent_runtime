@@ -23,12 +23,10 @@ def test_package_exports_runtime_surface() -> None:
         "AgentTimeoutError",
         "Continuation",
         "HardAgentError",
-        "ExecutionProvider",
         "InvocationRole",
         "InvocationProgress",
         "ProviderAuth",
         "ProviderUsage",
-        "ProviderSessionAdapter",
         "RuntimeClient",
         "RuntimeConfigurationError",
         "RuntimeOutcome",
@@ -47,7 +45,9 @@ def test_package_exports_runtime_surface() -> None:
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
     assert not hasattr(runtime, "assert_runtime_import_isolation")
     assert not hasattr(runtime, "run_prompt")
+    assert not hasattr(runtime, "ExecutionProvider")
     assert not hasattr(runtime, "ServiceRegistry")
+    assert not hasattr(runtime, "ProviderSessionAdapter")
     assert not hasattr(runtime, "ProviderSessionPreferences")
     assert not hasattr(runtime, "ProviderSessionPreferencesRequest")
     assert not hasattr(runtime, "ProviderSessionState")
@@ -64,20 +64,36 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
     assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
     assert {
+        "Continuation",
+        "EphemeralRunRequest",
+        "NewSessionRunRequest",
+        "ProviderAuth",
+        "ProviderUsage",
+        "ResumedSessionRunRequest",
+        "RuntimeClient",
+        "RuntimeOutcome",
+        "SessionRunResult",
+        "SessionRuntimeMetadata",
+        "ToolAccess",
+        "WorktreeMount",
+    } <= set(prompt_runtime.__all__)
+    assert {
         "EphemeralRunRequest",
         "EphemeralRunResult",
         "EphemeralResultMetadata",
-        "EphemeralRuntime",
-        "EphemeralRuntimeExecutionAdapter",
         "EphemeralRuntimeMetadata",
         "Continuation",
         "ProviderUsage",
         "ResumedSessionRunRequest",
         "SessionRunResult",
-        "ResumedSessionRuntime",
-        "ResumedSessionRuntimeExecutionAdapter",
         "SessionRuntimeMetadata",
     } <= set(prompt_runtime.__all__)
+    assert "EphemeralRuntime" not in prompt_runtime.__all__
+    assert "NewSessionRuntime" not in prompt_runtime.__all__
+    assert "ResumedSessionRuntime" not in prompt_runtime.__all__
+    assert "EphemeralRuntimeExecutionAdapter" not in prompt_runtime.__all__
+    assert "NewSessionRuntimeExecutionAdapter" not in prompt_runtime.__all__
+    assert "ResumedSessionRuntimeExecutionAdapter" not in prompt_runtime.__all__
     assert not hasattr(prompt_runtime, "ResumableRunResult")
     assert not hasattr(prompt_runtime, "ResumableRuntimeMetadata")
     assert "ResumableRunRequest" not in prompt_runtime.__all__
@@ -99,10 +115,15 @@ def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases
 
     exec("from agent_runtime.runtime import *", {}, exported_names)
 
-    assert "EphemeralRuntime" in exported_names
     assert "EphemeralRunRequest" in exported_names
-    assert "ResumedSessionRuntime" in exported_names
+    assert "RuntimeClient" in exported_names
     assert "ResumedSessionRunRequest" in exported_names
+    assert "EphemeralRuntime" not in exported_names
+    assert "NewSessionRuntime" not in exported_names
+    assert "ResumedSessionRuntime" not in exported_names
+    assert "EphemeralRuntimeExecutionAdapter" not in exported_names
+    assert "NewSessionRuntimeExecutionAdapter" not in exported_names
+    assert "ResumedSessionRuntimeExecutionAdapter" not in exported_names
     assert "ResumableRuntime" not in exported_names
     assert "ResumableRunRequest" not in exported_names
     assert "OneShotRuntime" not in exported_names
