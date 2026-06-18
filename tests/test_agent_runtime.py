@@ -944,52 +944,6 @@ class _RoleAwareResidentSeamExecutionAdapter:
         )
 
 
-class _PlannedStatePathObservingResidentExecutionAdapter:
-    def __init__(self) -> None:
-        self.observed_provider_state_dir_container_paths: list[str | None] = []
-
-    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
-        return _ExecutionService(service_name)
-
-    def build_work_dependencies(
-        self,
-        *,
-        name: str,
-        model: str,
-        effort: str,
-        service: ExecutionProvider,
-    ) -> WorkInvocationDependencies:
-        del name, model, effort, service
-
-        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
-            self.observed_provider_state_dir_container_paths.append(
-                run_session.provider_state_dir_container_path
-            )
-            return _ResidentAdapterPreparedRunSession(
-                provider_state_dir_container_path=(
-                    run_session.provider_state_dir_container_path
-                ),
-                run_kind=run_session.run_kind,
-                provider_session_id=f"prepared:{run_session.provider_session_id}",
-            )
-
-        return WorkInvocationDependencies(
-            execution=WorkExecutionDependencies(
-                container_workspace="/workspace",
-                prepare_session=cast(Any, _prepare_session),
-                build_session=lambda mount_path, service, provider_state_dir: _Session(
-                    provider_state_dir
-                ),
-                build_runner=lambda session, status_display: cast(
-                    WorkExecutionAdapter, _ResidentSeamRunner(cast(_Session, session))
-                ),
-                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
-            ),
-            failure_handling=WorkFailureHandling(timeout_retries=0),
-            presentation=WorkPresentationDependencies(),
-        )
-
-
 def test_package_exports_runtime_surface() -> None:
     assert runtime.__all__ == [
         "AgentCredentialFailureError",
@@ -2533,21 +2487,51 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
     external_state_provider_session_adapter: _ExternalStateResidentPlanningProviderSessionAdapter,
 ) -> None:
     worktree = Path("/repo")
-    execution_adapter = _PlannedStatePathObservingResidentExecutionAdapter()
+    service = execution_service_factory()
+    provider_session_decision = session_planning_runtime.plan_provider_session(
+        session_planning_runtime.ProviderSessionPlanRequest(
+            worktree=worktree,
+            role=InvocationRole("implementer"),
+            namespace="main",
+            resumability_service=cast(ResumabilityProvider, service),
+            session_store=session_store_factory(),
+            provider_session_adapter=external_state_provider_session_adapter,
+        )
+    )
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=worktree,
             role=InvocationRole("implementer"),
             namespace="main",
-            service=execution_service_factory(),
+            service=service,
             session_store=session_store_factory(),
             provider_session_adapter=external_state_provider_session_adapter,
         )
     )
 
+    assert (
+        provider_session_decision
+        == session_planning_runtime.ProviderSessionDecision(
+            run_kind=RunKind.RESUME,
+            provider_session_id="recovered-session",
+            state_dir_relpath="runtime-state/",
+            state_dir_path=Path("/host/runtime-state"),
+            recovered_session_id_persistence=(
+                session_planning_runtime.RecoveredSessionIdPersistence.SKIP
+            ),
+            service_state_dir=Path("/host/runtime-state"),
+            exact_transcript_match=False,
+            auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+            auth_seed_action=None,
+            use_service_state_dir_for_container=False,
+        )
+    )
+    assert session_plan.provider_state_dir == Path("/host/runtime-state")
+    assert session_plan.provider_session_id == "recovered-session"
+
     result = asyncio.run(
         prompt_runtime.ResumableRuntime(
-            execution_adapter=execution_adapter
+            execution_adapter=_ResidentSeamExecutionAdapter()
         ).run_resumable_prompt(
             prompt_runtime.ResumableRunRequest(
                 prompt="already rendered prompt",
@@ -2560,11 +2544,15 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path(
         )
     )
 
-    assert execution_adapter.observed_provider_state_dir_container_paths == [
-        "/workspace/runtime-state/"
-    ]
-    assert (
-        result.output == "resume:prepared:recovered-session:/workspace/runtime-state/"
+    assert result == prompt_runtime.ResumableRunResult(
+        output="resume:prepared:recovered-session:/workspace/runtime-state/",
+        runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+            service_name="codex",
+            provider_session_id="prepared:recovered-session",
+            run_kind=RunKind.RESUME,
+            session_namespace="main",
+            exact_transcript_match=False,
+        ),
     )
 
 
