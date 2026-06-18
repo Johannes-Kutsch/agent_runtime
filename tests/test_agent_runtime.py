@@ -404,6 +404,54 @@ class _UsageLimitWithoutMappingExecutionAdapter(_RoleAwareOneShotExecutionAdapte
         )
 
 
+class _StartedUsageLimitOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        raise UsageLimitError(
+            reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            service_name="codex",
+            invocation_progress=runtime.InvocationProgress.STARTED,
+        )
+
+
+class _StartedUsageLimitOneShotExecutionAdapter(_RoleAwareOneShotExecutionAdapter):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedUsageLimitOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 class _PromptOnlyOneShotWorkRunner:
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
@@ -2180,9 +2228,29 @@ def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook(
     assert result == prompt_runtime.RuntimeOutcome.usage_limited(
         output="",
         service_name="codex",
-        reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        reset_time=None,
         usage_limit_scope=runtime.UsageLimitScope("quota-review"),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_one_shot_runtime_reports_started_progress_for_usage_limited_outcome(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_StartedUsageLimitOneShotExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_one_shot(one_shot_request_factory())
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
     )
 
 
@@ -2954,6 +3022,23 @@ def test_provider_output_reduction_maps_usage_limit() -> None:
 
     assert exc_info.value.service_name == "codex"
     assert exc_info.value.reset_time is None
+
+
+def test_provider_output_reduction_keeps_unknown_activity_usage_limits_not_started() -> (
+    None
+):
+    with pytest.raises(UsageLimitError) as exc_info:
+        reduce_text_output_events(
+            [
+                PromptTokens(2),
+                UnsupportedTokens(3, "source"),
+                UsageLimit(reset_time=None),
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+    assert exc_info.value.invocation_progress is runtime.InvocationProgress.NOT_STARTED
 
 
 def test_provider_output_reduction_maps_transient_error() -> None:

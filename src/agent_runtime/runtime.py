@@ -676,6 +676,11 @@ async def _run_one_shot(
                     resolved_override.service,
                     reset_time=exc.reset_time,
                 )
+                if not service_registry.has_available_for(
+                    request.stage,
+                    _time_module.now_local(),
+                ):
+                    raise
                 continue
             raise
 
