@@ -30,6 +30,7 @@ from agent_runtime.execution_contracts import (
     WorkInvocationDependencies,
     WorkPresentationDependencies,
 )
+from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.provider_output import reduce_text_output_events
 from agent_runtime.roles import InvocationRole
 from agent_runtime.service_registry import ServiceRegistry
@@ -531,6 +532,416 @@ class _ToolPolicyRenderingPromptRunner:
         assert callable(on_provider_session_id)
         on_provider_session_id("provider-session")
         return _tool_policy_effect_text(tool_policy)
+
+
+def _seed_codex_host_auth(monkeypatch: pytest.MonkeyPatch, home_dir: Path) -> None:
+    auth_dir = home_dir / ".codex"
+    auth_dir.mkdir(parents=True)
+    (auth_dir / "auth.json").write_text('{"access_token":"token"}')
+    monkeypatch.setenv("HOME", str(home_dir))
+
+
+def _stub_codex_prompt_path(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    on_write: Callable[[str], None] | None = None,
+    on_unlink: Callable[[], None] | None = None,
+) -> None:
+    prompt_path = Path("/tmp/.pycastle_prompt")
+    original_write_text = Path.write_text
+    original_unlink = Path.unlink
+
+    def _fake_write_text(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
+        if self == prompt_path:
+            if on_write is not None:
+                on_write(data)
+            return len(data)
+        return original_write_text(self, data, *args, **kwargs)
+
+    def _fake_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
+        if self == prompt_path:
+            if on_unlink is not None:
+                on_unlink()
+            return None
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", _fake_write_text)
+    monkeypatch.setattr(Path, "unlink", _fake_unlink)
+
+
+def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+
+    observed: dict[str, Any] = {}
+    _stub_codex_prompt_path(
+        monkeypatch,
+        on_write=lambda data: observed.__setitem__("prompt", data),
+        on_unlink=lambda: observed.__setitem__("prompt_deleted", True),
+    )
+
+    class _FakeProcess:
+        def __init__(
+            self,
+            command: str,
+            *,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+        ) -> None:
+            observed["command"] = command
+            observed["cwd"] = cwd
+            observed["env"] = env
+            self.stdout = stdout
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del shell, stderr, text
+        return _FakeProcess(
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=iter(
+                [
+                    '{"type":"thread.started","thread_id":"thread-123"}\n',
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"hello from codex"}}\n',
+                    '{"type":"turn.completed"}\n',
+                ]
+            ),
+        )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="high",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from codex",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from codex",
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="high",
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("codex",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+    assert observed["command"] == (
+        "codex exec -m gpt-5.4 -c model_reasoning_effort=high "
+        "-c approval_policy=never --sandbox danger-full-access "
+        "--json < /tmp/.pycastle_prompt"
+    )
+    assert observed["prompt"] == "already rendered prompt"
+    assert observed["prompt_deleted"] is True
+    assert observed["cwd"] == tmp_path
+    assert observed["env"] == {"TZ": "UTC"}
+
+
+def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    def _unexpected_popen(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise AssertionError("subprocess should not start without host auth")
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _unexpected_popen,
+    )
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        prompt_runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Codex authentication missing: run `codex login` on the host."
+    )
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.observations == (
+        ProviderErrorObservation(
+            service_name="codex",
+            raw_provider_text=(
+                "Codex authentication missing: run `codex login` on the host."
+            ),
+            source_stream="pre-dispatch host check",
+            status_code=401,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("tool_access", "expected_flag"),
+    [
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.RESTRICTED
+            ),
+            "--sandbox danger-full-access",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.PARTIAL
+            ),
+            "--dangerously-bypass-approvals-and-sandbox",
+        ),
+        (
+            runtime.ToolAccess.no_tools(),
+            "--sandbox danger-full-access",
+        ),
+    ],
+)
+def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tool_access: runtime.ToolAccess,
+    expected_flag: str,
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+
+    observed_commands: list[str] = []
+
+    class _FakeProcess:
+        stdout = iter(['{"type":"turn.completed"}\n'])
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    request_tool_access = (
+        tool_access
+        if tool_access.kind == "none"
+        else runtime.ToolAccess.workspace_backed(
+            tmp_path,
+            tool_policy=tool_access.tool_policy,
+        )
+    )
+    prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=request_tool_access,
+        )
+    )
+
+    assert expected_flag in observed_commands[0]
+
+
+def test_runtime_client_classifies_codex_refresh_token_reuse_prose_as_credential_lineage_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                "not json\n",
+                '{"type":"error","message":"Access token could not be refreshed because the refresh token was already used."}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        prompt_runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            )
+        )
+
+    assert exc_info.value.classification == "codex_auth_lineage_exhausted"
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.status_code == 401
+    assert len(exc_info.value.observations) == 1
+    assert exc_info.value.observations[0] == ProviderErrorObservation(
+        service_name="codex",
+        raw_provider_text=(
+            "Access token could not be refreshed because the refresh token was already used."
+        ),
+        source_stream="json_event.error",
+        status_code=401,
+    )
+
+
+def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    _stub_codex_prompt_path(monkeypatch)
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                '{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. Try again at January 2, 5pm (UTC)."}}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
 
 
 def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuation_state(

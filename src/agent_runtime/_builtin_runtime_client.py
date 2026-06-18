@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shlex
 import subprocess
@@ -34,11 +35,34 @@ from .session import RunKind
 from .stage_priority_chain import iter_stage_chain
 from .types import StageSelection
 
+_log = logging.getLogger(__name__)
 _CLAUDE_VALID_MODELS = frozenset({"haiku", "sonnet", "opus"})
 _CLAUDE_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+_CODEX_VALID_MODELS = frozenset(
+    {
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.2",
+    }
+)
+_CODEX_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 _CLAUDE_SUBSCRIPTION_ACCESS_DENIAL_PHRASE = (
     "disabled Claude subscription access for Claude Code"
 )
+_CODEX_USAGE_LIMIT_SUBSTRING = "You've hit your usage limit"
+_CODEX_RESET_PATTERN = re.compile(
+    r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
+    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
+    re.IGNORECASE,
+)
+_CODEX_GENERIC_AUTH_RE = re.compile(
+    r"\b(?:401|unauthorized|invalid_grant|invalid token|missing bearer|basic authentication)\b",
+    re.IGNORECASE,
+)
+_CODEX_HTTP_STATUS_RE = re.compile(r"\bstatus\s+(?P<status>\d{3})\b", re.IGNORECASE)
 _CLAUDE_RESET_PATTERN = re.compile(
     r"resets\s+"
     r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
@@ -95,6 +119,13 @@ def _validate_claude_stage(stage: StageSelection) -> None:
         raise RuntimeConfigurationError(f"Unsupported Claude effort {stage.effort!r}.")
 
 
+def _validate_codex_stage(stage: StageSelection) -> None:
+    if stage.model not in _CODEX_VALID_MODELS:
+        raise RuntimeConfigurationError(f"Unsupported Codex model {stage.model!r}.")
+    if stage.effort not in _CODEX_VALID_EFFORTS:
+        raise RuntimeConfigurationError(f"Unsupported Codex effort {stage.effort!r}.")
+
+
 def _claude_command(
     *,
     model: str,
@@ -138,6 +169,37 @@ def _claude_env(
     return env
 
 
+def _codex_command(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+) -> str:
+    tool_policy = tool_access.tool_policy
+    parts = ["codex exec"]
+    if model:
+        parts.append(f"-m {model}")
+    if effort:
+        parts.append(f"-c model_reasoning_effort={effort}")
+    parts.append("-c approval_policy=never")
+    if tool_policy is ToolPolicy.PARTIAL:
+        parts.append("--dangerously-bypass-approvals-and-sandbox")
+    else:
+        parts.append("--sandbox danger-full-access")
+    parts += ["--json", "< /tmp/.pycastle_prompt"]
+    return " ".join(parts)
+
+
+def _codex_env(
+    *,
+    state_dir_container_path: str | None = None,
+) -> dict[str, str]:
+    env: dict[str, str] = {"TZ": "UTC"}
+    if state_dir_container_path:
+        env["CODEX_HOME"] = state_dir_container_path
+    return env
+
+
 def _is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
     result = event.get("result")
     return (
@@ -145,6 +207,106 @@ def _is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
         and event.get("api_error_status") == 403
         and isinstance(result, str)
         and _CLAUDE_SUBSCRIPTION_ACCESS_DENIAL_PHRASE.lower() in result.lower()
+    )
+
+
+def _provider_error_observation(
+    *,
+    raw_provider_text: str,
+    source_stream: str,
+    status_code: int | None = None,
+    provider_code: str | None = None,
+) -> ProviderErrorObservation:
+    return ProviderErrorObservation(
+        service_name="codex",
+        raw_provider_text=raw_provider_text,
+        source_stream=source_stream,
+        status_code=status_code,
+        provider_code=provider_code,
+    )
+
+
+def _classify_codex_error_message(
+    message: str,
+    *,
+    source_stream: str,
+) -> CredentialFailure | HardError | TransientError | None:
+    lowered_message = message.lower()
+    if "refresh_token_reused" in message:
+        return CredentialFailure(
+            raw_message=message,
+            service_name="codex",
+            status_code=401,
+            classification="codex_auth_lineage_exhausted",
+            source_observations=(
+                _provider_error_observation(
+                    raw_provider_text=message,
+                    source_stream=source_stream,
+                    status_code=401,
+                    provider_code="refresh_token_reused",
+                ),
+            ),
+        )
+    if (
+        "access token could not be refreshed" in lowered_message
+        and "refresh token was already used" in lowered_message
+    ):
+        return CredentialFailure(
+            raw_message=message,
+            service_name="codex",
+            status_code=401,
+            classification="codex_auth_lineage_exhausted",
+            source_observations=(
+                _provider_error_observation(
+                    raw_provider_text=message,
+                    source_stream=source_stream,
+                    status_code=401,
+                ),
+            ),
+        )
+    if _CODEX_GENERIC_AUTH_RE.search(message):
+        return HardError(
+            status_code=401,
+            raw_message=message,
+            observations=(
+                _provider_error_observation(
+                    raw_provider_text=message,
+                    source_stream=source_stream,
+                    status_code=401,
+                ),
+            ),
+        )
+    match = _CODEX_HTTP_STATUS_RE.search(message)
+    if match is None:
+        return None
+    status = int(match.group("status"))
+    observation = _provider_error_observation(
+        raw_provider_text=message,
+        source_stream=source_stream,
+        status_code=status,
+    )
+    if status >= 500:
+        return TransientError(
+            status_code=status,
+            raw_message=message,
+            observations=(observation,),
+        )
+    if 400 <= status < 500:
+        return HardError(
+            status_code=status,
+            raw_message=message,
+            observations=(observation,),
+        )
+    return None
+
+
+def _extract_codex_usage_limit(message: str) -> UsageLimit | None:
+    if _CODEX_USAGE_LIMIT_SUBSTRING not in message:
+        return None
+    reset_time = _parse_codex_reset_time(message)
+    return UsageLimit(
+        reset_time=reset_time,
+        raw_message=None if reset_time is not None else message,
     )
 
 
@@ -259,6 +421,63 @@ def _reduce_claude_stream_with_dependencies(
     )
 
 
+def _parse_codex_event(line: str) -> list[Any]:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(event, dict):
+        return []
+    event_type = event.get("type")
+    if event_type == "item.completed":
+        item = event.get("item") or {}
+        if item.get("type") != "agent_message":
+            return []
+        content = item.get("text")
+        if content is None:
+            content = item.get("content") or ""
+        return [AssistantTurn(text=content)] if content else []
+    if event_type == "turn.failed":
+        error = event.get("error") or {}
+        message = error.get("message") or ""
+        limit = _extract_codex_usage_limit(message)
+        if limit is not None:
+            return [limit]
+        classified = _classify_codex_error_message(
+            message,
+            source_stream="json_event.turn_failed",
+        )
+        if classified is not None:
+            _log.warning("codex turn.failed: %s", message)
+            return [classified]
+        return []
+    if event_type == "error":
+        message = event.get("message") or ""
+        limit = _extract_codex_usage_limit(message)
+        if limit is not None:
+            return [limit]
+        classified = _classify_codex_error_message(
+            message,
+            source_stream="json_event.error",
+        )
+        if classified is not None:
+            _log.warning("codex error: %s", message)
+            return [classified]
+        return []
+    return []
+
+
+def _reduce_codex_stream(lines: list[str]) -> str:
+    parsed_events: list[Any] = []
+    for line in lines:
+        parsed_events.extend(_parse_codex_event(line))
+    return reduce_text_output_events(
+        parsed_events,
+        lambda _turn: None,
+        provider="codex",
+    )
+
+
 def _parse_claude_reset_time(retry_text: object) -> datetime | None:
     if not isinstance(retry_text, str):
         return None
@@ -315,9 +534,74 @@ def _parse_claude_reset_time(retry_text: object) -> datetime | None:
     return utc_dt.astimezone(now_local.tzinfo)
 
 
+def _parse_codex_reset_time(retry_text: object) -> datetime | None:
+    if not isinstance(retry_text, str):
+        return None
+    match = _CODEX_RESET_PATTERN.search(retry_text)
+    if match is None:
+        return None
+    hour = int(match.group("hour"))
+    if not 1 <= hour <= 12:
+        return None
+    ampm = match.group("ampm").lower()
+    if ampm == "pm" and hour != 12:
+        hour += 12
+    elif ampm == "am" and hour == 12:
+        hour = 0
+    minute = int(match.group("minute") or 0)
+    if not 0 <= minute <= 59:
+        return None
+    now_local = _time_module.now_local()
+    utc_now = now_local.astimezone(timezone.utc)
+    month_text = match.group("month")
+    day_text = match.group("day")
+    if month_text is not None or day_text is not None:
+        if month_text is None or day_text is None:
+            return None
+        month = _CLAUDE_MONTHS.get(month_text.lower())
+        if month is None:
+            return None
+        return datetime(
+            utc_now.year,
+            month,
+            int(day_text),
+            hour,
+            minute,
+            tzinfo=timezone.utc,
+        ).astimezone(now_local.tzinfo)
+    utc_dt = datetime.combine(
+        utc_now.date(),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    ).replace(hour=hour, minute=minute)
+    if utc_dt < utc_now - timedelta(minutes=2):
+        utc_dt += timedelta(days=1)
+    return utc_dt.astimezone(now_local.tzinfo)
+
+
+def _validate_codex_auth() -> None:
+    auth_path = Path.home() / ".codex" / "auth.json"
+    if auth_path.exists():
+        return
+    message = "Codex authentication missing: run `codex login` on the host."
+    raise AgentCredentialFailureError(
+        message=message,
+        service_name="codex",
+        status_code=401,
+        observations=(
+            ProviderErrorObservation(
+                service_name="codex",
+                raw_provider_text=message,
+                source_stream="pre-dispatch host check",
+                status_code=401,
+            ),
+        ),
+    )
+
+
 def _select_builtin_stage(stage: StageSelection) -> StageSelection:
     for candidate in iter_stage_chain(stage):
-        if candidate.service == "claude":
+        if candidate.service in {"claude", "codex"}:
             return candidate
     raise RuntimeConfigurationError(
         "RuntimeClient requires at least one supported built-in service candidate."
@@ -331,48 +615,77 @@ def _run_builtin_ephemeral(
         [StageSelection], StageSelection
     ] = _select_builtin_stage,
     validate_claude_stage: Callable[[StageSelection], None] = _validate_claude_stage,
+    validate_codex_stage: Callable[[StageSelection], None] = _validate_codex_stage,
     claude_command: Callable[..., str] = _claude_command,
     claude_env: Callable[..., dict[str, str]] = _claude_env,
     reduce_claude_stream: Callable[[list[str]], str] = _reduce_claude_stream,
+    codex_command: Callable[..., str] = _codex_command,
+    codex_env: Callable[..., dict[str, str]] = _codex_env,
+    reduce_codex_stream: Callable[[list[str]], str] = _reduce_codex_stream,
+    validate_codex_auth: Callable[[], None] = _validate_codex_auth,
     selected_service_path: Callable[..., tuple[str, ...]] = _selected_service_path,
 ) -> EphemeralRunResult:
     selected_stage = select_builtin_stage(request.stage)
-    validate_claude_stage(selected_stage)
-    if request.auth is None or not request.auth.claude_code_oauth_token:
-        raise AgentCredentialFailureError(
-            message="Missing Claude Code OAuth token.",
-            service_name="claude",
-            observations=(),
-        )
-    prompt_path = request.worktree / ".pycastle_prompt"
+    if selected_stage.service == "codex":
+        validate_codex_stage(selected_stage)
+        validate_codex_auth()
+        prompt_path = Path("/tmp/.pycastle_prompt")
+    else:
+        validate_claude_stage(selected_stage)
+        if request.auth is None or not request.auth.claude_code_oauth_token:
+            raise AgentCredentialFailureError(
+                message="Missing Claude Code OAuth token.",
+                service_name="claude",
+                observations=(),
+            )
+        prompt_path = request.worktree / ".pycastle_prompt"
     prompt_path.write_text(request.prompt)
     try:
-        process = subprocess.Popen(
-            claude_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
-                prompt_path=prompt_path,
-            ),
-            shell=True,
-            cwd=request.worktree,
-            env=claude_env(auth=request.auth),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        if selected_stage.service == "codex":
+            process = subprocess.Popen(
+                codex_command(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                ),
+                shell=True,
+                cwd=request.worktree,
+                env=codex_env(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        else:
+            process = subprocess.Popen(
+                claude_command(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    prompt_path=prompt_path,
+                ),
+                shell=True,
+                cwd=request.worktree,
+                env=claude_env(auth=request.auth),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
         stdout_lines = [] if process.stdout is None else list(process.stdout)
-        result_text = reduce_claude_stream(stdout_lines)
+        result_text = (
+            reduce_codex_stream(stdout_lines)
+            if selected_stage.service == "codex"
+            else reduce_claude_stream(stdout_lines)
+        )
         process.wait()
     finally:
         prompt_path.unlink(missing_ok=True)
     service_path = selected_service_path(
         request.stage,
-        selected_service="claude",
+        selected_service=selected_stage.service,
     )
     return EphemeralRunResult(
         output=result_text,
-        selected_service="claude",
+        selected_service=selected_stage.service,
         selected_model=selected_stage.model,
         selected_effort=selected_stage.effort,
         tool_access=request.tool_access,
