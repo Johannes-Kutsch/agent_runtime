@@ -3036,8 +3036,6 @@ def test_runtime_star_import_uses_lifecycle_surface_while_kept_one_shot_aliases_
     assert "OneShotRunRequest" not in exported_names
     assert prompt_runtime.OneShotRuntime is not None
     assert prompt_runtime.OneShotRunRequest is not None
-    assert prompt_runtime.ResumableRuntime is not None
-    assert prompt_runtime.ResumableRunRequest is not None
 
 
 def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
@@ -3049,6 +3047,18 @@ def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     } <= set(prompt_runtime.__all__)
     assert hasattr(prompt_runtime, "ResumedSessionRunRequest")
     assert hasattr(prompt_runtime, "ResumedSessionRuntime")
+
+
+def test_resumed_session_runtime_exposes_only_lifecycle_resume_method() -> None:
+    runtime_instance = prompt_runtime.ResumedSessionRuntime(
+        execution_adapter=cast(
+            prompt_runtime.ResumedSessionRuntimeExecutionAdapter,
+            object(),
+        )
+    )
+
+    assert hasattr(runtime_instance, "run_resumed_session")
+    assert not hasattr(runtime_instance, "run_resumable_prompt")
 
 
 def test_readme_guides_consumers_to_lifecycle_session_entrypoints() -> None:

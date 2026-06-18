@@ -1178,6 +1178,55 @@ class NewSessionRuntime:
         return RuntimeOutcome.completed(output=result.output, result=result)
 
 
+async def _run_resumed_session_outcome(
+    *,
+    runner: ResumableRuntimeExecutionAdapter,
+    request: ResumableRunRequest,
+) -> RuntimeOutcome:
+    try:
+        result = await _run_resumable_prompt(
+            runner=runner,
+            request=request,
+        )
+    except AgentCancelledError as exc:
+        return RuntimeOutcome.cancelled(
+            output="",
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+        )
+    except AgentTimeoutError as exc:
+        return RuntimeOutcome.timed_out(
+            output="",
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+        )
+    except NoServiceAvailableError as exc:
+        return RuntimeOutcome.no_service_available(
+            output="",
+            reset_time=exc.reset_time,
+            usage_limit_scope=exc.usage_limit_scope,
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+        )
+    except RetryableProviderFailureError as exc:
+        return RuntimeOutcome.retryable_provider_failure(
+            output="",
+            service_name=exc.service_name,
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+        )
+    except UsageLimitError as exc:
+        return RuntimeOutcome.usage_limited(
+            output="",
+            service_name=exc.service_name,
+            reset_time=exc.reset_time,
+            usage_limit_scope=exc.usage_limit_scope,
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+        )
+    return RuntimeOutcome.completed(output=result.output, result=result)
+
+
 class ResumableRuntime:
     def __init__(
         self,
@@ -1190,59 +1239,31 @@ class ResumableRuntime:
         self,
         request: ResumableRunRequest,
     ) -> RuntimeOutcome:
-        try:
-            result = await _run_resumable_prompt(
-                runner=self._execution_adapter,
-                request=request,
-            )
-        except AgentCancelledError as exc:
-            return RuntimeOutcome.cancelled(
-                output="",
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        except AgentTimeoutError as exc:
-            return RuntimeOutcome.timed_out(
-                output="",
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        except NoServiceAvailableError as exc:
-            return RuntimeOutcome.no_service_available(
-                output="",
-                reset_time=exc.reset_time,
-                usage_limit_scope=exc.usage_limit_scope,
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        except RetryableProviderFailureError as exc:
-            return RuntimeOutcome.retryable_provider_failure(
-                output="",
-                service_name=exc.service_name,
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        except UsageLimitError as exc:
-            return RuntimeOutcome.usage_limited(
-                output="",
-                service_name=exc.service_name,
-                reset_time=exc.reset_time,
-                usage_limit_scope=exc.usage_limit_scope,
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-            )
-        return RuntimeOutcome.completed(output=result.output, result=result)
+        return await _run_resumed_session_outcome(
+            runner=self._execution_adapter,
+            request=request,
+        )
 
 
 ResumedSessionRunRequest = ResumableRunRequest
 
 
-class ResumedSessionRuntime(ResumableRuntime):
+class ResumedSessionRuntime:
+    def __init__(
+        self,
+        *,
+        execution_adapter: ResumedSessionRuntimeExecutionAdapter,
+    ) -> None:
+        self._execution_adapter = execution_adapter
+
     async def run_resumed_session(
         self,
         request: ResumedSessionRunRequest,
     ) -> RuntimeOutcome:
-        return await self.run_resumable_prompt(request)
+        return await _run_resumed_session_outcome(
+            runner=self._execution_adapter,
+            request=request,
+        )
 
 
 async def _run_prompt(
