@@ -752,6 +752,102 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
     assert exc_info.value.status_code == 503
 
 
+def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_builtin_tmp_prompt_path(monkeypatch)
+
+    class _OpenCodeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1,
+                            "sessionID": "sess_123",
+                            "part": {
+                                "id": "part_1",
+                                "sessionID": "sess_123",
+                                "messageID": "msg_1",
+                                "type": "text",
+                                "text": "completed answer",
+                                "time": {"start": 1, "end": 2},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "session.status",
+                            "timestamp": 2,
+                            "sessionID": "sess_123",
+                            "status": {"type": "idle"},
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "error",
+                            "timestamp": 3,
+                            "sessionID": "sess_123",
+                            "error": {
+                                "name": "InternalServerError",
+                                "data": {
+                                    "message": "should be ignored after idle result",
+                                    "statusCode": 503,
+                                    "isRetryable": True,
+                                },
+                            },
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: _OpenCodeProcess())
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="opencode",
+                model="kimi-k2.6",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="completed answer",
+        result=prompt_runtime.EphemeralRunResult(
+            output="completed answer",
+            selected_service="opencode",
+            selected_model="kimi-k2.6",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("opencode",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                    session_namespace="",
+                ),
+            ),
+        ),
+    )
+
+
 def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

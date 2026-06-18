@@ -871,6 +871,7 @@ def _parse_opencode_events(
                 and assistant_turns
             ):
                 parsed_events.append(Result(text="\n\n".join(assistant_turns)))
+                return parsed_events
             continue
         if event.get("type") == "error":
             limit = _extract_opencode_usage_limit(event)
