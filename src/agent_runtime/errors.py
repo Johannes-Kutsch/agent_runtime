@@ -7,6 +7,7 @@ from typing import Any
 from .identity import validate_runtime_identity_label, validate_session_namespace
 from .invocation_progress import InvocationProgress
 from .provider_errors import ProviderErrorObservation
+from .provider_usage import ProviderUsage
 from .usage_limit_scope import UsageLimitScope
 
 
@@ -24,9 +25,11 @@ class AgentCancelledError(AgentRuntimeError):
         *,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
+        usage: ProviderUsage | None = None,
     ) -> None:
         self.invocation_progress = invocation_progress
         self.continuation = continuation
+        self.usage = usage
         super().__init__("Agent run was cancelled.")
 
 
@@ -38,11 +41,13 @@ class AgentTimeoutError(AgentRuntimeError, TimeoutError):
         worktree_path: Path | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
+        usage: ProviderUsage | None = None,
     ) -> None:
         self.invocation_role = invocation_role
         self.worktree_path = worktree_path
         self.invocation_progress = invocation_progress
         self.continuation = continuation
+        self.usage = usage
         super().__init__(message)
 
 
@@ -54,11 +59,13 @@ class NoServiceAvailableError(AgentRuntimeError):
         usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
+        usage: ProviderUsage | None = None,
     ) -> None:
         self.reset_time = reset_time
         self.usage_limit_scope = usage_limit_scope
         self.invocation_progress = invocation_progress
         self.continuation = continuation
+        self.usage = usage
         super().__init__("No configured service candidates are currently available.")
 
 
@@ -74,6 +81,7 @@ class UsageLimitError(AgentRuntimeError):
         usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
+        usage: ProviderUsage | None = None,
     ) -> None:
         self.reset_time = reset_time
         self.raw_message = raw_message
@@ -88,6 +96,7 @@ class UsageLimitError(AgentRuntimeError):
         self.usage_limit_scope = usage_limit_scope
         self.invocation_progress = invocation_progress
         self.continuation = continuation
+        self.usage = usage
         super().__init__(
             f"Usage limit reached (reset_time={reset_time.isoformat() if reset_time else None})"
         )
@@ -110,6 +119,7 @@ class RetryableProviderFailureError(AgentRuntimeError):
         observations: tuple[ProviderErrorObservation, ...] = (),
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
+        usage: ProviderUsage | None = None,
     ) -> None:
         self.status_code = status_code
         validate_runtime_identity_label(
@@ -121,6 +131,7 @@ class RetryableProviderFailureError(AgentRuntimeError):
         self.observations = observations
         self.invocation_progress = invocation_progress
         self.continuation = continuation
+        self.usage = usage
         super().__init__(message)
 
 

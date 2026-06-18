@@ -14,9 +14,11 @@ import agent_runtime as runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider, TransientError
 from agent_runtime.errors import (
+    AgentCancelledError,
     AgentCredentialFailureError,
     AgentTimeoutError,
     HardAgentError,
+    RetryableProviderFailureError,
     TransientAgentError,
     UsageLimitError,
 )
@@ -488,6 +490,60 @@ class _TransientProviderFailureEphemeralExecutionAdapter:
         )
 
 
+class _InterruptedEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise self._error
+
+
+class _InterruptedEphemeralExecutionAdapter:
+    def __init__(self, error: Exception) -> None:
+        self._runner = _InterruptedEphemeralRunner(error)
+
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda _run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: (
+                    _Session()
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    self._runner,
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 def _tool_policy_effect_text(tool_policy: Any) -> str:
     profile = (
         tool_policy.profile
@@ -672,6 +728,217 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
     assert observed["prompt_deleted"] is True
     assert observed["cwd"] == tmp_path
     assert observed["env"] == {"TZ": "UTC"}
+
+
+def test_runtime_client_exposes_codex_usage_on_completed_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    home_dir = tmp_path / "home"
+    _seed_codex_host_auth(monkeypatch, home_dir)
+    _stub_codex_prompt_path(monkeypatch)
+
+    class _FakeProcess:
+        stdout = iter(
+            [
+                '{"type":"item.completed","item":{"type":"agent_message","text":"hello from codex"}}\n',
+                (
+                    '{"type":"turn.completed","usage":{"input_tokens":120,'
+                    '"cached_tokens":30,"output_tokens":45,"reasoning_tokens":15}}\n'
+                ),
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="high",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+        )
+    )
+
+    assert outcome.usage == runtime.ProviderUsage(
+        input_tokens=120,
+        output_tokens=45,
+        cache_read_input_tokens=30,
+        cache_creation_input_tokens=None,
+        cost_usd=None,
+        duration_seconds=None,
+    )
+
+
+def test_runtime_client_exposes_claude_usage_on_completed_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    class _FakeProcess:
+        stdout = iter(
+            [
+                (
+                    '{"type":"assistant","message":{"content":[{"type":"text",'
+                    '"text":"hello from claude"}],"usage":{"input_tokens":100,'
+                    '"cache_creation_input_tokens":20,'
+                    '"cache_read_input_tokens":30}}}\n'
+                ),
+                '{"type":"result","result":"hello from claude"}\n',
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert outcome.usage == runtime.ProviderUsage(
+        input_tokens=100,
+        output_tokens=None,
+        cache_read_input_tokens=30,
+        cache_creation_input_tokens=20,
+        cost_usd=None,
+        duration_seconds=None,
+    )
+
+
+def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    class _FakeProcess:
+        stdout = iter(
+            [
+                (
+                    '{"type":"assistant","message":{"content":[{"type":"text",'
+                    '"text":"partial answer"}],"usage":{"input_tokens":40,'
+                    '"cache_creation_input_tokens":5,'
+                    '"cache_read_input_tokens":8}}}\n'
+                ),
+                (
+                    '{"type":"result","is_error":true,"api_error_status":429,'
+                    '"result":"usage limit resets January 2, 5pm (UTC)"}\n'
+                ),
+            ]
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="claude",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+        usage=runtime.ProviderUsage(
+            input_tokens=40,
+            output_tokens=None,
+            cache_read_input_tokens=8,
+            cache_creation_input_tokens=5,
+            cost_usd=None,
+            duration_seconds=None,
+        ),
+    )
 
 
 def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execution(
@@ -1327,6 +1594,96 @@ def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retrya
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert result.result is None
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_outcome"),
+    [
+        pytest.param(
+            UsageLimitError(
+                reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(input_tokens=10, output_tokens=4),
+            ),
+            prompt_runtime.RuntimeOutcome.usage_limited(
+                output="",
+                service_name="codex",
+                reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+                usage_limit_scope=runtime.UsageLimitScope("implementer"),
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(input_tokens=10, output_tokens=4),
+            ),
+            id="usage-limited",
+        ),
+        pytest.param(
+            AgentCancelledError(
+                invocation_progress=runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(input_tokens=7),
+            ),
+            prompt_runtime.RuntimeOutcome.cancelled(
+                output="",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(input_tokens=7),
+            ),
+            id="cancelled",
+        ),
+        pytest.param(
+            AgentTimeoutError(
+                "timed out",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(input_tokens=8),
+            ),
+            prompt_runtime.RuntimeOutcome.timed_out(
+                output="",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(input_tokens=8),
+            ),
+            id="timed-out",
+        ),
+        pytest.param(
+            RetryableProviderFailureError(
+                "retry later",
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(input_tokens=9, output_tokens=2),
+            ),
+            prompt_runtime.RuntimeOutcome.retryable_provider_failure(
+                output="",
+                service_name="codex",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(input_tokens=9, output_tokens=2),
+            ),
+            id="retryable-provider-failure",
+        ),
+    ],
+)
+def test_ephemeral_runtime_preserves_observed_usage_on_interrupted_outcomes(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    error: Exception,
+    expected_outcome: prompt_runtime.RuntimeOutcome,
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.EphemeralRuntime(
+            execution_adapter=_InterruptedEphemeralExecutionAdapter(error),
+            service_registry=service_registry_factory("codex"),
+        ).run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("."),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert result == expected_outcome
 
 
 def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(

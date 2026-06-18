@@ -206,12 +206,14 @@ async def _run_runtime_outcome(
             output="",
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
+            usage=exc.usage,
         )
     except AgentTimeoutError as exc:
         return RuntimeOutcome.timed_out(
             output="",
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
+            usage=exc.usage,
         )
     except NoServiceAvailableError as exc:
         return RuntimeOutcome.no_service_available(
@@ -220,6 +222,7 @@ async def _run_runtime_outcome(
             usage_limit_scope=exc.usage_limit_scope,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
+            usage=exc.usage,
         )
     except RetryableProviderFailureError as exc:
         return RuntimeOutcome.retryable_provider_failure(
@@ -227,6 +230,7 @@ async def _run_runtime_outcome(
             service_name=exc.service_name,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
+            usage=exc.usage,
         )
     except UsageLimitError as exc:
         return RuntimeOutcome.usage_limited(
@@ -236,6 +240,7 @@ async def _run_runtime_outcome(
             usage_limit_scope=exc.usage_limit_scope,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
+            usage=exc.usage,
         )
     return RuntimeOutcome.completed(output=result.output, result=result)
 

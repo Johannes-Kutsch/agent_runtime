@@ -11,6 +11,7 @@ from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .execution_contracts import CancellationToken, WorktreeMount
 from .identity import validate_session_namespace
 from .invocation_progress import InvocationProgress
+from .provider_usage import ProviderUsage
 from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .session import RunKind
@@ -25,6 +26,7 @@ __all__ = [
     "EphemeralResultMetadata",
     "EphemeralRuntimeMetadata",
     "NewSessionRunRequest",
+    "ProviderUsage",
     "ProviderAuth",
     "ResumedSessionRunRequest",
     "RuntimeOutcome",
@@ -117,6 +119,7 @@ class RuntimeOutcome:
     usage_limit_scope: UsageLimitScope | None = None
     invocation_progress: InvocationProgress | None = None
     continuation: Continuation | None = None
+    usage: ProviderUsage | None = None
 
     @classmethod
     def completed(
@@ -124,8 +127,9 @@ class RuntimeOutcome:
         *,
         output: str,
         result: EphemeralRunResult | SessionRunResult,
+        usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
-        return cls(kind="completed", output=output, result=result)
+        return cls(kind="completed", output=output, result=result, usage=usage)
 
     @classmethod
     def usage_limited(
@@ -137,6 +141,7 @@ class RuntimeOutcome:
         usage_limit_scope: UsageLimitScope | None,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="usage_limited",
@@ -146,6 +151,7 @@ class RuntimeOutcome:
             usage_limit_scope=usage_limit_scope,
             invocation_progress=invocation_progress,
             continuation=continuation,
+            usage=usage,
         )
 
     @classmethod
@@ -157,6 +163,7 @@ class RuntimeOutcome:
         usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="no_service_available",
@@ -165,6 +172,7 @@ class RuntimeOutcome:
             usage_limit_scope=usage_limit_scope,
             invocation_progress=invocation_progress,
             continuation=continuation,
+            usage=usage,
         )
 
     @classmethod
@@ -174,12 +182,14 @@ class RuntimeOutcome:
         output: str,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="cancelled",
             output=output,
             invocation_progress=invocation_progress,
             continuation=continuation,
+            usage=usage,
         )
 
     @classmethod
@@ -189,12 +199,14 @@ class RuntimeOutcome:
         output: str,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="timed_out",
             output=output,
             invocation_progress=invocation_progress,
             continuation=continuation,
+            usage=usage,
         )
 
     @classmethod
@@ -205,6 +217,7 @@ class RuntimeOutcome:
         service_name: str,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
             kind="retryable_provider_failure",
@@ -212,6 +225,7 @@ class RuntimeOutcome:
             service_name=service_name,
             invocation_progress=invocation_progress,
             continuation=continuation,
+            usage=usage,
         )
 
     @property
@@ -300,6 +314,7 @@ class EphemeralRunResult:
     tool_access: ToolAccess
     used_fallback: bool
     metadata: EphemeralResultMetadata
+    usage: ProviderUsage | None = None
 
     @property
     def selected_service_path(self) -> tuple[str, ...]:

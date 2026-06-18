@@ -29,6 +29,7 @@ from ._runtime_lifecycle import (
     EphemeralRuntimeMetadata,
     NewSessionRunRequest,
     ProviderAuth,
+    ProviderUsage,
     ResumedSessionRunRequest,
     RuntimeOutcome,
     SessionRunResult,
@@ -50,6 +51,7 @@ __all__ = [
     "NewSessionRuntimeExecutionAdapter",
     "InvocationProgress",
     "ProviderAuth",
+    "ProviderUsage",
     "ResumedSessionRunRequest",
     "ResumedSessionRuntime",
     "ResumedSessionRuntimeExecutionAdapter",
@@ -109,6 +111,7 @@ for _runtime_export in (
     EphemeralRuntimeMetadata,
     NewSessionRunRequest,
     ProviderAuth,
+    ProviderUsage,
     ResumedSessionRunRequest,
     RuntimeOutcome,
     SessionRunResult,
@@ -139,7 +142,9 @@ def _parse_claude_event(line: str) -> list[Any]:
     )
 
 
-def _reduce_claude_stream(lines: list[str]) -> str:
+def _reduce_claude_stream(
+    lines: list[str],
+) -> tuple[str, ProviderUsage | None]:
     return _builtin_runtime_client_module._reduce_claude_stream_with_dependencies(
         lines,
         parse_claude_event=_parse_claude_event,
@@ -217,8 +222,13 @@ class RuntimeClient:
                 or UsageLimitScope(request.role.value),
                 invocation_progress=exc.invocation_progress,
                 continuation=exc.continuation,
+                usage=exc.usage,
             )
-        return RuntimeOutcome.completed(output=result.output, result=result)
+        return RuntimeOutcome.completed(
+            output=result.output,
+            result=result,
+            usage=result.usage,
+        )
 
 
 def _run_builtin_ephemeral(request: EphemeralRunRequest) -> EphemeralRunResult:

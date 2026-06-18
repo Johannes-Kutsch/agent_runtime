@@ -16,6 +16,7 @@ from ._runtime_lifecycle import (
     EphemeralRunResult,
     EphemeralRuntimeMetadata,
     ProviderAuth,
+    ProviderUsage,
 )
 from .contracts import (
     AssistantTurn,
@@ -28,7 +29,12 @@ from .contracts import (
     TransientError,
     UsageLimit,
 )
-from .errors import AgentCredentialFailureError, RuntimeConfigurationError
+from .errors import (
+    AgentCredentialFailureError,
+    RetryableProviderFailureError,
+    RuntimeConfigurationError,
+    UsageLimitError,
+)
 from .provider_errors import ProviderErrorObservation
 from .provider_output import reduce_text_output_events
 from .session import RunKind
@@ -501,7 +507,7 @@ def _parse_claude_event_with_dependencies(
     return []
 
 
-def _reduce_claude_stream(lines: list[str]) -> str:
+def _reduce_claude_stream(lines: list[str]) -> tuple[str, ProviderUsage | None]:
     return _reduce_claude_stream_with_dependencies(
         lines,
         parse_claude_event=_parse_claude_event,
@@ -512,14 +518,62 @@ def _reduce_claude_stream_with_dependencies(
     lines: list[str],
     *,
     parse_claude_event: Callable[[str], list[Any]],
-) -> str:
+) -> tuple[str, ProviderUsage | None]:
+    usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
     for line in lines:
+        usage = usage or _parse_claude_usage(line)
         parsed_events.extend(parse_claude_event(line))
-    return reduce_text_output_events(
-        parsed_events,
-        lambda _turn: None,
-        provider="claude",
+    try:
+        output = reduce_text_output_events(
+            parsed_events,
+            lambda _turn: None,
+            provider="claude",
+        )
+    except (RetryableProviderFailureError, UsageLimitError) as exc:
+        if exc.usage is None:
+            exc.usage = usage
+        raise
+    return output, usage
+
+
+def _parse_claude_usage(line: str) -> ProviderUsage | None:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(event, dict) or event.get("type") != "assistant":
+        return None
+    message = event.get("message")
+    if not isinstance(message, dict):
+        return None
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    input_tokens = usage.get("input_tokens")
+    cache_creation_input_tokens = usage.get("cache_creation_input_tokens")
+    cache_read_input_tokens = usage.get("cache_read_input_tokens")
+    if not any(
+        value is not None
+        for value in (
+            input_tokens,
+            cache_creation_input_tokens,
+            cache_read_input_tokens,
+        )
+    ):
+        return None
+    return ProviderUsage(
+        input_tokens=int(input_tokens) if input_tokens is not None else None,
+        cache_creation_input_tokens=(
+            int(cache_creation_input_tokens)
+            if cache_creation_input_tokens is not None
+            else None
+        ),
+        cache_read_input_tokens=(
+            int(cache_read_input_tokens)
+            if cache_read_input_tokens is not None
+            else None
+        ),
     )
 
 
@@ -569,14 +623,48 @@ def _parse_codex_event(line: str) -> list[Any]:
     return []
 
 
-def _reduce_codex_stream(lines: list[str]) -> str:
+def _reduce_codex_stream(lines: list[str]) -> tuple[str, ProviderUsage | None]:
+    usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
     for line in lines:
+        usage = usage or _parse_codex_usage(line)
         parsed_events.extend(_parse_codex_event(line))
-    return reduce_text_output_events(
-        parsed_events,
-        lambda _turn: None,
-        provider="codex",
+    try:
+        output = reduce_text_output_events(
+            parsed_events,
+            lambda _turn: None,
+            provider="codex",
+        )
+    except (RetryableProviderFailureError, UsageLimitError) as exc:
+        if exc.usage is None:
+            exc.usage = usage
+        raise
+    return output, usage
+
+
+def _parse_codex_usage(line: str) -> ProviderUsage | None:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(event, dict) or event.get("type") != "turn.completed":
+        return None
+    usage = event.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    input_tokens = usage.get("input_tokens")
+    cached_tokens = usage.get("cached_tokens")
+    output_tokens = usage.get("output_tokens")
+    if not any(
+        value is not None for value in (input_tokens, cached_tokens, output_tokens)
+    ):
+        return None
+    return ProviderUsage(
+        input_tokens=int(input_tokens) if input_tokens is not None else None,
+        output_tokens=int(output_tokens) if output_tokens is not None else None,
+        cache_read_input_tokens=(
+            int(cached_tokens) if cached_tokens is not None else None
+        ),
     )
 
 
@@ -919,10 +1007,14 @@ def _run_builtin_ephemeral(
     ] = _validate_opencode_stage,
     claude_command: Callable[..., str] = _claude_command,
     claude_env: Callable[..., dict[str, str]] = _claude_env,
-    reduce_claude_stream: Callable[[list[str]], str] = _reduce_claude_stream,
+    reduce_claude_stream: Callable[
+        [list[str]], tuple[str, ProviderUsage | None]
+    ] = _reduce_claude_stream,
     codex_command: Callable[..., str] = _codex_command,
     codex_env: Callable[..., dict[str, str]] = _codex_env,
-    reduce_codex_stream: Callable[[list[str]], str] = _reduce_codex_stream,
+    reduce_codex_stream: Callable[
+        [list[str]], tuple[str, ProviderUsage | None]
+    ] = _reduce_codex_stream,
     opencode_command: Callable[..., str] = _opencode_command,
     opencode_env: Callable[..., dict[str, str]] = _opencode_env,
     reduce_opencode_stream: Callable[[list[str]], str] = _reduce_opencode_stream,
@@ -1012,15 +1104,13 @@ def _run_builtin_ephemeral(
                 text=True,
             )
         stdout_lines = [] if process.stdout is None else list(process.stdout)
-        result_text = (
-            reduce_codex_stream(stdout_lines)
-            if selected_stage.service == "codex"
-            else (
-                reduce_opencode_stream(stdout_lines)
-                if selected_stage.service == "opencode"
-                else reduce_claude_stream(stdout_lines)
-            )
-        )
+        usage: ProviderUsage | None = None
+        if selected_stage.service == "codex":
+            result_text, usage = reduce_codex_stream(stdout_lines)
+        elif selected_stage.service == "claude":
+            result_text, usage = reduce_claude_stream(stdout_lines)
+        else:
+            result_text = reduce_opencode_stream(stdout_lines)
         process.wait()
     finally:
         prompt_path.unlink(missing_ok=True)
@@ -1042,4 +1132,5 @@ def _run_builtin_ephemeral(
                 session_namespace=request.session_namespace,
             ),
         ),
+        usage=usage,
     )

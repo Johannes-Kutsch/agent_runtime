@@ -134,6 +134,22 @@ def test_runtime_client_runs_claude_ephemeral_stage_through_builtin_provider(
                     session_namespace="",
                 ),
             ),
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=None,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+                cost_usd=None,
+                duration_seconds=None,
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=5,
+            output_tokens=None,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+            cost_usd=None,
+            duration_seconds=None,
         ),
     )
     assert captured["cwd"] == tmp_path
