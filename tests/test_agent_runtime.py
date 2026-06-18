@@ -151,9 +151,14 @@ def provider_error_observation() -> ProviderErrorObservation:
 
 
 class _OneShotWorkRunner:
-    def __init__(self, service: _ExecutionService) -> None:
+    def __init__(
+        self,
+        service: _ExecutionService,
+        *,
+        attempts_by_service: dict[str, int],
+    ) -> None:
         self._service = service
-        self._attempts_by_service: dict[str, int] = {}
+        self._attempts_by_service = attempts_by_service
 
     async def setup(self, git_name: str, git_email: str, work_body: str = "") -> None:
         del git_name, git_email, work_body
@@ -226,6 +231,9 @@ class _OneShotWorkRunner:
 
 
 class _OneShotExecutionAdapter:
+    def __init__(self) -> None:
+        self._attempts_by_service: dict[str, int] = {}
+
     def resolve_service(self, service_name: str = "") -> ExecutionProvider:
         return _ExecutionService(service_name)
 
@@ -250,7 +258,10 @@ class _OneShotExecutionAdapter:
                 ),
                 build_runner=lambda session, status_display: cast(
                     WorkExecutionAdapter,
-                    _OneShotWorkRunner(execution_service),
+                    _OneShotWorkRunner(
+                        execution_service,
+                        attempts_by_service=self._attempts_by_service,
+                    ),
                 ),
                 get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
             ),
