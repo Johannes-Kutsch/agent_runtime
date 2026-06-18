@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import re
-from collections.abc import Iterable, Iterator
-from dataclasses import FrozenInstanceError, dataclass
+from collections.abc import Callable
+from dataclasses import FrozenInstanceError, dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 import agent_runtime.session_planning as session_planning_runtime
@@ -30,10 +32,7 @@ from agent_runtime.contracts import (
     UnsupportedTokens,
     UsageLimit,
 )
-from agent_runtime.provider_session_adapter import (
-    ProviderSessionPlanningFacts,
-    ProviderSessionPlanningRequest,
-)
+from agent_runtime.provider_session_adapter import ProviderSessionPlanningRequest
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     AgentFailedError,
@@ -86,147 +85,14 @@ from agent_runtime.session_planning import (
     ResumableSessionPlanRequest,
     plan_resumable_session,
 )
-
-
-class _Service:
-    def __init__(self, name: str, *, available: bool, wake_time: datetime) -> None:
-        self.name = name
-        self._available = available
-        self._wake_time = wake_time
-        self.available_checks: list[datetime | None] = []
-
-    def is_available(self, now: datetime | None = None) -> bool:
-        self.available_checks.append(now)
-        return self._available
-
-    def next_wake_time(self) -> datetime:
-        return self._wake_time
-
-    def mark_exhausted(self, reset_time: datetime | None) -> None:
-        self._available = False
-        if reset_time is not None:
-            self._wake_time = reset_time
-
-    def state_dir_relpath(
-        self, role: InvocationRole, namespace: str = ""
-    ) -> str | None:
-        del role, namespace
-        return None
-
-    def is_resumable(self, state_dir: Path) -> bool:
-        del state_dir
-        return False
-
-    def valid_models(self) -> frozenset[str]:
-        return frozenset()
-
-    def valid_efforts(self) -> frozenset[str]:
-        return frozenset()
-
-
-class _ExecutionService:
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.exhausted_reset_times: list[datetime | None] = []
-
-    def mark_exhausted(self, reset_time: datetime | None) -> None:
-        self.exhausted_reset_times.append(reset_time)
-
-    def build_command(
-        self,
-        role: InvocationRole,
-        model: str,
-        effort: str,
-        run_kind: RunKind,
-        session_uuid: str | None,
-        *,
-        tool_policy: Any | None = None,
-    ) -> str:
-        del role, model, effort, run_kind, session_uuid, tool_policy
-        return ""
-
-    def build_env(
-        self,
-        state_dir_container_path: str | None = None,
-        token: str | None = None,
-    ) -> dict[str, str]:
-        del state_dir_container_path, token
-        return {}
-
-    def run(
-        self,
-        lines: Iterable[str],
-        on_provider_session_id: Any = None,
-    ) -> Iterator[Result]:
-        del lines, on_provider_session_id
-        return iter(())
-
-    def state_dir_relpath(
-        self, role: InvocationRole, namespace: str = ""
-    ) -> str | None:
-        del role, namespace
-        return None
-
-    def is_resumable(self, state_dir: Path) -> bool:
-        del state_dir
-        return False
-
-    def valid_models(self) -> frozenset[str]:
-        return frozenset()
-
-    def valid_efforts(self) -> frozenset[str]:
-        return frozenset()
-
-
-class _ToolPolicyObservingExecutionService(_ExecutionService):
-    def __init__(self, name: str, observed_tool_policies: list[Any]) -> None:
-        super().__init__(name)
-        self._observed_tool_policies = observed_tool_policies
-
-    def build_command(
-        self,
-        role: InvocationRole,
-        model: str,
-        effort: str,
-        run_kind: RunKind,
-        session_uuid: str | None,
-        *,
-        tool_policy: Any | None = None,
-    ) -> str:
-        del role, model, effort, run_kind, session_uuid
-        self._observed_tool_policies.append(tool_policy)
-        return "tool-capable-command"
-
-
-@dataclass
-class _SessionStore:
-    service_sessions: dict[str, str | None]
-    service_metadata: dict[str, dict[str, str] | None]
-    exact_transcript_service: str | None = None
-
-    def session_uuid(self) -> str:
-        return "session-uuid"
-
-    def service_session_id(self, service_name: str) -> str | None:
-        return self.service_sessions.get(service_name)
-
-    def save_service_session_id(self, service_name: str, session_id: str) -> None:
-        self.service_sessions[service_name] = session_id
-
-    def service_session_metadata(self, service_name: str) -> dict[str, str] | None:
-        return self.service_metadata.get(service_name)
-
-    def exact_transcript_service_name(self) -> str | None:
-        return self.exact_transcript_service
-
-    def record_successful_provider_session_metadata(
-        self,
-        service_name: str,
-        provider_session_id: str | None,
-    ) -> None:
-        self.service_metadata[service_name] = {
-            "provider_session_id": provider_session_id or ""
-        }
+from tests.runtime_boundary_fakes import (
+    ExecutionServiceFake as _ExecutionService,
+    ExternalStateResidentPlanningProviderSessionAdapterFake as _ExternalStateResidentPlanningProviderSessionAdapter,
+    ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
+    SelectionServiceFake as _Service,
+    SessionStoreFake as _SessionStore,
+    ToolPolicyObservingExecutionServiceFake as _ToolPolicyObservingExecutionService,
+)
 
 
 @dataclass
@@ -1151,101 +1017,114 @@ class _PlannedStatePathObservingResidentExecutionAdapter:
         )
 
 
-class _ResidentPlanningProviderSessionAdapter:
-    @property
-    def service_name(self) -> str:
-        return "codex"
-
-    def provider_session_planning_facts(
-        self,
-        request: ProviderSessionPlanningRequest,
-    ) -> ProviderSessionPlanningFacts:
-        del request
-        return ProviderSessionPlanningFacts(
-            state_dir_relpath="state/",
-            provider_state_dir=Path("state"),
-            has_resumable_provider_state=True,
-        )
-
-    def provider_session_state(self, request: Any) -> Any:
-        del request
-        return session_runtime.ProviderSessionState(
-            run_kind=RunKind.RESUME,
-            provider_session_id="recovered-session",
-            state_dir_relpath="state/",
-            state_dir_path=Path("state"),
-        )
-
-    def prepare_local_provider_run_state(
-        self,
-        provider_state_dir: Path | None,
-        auth_seed_action: Any | None = None,
-    ) -> None:
-        del provider_state_dir, auth_seed_action
-
-    def record_provider_session_id(
-        self,
-        *,
-        session_store: Any,
-        provider_session_id: str,
-        service_state_dir: Path | None = None,
-    ) -> None:
-        del service_state_dir
-        session_store.save_service_session_id("codex", provider_session_id)
-
-
-class _ExternalStateResidentPlanningProviderSessionAdapter:
-    @property
-    def service_name(self) -> str:
-        return "codex"
-
-    def provider_session_planning_facts(
-        self,
-        request: ProviderSessionPlanningRequest,
-    ) -> ProviderSessionPlanningFacts:
-        del request
-        return ProviderSessionPlanningFacts(
-            state_dir_relpath="runtime-state/",
-            provider_state_dir=Path("/host/runtime-state"),
-            has_resumable_provider_state=True,
-        )
-
-    def provider_session_state(self, request: Any) -> Any:
-        del request
-        return session_runtime.ProviderSessionState(
-            run_kind=RunKind.RESUME,
-            provider_session_id="recovered-session",
-            state_dir_relpath="runtime-state/",
-            state_dir_path=Path("/host/runtime-state"),
-        )
-
-    def prepare_local_provider_run_state(
-        self,
-        provider_state_dir: Path | None,
-        auth_seed_action: Any | None = None,
-    ) -> None:
-        del provider_state_dir, auth_seed_action
-
-    def record_provider_session_id(
-        self,
-        *,
-        session_store: Any,
-        provider_session_id: str,
-        service_state_dir: Path | None = None,
-    ) -> None:
-        del service_state_dir
-        session_store.save_service_session_id("codex", provider_session_id)
+def test_package_exports_runtime_surface() -> None:
+    assert runtime.__all__ == [
+        "AgentCredentialFailureError",
+        "AgentFailedError",
+        "AgentRuntimeError",
+        "AgentTimeoutError",
+        "HardAgentError",
+        "ExecutionProvider",
+        "InvocationRole",
+        "ProviderSessionAdapter",
+        "RuntimeConfigurationError",
+        "RunKind",
+        "StageSelection",
+        "ToolPolicy",
+        "ToolPolicyProfile",
+        "TransientAgentError",
+        "UsageLimitError",
+        "UsageLimitScope",
+    ]
+    assert runtime.StageSelection.__module__.startswith("agent_runtime")
+    assert not hasattr(runtime, "StageOverride")
+    assert runtime.AgentRuntimeError is AgentRuntimeError
+    assert not hasattr(runtime, "assert_runtime_import_isolation")
+    assert not hasattr(runtime, "run_prompt")
+    assert not hasattr(runtime, "ServiceRegistry")
+    assert not hasattr(runtime, "ProviderSessionPreferences")
+    assert not hasattr(runtime, "ProviderSessionPreferencesRequest")
+    assert not hasattr(runtime, "ProviderSessionState")
+    assert not hasattr(runtime, "ProviderSessionStateRequest")
+    assert not hasattr(prompt_runtime, "PromptRuntime")
+    assert not hasattr(prompt_runtime, "PromptRunRequest")
+    assert not hasattr(prompt_runtime, "PromptRuntimeExecutionAdapter")
+    assert not hasattr(prompt_runtime, "run_one_shot")
+    assert not hasattr(prompt_runtime, "run_prompt")
+    assert not hasattr(prompt_runtime, "run_resumable_prompt")
+    assert not hasattr(prompt_runtime, "ResidentRunRequest")
+    assert not hasattr(prompt_runtime, "ResidentRunResult")
+    assert not hasattr(prompt_runtime, "ResidentRuntime")
+    assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
+    assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
+    assert {
+        "ResumableRunRequest",
+        "ResumableRunResult",
+        "ResumableRuntime",
+        "ResumableRuntimeExecutionAdapter",
+        "ResumableRuntimeMetadata",
+    } <= set(prompt_runtime.__all__)
 
 
-def test_provider_session_planning_returns_immutable_decision_value() -> None:
+def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
+    None
+):
+    contracts = importlib.import_module("agent_runtime.contracts")
+
+    assert "ExecutionProvider" in contracts.__all__
+    assert "ResumableExecutionProvider" in contracts.__all__
+    assert not hasattr(contracts, "ExecutionService")
+    assert not hasattr(contracts, "ResidentExecutionProvider")
+    assert runtime.ExecutionProvider is contracts.ExecutionProvider
+
+
+def test_session_planning_surface_uses_resumable_vocabulary() -> None:
+    assert not hasattr(session_planning_runtime, "ResidentSessionPlan")
+    assert not hasattr(session_planning_runtime, "ResidentSessionPlanRequest")
+    assert not hasattr(session_planning_runtime, "plan_resident_session")
+    assert {
+        "ResumableSessionPlan",
+        "ResumableSessionPlanRequest",
+        "plan_resumable_session",
+    } <= set(session_planning_runtime.__all__)
+
+
+def test_provider_session_planning_surface_exposes_immutable_decision_only() -> None:
+    assert session_planning_runtime.ProviderSessionPlanRequest.__name__ == (
+        "ProviderSessionPlanRequest"
+    )
+    assert not hasattr(session_planning_runtime, "ProviderRunStatePlan")
+    assert not hasattr(session_planning_runtime, "plan_provider_run_state")
+    assert not hasattr(
+        session_planning_runtime,
+        "record_observed_provider_session_id",
+    )
+    assert not hasattr(
+        session_planning_runtime,
+        "record_successful_provider_session_metadata",
+    )
+    assert {
+        "ProviderSessionDecision",
+        "ProviderSessionPlanRequest",
+        "plan_provider_session",
+    } <= set(session_planning_runtime.__all__)
+
+
+def test_provider_session_planning_returns_immutable_decision_value(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
     provider_session_decision = session_planning_runtime.plan_provider_session(
         session_planning_runtime.ProviderSessionPlanRequest(
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace="main",
-            resumability_service=cast(ResumabilityProvider, _ExecutionService("codex")),
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            resumability_service=cast(
+                ResumabilityProvider, execution_service_factory()
+            ),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
     )
 
@@ -1270,8 +1149,12 @@ def test_provider_session_planning_returns_immutable_decision_value() -> None:
         setattr(provider_session_decision, "provider_session_id", "other-session")
 
 
-def test_resumable_session_plan_exposes_public_value_fields_only() -> None:
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
+def test_resumable_session_plan_exposes_public_value_fields_only(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = execution_service_factory()
 
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
@@ -1279,8 +1162,8 @@ def test_resumable_session_plan_exposes_public_value_fields_only() -> None:
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
     )
 
@@ -1297,6 +1180,87 @@ def test_resumable_session_plan_exposes_public_value_fields_only() -> None:
     assert session_plan.usage_limit_scope is None
     with pytest.raises(FrozenInstanceError):
         setattr(session_plan, "provider_state_dir", Path("other-state"))
+
+def test_resumable_session_plan_hides_container_state_selection_metadata(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = execution_service_factory()
+
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=Path("."),
+            role=InvocationRole("implementer"),
+            namespace="main",
+            service=service,
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
+        )
+    )
+
+    field_names = {field.name for field in fields(session_plan)}
+
+    assert "service_state_dir" not in field_names
+    assert "use_service_state_dir_for_container" not in field_names
+
+
+def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
+    assert session_runtime.ProviderSessionState.__module__ == "agent_runtime.session"
+    assert (
+        session_runtime.ProviderSessionStateRequest.__module__
+        == "agent_runtime.session"
+    )
+
+
+def test_provider_session_seams_consolidate_public_session_store_vocabulary() -> None:
+    assert "SessionStore" in session_runtime.__all__
+    assert not hasattr(session_runtime, "ServiceResumeIdentityStore")
+    assert not hasattr(
+        importlib.import_module("agent_runtime.contracts"),
+        "ProviderSessionRecordingStore",
+    )
+
+
+def test_provider_session_adapter_public_seam_stays_narrow() -> None:
+    assert provider_session_adapter_runtime.__all__ == [
+        "ProviderSessionAdapter",
+        "ProviderSessionPlanningFacts",
+        "ProviderSessionPlanningRequest",
+    ]
+    adapter_members = provider_session_adapter_runtime.ProviderSessionAdapter.__dict__
+
+    assert "provider_session_planning_facts" in adapter_members
+    assert "provider_session_state" in adapter_members
+    assert "prepare_local_provider_run_state" in adapter_members
+    assert "record_provider_session_id" in adapter_members
+    assert "provider_session_preferences" not in adapter_members
+    assert "recover_provider_session_id" not in adapter_members
+    assert "is_exact_resumable_provider_session" not in adapter_members
+    assert not hasattr(provider_session_adapter_runtime, "ProviderSessionService")
+
+
+def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> None:
+    assert [
+        field.name for field in fields(session_runtime.ProviderSessionStateRequest)
+    ] == [
+        "session_store",
+        "provider_state_dir",
+        "has_resumable_provider_state",
+        "state_dir_relpath",
+        "require_exact_transcript_match",
+    ]
+    assert [field.name for field in fields(session_runtime.ProviderSessionState)] == [
+        "run_kind",
+        "provider_session_id",
+        "state_dir_relpath",
+        "state_dir_path",
+        "exact_transcript_match",
+        "persist_provider_session_id",
+        "auth_seeding_requirement",
+        "auth_seed_action",
+        "use_service_state_dir_for_container",
+    ]
 
 
 def test_package_surface_exposes_invocation_role_value_object() -> None:
@@ -1450,6 +1414,9 @@ def test_prompt_run_session_namespace_preserves_empty_default_and_rejects_unsafe
 @pytest.mark.parametrize("label", [" ", "a/b", "../escape"])
 def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsafe_non_empty_values(
     label: str,
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
     assert (
         ProviderSessionPlanningRequest(
@@ -1464,9 +1431,9 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace="",
-            service=cast(ExecutionProvider, _ExecutionService("codex")),
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            service=execution_service_factory(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         ).namespace
         == ""
     )
@@ -1483,9 +1450,9 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace=label,
-            service=cast(ExecutionProvider, _ExecutionService("codex")),
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            service=execution_service_factory(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
 
 
@@ -1534,38 +1501,17 @@ def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
     assert error.usage_limit_scope == runtime.UsageLimitScope("quota-review")
 
 
-def test_one_shot_runtime_exposes_usage_limit_service_name_metadata() -> None:
+def test_one_shot_runtime_exposes_usage_limit_service_name_metadata(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
     runtime_instance = prompt_runtime.OneShotRuntime(
         execution_adapter=_RoleAwareOneShotExecutionAdapter(),
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=False,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
+        service_registry=service_registry_factory("codex", unavailable={"codex"}),
     )
 
     with pytest.raises(UsageLimitError) as excinfo:
-        asyncio.run(
-            runtime_instance.run_one_shot(
-                prompt_runtime.OneShotRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=WorktreeMount(Path(".")),
-                    stage=runtime.StageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
-                    role=InvocationRole("implementer"),
-                )
-            )
-        )
+        asyncio.run(runtime_instance.run_one_shot(one_shot_request_factory()))
 
     assert excinfo.value.service_name == "codex"
 
@@ -1616,32 +1562,22 @@ def test_provider_state_path_helpers_reject_unsafe_runtime_service_labels(
         )
 
 
-def test_model_and_effort_values_remain_provider_execution_parameters() -> None:
+def test_model_and_effort_values_remain_provider_execution_parameters(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
     result = asyncio.run(
         prompt_runtime.OneShotRuntime(
             execution_adapter=_RoleAwareOneShotExecutionAdapter(),
-            service_registry=ServiceRegistry(
-                {
-                    "codex": cast(
-                        ServiceSelectionProvider,
-                        _Service(
-                            "codex",
-                            available=True,
-                            wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                        ),
-                    )
-                }
-            ),
+            service_registry=service_registry_factory("codex"),
         ).run_one_shot(
-            prompt_runtime.OneShotRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
+            one_shot_request_factory(
+                stage=stage_selection_factory(
                     service="codex",
                     model="../gpt 5 / provider specific",
                     effort="very-high / provider specific",
-                ),
-                role=InvocationRole("implementer"),
+                )
             )
         )
     )
@@ -1746,16 +1682,16 @@ def test_agent_invocation_log_records_conditional_usage_limit_scope(
     assert headers[1]["provider_session_id"] == "provider-session"
 
 
-def test_stage_chain_resolution_prefers_first_available_configured_service() -> None:
-    override = runtime.StageSelection(
+def test_stage_chain_resolution_prefers_first_available_configured_service(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    override = stage_selection_factory(
         service="missing",
         model="ignored",
         effort="medium",
-        fallback=runtime.StageSelection(
+        fallback=stage_selection_factory(
             service="codex",
-            model="gpt-5.4",
-            effort="medium",
-            fallback=runtime.StageSelection(
+            fallback=stage_selection_factory(
                 service="claude",
                 model="sonnet",
                 effort="high",
@@ -1770,7 +1706,7 @@ def test_stage_chain_resolution_prefers_first_available_configured_service() -> 
     )
 
     assert selection.has_configured_candidate is True
-    assert selection.selected_chain == runtime.StageSelection(
+    assert selection.selected_chain == stage_selection_factory(
         service="claude",
         model="sonnet",
         effort="high",
@@ -1855,31 +1791,22 @@ def test_one_shot_run_request_override_rejects_invalid_stage_fallback() -> None:
         )
 
 
-def test_service_registry_resolve_and_wake_time() -> None:
-    services: dict[str, ServiceSelectionProvider] = {
-        "codex": cast(
-            ServiceSelectionProvider,
-            _Service(
-                "codex",
-                available=False,
-                wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            ),
-        ),
-        "claude": cast(
-            ServiceSelectionProvider,
-            _Service(
-                "claude",
-                available=True,
-                wake_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
-            ),
-        ),
-    }
-    registry = ServiceRegistry(services)
-    override = runtime.StageSelection(
+def test_service_registry_resolve_and_wake_time(
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        unavailable={"codex"},
+        wake_times={
+            "codex": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "claude": datetime(2026, 1, 2, tzinfo=timezone.utc),
+        },
+    )
+    override = stage_selection_factory(
         service="codex",
-        model="gpt-5.4",
-        effort="medium",
-        fallback=runtime.StageSelection(
+        fallback=stage_selection_factory(
             service="claude",
             model="sonnet",
             effort="high",
@@ -1888,7 +1815,7 @@ def test_service_registry_resolve_and_wake_time() -> None:
 
     resolved = registry.resolve(override, datetime(2026, 1, 1, tzinfo=timezone.utc))
 
-    assert resolved == runtime.StageSelection(
+    assert resolved == stage_selection_factory(
         service="claude",
         model="sonnet",
         effort="high",
@@ -1948,27 +1875,18 @@ def test_service_registry_rejects_invalid_public_stage_selection() -> None:
         )
 
 
-def test_application_can_render_service_availability_summary_from_registry() -> None:
+def test_application_can_render_service_availability_summary_from_registry(
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    registry = ServiceRegistry(
-        {
-            "codex": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "codex",
-                    available=False,
-                    wake_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
-                ),
-            ),
-            "claude": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "claude",
-                    available=True,
-                    wake_time=datetime(2026, 1, 3, tzinfo=timezone.utc),
-                ),
-            ),
-        }
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        unavailable={"codex"},
+        wake_times={
+            "codex": datetime(2026, 1, 2, tzinfo=timezone.utc),
+            "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
+        },
     )
 
     summary_lines = [
@@ -2011,50 +1929,27 @@ def test_stage_chain_helper_rejects_invalid_public_stage_selection() -> None:
         )
 
 
-def test_service_registry_preserves_per_candidate_configuration_on_filtered_chain() -> (
-    None
-):
-    registry = ServiceRegistry(
-        {
-            "codex": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "codex",
-                    available=False,
-                    wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                ),
-            ),
-            "claude": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "claude",
-                    available=True,
-                    wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                ),
-            ),
-            "gemini": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "gemini",
-                    available=True,
-                    wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                ),
-            ),
-        }
+def test_service_registry_preserves_per_candidate_configuration_on_filtered_chain(
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        "gemini",
+        unavailable={"codex"},
     )
-    override = runtime.StageSelection(
+    override = stage_selection_factory(
         service="codex",
-        model="gpt-5.4",
-        effort="medium",
-        fallback=runtime.StageSelection(
+        fallback=stage_selection_factory(
             service="missing",
             model="ignored",
             effort="low",
-            fallback=runtime.StageSelection(
+            fallback=stage_selection_factory(
                 service="claude",
                 model="sonnet",
                 effort="high",
-                fallback=runtime.StageSelection(
+                fallback=stage_selection_factory(
                     service="gemini",
                     model="2.5-pro",
                     effort="low",
@@ -2066,11 +1961,11 @@ def test_service_registry_preserves_per_candidate_configuration_on_filtered_chai
     assert registry.resolve(
         override,
         datetime(2026, 1, 1, tzinfo=timezone.utc),
-    ) == runtime.StageSelection(
+    ) == stage_selection_factory(
         service="claude",
         model="sonnet",
         effort="high",
-        fallback=runtime.StageSelection(
+        fallback=stage_selection_factory(
             service="gemini",
             model="2.5-pro",
             effort="low",
@@ -2078,30 +1973,17 @@ def test_service_registry_preserves_per_candidate_configuration_on_filtered_chai
     )
 
 
-def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolution() -> (
-    None
-):
+def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolution(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+) -> None:
     invocation_order: list[str] = []
     attempts_by_service: dict[str, int] = {}
-    registry = ServiceRegistry(
-        {
-            "codex": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "codex",
-                    available=True,
-                    wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                ),
-            ),
-            "claude": cast(
-                ServiceSelectionProvider,
-                _Service(
-                    "claude",
-                    available=True,
-                    wake_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
-                ),
-            ),
-        }
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        wake_times={"claude": datetime(2026, 1, 2, tzinfo=timezone.utc)},
     )
 
     result = asyncio.run(
@@ -2112,20 +1994,15 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
             ),
             service_registry=registry,
         ).run_one_shot(
-            prompt_runtime.OneShotRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
+            one_shot_request_factory(
+                stage=stage_selection_factory(
                     service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                    fallback=runtime.StageSelection(
+                    fallback=stage_selection_factory(
                         service="claude",
                         model="sonnet",
                         effort="high",
                     ),
-                ),
-                role=InvocationRole("implementer"),
+                )
             )
         )
     )
@@ -2148,47 +2025,30 @@ def test_one_shot_runtime_falls_back_after_usage_limit_with_fresh_service_resolu
     assert invocation_order == ["codex", "claude"]
 
 
-def test_one_shot_runtime_request_requires_explicit_invocation_role() -> None:
+def test_one_shot_runtime_request_requires_explicit_invocation_role(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
     with pytest.raises(TypeError):
         prompt_runtime.OneShotRunRequest(
             prompt="already rendered prompt",
             worktree=WorktreeMount(Path(".")),
-            override=runtime.StageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-            ),
+            override=stage_selection_factory(),
         )  # type: ignore[call-arg]
 
 
-def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surfaces() -> (
-    None
-):
+def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surfaces(
+    service_registry_factory: Callable[..., ServiceRegistry],
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
     role = InvocationRole("reviewer")
     execution_adapter = _RoleAwareOneShotExecutionAdapter()
     runtime_instance = prompt_runtime.OneShotRuntime(
         execution_adapter=execution_adapter,
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
+        service_registry=service_registry_factory("codex"),
     )
-    request = prompt_runtime.OneShotRunRequest(
-        prompt="already rendered prompt",
-        worktree=WorktreeMount(Path(".")),
-        override=runtime.StageSelection(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-        ),
+    request = one_shot_request_factory(
+        override=stage_selection_factory(),
         role=role,
         session_namespace="main",
     )
@@ -2201,24 +2061,14 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
         run_kind=RunKind.FRESH,
         session_namespace="main",
     )
-    assert request.stage == runtime.StageSelection(
-        service="codex",
-        model="gpt-5.4",
-        effort="medium",
-    )
+    assert request.stage == stage_selection_factory()
     assert request.override == request.stage
     assert execution_adapter.observed_roles == [role]
     assert execution_adapter.observed_run_sessions[0].role == role
     assert execution_adapter.observed_run_sessions[0].session_namespace == "main"
     cancelled_token = CancellationToken()
-    cancelled = prompt_runtime.OneShotRunRequest(
-        prompt="already rendered prompt",
-        worktree=WorktreeMount(Path(".")),
-        override=runtime.StageSelection(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-        ),
+    cancelled = one_shot_request_factory(
+        override=stage_selection_factory(),
         role=role,
         token=cancelled_token,
     )
@@ -2230,35 +2080,22 @@ def test_one_shot_runtime_uses_supplied_invocation_role_across_execution_surface
     assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("reviewer")
 
 
-def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role() -> None:
+def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role(
+    service_registry_factory: Callable[..., ServiceRegistry],
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
     role = InvocationRole("reviewer")
     execution_adapter = _RoleAwareOneShotExecutionAdapter()
     runtime_instance = prompt_runtime.OneShotRuntime(
         execution_adapter=execution_adapter,
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
+        service_registry=service_registry_factory("codex"),
     )
 
     result = asyncio.run(
         runtime_instance.run_one_shot(
-            prompt_runtime.OneShotRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                ),
+            one_shot_request_factory(
+                stage=stage_selection_factory(),
                 role=role,
                 usage_limit_scope=runtime.UsageLimitScope("quota-review"),
                 session_namespace="main",
@@ -2276,14 +2113,8 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role() -> 
     with pytest.raises(UsageLimitError) as excinfo:
         asyncio.run(
             runtime_instance.run_one_shot(
-                prompt_runtime.OneShotRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=WorktreeMount(Path(".")),
-                    override=runtime.StageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
+                one_shot_request_factory(
+                    override=stage_selection_factory(),
                     role=role,
                     usage_limit_scope=runtime.UsageLimitScope("quota-review"),
                     token=cancelled_token,
@@ -2294,36 +2125,23 @@ def test_one_shot_runtime_separates_usage_limit_scope_from_invocation_role() -> 
     assert excinfo.value.usage_limit_scope == runtime.UsageLimitScope("quota-review")
 
 
-def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook() -> None:
+def test_one_shot_runtime_fills_usage_limit_scope_without_role_mapping_hook(
+    service_registry_factory: Callable[..., ServiceRegistry],
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
     role = InvocationRole("reviewer")
     execution_adapter = _UsageLimitWithoutMappingExecutionAdapter()
     runtime_instance = prompt_runtime.OneShotRuntime(
         execution_adapter=execution_adapter,
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
+        service_registry=service_registry_factory("codex"),
     )
 
     with pytest.raises(UsageLimitError) as excinfo:
         asyncio.run(
             runtime_instance.run_one_shot(
-                prompt_runtime.OneShotRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=WorktreeMount(Path(".")),
-                    stage=runtime.StageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
+                one_shot_request_factory(
+                    stage=stage_selection_factory(),
                     role=role,
                     usage_limit_scope=runtime.UsageLimitScope("quota-review"),
                     session_namespace="main",
@@ -2657,18 +2475,20 @@ def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
     )
 
 
-def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam() -> (
-    None
-):
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
+def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
+    service = execution_service_factory()
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=Path("."),
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
     )
 
@@ -2710,17 +2530,21 @@ def test_resumable_runtime_preserves_resumable_behavior_through_run_session_seam
     )
 
 
-def test_resumable_runtime_uses_invocation_role_from_session_plan() -> None:
+def test_resumable_runtime_uses_invocation_role_from_session_plan(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
+) -> None:
     role = InvocationRole("reviewer")
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
+    service = execution_service_factory()
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=Path("."),
             role=role,
             namespace="main",
             service=service,
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
     )
     execution_adapter = _RoleAwareResidentSeamExecutionAdapter()
@@ -2743,7 +2567,11 @@ def test_resumable_runtime_uses_invocation_role_from_session_plan() -> None:
     assert execution_adapter.observed_roles == [role]
 
 
-def test_resumable_runtime_preserves_planned_relative_provider_state_path() -> None:
+def test_resumable_runtime_preserves_planned_relative_provider_state_path(
+    execution_service_factory: Callable[..., ExecutionProvider],
+    session_store_factory: Callable[..., _SessionStore],
+    external_state_provider_session_adapter: _ExternalStateResidentPlanningProviderSessionAdapter,
+) -> None:
     worktree = Path("/repo")
     execution_adapter = _PlannedStatePathObservingResidentExecutionAdapter()
     session_plan = plan_resumable_session(
@@ -2751,11 +2579,9 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path() -> N
             worktree=worktree,
             role=InvocationRole("implementer"),
             namespace="main",
-            service=cast(ExecutionProvider, _ExecutionService("codex")),
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=(
-                _ExternalStateResidentPlanningProviderSessionAdapter()
-            ),
+            service=execution_service_factory(),
+            session_store=session_store_factory(),
+            provider_session_adapter=external_state_provider_session_adapter,
         )
     )
 
@@ -2785,6 +2611,8 @@ def test_resumable_runtime_preserves_planned_relative_provider_state_path() -> N
 @pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
 def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
     tool_policy: runtime.ToolPolicy,
+    session_store_factory: Callable[..., _SessionStore],
+    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
     execution_adapter = _ToolPolicyObservingResidentExecutionAdapter()
     service = cast(
@@ -2800,8 +2628,8 @@ def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
+            session_store=session_store_factory(),
+            provider_session_adapter=resident_provider_session_adapter,
         )
     )
 
@@ -2827,33 +2655,18 @@ def test_resumable_runtime_passes_explicit_tool_policy_to_tool_capable_execution
 @pytest.mark.parametrize("tool_policy", list(runtime.ToolPolicy))
 def test_prompt_runtime_passes_explicit_tool_policy_to_tool_capable_execution(
     tool_policy: runtime.ToolPolicy,
+    prompt_run_request_factory: Callable[..., PromptRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    stage_selection_factory: Callable[..., runtime.StageSelection],
 ) -> None:
     execution_adapter = _ToolPolicyObservingPromptExecutionAdapter()
 
     output = asyncio.run(
         prompt_runtime._run_prompt(
             runner=execution_adapter,
-            service_registry=ServiceRegistry(
-                {
-                    "codex": cast(
-                        ServiceSelectionProvider,
-                        _Service(
-                            "codex",
-                            available=True,
-                            wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                        ),
-                    )
-                }
-            ),
-            request=PromptRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                ),
-                role=InvocationRole("implementer"),
+            service_registry=service_registry_factory("codex"),
+            request=prompt_run_request_factory(
+                stage=stage_selection_factory(),
                 tool_policy=tool_policy,
             ),
         )
@@ -2913,12 +2726,11 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
     )
 
 
-def test_select_resumable_provider_session_id_recovers_and_persists_state() -> None:
+def test_select_resumable_provider_session_id_recovers_and_persists_state(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
     state_dir = Path("state")
-    session_store = _SessionStore(
-        service_sessions={},
-        service_metadata={},
-    )
+    session_store = session_store_factory()
 
     selection = select_resumable_provider_session_id(
         session_store,
@@ -2937,14 +2749,11 @@ def test_select_resumable_provider_session_id_recovers_and_persists_state() -> N
     assert session_store.service_session_id("codex") == "provider-session"
 
 
-def test_select_resumable_provider_session_id_prefers_session_store_over_recovery() -> (
-    None
-):
+def test_select_resumable_provider_session_id_prefers_session_store_over_recovery(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
     recover_calls = 0
-    session_store = _SessionStore(
-        service_sessions={"codex": "stored-session"},
-        service_metadata={},
-    )
+    session_store = session_store_factory(service_sessions={"codex": "stored-session"})
 
     def recover_provider_session_id(_path: Path | None) -> str | None:
         nonlocal recover_calls
@@ -2967,10 +2776,10 @@ def test_select_resumable_provider_session_id_prefers_session_store_over_recover
     assert session_store.service_session_id("codex") == "stored-session"
 
 
-def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher() -> (
-    None
-):
-    session_store = _SessionStore(
+def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher(
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    session_store = session_store_factory(
         service_sessions={"codex": "provider-session"},
         service_metadata={"codex": {"provider_session_id": "provider-session"}},
         exact_transcript_service="codex",
