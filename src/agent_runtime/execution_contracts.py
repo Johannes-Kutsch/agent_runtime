@@ -7,6 +7,11 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar, cast
 
+from ._request_normalization import (
+    normalize_stage_selection,
+    normalize_worktree_mount,
+    require_invocation_role,
+)
 from .contracts import ExecutionProvider, ToolAccess, ToolPolicy, ToolPolicyProfile
 from .identity import validate_session_namespace
 from .errors import AgentTimeoutError, UsageLimitError
@@ -78,16 +83,14 @@ class PromptRunRequest:
         *,
         override: StageSelection | None = None,
     ) -> None:
-        if stage is None:
-            stage = override
-        elif override is not None and override != stage:
-            raise TypeError(
-                "PromptRunRequest received conflicting `stage` and `override` values."
-            )
-        if stage is None:
-            raise TypeError("PromptRunRequest requires a `stage` value.")
-        if role is None:
-            raise TypeError("PromptRunRequest requires a `role` value.")
+        stage = normalize_stage_selection(
+            stage,
+            override=override,
+            context="PromptRunRequest",
+            validate=False,
+        )
+        role = require_invocation_role(role, context="PromptRunRequest")
+        resolved_worktree = normalize_worktree_mount(worktree)
         if (
             isinstance(tool_access, ToolAccess)
             and tool_policy is not _MISSING_TOOL_POLICY
@@ -99,7 +102,7 @@ class PromptRunRequest:
             resolved_tool_access = tool_access
         elif tool_policy is not _MISSING_TOOL_POLICY:
             resolved_tool_access = ToolAccess.workspace_backed(
-                worktree.host_path,
+                resolved_worktree.host_path,
                 tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
             )
         else:
@@ -111,13 +114,13 @@ class PromptRunRequest:
                 )
         if resolved_tool_access is not None:
             resolved_tool_access.require_workspace(
-                worktree.host_path,
+                resolved_worktree.host_path,
                 context="PromptRunRequest",
             )
         validate_stage_selection(stage)
 
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", worktree)
+        object.__setattr__(self, "worktree", resolved_worktree)
         object.__setattr__(self, "stage", stage)
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)

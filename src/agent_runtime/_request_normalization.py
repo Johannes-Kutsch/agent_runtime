@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .execution_contracts import WorktreeMount
 from .roles import InvocationRole
 from .types import StageSelection, validate_stage_selection
+
+if TYPE_CHECKING:
+    from .execution_contracts import WorktreeMount
 
 
 def normalize_stage_selection(
@@ -12,6 +15,7 @@ def normalize_stage_selection(
     *,
     override: StageSelection | None,
     context: str,
+    validate: bool = True,
 ) -> StageSelection:
     if stage is None:
         stage = override
@@ -21,7 +25,8 @@ def normalize_stage_selection(
         )
     if stage is None:
         raise TypeError(f"{context} requires a `stage` value.")
-    validate_stage_selection(stage)
+    if validate:
+        validate_stage_selection(stage)
     return stage
 
 
@@ -37,12 +42,16 @@ def require_invocation_role(
 
 
 def normalize_worktree_path(worktree: Path | WorktreeMount) -> Path:
+    from .execution_contracts import WorktreeMount
+
     if isinstance(worktree, WorktreeMount):
         return worktree.host_path
     return worktree
 
 
 def normalize_worktree_mount(worktree: Path | WorktreeMount) -> WorktreeMount:
+    from .execution_contracts import WorktreeMount
+
     if isinstance(worktree, WorktreeMount):
         return worktree
     return WorktreeMount(worktree)
