@@ -1679,6 +1679,158 @@ class _NamedExternalStateResidentPlanningProviderSessionAdapter:
         session_store.save_service_session_id(self._service_name, provider_session_id)
 
 
+class _UsageLimitedThenFallbackNewSessionRunner(_ResidentSeamRunner):
+    def __init__(
+        self,
+        session: _Session,
+        *,
+        service_name: str,
+        attempts_by_service: dict[str, int],
+    ) -> None:
+        super().__init__(session)
+        self._service_name = service_name
+        self._attempts_by_service = attempts_by_service
+
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        attempt_count = self._attempts_by_service.get(self._service_name, 0) + 1
+        self._attempts_by_service[self._service_name] = attempt_count
+        if self._service_name == "codex":
+            if attempt_count > 1:
+                raise AssertionError(
+                    "new-session runtime retried the exhausted primary service"
+                )
+            raise UsageLimitError(
+                reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+                service_name=self._service_name,
+            )
+        return await super().work_text(
+            prompt,
+            role=role,
+            tool_policy=tool_policy,
+            run_kind=run_kind,
+            session_uuid=session_uuid,
+            on_provider_session_id=on_provider_session_id,
+        )
+
+
+class _UsageLimitedThenFallbackNewSessionExecutionAdapter:
+    def __init__(self) -> None:
+        self._attempts_by_service: dict[str, int] = {}
+
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort
+        execution_service = cast(_ExecutionService, service)
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path=(
+                    run_session.provider_state_dir_container_path
+                ),
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _UsageLimitedThenFallbackNewSessionRunner(
+                        cast(_Session, session),
+                        service_name=execution_service.name,
+                        attempts_by_service=self._attempts_by_service,
+                    ),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _StartedUsageLimitNewSessionRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise UsageLimitError(
+            reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            service_name="codex",
+            invocation_progress=runtime.InvocationProgress.STARTED,
+        )
+
+
+class _StartedUsageLimitNewSessionExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path=(
+                    run_session.provider_state_dir_container_path
+                ),
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _StartedUsageLimitNewSessionRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 def _tool_policy_effect_text(tool_policy: Any) -> str:
     profile = (
         tool_policy.profile
@@ -4897,6 +5049,121 @@ def test_new_session_runtime_selects_fallback_service_before_binding_continuatio
             "provider_state_dir_relpath": "claude-runtime-state/",
             "exact_transcript_match": False,
         },
+    )
+
+
+def test_new_session_runtime_retries_fallback_before_binding_continuation(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    worktree = Path("/repo")
+    tool_access = runtime.ToolAccess.workspace_backed(
+        worktree,
+        tool_policy=runtime.ToolPolicy.PARTIAL,
+    )
+
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=_UsageLimitedThenFallbackNewSessionExecutionAdapter(),
+            service_registry=service_registry_factory("codex", "claude"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "claude"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.completed(
+        output="resume:prepared:recovered-claude:/workspace/claude-runtime-state/",
+        result=prompt_runtime.ResumableRunResult(
+            output="resume:prepared:recovered-claude:/workspace/claude-runtime-state/",
+            runtime_metadata=prompt_runtime.ResumableRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="prepared:recovered-claude",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+        ),
+    )
+    assert result.result is not None
+    assert isinstance(result.result, prompt_runtime.ResumableRunResult)
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="high",
+        tool_access=tool_access,
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "prepared:recovered-claude",
+            "provider_state_dir_relpath": "claude-runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_new_session_runtime_keeps_started_usage_limit_outcome(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_registry_factory: Callable[..., ServiceRegistry],
+    session_store_factory: Callable[..., _SessionStore],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.NewSessionRuntime(
+            execution_adapter=_StartedUsageLimitNewSessionExecutionAdapter(),
+            service_registry=service_registry_factory("codex", "claude"),
+        ).run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(Path("/repo")),
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                session_store=session_store_factory(),
+                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    "codex"
+                ),
+                tool_access=runtime.ToolAccess.workspace_backed(
+                    Path("/repo"),
+                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                ),
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=runtime.InvocationProgress.STARTED,
     )
 
 

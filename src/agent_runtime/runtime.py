@@ -1456,48 +1456,66 @@ async def _run_new_session(
         raise RuntimeConfigurationError(
             "New-session runtime requires at least one configured service candidate."
         )
+    while True:
+        now = _time_module.now_local()
+        if request.token is not None and request.token.is_cancelled:
+            raise AgentCancelledError(
+                invocation_progress=InvocationProgress.NOT_STARTED,
+            )
+        if not service_registry.has_available_for(request.stage, now):
+            raise NoServiceAvailableError(
+                reset_time=service_registry.next_wake_time_for(request.stage, now),
+                usage_limit_scope=request.usage_limit_scope
+                or UsageLimitScope(request.role.value),
+            )
 
-    now = _time_module.now_local()
-    if request.token is not None and request.token.is_cancelled:
-        raise AgentCancelledError(
-            invocation_progress=InvocationProgress.NOT_STARTED,
+        resolved_override = service_registry.resolve(request.stage, now)
+        resolve_service = _require_execution_adapter_method(runner, "resolve_service")
+        resolved_service = resolve_service(resolved_override.service)
+        session_plan = plan_resumable_session(
+            ResumableSessionPlanRequest(
+                worktree=request.worktree,
+                role=request.role,
+                namespace=request.session_namespace,
+                service=resolved_service,
+                session_store=request.session_store,
+                provider_session_adapter=request.provider_session_adapter,
+                usage_limit_scope=request.usage_limit_scope,
+            )
         )
-    if not service_registry.has_available_for(request.stage, now):
-        raise NoServiceAvailableError(
-            reset_time=service_registry.next_wake_time_for(request.stage, now),
-            usage_limit_scope=request.usage_limit_scope
-            or UsageLimitScope(request.role.value),
-        )
-
-    resolved_override = service_registry.resolve(request.stage, now)
-    resolve_service = _require_execution_adapter_method(runner, "resolve_service")
-    resolved_service = resolve_service(resolved_override.service)
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=request.worktree,
-            role=request.role,
-            namespace=request.session_namespace,
-            service=resolved_service,
-            session_store=request.session_store,
-            provider_session_adapter=request.provider_session_adapter,
-            usage_limit_scope=request.usage_limit_scope,
-        )
-    )
-    return await _run_resumable_prompt(
-        runner=runner,
-        request=ResumableRunRequest(
-            prompt=request.prompt,
-            worktree=WorktreeMount(request.worktree),
-            model=resolved_override.model,
-            effort=resolved_override.effort,
-            session_plan=session_plan,
-            tool_access=request.tool_access,
-            name=request.name,
-            status_display=request.status_display,
-            work_body=request.work_body,
-            token=request.token,
-        ),
-    )
+        try:
+            return await _run_resumable_prompt(
+                runner=runner,
+                request=ResumableRunRequest(
+                    prompt=request.prompt,
+                    worktree=WorktreeMount(request.worktree),
+                    model=resolved_override.model,
+                    effort=resolved_override.effort,
+                    session_plan=session_plan,
+                    tool_access=request.tool_access,
+                    name=request.name,
+                    status_display=request.status_display,
+                    work_body=request.work_body,
+                    token=request.token,
+                ),
+            )
+        except UsageLimitError as exc:
+            if exc.invocation_progress is not InvocationProgress.NOT_STARTED:
+                raise
+            service_registry.mark_exhausted(
+                resolved_override.service,
+                reset_time=exc.reset_time,
+            )
+            exhausted_now = _time_module.now_local()
+            if not service_registry.has_available_for(request.stage, exhausted_now):
+                raise NoServiceAvailableError(
+                    reset_time=service_registry.next_wake_time_for(
+                        request.stage,
+                        exhausted_now,
+                    ),
+                    usage_limit_scope=exc.usage_limit_scope,
+                    invocation_progress=exc.invocation_progress,
+                ) from exc
 
 
 async def _run_resumable_prompt(
