@@ -23,7 +23,7 @@ Ordinary consumers should start with the lifecycle entrypoints under `agent_runt
 
 ### Ephemeral Execution
 
-Ephemeral execution is the canonical entrypoint for an already-rendered prompt when the runtime should not prepare provider-session continuity. Tool access is explicit and defaults to no tools, so callers should pass `ToolAccess.no_tools()` when they want tool-less execution.
+Ephemeral execution is the canonical entrypoint for an already-rendered prompt when the runtime should not prepare provider-session continuity. Tool access stays explicit at the runtime boundary, and `ToolAccess.no_tools()` is the closed no-tools value for tool-less execution.
 
 ```python
 from pathlib import Path
@@ -63,10 +63,11 @@ New-session execution is the canonical entrypoint when the runtime should prepar
 ```python
 from pathlib import Path
 
-from agent_runtime import InvocationRole, StageSelection
+from agent_runtime import InvocationRole, StageSelection, ToolAccess
 from agent_runtime.runtime import NewSessionRunRequest, NewSessionRuntime
 
-workspace_tool_access = build_workspace_tool_access()
+worktree = Path(".")
+workspace_tool_access = ToolAccess.workspace_backed(worktree)
 
 result = await NewSessionRuntime(
     execution_adapter=build_execution_adapter(),
@@ -74,19 +75,21 @@ result = await NewSessionRuntime(
 ).run_new_session(
     NewSessionRunRequest(
         prompt=rendered_prompt,
-        worktree=Path("."),
+        worktree=worktree,
         stage=StageSelection(
             service="openai/default",
             model="gpt-5",
             effort="medium",
         ),
         role=InvocationRole("issue-implementation"),
+        session_store=build_session_store(),
+        provider_session_adapter=build_provider_session_adapter(),
         tool_access=workspace_tool_access,
     )
 )
 
 print(result.output)
-print(result.continuation)
+print(result.result.continuation)
 ```
 
 For workspace-backed execution, provide a workspace-backed `ToolAccess` value for the mounted worktree instead of relying on provider defaults. Consumers own persistence for the returned continuation and may store it, discard it, or hand it to a later process.
@@ -99,31 +102,34 @@ Resumed-session execution is the canonical entrypoint for continuing an existing
 from pathlib import Path
 
 from agent_runtime import InvocationRole
-from agent_runtime.runtime import ResumedSessionRunRequest, ResumedSessionRuntime
+from agent_runtime.runtime import (
+    ResumedSessionRunRequest,
+    ResumedSessionRuntime,
+    WorktreeMount,
+)
 
 result = await ResumedSessionRuntime(
     execution_adapter=build_execution_adapter(),
-    service_registry=build_service_registry(),
 ).run_resumed_session(
     ResumedSessionRunRequest(
         prompt=rendered_prompt,
-        worktree=Path("."),
+        worktree=WorktreeMount(Path(".")),
         role=InvocationRole("issue-implementation"),
         continuation=continuation,
     )
 )
 
 print(result.output)
-print(result.continuation)
+print(result.result.continuation)
 ```
 
 Resumed-session execution derives service selection and tool access from the continuation. Callers may continue the chain with a new prompt while keeping the same continuity state.
 
 ### Runtime Outcomes
 
-Lifecycle entrypoints report normal runtime outcomes for both completed work and expected interruptions. Completion returns final output and, for session-backed runs, the latest continuation needed for future resumes.
+Lifecycle entrypoints report normal runtime outcomes for both completed work and expected interruptions. Completed outcomes return final output and, for session-backed runs, the latest continuation on `result.continuation`.
 
-Expected interruptions such as usage limits, cancellation, timeout, temporary service unavailability, and confidently retryable provider failures are canonical runtime outcomes rather than the normal exception path. Session-backed interruption outcomes also report invocation progress so consumers can decide whether to retry immediately or resume from the returned continuation.
+Expected interruptions such as usage limits, cancellation, timeout, temporary service unavailability, and confidently retryable provider failures are canonical runtime outcomes rather than the normal exception path. Session-backed interruption outcomes place the resumable state on `RuntimeOutcome.continuation` and report `invocation_progress` so consumers can decide whether to retry immediately or resume from the returned continuation.
 
 `ToolPolicyProfile` remains provider-neutral runtime data. Provider adapters translate runtime-owned tool policy values into backend-specific flags, arguments, and restrictions.
 
