@@ -105,6 +105,72 @@ class ToolPolicy(enum.Enum):
         return ToolPolicyProfile()
 
 
+@dataclasses.dataclass(frozen=True, init=False)
+class ToolAccess:
+    kind: str
+    workspace: Path | None
+    _tool_policy: ToolPolicy | ToolPolicyProfile
+
+    def __init__(
+        self,
+        *,
+        kind: str,
+        workspace: Path | None,
+        tool_policy: ToolPolicy | ToolPolicyProfile,
+    ) -> None:
+        if kind not in {"none", "workspace_backed"}:
+            raise ValueError(f"Unsupported tool access kind: {kind}")
+        if kind == "none" and workspace is not None:
+            raise ValueError("ToolAccess.no_tools() cannot carry a workspace.")
+        if kind == "workspace_backed" and workspace is None:
+            raise ValueError("ToolAccess.workspace_backed() requires a workspace path.")
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "workspace", workspace)
+        object.__setattr__(self, "_tool_policy", tool_policy)
+
+    @classmethod
+    def no_tools(cls) -> ToolAccess:
+        return cls(
+            kind="none",
+            workspace=None,
+            tool_policy=ToolPolicyProfile(
+                allowed_tools=("none",),
+                disallowed_tools=("all",),
+            ),
+        )
+
+    @classmethod
+    def workspace_backed(
+        cls,
+        workspace: Path,
+        *,
+        tool_policy: ToolPolicy | ToolPolicyProfile = ToolPolicy.FULL,
+    ) -> ToolAccess:
+        return cls(
+            kind="workspace_backed",
+            workspace=workspace,
+            tool_policy=tool_policy,
+        )
+
+    @property
+    def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
+        return self._tool_policy
+
+    def require_workspace(
+        self,
+        workspace: Path,
+        *,
+        context: str,
+    ) -> None:
+        if self.kind != "workspace_backed":
+            return
+        if self.workspace == workspace:
+            return
+        raise ValueError(
+            f"{context} workspace-backed tool access requires worktree {self.workspace}, got {workspace}."
+        )
+
+
 class ProviderStatePreparationAction(Protocol):
     def apply(self) -> None: ...
 
@@ -181,6 +247,7 @@ __all__ = [
     "ServiceSelectionProvider",
     "SessionPlanningProvider",
     "ToolPolicy",
+    "ToolAccess",
     "ToolPolicyProfile",
     "TransientError",
     "UnsupportedTokens",

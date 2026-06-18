@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from . import _time as _time_module
-from .contracts import ToolPolicy, ToolPolicyProfile
+from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .execution_contracts import (
     CancellationToken,
     PromptRunRequest as _PromptRunRequest,
@@ -40,6 +40,7 @@ __all__ = [
     "ResumableRuntime",
     "ResumableRuntimeExecutionAdapter",
     "ResumableRuntimeMetadata",
+    "ToolAccess",
     "ToolPolicy",
     "ToolPolicyProfile",
     "WorktreeMount",
@@ -245,7 +246,7 @@ class ResumableRunRequest:
     model: str
     effort: str
     session_plan: ResumableSessionPlan
-    tool_policy: ToolPolicy
+    tool_access: ToolAccess
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
@@ -259,22 +260,41 @@ class ResumableRunRequest:
         effort: str,
         session_plan: ResumableSessionPlan,
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
+        tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
         token: CancellationToken | None = None,
     ) -> None:
-        if tool_policy is _MISSING_TOOL_POLICY:
+        if (
+            isinstance(tool_access, ToolAccess)
+            and tool_policy is not _MISSING_TOOL_POLICY
+        ):
+            raise TypeError(
+                "ResumableRunRequest received conflicting `tool_access` and `tool_policy` values."
+            )
+        if isinstance(tool_access, ToolAccess):
+            resolved_tool_access = tool_access
+        elif tool_policy is not _MISSING_TOOL_POLICY:
+            resolved_tool_access = ToolAccess.workspace_backed(
+                worktree.host_path,
+                tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
+            )
+        else:
             raise TypeError(
                 "ResumableRunRequest requires an explicit `tool_policy` value."
             )
+        resolved_tool_access.require_workspace(
+            worktree.host_path,
+            context="ResumableRunRequest",
+        )
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree)
         object.__setattr__(self, "model", model)
         object.__setattr__(self, "effort", effort)
         object.__setattr__(self, "session_plan", session_plan)
-        object.__setattr__(self, "tool_policy", tool_policy)
+        object.__setattr__(self, "tool_access", resolved_tool_access)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
@@ -283,6 +303,10 @@ class ResumableRunRequest:
     @property
     def mount_path(self) -> Any:
         return self.worktree.host_path
+
+    @property
+    def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
+        return self.tool_access.tool_policy
 
 
 @dataclasses.dataclass(frozen=True)
@@ -532,7 +556,8 @@ async def _run_prompt(
             model=resolved_override.model,
             effort=resolved_override.effort,
             output_adapter=TextOutputAdapter(
-                prompt=request.prompt, tool_policy=request.tool_policy
+                prompt=request.prompt,
+                tool_access=request.tool_access,
             ),
             dependencies=dependencies,
             presentation=WorkInvocationPresentation(
@@ -707,7 +732,7 @@ async def _run_resumable_prompt(
             effort=request.effort,
             output_adapter=TextOutputAdapter(
                 prompt=request.prompt,
-                tool_policy=request.tool_policy,
+                tool_access=request.tool_access,
             ),
             dependencies=resumable_dependencies,
             presentation=WorkInvocationPresentation(
