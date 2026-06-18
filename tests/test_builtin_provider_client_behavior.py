@@ -50,6 +50,19 @@ def _stub_builtin_tmp_prompt_path(
     monkeypatch.setattr(Path, "unlink", _fake_unlink)
 
 
+def _write_codex_rollout(state_dir: Path, *thread_ids: str) -> None:
+    rollout_dir = state_dir / "sessions" / "2026" / "05" / "30"
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps({"type": "thread.started", "thread_id": thread_id})
+        for thread_id in thread_ids
+    ]
+    (rollout_dir / "rollout-001.jsonl").write_text(
+        "\n".join(lines) + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_runtime_client_runs_claude_ephemeral_stage_through_builtin_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -869,6 +882,117 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     )
 
 
+def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollout_thread(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    class _CodexProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
+                    '{"type":"turn.completed"}\n',
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _CodexProcess:
+        captured["command"] = command
+        captured["cwd"] = cwd
+        captured["env"] = env
+        return _CodexProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    _stub_builtin_tmp_prompt_path(monkeypatch)
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    _write_codex_rollout(provider_state_dir, "thread-123", "thread-123")
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="thread-123",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "thread-123",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=None,
+    )
+    assert captured["cwd"] == tmp_path
+    assert captured["env"] == {
+        "TZ": "UTC",
+        "CODEX_HOME": str(provider_state_dir),
+    }
+    assert captured["command"] == (
+        "codex exec resume thread-123 -m gpt-5.4 "
+        "-c model_reasoning_effort=medium -c approval_policy=never "
+        "--sandbox danger-full-access --json < /tmp/.pycastle_prompt"
+    )
+
+
 def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thread(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -934,12 +1058,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
     )
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     provider_state_dir = runtime_state_dir / "implementer/main/codex"
-    rollout_dir = provider_state_dir / "sessions" / "2026" / "05" / "30"
-    rollout_dir.mkdir(parents=True, exist_ok=True)
-    (rollout_dir / "rollout-001.jsonl").write_text(
-        '{"type":"thread.started","thread_id":"recovered-thread"}\n',
-        encoding="utf-8",
-    )
+    _write_codex_rollout(provider_state_dir, "recovered-thread")
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_resumed_session(
@@ -992,50 +1111,25 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
     )
 
 
-def test_runtime_client_runs_codex_resumed_session_fresh_for_ambiguous_rollout_state(
+def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    captured: dict[str, Any] = {}
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    subprocess_calls = 0
 
-    class _CodexProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [
-                    '{"type":"thread.started","thread_id":"fresh-thread"}\n',
-                    '{"type":"item.completed","item":{"type":"agent_message","text":"fresh output"}}\n',
-                    '{"type":"turn.completed"}\n',
-                ]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _CodexProcess:
-        captured["command"] = command
-        captured["cwd"] = cwd
-        captured["env"] = env
-        return _CodexProcess()
+    def _unexpected_popen(*args: Any, **kwargs: Any) -> Any:
+        nonlocal subprocess_calls
+        subprocess_calls += 1
+        raise AssertionError("resumed Codex session should not fall back to fresh")
 
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.subprocess,
         "Popen",
-        _fake_popen,
+        _unexpected_popen,
     )
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
@@ -1057,66 +1151,196 @@ def test_runtime_client_runs_codex_resumed_session_fresh_for_ambiguous_rollout_s
         },
     )
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    rollout_dir = runtime_state_dir / "implementer/main/codex/sessions/2026/05/30"
-    rollout_dir.mkdir(parents=True, exist_ok=True)
-    (rollout_dir / "rollout-001.jsonl").write_text(
-        '{"type":"thread.started","thread_id":"thread-a"}\n',
-        encoding="utf-8",
-    )
-    (rollout_dir / "rollout-002.jsonl").write_text(
-        '{"type":"thread.started","thread_id":"thread-b"}\n',
-        encoding="utf-8",
-    )
+    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    _write_codex_rollout(provider_state_dir, "thread-a")
+    (
+        provider_state_dir / "sessions" / "2026" / "05" / "30" / "rollout-002.jsonl"
+    ).write_text('{"type":"thread.started","thread_id":"thread-b"}\n', encoding="utf-8")
 
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                runtime_state_dir=runtime_state_dir,
-                continuation=continuation,
-                role=InvocationRole("implementer"),
-                session_namespace="main",
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=continuation,
+                    role=InvocationRole("implementer"),
+                    session_namespace="main",
+                )
             )
         )
+
+    assert str(exc_info.value) == (
+        "Codex continuation is not recoverable from provider state."
+    )
+    assert subprocess_calls == 0
+
+
+def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    subprocess_calls = 0
+
+    def _unexpected_popen(*args: Any, **kwargs: Any) -> Any:
+        nonlocal subprocess_calls
+        subprocess_calls += 1
+        raise AssertionError("resumed Codex session should not false-resume")
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _unexpected_popen,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    _stub_builtin_tmp_prompt_path(monkeypatch)
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "selected-thread",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+            "exact_transcript_match": False,
+        },
+    )
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    rollout_dir = provider_state_dir / "sessions" / "2026" / "05" / "30"
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    (rollout_dir / "rollout-001.jsonl").write_text(
+        "\n".join(
+            [
+                "{not-json",
+                "[]",
+                '{"type":"turn.completed"}',
+                '{"type":"thread.started","thread_id":"   "}',
+                '{"type":"thread.started"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="fresh output",
-        result=prompt_runtime.SessionRunResult(
-            output="fresh output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="fresh-thread",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=continuation,
+                    role=InvocationRole("implementer"),
+                    session_namespace="main",
+                )
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Codex continuation is not recoverable from provider state."
+    )
+    assert subprocess_calls == 0
+
+
+@pytest.mark.parametrize("entrypoint", ["new", "resumed"])
+def test_runtime_client_requires_host_codex_auth_for_session_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint: str,
+) -> None:
+    subprocess_calls = 0
+
+    def _unexpected_popen(*args: Any, **kwargs: Any) -> Any:
+        nonlocal subprocess_calls
+        subprocess_calls += 1
+        raise AssertionError("Codex subprocess should not start without host auth")
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _unexpected_popen,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: tmp_path / "missing-home",
+    )
+    _stub_builtin_tmp_prompt_path(monkeypatch)
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        if entrypoint == "new":
+            asyncio.run(
+                runtime.RuntimeClient().run_new_session(
+                    prompt_runtime.NewSessionRunRequest(
+                        prompt="already rendered prompt",
+                        worktree=tmp_path,
+                        runtime_state_dir=runtime_state_dir,
+                        stage=runtime.StageSelection(
+                            service="codex",
+                            model="gpt-5.4",
+                            effort="medium",
+                        ),
+                        role=InvocationRole("implementer"),
+                        session_namespace="main",
+                        tool_access=runtime.ToolAccess.no_tools(),
+                    )
+                )
+            )
+        else:
+            asyncio.run(
+                runtime.RuntimeClient().run_resumed_session(
+                    prompt_runtime.ResumedSessionRunRequest(
+                        prompt="already rendered prompt",
+                        worktree=tmp_path,
+                        runtime_state_dir=runtime_state_dir,
+                        continuation=prompt_runtime.Continuation(
+                            selected_service="codex",
+                            selected_model="gpt-5.4",
+                            selected_effort="medium",
+                            tool_access=runtime.ToolAccess.no_tools(),
+                            provider_resume_state={
+                                "run_kind": "resume",
+                                "provider_session_id": "selected-thread",
+                                "provider_state_dir_relpath": "implementer/main/codex/",
+                                "exact_transcript_match": False,
+                            },
+                        ),
+                        role=InvocationRole("implementer"),
+                        session_namespace="main",
+                    )
+                )
+            )
+
+    assert str(exc_info.value) == (
+        "Codex authentication missing: run `codex login` on the host."
+    )
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.observations == (
+        ProviderErrorObservation(
+            service_name="codex",
+            raw_provider_text=(
+                "Codex authentication missing: run `codex login` on the host."
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "fresh-thread",
-                    "provider_state_dir_relpath": "implementer/main/codex/",
-                    "exact_transcript_match": False,
-                },
-            ),
+            source_stream="pre-dispatch host check",
+            status_code=401,
         ),
-        usage=None,
     )
-    assert captured["cwd"] == tmp_path
-    assert captured["env"] == {
-        "TZ": "UTC",
-        "CODEX_HOME": str(runtime_state_dir / "implementer/main/codex"),
-    }
-    assert captured["command"] == (
-        "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-        "-c approval_policy=never --sandbox danger-full-access --json "
-        "< /tmp/.pycastle_prompt"
-    )
+    assert subprocess_calls == 0
 
 
 def test_runtime_client_treats_nested_claude_provider_state_as_resumable(

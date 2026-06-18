@@ -1221,10 +1221,19 @@ def _recover_codex_rollout_thread_id(state_dir: Path | None) -> str | None:
     return next(iter(thread_ids))
 
 
-def _codex_run_kind_for_state_dir(state_dir: Path) -> RunKind:
-    if _codex_is_resumable(state_dir):
-        return RunKind.RESUME
-    return RunKind.FRESH
+def _resolve_recoverable_codex_session_id(
+    *,
+    provider_state_dir: Path,
+    provider_session_id: str | None,
+) -> str:
+    recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
+    if not _codex_is_resumable(provider_state_dir) or recovered_thread_id is None:
+        raise RuntimeConfigurationError(
+            "Codex continuation is not recoverable from provider state."
+        )
+    if provider_session_id:
+        return provider_session_id
+    return recovered_thread_id
 
 
 def _codex_seed_auth(provider_state_dir: Path) -> None:
@@ -1725,20 +1734,14 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
         provider_state_dir = runtime_state_dir / provider_state_dir_relpath
         provider_state_dir.mkdir(parents=True, exist_ok=True)
         _codex_seed_auth(provider_state_dir)
-        recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
-        provider_session_id = cast(
-            str | None,
-            provider_resume_state.get("provider_session_id"),
+        provider_session_id = _resolve_recoverable_codex_session_id(
+            provider_state_dir=provider_state_dir,
+            provider_session_id=cast(
+                str | None,
+                provider_resume_state.get("provider_session_id"),
+            ),
         )
-        if provider_session_id is None:
-            provider_session_id = recovered_thread_id
-        run_kind = (
-            RunKind.RESUME
-            if _codex_is_resumable(provider_state_dir)
-            and provider_session_id is not None
-            and recovered_thread_id is not None
-            else RunKind.FRESH
-        )
+        run_kind = RunKind.RESUME
         prompt_path = Path("/tmp/.pycastle_prompt")
         prompt_path.write_text(request.prompt)
         try:
@@ -1827,12 +1830,12 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
         raise RuntimeConfigurationError(
             "Claude continuation is missing `provider_state_dir_relpath`."
         )
-    provider_session_id = cast(
+    claude_provider_session_id = cast(
         str | None,
         provider_resume_state.get("provider_session_id"),
     )
-    if not provider_session_id:
-        provider_session_id = _new_provider_session_id()
+    if not claude_provider_session_id:
+        claude_provider_session_id = _new_provider_session_id()
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     run_kind = _claude_run_kind_for_state_dir(provider_state_dir)
@@ -1846,7 +1849,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
                 tool_access=request.tool_access,
                 prompt_path=prompt_path,
                 run_kind=run_kind,
-                session_uuid=provider_session_id,
+                session_uuid=claude_provider_session_id,
             ),
             shell=True,
             cwd=request.worktree.host_path,
@@ -1867,7 +1870,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
                 model=request.model,
                 effort=request.effort,
                 tool_access=request.tool_access,
-                provider_session_id=provider_session_id,
+                provider_session_id=claude_provider_session_id,
                 provider_state_dir_relpath=provider_state_dir_relpath,
             )
             if exc.invocation_progress is InvocationProgress.STARTED
@@ -1882,7 +1885,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
             output=result_text,
             runtime_metadata=SessionRuntimeMetadata(
                 service_name="claude",
-                provider_session_id=provider_session_id,
+                provider_session_id=claude_provider_session_id,
                 run_kind=run_kind,
                 session_namespace=request.session_namespace,
                 exact_transcript_match=False,
@@ -1891,7 +1894,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
                 model=request.model,
                 effort=request.effort,
                 tool_access=request.tool_access,
-                provider_session_id=provider_session_id,
+                provider_session_id=claude_provider_session_id,
                 provider_state_dir_relpath=provider_state_dir_relpath,
             ),
         ),
