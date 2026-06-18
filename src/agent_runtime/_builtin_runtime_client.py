@@ -1643,6 +1643,67 @@ def _invoke_codex_new_session_provider(
     )
 
 
+def _invoke_codex_resumed_session_provider(
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter,
+    request: ResumedSessionRunRequest,
+    provider_state_dir: Path,
+    provider_session_id: str,
+) -> ProviderInvocationResult:
+    return _invoke_provider(
+        provider_invocation_adapter=provider_invocation_adapter,
+        command=_codex_command(
+            model=request.model,
+            effort=request.effort,
+            tool_access=request.tool_access,
+            run_kind=RunKind.RESUME,
+            session_uuid=provider_session_id,
+        ),
+        worktree=request.worktree.host_path,
+        environment=_codex_env(
+            state_dir_container_path=str(provider_state_dir),
+        ),
+        prompt_content=request.prompt,
+        prompt_path=Path("/tmp/.pycastle_prompt"),
+        cleanup_prompt_path=True,
+        run_kind=RunKind.RESUME,
+        role=request.role,
+        usage_limit_scope=request.usage_limit_scope,
+        provider_session_id=provider_session_id,
+        reduce_output=_reduce_codex_stream,
+        invocation_log=None,
+        extract_provider_session_id=_extract_codex_provider_session_id,
+    )
+
+
+def _active_codex_provider_session_id_from_result(
+    invocation_result: ProviderInvocationResult,
+    *,
+    fallback_provider_session_id: str | None,
+) -> str | None:
+    return (
+        _extract_codex_provider_session_id(list(invocation_result.stdout_lines))
+        or fallback_provider_session_id
+    )
+
+
+def _active_codex_provider_session_id_from_failure(
+    error: UsageLimitError | RetryableProviderFailureError,
+    *,
+    fallback_provider_session_id: str | None,
+) -> str | None:
+    return (
+        _extract_codex_provider_session_id(
+            list(provider_invocation_failure_stdout_lines(error))
+        )
+        or provider_invocation_failure_provider_session_id(error)
+        or cast(
+            str | None,
+            getattr(error, "provider_session_id", fallback_provider_session_id),
+        )
+    )
+
+
 def _invoke_opencode_new_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
@@ -1986,20 +2047,16 @@ def _run_builtin_new_session(
                 stage=selected_stage,
                 provider_state_dir=provider_state_dir,
             )
-            provider_session_id = _extract_codex_provider_session_id(
-                list(invocation_result.stdout_lines)
+            provider_session_id = _active_codex_provider_session_id_from_result(
+                invocation_result,
+                fallback_provider_session_id=provider_session_id,
             )
             result_text = invocation_result.output
             usage = invocation_result.usage
         except (UsageLimitError, RetryableProviderFailureError) as exc:
-            provider_session_id = (
-                _extract_codex_provider_session_id(
-                    list(provider_invocation_failure_stdout_lines(exc))
-                )
-                or provider_invocation_failure_provider_session_id(exc)
-                or cast(
-                    str | None, getattr(exc, "provider_session_id", provider_session_id)
-                )
+            provider_session_id = _active_codex_provider_session_id_from_failure(
+                exc,
+                fallback_provider_session_id=provider_session_id,
             )
             exc.continuation = (
                 _build_codex_continuation(
@@ -2244,42 +2301,24 @@ def _run_builtin_resumed_session(
             ),
         )
         run_kind = RunKind.RESUME
-        prompt_path = Path("/tmp/.pycastle_prompt")
         active_provider_session_id: str | None = provider_session_id
         try:
-            invocation_result = _invoke_provider(
+            invocation_result = _invoke_codex_resumed_session_provider(
                 provider_invocation_adapter=invocation_adapter,
-                command=_codex_command(
-                    model=request.model,
-                    effort=request.effort,
-                    tool_access=request.tool_access,
-                    run_kind=run_kind,
-                    session_uuid=provider_session_id,
-                ),
-                worktree=request.worktree.host_path,
-                environment=_codex_env(
-                    state_dir_container_path=str(provider_state_dir),
-                ),
-                prompt_content=request.prompt,
-                prompt_path=prompt_path,
-                cleanup_prompt_path=True,
-                run_kind=run_kind,
-                role=request.role,
-                usage_limit_scope=request.usage_limit_scope,
                 provider_session_id=provider_session_id,
-                reduce_output=_reduce_codex_stream,
-                invocation_log=None,
-                extract_provider_session_id=_extract_codex_provider_session_id,
+                request=request,
+                provider_state_dir=provider_state_dir,
             )
-            active_provider_session_id = (
-                invocation_result.provider_session_id or provider_session_id
+            active_provider_session_id = _active_codex_provider_session_id_from_result(
+                invocation_result,
+                fallback_provider_session_id=provider_session_id,
             )
             result_text = invocation_result.output
             usage = invocation_result.usage
         except (UsageLimitError, RetryableProviderFailureError) as exc:
-            active_provider_session_id = cast(
-                str | None,
-                getattr(exc, "provider_session_id", active_provider_session_id),
+            active_provider_session_id = _active_codex_provider_session_id_from_failure(
+                exc,
+                fallback_provider_session_id=active_provider_session_id,
             )
             exc.continuation = (
                 _build_codex_continuation(
