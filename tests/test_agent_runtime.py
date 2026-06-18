@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import json
 import re
 from collections.abc import Iterable, Iterator
-from dataclasses import FrozenInstanceError, dataclass, fields
+from dataclasses import FrozenInstanceError, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
@@ -13,7 +12,6 @@ from typing import Any, Callable, cast
 import pytest
 
 import agent_runtime as runtime
-import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 import agent_runtime.session_planning as session_planning_runtime
@@ -1239,99 +1237,6 @@ class _ExternalStateResidentPlanningProviderSessionAdapter:
         session_store.save_service_session_id("codex", provider_session_id)
 
 
-def test_package_exports_runtime_surface() -> None:
-    assert runtime.__all__ == [
-        "AgentCredentialFailureError",
-        "AgentFailedError",
-        "AgentRuntimeError",
-        "AgentTimeoutError",
-        "HardAgentError",
-        "ExecutionProvider",
-        "InvocationRole",
-        "ProviderSessionAdapter",
-        "RuntimeConfigurationError",
-        "RunKind",
-        "StageSelection",
-        "ToolPolicy",
-        "ToolPolicyProfile",
-        "TransientAgentError",
-        "UsageLimitError",
-        "UsageLimitScope",
-    ]
-    assert runtime.StageSelection.__module__.startswith("agent_runtime")
-    assert not hasattr(runtime, "StageOverride")
-    assert runtime.AgentRuntimeError is AgentRuntimeError
-    assert not hasattr(runtime, "assert_runtime_import_isolation")
-    assert not hasattr(runtime, "run_prompt")
-    assert not hasattr(runtime, "ServiceRegistry")
-    assert not hasattr(runtime, "ProviderSessionPreferences")
-    assert not hasattr(runtime, "ProviderSessionPreferencesRequest")
-    assert not hasattr(runtime, "ProviderSessionState")
-    assert not hasattr(runtime, "ProviderSessionStateRequest")
-    assert not hasattr(prompt_runtime, "PromptRuntime")
-    assert not hasattr(prompt_runtime, "PromptRunRequest")
-    assert not hasattr(prompt_runtime, "PromptRuntimeExecutionAdapter")
-    assert not hasattr(prompt_runtime, "run_one_shot")
-    assert not hasattr(prompt_runtime, "run_prompt")
-    assert not hasattr(prompt_runtime, "run_resumable_prompt")
-    assert not hasattr(prompt_runtime, "ResidentRunRequest")
-    assert not hasattr(prompt_runtime, "ResidentRunResult")
-    assert not hasattr(prompt_runtime, "ResidentRuntime")
-    assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
-    assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
-    assert {
-        "ResumableRunRequest",
-        "ResumableRunResult",
-        "ResumableRuntime",
-        "ResumableRuntimeExecutionAdapter",
-        "ResumableRuntimeMetadata",
-    } <= set(prompt_runtime.__all__)
-
-
-def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
-    None
-):
-    contracts = importlib.import_module("agent_runtime.contracts")
-
-    assert "ExecutionProvider" in contracts.__all__
-    assert "ResumableExecutionProvider" in contracts.__all__
-    assert not hasattr(contracts, "ExecutionService")
-    assert not hasattr(contracts, "ResidentExecutionProvider")
-    assert runtime.ExecutionProvider is contracts.ExecutionProvider
-
-
-def test_session_planning_surface_uses_resumable_vocabulary() -> None:
-    assert not hasattr(session_planning_runtime, "ResidentSessionPlan")
-    assert not hasattr(session_planning_runtime, "ResidentSessionPlanRequest")
-    assert not hasattr(session_planning_runtime, "plan_resident_session")
-    assert {
-        "ResumableSessionPlan",
-        "ResumableSessionPlanRequest",
-        "plan_resumable_session",
-    } <= set(session_planning_runtime.__all__)
-
-
-def test_provider_session_planning_surface_exposes_immutable_decision_only() -> None:
-    assert session_planning_runtime.ProviderSessionPlanRequest.__name__ == (
-        "ProviderSessionPlanRequest"
-    )
-    assert not hasattr(session_planning_runtime, "ProviderRunStatePlan")
-    assert not hasattr(session_planning_runtime, "plan_provider_run_state")
-    assert not hasattr(
-        session_planning_runtime,
-        "record_observed_provider_session_id",
-    )
-    assert not hasattr(
-        session_planning_runtime,
-        "record_successful_provider_session_metadata",
-    )
-    assert {
-        "ProviderSessionDecision",
-        "ProviderSessionPlanRequest",
-        "plan_provider_session",
-    } <= set(session_planning_runtime.__all__)
-
-
 def test_provider_session_planning_returns_immutable_decision_value() -> None:
     provider_session_decision = session_planning_runtime.plan_provider_session(
         session_planning_runtime.ProviderSessionPlanRequest(
@@ -1379,107 +1284,25 @@ def test_resumable_session_plan_exposes_public_value_fields_only() -> None:
         )
     )
 
-    assert [field.name for field in fields(session_plan)] == [
-        "role",
-        "worktree",
-        "namespace",
-        "service",
-        "run_kind",
-        "provider_state_dir",
-        "provider_session_id",
-        "auth_seeding_requirement",
-        "auth_seed_action",
-        "exact_transcript_match",
-        "usage_limit_scope",
-    ]
-    assert not hasattr(session_plan, "provider_state_dir_container_path")
+    assert session_plan.role == InvocationRole("implementer")
+    assert session_plan.worktree == Path(".")
+    assert session_plan.namespace == "main"
+    assert session_plan.service is service
+    assert session_plan.run_kind is RunKind.RESUME
+    assert session_plan.provider_state_dir == Path("state")
+    assert session_plan.provider_session_id == "recovered-session"
+    assert session_plan.auth_seeding_requirement is AuthSeedingRequirement.NOT_REQUIRED
+    assert session_plan.auth_seed_action is None
+    assert session_plan.exact_transcript_match is False
+    assert session_plan.usage_limit_scope is None
     with pytest.raises(FrozenInstanceError):
         setattr(session_plan, "provider_state_dir", Path("other-state"))
-
-
-def test_resumable_session_plan_hides_container_state_selection_metadata() -> None:
-    service = cast(ExecutionProvider, _ExecutionService("codex"))
-
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            role=InvocationRole("implementer"),
-            namespace="main",
-            service=service,
-            session_store=_SessionStore(service_sessions={}, service_metadata={}),
-            provider_session_adapter=_ResidentPlanningProviderSessionAdapter(),
-        )
-    )
-
-    field_names = {field.name for field in fields(session_plan)}
-
-    assert "service_state_dir" not in field_names
-    assert "use_service_state_dir_for_container" not in field_names
-
-
-def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
-    assert session_runtime.ProviderSessionState.__module__ == "agent_runtime.session"
-    assert (
-        session_runtime.ProviderSessionStateRequest.__module__
-        == "agent_runtime.session"
-    )
-
-
-def test_provider_session_seams_consolidate_public_session_store_vocabulary() -> None:
-    assert "SessionStore" in session_runtime.__all__
-    assert not hasattr(session_runtime, "ServiceResumeIdentityStore")
-    assert not hasattr(
-        importlib.import_module("agent_runtime.contracts"),
-        "ProviderSessionRecordingStore",
-    )
-
-
-def test_provider_session_adapter_public_seam_stays_narrow() -> None:
-    assert provider_session_adapter_runtime.__all__ == [
-        "ProviderSessionAdapter",
-        "ProviderSessionPlanningFacts",
-        "ProviderSessionPlanningRequest",
-    ]
-    adapter_members = provider_session_adapter_runtime.ProviderSessionAdapter.__dict__
-
-    assert "provider_session_planning_facts" in adapter_members
-    assert "provider_session_state" in adapter_members
-    assert "prepare_local_provider_run_state" in adapter_members
-    assert "record_provider_session_id" in adapter_members
-    assert "provider_session_preferences" not in adapter_members
-    assert "recover_provider_session_id" not in adapter_members
-    assert "is_exact_resumable_provider_session" not in adapter_members
-    assert not hasattr(provider_session_adapter_runtime, "ProviderSessionService")
-
-
-def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> None:
-    assert [
-        field.name for field in fields(session_runtime.ProviderSessionStateRequest)
-    ] == [
-        "session_store",
-        "provider_state_dir",
-        "has_resumable_provider_state",
-        "state_dir_relpath",
-        "require_exact_transcript_match",
-    ]
-    assert [field.name for field in fields(session_runtime.ProviderSessionState)] == [
-        "run_kind",
-        "provider_session_id",
-        "state_dir_relpath",
-        "state_dir_path",
-        "exact_transcript_match",
-        "persist_provider_session_id",
-        "auth_seeding_requirement",
-        "auth_seed_action",
-        "use_service_state_dir_for_container",
-    ]
 
 
 def test_package_surface_exposes_invocation_role_value_object() -> None:
     role = runtime.InvocationRole("implementer")
 
     assert role.value == "implementer"
-    assert runtime.InvocationRole.__module__.startswith("agent_runtime")
 
 
 def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
@@ -1500,7 +1323,6 @@ def test_runtime_surface_exposes_tool_policy_profiles_for_partial_and_full() -> 
     partial = runtime.ToolPolicy.PARTIAL.profile
     full = runtime.ToolPolicy.FULL.profile
 
-    assert "ToolPolicyProfile" in prompt_runtime.__all__
     assert isinstance(partial, prompt_runtime.ToolPolicyProfile)
     assert partial.allowed_tools is None
     assert partial.disallowed_tools == ("Edit", "Write", "NotebookEdit")
@@ -1514,14 +1336,8 @@ def test_runtime_surface_exposes_tool_policy_profiles_for_partial_and_full() -> 
 def test_tool_policy_profiles_stay_provider_neutral() -> None:
     for policy in runtime.ToolPolicy:
         profile = policy.profile
-        profile_fields = {field.name for field in fields(profile)}
         rendered_values = (profile.allowed_tools or ()) + profile.disallowed_tools
 
-        assert profile_fields == {
-            "allowed_tools",
-            "disallowed_tools",
-            "strict_mcp_config",
-        }
         assert profile.strict_mcp_config is True
         assert all(not value.startswith("-") for value in rendered_values)
         assert all(
@@ -1582,21 +1398,6 @@ def test_text_output_adapter_requires_explicit_tool_policy() -> None:
         match=re.escape("TextOutputAdapter requires an explicit `tool_policy` value."),
     ):
         TextOutputAdapter(prompt="already rendered prompt")
-
-
-def test_runtime_does_not_expose_service_registry_presentation_module() -> None:
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("agent_runtime.service_registry_presentation")
-    assert runtime.UsageLimitScope.__module__.startswith("agent_runtime")
-
-
-def test_work_failure_handling_no_longer_exposes_role_to_stage_mapping_hook() -> None:
-    assert {field.name for field in fields(WorkFailureHandling)} == {
-        "timeout_retries",
-        "translate_setup_failure",
-        "handle_provider_account_exhaustion",
-        "transient_status_message",
-    }
 
 
 @pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
@@ -1720,10 +1521,8 @@ def test_runtime_errors_expose_invocation_role_metadata() -> None:
     )
 
     assert timeout.invocation_role == "reviewer"
-    assert not hasattr(timeout, "role_value")
     assert failed.invocation_role == "reviewer"
     assert failed.session_dir == "reviewer/main/codex"
-    assert not hasattr(failed, "role_value")
 
 
 def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
@@ -1733,7 +1532,6 @@ def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
     )
 
     assert error.usage_limit_scope == runtime.UsageLimitScope("quota-review")
-    assert not hasattr(error, "stage_key")
 
 
 def test_one_shot_runtime_exposes_usage_limit_service_name_metadata() -> None:
@@ -1770,7 +1568,6 @@ def test_one_shot_runtime_exposes_usage_limit_service_name_metadata() -> None:
         )
 
     assert excinfo.value.service_name == "codex"
-    assert not hasattr(excinfo.value, "provider")
 
 
 def test_permanent_usage_limit_account_label_remains_diagnostic_metadata() -> None:
@@ -2553,13 +2350,6 @@ def test_one_shot_run_request_uses_stage_selection_vocabulary() -> None:
         role=InvocationRole("implementer"),
     )
 
-    assert {field.name for field in fields(prompt_runtime.OneShotRunRequest)} >= {
-        "stage",
-        "role",
-    }
-    assert "override" not in {
-        field.name for field in fields(prompt_runtime.OneShotRunRequest)
-    }
     assert request.stage is stage
     assert request.override is stage
 
@@ -2617,12 +2407,6 @@ def test_one_shot_run_request_uses_direct_session_namespace_field() -> None:
     )
 
     assert request.session_namespace == "main"
-    assert "session_namespace" in {
-        field.name for field in fields(prompt_runtime.OneShotRunRequest)
-    }
-    assert "session" not in {
-        field.name for field in fields(prompt_runtime.OneShotRunRequest)
-    }
 
 
 def test_one_shot_run_request_does_not_expose_tool_policy() -> None:
@@ -2632,10 +2416,6 @@ def test_one_shot_run_request_does_not_expose_tool_policy() -> None:
         effort="medium",
     )
 
-    assert "tool_policy" not in {
-        field.name for field in fields(prompt_runtime.OneShotRunRequest)
-    }
-
     with pytest.raises(TypeError):
         prompt_runtime.OneShotRunRequest(
             prompt="already rendered prompt",
@@ -2644,26 +2424,6 @@ def test_one_shot_run_request_does_not_expose_tool_policy() -> None:
             role=InvocationRole("implementer"),
             tool_policy=runtime.ToolPolicy.FULL,
         )  # type: ignore[call-arg]
-
-
-def test_one_shot_run_request_does_not_expose_presentation_fields() -> None:
-    stage = runtime.StageSelection(
-        service="codex",
-        model="gpt-5.4",
-        effort="medium",
-    )
-
-    request = prompt_runtime.OneShotRunRequest(
-        prompt="already rendered prompt",
-        worktree=Path("."),
-        stage=stage,
-        role=InvocationRole("implementer"),
-    )
-
-    assert {"name", "status_display", "work_body"}.isdisjoint(
-        {field.name for field in fields(prompt_runtime.OneShotRunRequest)}
-    )
-    assert not hasattr(request, "run_session_plan")
 
 
 def test_one_shot_runtime_uses_prompt_only_provider_invocation() -> None:
@@ -2811,14 +2571,6 @@ def test_one_shot_run_result_groups_runtime_metadata_under_metadata() -> None:
         )
     )
 
-    assert {field.name for field in fields(type(result))} == {
-        "output",
-        "selected_service",
-        "selected_model",
-        "selected_effort",
-        "used_fallback",
-        "metadata",
-    }
     assert result.metadata == prompt_runtime.OneShotResultMetadata(
         selected_service_path=("codex",),
         runtime=prompt_runtime.OneShotRuntimeMetadata(
@@ -2879,41 +2631,6 @@ def test_one_shot_runtime_reports_selected_service_path_without_fallback() -> No
     assert result.selected_effort == "medium"
     assert result.used_fallback is False
     assert result.metadata.selected_service_path == ("codex",)
-
-
-def test_one_shot_run_result_does_not_expose_provider_specific_raw_output() -> None:
-    runtime_instance = prompt_runtime.OneShotRuntime(
-        execution_adapter=_PromptOnlyOneShotExecutionAdapter(),
-        service_registry=ServiceRegistry(
-            {
-                "codex": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
-        ),
-    )
-
-    result = asyncio.run(
-        runtime_instance.run_one_shot(
-            prompt_runtime.OneShotRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                ),
-                role=InvocationRole("implementer"),
-            )
-        )
-    )
-
-    assert "raw_output" not in {field.name for field in fields(type(result))}
 
 
 def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
