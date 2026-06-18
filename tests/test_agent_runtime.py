@@ -3043,6 +3043,15 @@ def test_runtime_star_import_uses_lifecycle_surface_while_kept_one_shot_aliases_
     assert prompt_runtime.OneShotRunRequest is not None
 
 
+def test_runtime_direct_import_rejects_removed_resumable_completed_result_names() -> (
+    None
+):
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ResumableRunResult", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ResumableRuntimeMetadata", {}, {})
+
+
 def test_types_module_exposes_stage_selection_as_the_only_stage_chain_value() -> None:
     types_module = importlib.import_module("agent_runtime.types")
 
