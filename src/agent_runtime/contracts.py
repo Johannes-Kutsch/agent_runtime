@@ -34,6 +34,11 @@ class Result:
 
 
 @dataclasses.dataclass
+class ModelActivity:
+    pass
+
+
+@dataclasses.dataclass
 class UsageLimit:
     reset_time: datetime | None
     raw_message: str | None = None
@@ -78,6 +83,7 @@ ParsedTurn = (
     | PromptTokens
     | UnsupportedTokens
     | Result
+    | ModelActivity
     | UsageLimit
     | TransientError
     | HardError
@@ -246,6 +252,7 @@ __all__ = [
     "CredentialFailure",
     "ExecutionProvider",
     "HardError",
+    "ModelActivity",
     "ParsedTurn",
     "PromptTokens",
     "ResumableExecutionProvider",

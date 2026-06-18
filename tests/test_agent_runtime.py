@@ -24,6 +24,7 @@ from agent_runtime.contracts import (
     CredentialFailure,
     ExecutionProvider,
     HardError,
+    ModelActivity,
     PromptTokens,
     Result,
     ResumabilityProvider,
@@ -421,6 +422,61 @@ class _StartedUsageLimitOneShotRunner(_RoleAwareOneShotWorkRunner):
             reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
             service_name="codex",
             invocation_progress=runtime.InvocationProgress.STARTED,
+        )
+
+
+class _ModelActivityUsageLimitOneShotRunner(_RoleAwareOneShotWorkRunner):
+    async def prompt_only(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, run_kind, session_uuid, on_provider_session_id
+        return reduce_text_output_events(
+            [
+                ModelActivity(),
+                UsageLimit(
+                    reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+                ),
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+
+class _ModelActivityUsageLimitOneShotExecutionAdapter(
+    _RoleAwareOneShotExecutionAdapter
+):
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=lambda run_session: cast(
+                    PreparedRunSessionState, _PreparedRunSession()
+                ),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _ModelActivityUsageLimitOneShotRunner(),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
         )
 
 
@@ -3139,6 +3195,25 @@ def test_one_shot_runtime_reports_started_progress_for_no_service_available_outc
     )
 
 
+def test_one_shot_runtime_prefers_adapter_reported_model_activity_for_no_service_available_outcome(
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_ModelActivityUsageLimitOneShotExecutionAdapter(),
+            service_registry=service_registry_factory("codex"),
+        ).run_one_shot(one_shot_request_factory())
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+    )
+
+
 def test_one_shot_runtime_returns_no_service_available_outcome_when_all_configured_candidates_are_temporarily_unavailable(
     one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
     service_registry_factory: Callable[..., ServiceRegistry],
@@ -4700,6 +4775,26 @@ def test_provider_output_reduction_reports_started_progress_for_retryable_provid
         reduce_text_output_events(
             [
                 AssistantTurn("hello"),
+                TransientError(
+                    status_code=503,
+                    raw_message="retry",
+                    classification="retryable",
+                ),
+            ],
+            lambda _turn: None,
+            provider="codex",
+        )
+
+    assert exc_info.value.invocation_progress is runtime.InvocationProgress.STARTED
+
+
+def test_provider_output_reduction_accepts_explicit_model_activity_for_retryable_provider_failure() -> (
+    None
+):
+    with pytest.raises(RetryableProviderFailureError) as exc_info:
+        reduce_text_output_events(
+            [
+                ModelActivity(),
                 TransientError(
                     status_code=503,
                     raw_message="retry",
