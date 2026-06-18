@@ -2840,6 +2840,114 @@ class _HardFailureResidentExecutionAdapter:
         )
 
 
+class _UnclassifiedProviderFailureResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise AgentFailedError(role.value, Path("/repo"), service_name="codex")
+
+
+class _UnclassifiedProviderFailureResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _UnclassifiedProviderFailureResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
+class _UnexpectedFailureResidentRunner(_ResidentSeamRunner):
+    async def work_text(
+        self,
+        prompt: str,
+        *,
+        role: InvocationRole = InvocationRole("implementer"),
+        tool_policy: Any = runtime.ToolPolicy.FULL,
+        run_kind: RunKind = RunKind.FRESH,
+        session_uuid: str | None = None,
+        on_provider_session_id: Any = None,
+    ) -> str:
+        del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
+        raise RuntimeError("unexpected failure")
+
+
+class _UnexpectedFailureResidentExecutionAdapter:
+    def resolve_service(self, service_name: str = "") -> ExecutionProvider:
+        return _ExecutionService(service_name)
+
+    def build_work_dependencies(
+        self,
+        *,
+        name: str,
+        model: str,
+        effort: str,
+        service: ExecutionProvider,
+    ) -> WorkInvocationDependencies:
+        del name, model, effort, service
+
+        def _prepare_session(run_session: Any) -> _ResidentAdapterPreparedRunSession:
+            return _ResidentAdapterPreparedRunSession(
+                provider_state_dir_container_path="/workspace/runtime-state/",
+                run_kind=run_session.run_kind,
+                provider_session_id=f"prepared:{run_session.provider_session_id}",
+            )
+
+        return WorkInvocationDependencies(
+            execution=WorkExecutionDependencies(
+                container_workspace="/workspace",
+                prepare_session=cast(Any, _prepare_session),
+                build_session=lambda mount_path, service, provider_state_dir: _Session(
+                    provider_state_dir
+                ),
+                build_runner=lambda session, status_display: cast(
+                    WorkExecutionAdapter,
+                    _UnexpectedFailureResidentRunner(cast(_Session, session)),
+                ),
+                get_git_identity=lambda: ("Runtime Test", "runtime@example.com"),
+            ),
+            failure_handling=WorkFailureHandling(timeout_retries=0),
+            presentation=WorkPresentationDependencies(),
+        )
+
+
 def test_package_exports_runtime_surface() -> None:
     assert runtime.__all__ == [
         "AgentCredentialFailureError",
@@ -5861,6 +5969,22 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
         asyncio.run(
             prompt_runtime.NewSessionRuntime(
                 execution_adapter=_TransientProviderFailureResidentExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_new_session(request)
+        )
+
+    with pytest.raises(AgentFailedError):
+        asyncio.run(
+            prompt_runtime.NewSessionRuntime(
+                execution_adapter=_UnclassifiedProviderFailureResidentExecutionAdapter(),
+                service_registry=service_registry_factory("codex"),
+            ).run_new_session(request)
+        )
+
+    with pytest.raises(RuntimeError, match="unexpected failure"):
+        asyncio.run(
+            prompt_runtime.NewSessionRuntime(
+                execution_adapter=_UnexpectedFailureResidentExecutionAdapter(),
                 service_registry=service_registry_factory("codex"),
             ).run_new_session(request)
         )
