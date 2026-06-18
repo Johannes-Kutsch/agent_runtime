@@ -421,8 +421,10 @@ class EphemeralRunRequest:
 class NewSessionRunRequest:
     prompt: str
     worktree: Path
+    runtime_state_dir: Path | None
     stage: StageSelection
     role: InvocationRole
+    provider_auth: ProviderAuth | None
     session_store: Any
     provider_session_adapter: ProviderSessionAdapter
     tool_access: ToolAccess
@@ -437,8 +439,10 @@ class NewSessionRunRequest:
         self,
         prompt: str,
         worktree: Path | WorktreeMount,
+        runtime_state_dir: Path | None = None,
         stage: StageSelection | None = None,
         role: InvocationRole | None = None,
+        provider_auth: ProviderAuth | None = None,
         session_store: Any | None = None,
         provider_session_adapter: ProviderSessionAdapter | None = None,
         usage_limit_scope: UsageLimitScope | None = None,
@@ -462,12 +466,6 @@ class NewSessionRunRequest:
             raise TypeError("NewSessionRunRequest requires a `stage` value.")
         if role is None:
             raise TypeError("NewSessionRunRequest requires a `role` value.")
-        if session_store is None:
-            raise TypeError("NewSessionRunRequest requires a `session_store` value.")
-        if provider_session_adapter is None:
-            raise TypeError(
-                "NewSessionRunRequest requires a `provider_session_adapter` value."
-            )
         worktree_path = (
             worktree.host_path if isinstance(worktree, WorktreeMount) else worktree
         )
@@ -498,8 +496,10 @@ class NewSessionRunRequest:
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree_path)
+        object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
         object.__setattr__(self, "stage", stage)
         object.__setattr__(self, "role", role)
+        object.__setattr__(self, "provider_auth", provider_auth)
         object.__setattr__(self, "session_store", session_store)
         object.__setattr__(
             self,
@@ -550,12 +550,14 @@ class SessionRunResult:
 class ResumedSessionRunRequest:
     prompt: str
     worktree: WorktreeMount
+    runtime_state_dir: Path | None
     model: str
     effort: str
     role: InvocationRole
     session_namespace: str
     session_plan: ResumableSessionPlan | None
     continuation: Continuation | None
+    provider_auth: ProviderAuth | None
     tool_access: ToolAccess
     usage_limit_scope: UsageLimitScope | None = None
     name: str = "Runtime Agent"
@@ -566,12 +568,14 @@ class ResumedSessionRunRequest:
     def __init__(
         self,
         prompt: str,
-        worktree: WorktreeMount,
+        worktree: Path | WorktreeMount,
+        runtime_state_dir: Path | None = None,
         model: str | None = None,
         effort: str | None = None,
         session_plan: ResumableSessionPlan | None = None,
         continuation: Continuation | None = None,
         role: InvocationRole | None = None,
+        provider_auth: ProviderAuth | None = None,
         session_namespace: str = "",
         usage_limit_scope: UsageLimitScope | None = None,
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
@@ -585,6 +589,9 @@ class ResumedSessionRunRequest:
             raise TypeError(
                 "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
             )
+        worktree_path = (
+            worktree.host_path if isinstance(worktree, WorktreeMount) else worktree
+        )
         if (
             isinstance(tool_access, ToolAccess)
             and tool_policy is not _MISSING_TOOL_POLICY
@@ -626,7 +633,7 @@ class ResumedSessionRunRequest:
                 resolved_tool_access = tool_access
             elif tool_policy is not _MISSING_TOOL_POLICY:
                 resolved_tool_access = ToolAccess.workspace_backed(
-                    worktree.host_path,
+                    worktree_path,
                     tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
                 )
             else:
@@ -639,18 +646,23 @@ class ResumedSessionRunRequest:
             resolved_session_namespace = session_plan.namespace
             usage_limit_scope = session_plan.usage_limit_scope
         resolved_tool_access.require_workspace(
-            worktree.host_path,
+            worktree_path,
             context="ResumedSessionRunRequest",
+        )
+        resolved_worktree = (
+            worktree if isinstance(worktree, WorktreeMount) else WorktreeMount(worktree)
         )
 
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", worktree)
+        object.__setattr__(self, "worktree", resolved_worktree)
+        object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
         object.__setattr__(self, "model", resolved_model)
         object.__setattr__(self, "effort", resolved_effort)
         object.__setattr__(self, "role", resolved_role)
         object.__setattr__(self, "session_namespace", resolved_session_namespace)
         object.__setattr__(self, "session_plan", session_plan)
         object.__setattr__(self, "continuation", continuation)
+        object.__setattr__(self, "provider_auth", provider_auth)
         object.__setattr__(self, "tool_access", resolved_tool_access)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
         object.__setattr__(self, "name", name)

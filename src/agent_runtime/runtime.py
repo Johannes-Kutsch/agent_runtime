@@ -17,6 +17,10 @@ from .execution_contracts import (
     WorktreeMount,
 )
 from .errors import (
+    AgentCancelledError,
+    AgentTimeoutError,
+    NoServiceAvailableError,
+    RetryableProviderFailureError,
     RuntimeConfigurationError,
     UsageLimitError,
 )
@@ -135,6 +139,10 @@ _parse_opencode_reset_time = _builtin_runtime_client_module._parse_opencode_rese
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
 _supported_builtin_stage = _builtin_runtime_client_module.supported_builtin_stage
 _BuiltInAvailabilityState = _builtin_runtime_client_module.BuiltInAvailabilityState
+_run_builtin_new_session = _builtin_runtime_client_module._run_builtin_new_session
+_run_builtin_resumed_session = (
+    _builtin_runtime_client_module._run_builtin_resumed_session
+)
 
 
 def _parse_claude_event(line: str) -> list[Any]:
@@ -156,6 +164,54 @@ def _reduce_claude_stream(
 
 def _reduce_opencode_stream(lines: list[str]) -> str:
     return _builtin_runtime_client_module._reduce_opencode_stream(lines)
+
+
+def _run_builtin_session_outcome(
+    call: Any,
+) -> RuntimeOutcome:
+    try:
+        return call()
+    except AgentCancelledError as exc:
+        return RuntimeOutcome.cancelled(
+            output="",
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+            usage=exc.usage,
+        )
+    except AgentTimeoutError as exc:
+        return RuntimeOutcome.timed_out(
+            output="",
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+            usage=exc.usage,
+        )
+    except NoServiceAvailableError as exc:
+        return RuntimeOutcome.no_service_available(
+            output="",
+            reset_time=exc.reset_time,
+            usage_limit_scope=exc.usage_limit_scope,
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+            usage=exc.usage,
+        )
+    except RetryableProviderFailureError as exc:
+        return RuntimeOutcome.retryable_provider_failure(
+            output="",
+            service_name=exc.service_name,
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+            usage=exc.usage,
+        )
+    except UsageLimitError as exc:
+        return RuntimeOutcome.usage_limited(
+            output="",
+            service_name=exc.service_name,
+            reset_time=exc.reset_time,
+            usage_limit_scope=exc.usage_limit_scope,
+            invocation_progress=exc.invocation_progress,
+            continuation=exc.continuation,
+            usage=exc.usage,
+        )
 
 
 class EphemeralRuntime:
@@ -275,6 +331,17 @@ class RuntimeClient:
                 result=result,
                 usage=result.usage,
             )
+
+    async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
+        return _run_builtin_session_outcome(lambda: _run_builtin_new_session(request))
+
+    async def run_resumed_session(
+        self,
+        request: ResumedSessionRunRequest,
+    ) -> RuntimeOutcome:
+        return _run_builtin_session_outcome(
+            lambda: _run_builtin_resumed_session(request)
+        )
 
 
 def _run_builtin_ephemeral(

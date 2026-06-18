@@ -6,18 +6,25 @@ import re
 import shlex
 import subprocess
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
 
 from . import _time as _time_module
 from ._runtime_lifecycle import (
+    Continuation,
     EphemeralResultMetadata,
     EphemeralRunRequest,
     EphemeralRunResult,
     EphemeralRuntimeMetadata,
     ProviderAuth,
     ProviderUsage,
+    ResumedSessionRunRequest,
+    RuntimeOutcome,
+    SessionRunResult,
+    SessionRuntimeMetadata,
+    NewSessionRunRequest,
 )
 from .contracts import (
     AssistantTurn,
@@ -36,9 +43,10 @@ from .errors import (
     RuntimeConfigurationError,
     UsageLimitError,
 )
+from .invocation_progress import InvocationProgress
 from .provider_errors import ProviderErrorObservation
 from .provider_output import reduce_text_output_events
-from .session import RunKind
+from .session import RunKind, provider_state_relpath
 from .stage_priority_chain import iter_stage_chain
 from .types import StageSelection
 
@@ -268,6 +276,8 @@ def _claude_command(
     effort: str,
     tool_access: ToolAccess,
     prompt_path: Path,
+    run_kind: RunKind = RunKind.FRESH,
+    session_uuid: str | None = None,
 ) -> str:
     profile = (
         tool_access.tool_policy.profile
@@ -288,6 +298,11 @@ def _claude_command(
         flags += f" --model {model}"
     if effort:
         flags += f" --effort {effort}"
+    if session_uuid:
+        if run_kind == RunKind.RESUME:
+            flags += f" --resume {shlex.quote(session_uuid)}"
+        else:
+            flags += f" --session-id {shlex.quote(session_uuid)}"
     return f"claude {flags} < {shlex.quote(str(prompt_path))}"
 
 
@@ -1123,6 +1138,59 @@ def _select_builtin_stage(stage: StageSelection) -> StageSelection:
     )
 
 
+def _new_provider_session_id() -> str:
+    return str(uuid.uuid4())
+
+
+def _claude_provider_state_dir_relpath(
+    *,
+    role: Any,
+    session_namespace: str,
+) -> str:
+    return cast(str, provider_state_relpath(role, "claude", session_namespace))
+
+
+def _claude_is_resumable(state_dir: Path) -> bool:
+    return state_dir.is_dir() and any(path.is_file() for path in state_dir.rglob("*"))
+
+
+def _claude_prepare_runtime_state(
+    runtime_state_dir: Path,
+    *,
+    role: Any,
+    session_namespace: str,
+) -> tuple[str, Path]:
+    provider_state_dir_relpath = _claude_provider_state_dir_relpath(
+        role=role,
+        session_namespace=session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    return provider_state_dir_relpath, provider_state_dir
+
+
+def _build_claude_continuation(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    provider_session_id: str,
+    provider_state_dir_relpath: str,
+) -> Continuation:
+    return Continuation(
+        selected_service="claude",
+        selected_model=model,
+        selected_effort=effort,
+        tool_access=tool_access,
+        provider_resume_state={
+            "run_kind": RunKind.RESUME.value,
+            "provider_session_id": provider_session_id,
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": False,
+        },
+    )
+
+
 def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
     *,
@@ -1259,6 +1327,225 @@ def _run_builtin_ephemeral(
             runtime=EphemeralRuntimeMetadata(
                 run_kind=RunKind.FRESH,
                 session_namespace=request.session_namespace,
+            ),
+        ),
+        usage=usage,
+    )
+
+
+def _require_runtime_state_dir(runtime_state_dir: Path | None, *, context: str) -> Path:
+    if runtime_state_dir is None:
+        raise TypeError(f"{context} requires a `runtime_state_dir` value.")
+    return runtime_state_dir
+
+
+def _require_claude_auth(auth: ProviderAuth | None) -> None:
+    if auth is not None and auth.claude_code_oauth_token:
+        return
+    raise AgentCredentialFailureError(
+        message="Missing Claude Code OAuth token.",
+        service_name="claude",
+        observations=(),
+    )
+
+
+def _run_builtin_new_session(request: NewSessionRunRequest) -> RuntimeOutcome:
+    runtime_state_dir = _require_runtime_state_dir(
+        request.runtime_state_dir,
+        context="NewSessionRunRequest",
+    )
+    if supported_builtin_stage(request.stage) is None:
+        raise RuntimeConfigurationError(
+            "RuntimeClient requires at least one supported built-in service candidate."
+        )
+    selected_stage = _select_builtin_stage(request.stage)
+    if selected_stage.service != "claude":
+        raise RuntimeConfigurationError(
+            "RuntimeClient session-backed execution is only implemented for Claude."
+        )
+    provider_state_dir_relpath, provider_state_dir = _claude_prepare_runtime_state(
+        runtime_state_dir,
+        role=request.role,
+        session_namespace=request.session_namespace,
+    )
+    if _claude_is_resumable(provider_state_dir):
+        return _run_builtin_resumed_session(
+            ResumedSessionRunRequest(
+                prompt=request.prompt,
+                worktree=cast(Any, request.worktree),
+                runtime_state_dir=runtime_state_dir,
+                continuation=_build_claude_continuation(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=_new_provider_session_id(),
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                ),
+                role=request.role,
+                provider_auth=request.provider_auth,
+                usage_limit_scope=request.usage_limit_scope,
+                session_namespace=request.session_namespace,
+            )
+        )
+    _validate_claude_stage(selected_stage)
+    _require_claude_auth(request.provider_auth)
+    provider_session_id = _new_provider_session_id()
+    prompt_path = request.worktree / ".pycastle_prompt"
+    prompt_path.write_text(request.prompt)
+    try:
+        process = subprocess.Popen(
+            _claude_command(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                tool_access=request.tool_access,
+                prompt_path=prompt_path,
+                run_kind=RunKind.FRESH,
+                session_uuid=provider_session_id,
+            ),
+            shell=True,
+            cwd=request.worktree,
+            env=_claude_env(
+                auth=request.provider_auth,
+                state_dir_container_path=str(provider_state_dir),
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout_lines = [] if process.stdout is None else list(process.stdout)
+        result_text, usage = _reduce_claude_stream(stdout_lines)
+        process.wait()
+    except (UsageLimitError, RetryableProviderFailureError) as exc:
+        exc.continuation = (
+            _build_claude_continuation(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                tool_access=request.tool_access,
+                provider_session_id=provider_session_id,
+                provider_state_dir_relpath=provider_state_dir_relpath,
+            )
+            if exc.invocation_progress is InvocationProgress.STARTED
+            else None
+        )
+        raise
+    finally:
+        prompt_path.unlink(missing_ok=True)
+    return RuntimeOutcome.completed(
+        output=result_text,
+        result=SessionRunResult(
+            output=result_text,
+            runtime_metadata=SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id=provider_session_id,
+                run_kind=RunKind.FRESH,
+                session_namespace=request.session_namespace,
+                exact_transcript_match=False,
+            ),
+            continuation=_build_claude_continuation(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                tool_access=request.tool_access,
+                provider_session_id=provider_session_id,
+                provider_state_dir_relpath=provider_state_dir_relpath,
+            ),
+        ),
+        usage=usage,
+    )
+
+
+def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOutcome:
+    runtime_state_dir = _require_runtime_state_dir(
+        request.runtime_state_dir,
+        context="ResumedSessionRunRequest",
+    )
+    continuation = request.continuation
+    if continuation is None:
+        raise RuntimeConfigurationError(
+            "RuntimeClient resumed-session execution requires a continuation."
+        )
+    if continuation.selected_service != "claude":
+        raise RuntimeConfigurationError(
+            "RuntimeClient session-backed execution is only implemented for Claude."
+        )
+    _require_claude_auth(request.provider_auth)
+    provider_resume_state = continuation.provider_resume_state
+    if not isinstance(provider_resume_state, dict):
+        raise RuntimeConfigurationError(
+            "Continuation provider_resume_state must be a JSON object."
+        )
+    provider_state_dir_relpath = cast(
+        str | None,
+        provider_resume_state.get("provider_state_dir_relpath"),
+    )
+    if not provider_state_dir_relpath:
+        raise RuntimeConfigurationError(
+            "Claude continuation is missing `provider_state_dir_relpath`."
+        )
+    provider_session_id = cast(
+        str | None,
+        provider_resume_state.get("provider_session_id"),
+    )
+    if not provider_session_id:
+        provider_session_id = _new_provider_session_id()
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = request.worktree.host_path / ".pycastle_prompt"
+    prompt_path.write_text(request.prompt)
+    try:
+        process = subprocess.Popen(
+            _claude_command(
+                model=request.model,
+                effort=request.effort,
+                tool_access=request.tool_access,
+                prompt_path=prompt_path,
+                run_kind=RunKind.RESUME,
+                session_uuid=provider_session_id,
+            ),
+            shell=True,
+            cwd=request.worktree.host_path,
+            env=_claude_env(
+                auth=request.provider_auth,
+                state_dir_container_path=str(provider_state_dir),
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout_lines = [] if process.stdout is None else list(process.stdout)
+        result_text, usage = _reduce_claude_stream(stdout_lines)
+        process.wait()
+    except (UsageLimitError, RetryableProviderFailureError) as exc:
+        exc.continuation = (
+            _build_claude_continuation(
+                model=request.model,
+                effort=request.effort,
+                tool_access=request.tool_access,
+                provider_session_id=provider_session_id,
+                provider_state_dir_relpath=provider_state_dir_relpath,
+            )
+            if exc.invocation_progress is InvocationProgress.STARTED
+            else None
+        )
+        raise
+    finally:
+        prompt_path.unlink(missing_ok=True)
+    return RuntimeOutcome.completed(
+        output=result_text,
+        result=SessionRunResult(
+            output=result_text,
+            runtime_metadata=SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id=provider_session_id,
+                run_kind=RunKind.RESUME,
+                session_namespace=request.session_namespace,
+                exact_transcript_match=False,
+            ),
+            continuation=_build_claude_continuation(
+                model=request.model,
+                effort=request.effort,
+                tool_access=request.tool_access,
+                provider_session_id=provider_session_id,
+                provider_state_dir_relpath=provider_state_dir_relpath,
             ),
         ),
         usage=usage,

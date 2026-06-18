@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -214,6 +215,495 @@ def test_runtime_client_runs_rendered_prompt_through_claude_subprocess(
             ),
         ),
     )
+
+
+def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "assistant",
+                            "message": {
+                                "content": [{"type": "text", "text": "intermediate"}],
+                                "usage": {
+                                    "input_tokens": 5,
+                                    "cache_creation_input_tokens": 0,
+                                    "cache_read_input_tokens": 0,
+                                },
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps({"type": "result", "result": "final output"}) + "\n",
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _ClaudeProcess:
+        captured["command"] = command
+        captured["cwd"] = cwd
+        captured["env"] = env
+        captured["stdout"] = stdout
+        captured["stderr"] = stderr
+        captured["text"] = text
+        return _ClaudeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    provider_state_dir_relpath = "implementer/main/claude/"
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="final output",
+        result=prompt_runtime.SessionRunResult(
+            output="final output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="session-uuid",
+                run_kind=RunKind.FRESH,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "session-uuid",
+                    "provider_state_dir_relpath": provider_state_dir_relpath,
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=5,
+            output_tokens=None,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+            cost_usd=None,
+            duration_seconds=None,
+        ),
+    )
+    assert captured["cwd"] == tmp_path
+    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
+    assert captured["env"]["CLAUDE_CONFIG_DIR"] == str(provider_state_dir)
+    assert "--session-id session-uuid" in captured["command"]
+    assert "--resume" not in captured["command"]
+    assert provider_state_dir.is_dir()
+
+
+def test_runtime_client_runs_claude_resumed_session_from_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "assistant",
+                            "message": {
+                                "content": [{"type": "text", "text": "intermediate"}],
+                                "usage": {
+                                    "input_tokens": 7,
+                                    "cache_creation_input_tokens": 0,
+                                    "cache_read_input_tokens": 1,
+                                },
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps({"type": "result", "result": "continued output"}) + "\n",
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _ClaudeProcess:
+        captured["command"] = command
+        captured["cwd"] = cwd
+        captured["env"] = env
+        return _ClaudeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "claude-session-123",
+            "provider_state_dir_relpath": "implementer/main/claude/",
+            "exact_transcript_match": False,
+        },
+    )
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                model="opus",
+                effort="high",
+            )
+        )
+    )
+
+    provider_state_dir = runtime_state_dir / "implementer/main/claude/"
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="claude-session-123",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="opus",
+                selected_effort="high",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "claude-session-123",
+                    "provider_state_dir_relpath": "implementer/main/claude/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=7,
+            output_tokens=None,
+            cache_read_input_tokens=1,
+            cache_creation_input_tokens=0,
+            cost_usd=None,
+            duration_seconds=None,
+        ),
+    )
+    assert captured["cwd"] == tmp_path
+    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
+    assert captured["env"]["CLAUDE_CONFIG_DIR"] == str(provider_state_dir)
+    assert "--resume claude-session-123" in captured["command"]
+    assert "--session-id" not in captured["command"]
+    assert "--model opus" in captured["command"]
+    assert "--effort high" in captured["command"]
+
+
+def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "assistant",
+                            "message": {
+                                "content": [{"type": "text", "text": "thinking"}],
+                                "usage": {
+                                    "input_tokens": 3,
+                                    "cache_creation_input_tokens": 0,
+                                    "cache_read_input_tokens": 0,
+                                },
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "is_error": True,
+                            "api_error_status": 429,
+                            "result": "usage limited",
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: _ClaudeProcess(),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="claude",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "session-uuid",
+                "provider_state_dir_relpath": "implementer/main/claude/",
+                "exact_transcript_match": False,
+            },
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=3,
+            output_tokens=None,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+            cost_usd=None,
+            duration_seconds=None,
+        ),
+    )
+
+
+def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "is_error": True,
+                            "api_error_status": 429,
+                            "result": "usage limited",
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: _ClaudeProcess(),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="claude",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+    )
+
+
+def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps({"type": "result", "result": "continued output"}) + "\n",
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _ClaudeProcess:
+        captured["command"] = command
+        captured["env"] = env
+        return _ClaudeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/claude" / "nested"
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "transcript.json").write_text("{}", encoding="utf-8")
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome.result is not None
+    assert outcome.result.runtime_metadata.run_kind is RunKind.RESUME
+    assert "--resume session-uuid" in captured["command"]
+    assert "--session-id" not in captured["command"]
 
 
 def test_runtime_client_runs_opencode_ephemeral_stage_through_builtin_provider(
