@@ -1169,6 +1169,12 @@ def _claude_prepare_runtime_state(
     return provider_state_dir_relpath, provider_state_dir
 
 
+def _claude_run_kind_for_state_dir(state_dir: Path) -> RunKind:
+    if _claude_is_resumable(state_dir):
+        return RunKind.RESUME
+    return RunKind.FRESH
+
+
 def _build_claude_continuation(
     *,
     model: str,
@@ -1489,6 +1495,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
         provider_session_id = _new_provider_session_id()
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
     provider_state_dir.mkdir(parents=True, exist_ok=True)
+    run_kind = _claude_run_kind_for_state_dir(provider_state_dir)
     prompt_path = request.worktree.host_path / ".pycastle_prompt"
     prompt_path.write_text(request.prompt)
     try:
@@ -1498,7 +1505,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
                 effort=request.effort,
                 tool_access=request.tool_access,
                 prompt_path=prompt_path,
-                run_kind=RunKind.RESUME,
+                run_kind=run_kind,
                 session_uuid=provider_session_id,
             ),
             shell=True,
@@ -1536,7 +1543,7 @@ def _run_builtin_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOu
             runtime_metadata=SessionRuntimeMetadata(
                 service_name="claude",
                 provider_session_id=provider_session_id,
-                run_kind=RunKind.RESUME,
+                run_kind=run_kind,
                 session_namespace=request.session_namespace,
                 exact_transcript_match=False,
             ),

@@ -404,6 +404,9 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
         },
     )
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/claude"
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "session.jsonl").write_text("{}\n", encoding="utf-8")
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_resumed_session(
@@ -422,8 +425,6 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
             )
         )
     )
-
-    provider_state_dir = runtime_state_dir / "implementer/main/claude/"
 
     assert outcome == prompt_runtime.RuntimeOutcome.completed(
         output="continued output",
@@ -465,6 +466,110 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     assert "--session-id" not in captured["command"]
     assert "--model opus" in captured["command"]
     assert "--effort high" in captured["command"]
+
+
+@pytest.mark.parametrize("create_state_dir", [False, True])
+def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is_not_resumable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    create_state_dir: bool,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _ClaudeProcess:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    json.dumps({"type": "result", "result": "fresh output"}) + "\n",
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _ClaudeProcess:
+        captured["command"] = command
+        captured["cwd"] = cwd
+        captured["env"] = env
+        return _ClaudeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir_relpath = "implementer/main/claude/"
+    if create_state_dir:
+        (runtime_state_dir / provider_state_dir_relpath).mkdir(parents=True)
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "claude-session-123",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": False,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="fresh output",
+        result=prompt_runtime.SessionRunResult(
+            output="fresh output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="claude-session-123",
+                run_kind=RunKind.FRESH,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "claude-session-123",
+                    "provider_state_dir_relpath": provider_state_dir_relpath,
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=None,
+    )
+    assert captured["cwd"] == tmp_path
+    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
+    assert "--session-id claude-session-123" in captured["command"]
+    assert "--resume" not in captured["command"]
 
 
 def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_session(
