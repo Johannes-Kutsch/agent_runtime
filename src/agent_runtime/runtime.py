@@ -82,6 +82,15 @@ class RuntimeOutcome:
         return result.metadata
 
     @property
+    def selected_service_path(self) -> tuple[str, ...]:
+        result = self.result
+        if not isinstance(result, OneShotRunResult):
+            raise AttributeError(
+                "Completed outcome does not carry one-shot selection metadata."
+            )
+        return result.selected_service_path
+
+    @property
     def selected_service(self) -> str:
         result = self.result
         if not isinstance(result, OneShotRunResult):
@@ -116,6 +125,10 @@ class RuntimeOutcome:
                 "Completed outcome does not carry one-shot selection metadata."
             )
         return result.used_fallback
+
+    @property
+    def raw_output(self) -> str:
+        return self.output
 
 
 @dataclasses.dataclass(frozen=True, init=False)

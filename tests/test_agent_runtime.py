@@ -1959,6 +1959,30 @@ def test_one_shot_runtime_returns_completed_outcome_with_normalized_output(
     )
 
 
+def test_one_shot_runtime_preserves_one_shot_result_convenience_fields_on_completed_outcome(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    one_shot_request_factory: Callable[..., prompt_runtime.OneShotRunRequest],
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    result = asyncio.run(
+        prompt_runtime.OneShotRuntime(
+            execution_adapter=_OneShotExecutionAdapter(),
+            service_registry=service_registry_factory("claude"),
+        ).run_one_shot(
+            one_shot_request_factory(
+                stage=stage_selection_factory(
+                    service="claude",
+                    model="gpt-5",
+                    effort="medium",
+                )
+            )
+        )
+    )
+
+    assert result.raw_output == "claude:already rendered prompt"
+    assert result.selected_service_path == ("claude",)
+
+
 def test_one_shot_runtime_request_requires_explicit_invocation_role(
     stage_selection_factory: Callable[..., runtime.StageSelection],
 ) -> None:
