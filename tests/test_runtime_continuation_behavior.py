@@ -839,6 +839,69 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
             "exact_transcript_match": False,
         },
     )
+    assert (
+        result.result.runtime_metadata.tool_policy
+        == runtime.ToolPolicy.NO_FILE_MUTATION
+    )
+
+
+def test_resumed_session_runtime_reuses_continuation_tool_policy_across_roundtrip() -> (
+    None
+):
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        ),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    first = asyncio.run(
+        compat_runtime.ResumedSessionRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+        ).run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+    assert first.kind == "completed"
+    assert isinstance(first.result, prompt_runtime.SessionRunResult)
+    assert first.result.runtime_metadata.tool_policy == (
+        runtime.ToolPolicy.NO_FILE_MUTATION
+    )
+
+    second = asyncio.run(
+        compat_runtime.ResumedSessionRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+        ).run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=first.result.continuation,
+            )
+        )
+    )
+    assert second.kind == "completed"
+    assert isinstance(second.result, prompt_runtime.SessionRunResult)
+    assert second.result.runtime_metadata.tool_policy == (
+        runtime.ToolPolicy.NO_FILE_MUTATION
+    )
 
 
 def test_resumed_session_runtime_resumes_from_opaque_continuation_token() -> None:
