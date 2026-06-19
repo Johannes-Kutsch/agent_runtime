@@ -42,6 +42,45 @@ def test_public_api_documents_ordinary_runtime_consumer_surface() -> None:
     assert "managed worktrees" not in public_api
 
 
+def test_public_api_documents_live_runtime_output_consumer_surface() -> None:
+    public_api = _read_repo_doc("docs/public-api.md")
+
+    assert "### Live Runtime Output" in public_api
+    assert "AgentMessageTurn(\n    text: str,\n    service_name: str," in public_api
+    assert (
+        "available from both `agent_runtime` and `agent_runtime.runtime`" in public_api
+    )
+    assert "on_live_output: Callable[[AgentMessageTurn], None] | None = None" in (
+        public_api
+    )
+    assert "`on_live_output` is also available for Start Session Run." in public_api
+    assert "`on_live_output` is also available for Resume Session Run." in public_api
+    assert (
+        "Live Runtime Output is agent-message-turn observation, not token-by-token"
+        " streaming."
+    ) in public_api
+    assert (
+        "It is provider-neutral and does not expose raw provider stdout, raw JSON,"
+        " or provider DTO events."
+    ) in public_api
+    assert (
+        "Completed runtime output and `RuntimeOutcome` interruption semantics remain"
+        " authoritative and unchanged."
+    ) in public_api
+    assert (
+        "`on_live_output` callbacks are synchronous and notification-only. Callback"
+        " exceptions are propagated to the caller as consumer failures."
+    ) in public_api
+    assert (
+        "Consumers own backpressure policy, queueing, display formatting,"
+        " redaction, and persistence for observed turns."
+    ) in public_api
+    assert "pycastle (conceptual, not a runtime dependency)" in public_api
+    assert (
+        "requires consumers to apply their own protocol parsing and downstream policy."
+    ) in public_api
+
+
 def test_context_and_adrs_keep_legacy_runtime_storage_historical_only() -> None:
     context = _read_repo_doc("CONTEXT.md")
     adr_0005 = _read_repo_doc("docs/adr/0005-runtime-public-surface-narrowing.md")
