@@ -579,10 +579,13 @@ async def _run_resumed_session(
         RetryableProviderFailureError,
         UsageLimitError,
     ) as exc:
-        exc.continuation = (
-            request.continuation
-            if request.continuation is not None
-            else _interruption_continuation(
+        if (
+            request.continuation is not None
+            and exc.invocation_progress is not InvocationProgress.STARTED
+        ):
+            exc.continuation = None
+        else:
+            exc.continuation = _interruption_continuation(
                 request=request,
                 service_name=service_name,
                 run_kind=run_kind,
@@ -593,7 +596,6 @@ async def _run_resumed_session(
                 run_session=run_session,
                 invocation_progress=exc.invocation_progress,
             )
-        )
         raise
     if prepared_session is None:
         prepared_session = resumable_dependencies.execution.prepare_session(run_session)

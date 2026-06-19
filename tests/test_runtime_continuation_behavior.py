@@ -1531,7 +1531,18 @@ def test_resumed_session_runtime_started_usage_limit_keeps_service_bound_in_cont
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
-        continuation=continuation,
+        continuation=prompt_runtime.Continuation(
+            selected_service="bound-service",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "runtime-state/",
+                "exact_transcript_match": False,
+            },
+        ),
     )
 
 
@@ -1812,7 +1823,18 @@ def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuati
     assert result == prompt_runtime.RuntimeOutcome.cancelled(
         output="",
         invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=continuation,
+        continuation=prompt_runtime.Continuation(
+            selected_service="bound-service",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "runtime-state/",
+                "exact_transcript_match": False,
+            },
+        ),
     )
 
 
@@ -1839,7 +1861,18 @@ def test_resumed_session_runtime_returns_timed_out_outcome_with_input_continuati
     assert result == prompt_runtime.RuntimeOutcome.timed_out(
         output="",
         invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=continuation,
+        continuation=prompt_runtime.Continuation(
+            selected_service="bound-service",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "runtime-state/",
+                "exact_transcript_match": False,
+            },
+        ),
     )
 
 
@@ -1867,7 +1900,18 @@ def test_resumed_session_runtime_returns_retryable_provider_failure_outcome_with
         output="",
         service_name="codex",
         invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=continuation,
+        continuation=prompt_runtime.Continuation(
+            selected_service="bound-service",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "prepared:recovered-session",
+                "provider_state_dir_relpath": "runtime-state/",
+                "exact_transcript_match": False,
+            },
+        ),
     )
 
 
@@ -2170,7 +2214,7 @@ def test_resumed_session_runtime_returns_usage_limited_outcome_with_input_contin
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
         usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=runtime.InvocationProgress.NOT_STARTED,
-        continuation=continuation,
+        continuation=None,
     )
 
 
@@ -2248,7 +2292,7 @@ def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuati
     assert result == prompt_runtime.RuntimeOutcome.cancelled(
         output="",
         invocation_progress=runtime.InvocationProgress.NOT_STARTED,
-        continuation=continuation,
+        continuation=None,
     )
 
 
@@ -2294,7 +2338,7 @@ def test_resumed_session_runtime_preserves_input_continuation_for_not_started_in
         output="",
         service_name=service_name,
         invocation_progress=runtime.InvocationProgress.NOT_STARTED,
-        continuation=continuation,
+        continuation=None,
     )
 
 

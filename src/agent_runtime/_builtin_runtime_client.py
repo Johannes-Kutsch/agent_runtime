@@ -1694,6 +1694,7 @@ def _active_codex_provider_session_id_from_result(
 ) -> str | None:
     return (
         _extract_codex_provider_session_id(list(invocation_result.stdout_lines))
+        or invocation_result.provider_session_id
         or fallback_provider_session_id
     )
 
