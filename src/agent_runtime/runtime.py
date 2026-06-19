@@ -41,7 +41,6 @@ from ._runtime_lifecycle import (
     SessionRuntimeMetadata,
 )
 from .service_registry import ServiceRegistry
-from .usage_limit_scope import UsageLimitScope
 
 if TYPE_CHECKING:
     from ._provider_invocation import ProviderInvocationAdapter
@@ -210,9 +209,6 @@ class RuntimeClient:
         self._availability = _BuiltInAvailabilityState()
 
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
-        default_usage_limit_scope = request.usage_limit_scope or UsageLimitScope(
-            request.role.value
-        )
         if _supported_builtin_stage(request.stage) is None:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
@@ -229,7 +225,7 @@ class RuntimeClient:
                         request.stage,
                         now=now,
                     ),
-                    usage_limit_scope=default_usage_limit_scope,
+                    usage_limit_scope=None,
                     invocation_progress=InvocationProgress.NOT_STARTED,
                 )
             try:
@@ -257,8 +253,7 @@ class RuntimeClient:
                         now=exhausted_now,
                     )
                     or exc.reset_time,
-                    usage_limit_scope=exc.usage_limit_scope
-                    or default_usage_limit_scope,
+                    usage_limit_scope=None,
                     invocation_progress=exc.invocation_progress,
                     continuation=exc.continuation,
                     usage=exc.usage,

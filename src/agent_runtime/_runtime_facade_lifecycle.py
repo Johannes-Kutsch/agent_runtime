@@ -251,13 +251,16 @@ async def _run_ephemeral_outcome(
     service_registry: ServiceRegistry,
     request: EphemeralRunRequest,
 ) -> RuntimeOutcome:
-    return await _run_runtime_outcome(
+    outcome = await _run_runtime_outcome(
         _run_ephemeral(
             runner=runner,
             service_registry=service_registry,
             request=request,
         )
     )
+    if outcome.kind in {"usage_limited", "no_service_available"}:
+        return dataclasses.replace(outcome, usage_limit_scope=None)
+    return outcome
 
 
 async def _run_new_session_outcome(
@@ -379,7 +382,6 @@ async def _run_ephemeral(
                 selected_service_path=selected_service_path,
                 runtime=EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace=request.session_namespace,
                 ),
             ),
         )

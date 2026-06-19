@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -22,6 +23,32 @@ from agent_runtime.session_planning import (
 from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionService
 
 
+def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        worktree=Path("/repo"),
+        stage=stage_selection_factory(service="codex"),
+        tool_access=runtime.ToolAccess.no_tools(),
+        auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+        token=execution_contracts_runtime.CancellationToken(),
+    )
+
+    assert request.auth == runtime.ProviderAuth(opencode_api_key="go-key")
+    assert request.token is not None
+    assert tuple(inspect.signature(prompt_runtime.EphemeralRunRequest).parameters) == (
+        "prompt",
+        "worktree",
+        "stage",
+        "tool_policy",
+        "tool_access",
+        "token",
+        "auth",
+        "override",
+    )
+
+
 def test_ephemeral_run_request_uses_override_stage_selection_when_stage_missing(
     stage_selection_factory: Callable[..., runtime.StageSelection],
 ) -> None:
@@ -35,7 +62,6 @@ def test_ephemeral_run_request_uses_override_stage_selection_when_stage_missing(
         prompt="already rendered prompt",
         worktree=Path("/repo"),
         override=override_stage,
-        role=InvocationRole("implementer"),
         tool_access=runtime.ToolAccess.no_tools(),
     )
 
@@ -57,7 +83,6 @@ def test_ephemeral_run_request_rejects_conflicting_stage_selection_and_override(
             worktree=Path("/repo"),
             stage=stage_selection_factory(service="codex"),
             override=stage_selection_factory(service="claude"),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
         )
 
@@ -102,7 +127,6 @@ def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_back
         prompt="already rendered prompt",
         worktree=Path("/repo"),
         stage=stage_selection_factory(service="codex"),
-        role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.FULL,
     )
 
@@ -133,19 +157,6 @@ def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_ba
     [
         (
             lambda stage_selection_factory, session_namespace: (
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=Path("/repo"),
-                    stage=stage_selection_factory(service="codex"),
-                    role=InvocationRole("implementer"),
-                    tool_access=runtime.ToolAccess.no_tools(),
-                    session_namespace=session_namespace,
-                )
-            ),
-            "Session namespace",
-        ),
-        (
-            lambda stage_selection_factory, session_namespace: (
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=Path("/repo"),
@@ -163,7 +174,7 @@ def test_lifecycle_request_construction_preserves_empty_session_namespace_and_re
     stage_selection_factory: Callable[..., runtime.StageSelection],
     request_factory: Callable[
         [Callable[..., runtime.StageSelection], str],
-        prompt_runtime.EphemeralRunRequest | prompt_runtime.NewSessionRunRequest,
+        prompt_runtime.NewSessionRunRequest,
     ],
     expected_message: str,
 ) -> None:
@@ -254,7 +265,6 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
                 prompt="already rendered prompt",
                 worktree=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.workspace_backed(
                     Path("/other"),
                     tool_policy=runtime.ToolPolicy.PARTIAL,
@@ -294,7 +304,6 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
                 prompt="already rendered prompt",
                 worktree=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
-                role=InvocationRole("implementer"),
             ),
             "EphemeralRunRequest requires an explicit `tool_access` value.",
         ),

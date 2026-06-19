@@ -129,10 +129,7 @@ def ephemeral_request_factory(
             worktree=worktree,
             stage=stage or override or stage_selection_factory(),
             override=override,
-            role=role,
             tool_access=tool_access,
-            usage_limit_scope=usage_limit_scope,
-            session_namespace=session_namespace,
             token=token,
         )
 

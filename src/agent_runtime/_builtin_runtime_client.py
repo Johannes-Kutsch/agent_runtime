@@ -1948,7 +1948,6 @@ def _run_builtin_ephemeral(
             selected_service_path=service_path,
             runtime=EphemeralRuntimeMetadata(
                 run_kind=RunKind.FRESH,
-                session_namespace=request.session_namespace,
             ),
         ),
         usage=usage,
