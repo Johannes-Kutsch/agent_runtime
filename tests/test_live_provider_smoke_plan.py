@@ -355,3 +355,270 @@ def test_live_smoke_provider_listing_reports_configuration_without_secrets(
         assert "very-secret-opencode-key" not in text
         assert "cli-claude-token" not in text
         assert "cli-opencode-key" not in text
+
+
+def test_live_smoke_aggregate_exit_status_rejects_required_failures_only(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    passing = module.LiveSmokeCaseResult(
+        service="claude",
+        mode="ephemeral",
+        policy=None,
+        status=module.LiveSmokeCaseStatus.PASSED,
+        required=True,
+    )
+    allowed_skip = module.LiveSmokeCaseResult(
+        service="codex",
+        mode="ephemeral",
+        policy=None,
+        status=module.LiveSmokeCaseStatus.SKIPPED,
+        required=False,
+    )
+    dependent_skip = module.LiveSmokeCaseResult(
+        service="opencode",
+        mode="ephemeral",
+        policy="NONE",
+        status=module.LiveSmokeCaseStatus.SKIPPED,
+        required=False,
+    )
+    failed = module.LiveSmokeCaseResult(
+        service="claude",
+        mode="new_session",
+        policy=None,
+        status=module.LiveSmokeCaseStatus.FAILED,
+        required=True,
+    )
+
+    clean_exit = module.compute_live_smoke_exit_status(
+        (passing, allowed_skip, dependent_skip)
+    )
+    mixed_exit = module.compute_live_smoke_exit_status((passing, allowed_skip, failed))
+
+    assert clean_exit == 0
+    assert mixed_exit == 1
+
+
+def test_live_smoke_case_status_classifies_completed_runtime_outcomes_as_passed(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    from agent_runtime import runtime as prompt_runtime
+
+    case = module.PlannedCase(
+        service="claude",
+        mode="ephemeral",
+        policy=None,
+        model="sonnet",
+        effort="medium",
+    )
+    outcome = prompt_runtime.RuntimeOutcome(
+        kind="completed", output="smoke output text"
+    )
+
+    result = module.classify_live_smoke_case_result(
+        case=case,
+        runtime_outcome=outcome,
+        required_output_non_empty=True,
+    )
+
+    assert module.LiveSmokeCaseStatus.PASSED == result.status
+    assert result.status.value in {
+        "passed",
+        "skipped",
+        "config_error",
+        "usage_limited",
+        "no_service_available",
+        "failed",
+        "error",
+    }
+    assert result.diagnostic is None
+
+
+def test_live_smoke_case_status_distinguishes_expected_outcomes_from_failures(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    from agent_runtime import runtime as prompt_runtime
+
+    lifecycle_case = module.PlannedCase(
+        service="claude",
+        mode="new_session",
+        policy=None,
+        model="sonnet",
+        effort="medium",
+    )
+    passed = module.classify_live_smoke_case_result(
+        case=lifecycle_case,
+        runtime_outcome=prompt_runtime.RuntimeOutcome(
+            kind="completed",
+            output="first session response",
+            continuation=prompt_runtime.Continuation(serialized="resume-token-abc"),
+        ),
+        required_continuation_text="resume-token-abc",
+    )
+    limited = module.classify_live_smoke_case_result(
+        case=lifecycle_case,
+        runtime_outcome=prompt_runtime.RuntimeOutcome(
+            kind="usage_limited",
+            output="quota exhausted",
+            service_name="claude",
+            reset_time=None,
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
+    )
+    unavailable = module.classify_live_smoke_case_result(
+        case=lifecycle_case,
+        runtime_outcome=prompt_runtime.RuntimeOutcome.no_service_available(
+            output="temporary outage",
+            reset_time=None,
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
+    )
+    provider_failed = module.classify_live_smoke_case_result(
+        case=lifecycle_case,
+        runtime_outcome=prompt_runtime.RuntimeOutcome(
+            kind="retryable_provider_failure",
+            output="provider side failure",
+            service_name="claude",
+            invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+        ),
+    )
+    timed_out = module.classify_live_smoke_case_result(
+        case=lifecycle_case,
+        runtime_outcome=prompt_runtime.RuntimeOutcome(
+            kind="timed_out",
+            output="execution timed out",
+            invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+        ),
+    )
+
+    assert passed.status == module.LiveSmokeCaseStatus.PASSED
+    assert limited.status == module.LiveSmokeCaseStatus.USAGE_LIMITED
+    assert unavailable.status == module.LiveSmokeCaseStatus.NO_SERVICE_AVAILABLE
+    assert provider_failed.status == module.LiveSmokeCaseStatus.FAILED
+    assert timed_out.status == module.LiveSmokeCaseStatus.FAILED
+
+
+def test_live_smoke_config_error_and_all_mode_skips_classify_distinctly(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    explicit_plan = module.plan_selected_providers(
+        module.parse_provider_selection("claude"),
+        model_overrides={"claude": "sonnet"},
+        effort_overrides={"claude": "medium"},
+    )
+    explicit_case = module.PlannedCase(
+        service="claude",
+        mode="ephemeral",
+        policy=None,
+        model="sonnet",
+        effort="medium",
+    )
+    explicit_result = module.classify_live_smoke_preflight_case_result(
+        case=explicit_case,
+        provider_plan=explicit_plan[0],
+        required=True,
+    )
+    assert explicit_result.status == module.LiveSmokeCaseStatus.CONFIG_ERROR
+
+    all_selection = module.parse_provider_selection("all")
+    all_plans = module.plan_selected_providers(
+        all_selection,
+        model_overrides={
+            "claude": "sonnet",
+            "codex": "codex-mini",
+            "opencode": "deepseek",
+        },
+        effort_overrides={
+            "claude": "medium",
+            "codex": "high",
+            "opencode": "medium",
+        },
+    )
+    all_results = tuple(
+        module.classify_live_smoke_preflight_case_result(
+            case=module.PlannedCase(
+                service=provider_plan.service,
+                mode="ephemeral",
+                policy=None,
+                model=provider_plan.model,
+                effort=provider_plan.effort,
+            ),
+            provider_plan=provider_plan,
+            required=False,
+            dependent_skip=provider_plan.service == "opencode",
+        )
+        for provider_plan in all_plans
+    )
+    assert all(
+        result.status == module.LiveSmokeCaseStatus.SKIPPED for result in all_results
+    )
+    assert all(result.required is False for result in all_results)
+
+
+def test_live_smoke_non_passing_runtime_and_artifact_failures_emit_diagnostics(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    from agent_runtime import runtime as prompt_runtime
+
+    case = module.PlannedCase(
+        service="claude",
+        mode="new_session",
+        policy="NONE",
+        model="sonnet",
+        effort="medium",
+    )
+    failure_results = (
+        module.classify_live_smoke_case_result(
+            case=case,
+            runtime_outcome=prompt_runtime.RuntimeOutcome(
+                kind="retryable_provider_failure",
+                output="provider could not recover",
+                service_name="claude",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+            ),
+        ),
+        module.classify_live_smoke_case_result(
+            case=case,
+            runtime_outcome=prompt_runtime.RuntimeOutcome(
+                kind="timed_out",
+                output="provider timed out",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+            ),
+        ),
+        module.classify_live_smoke_case_result(
+            case=case,
+            runtime_exception=RuntimeError("runtime exception"),
+        ),
+        module.classify_live_smoke_case_result(
+            case=case,
+            artifact_error="artifact write failure",
+        ),
+    )
+
+    payload = module.live_smoke_case_results_payload(failure_results)
+    statuses = {entry["status"] for entry in payload["cases"]}
+
+    assert statuses == {
+        "failed",
+        "error",
+    }
+    assert any(
+        "provider could not recover" in str(entry["diagnostic"])
+        for entry in payload["cases"]
+    )
+    assert any(
+        "runtime exception" in str(entry["diagnostic"]) for entry in payload["cases"]
+    )
+    assert any(
+        "artifact write failure" in str(entry["diagnostic"])
+        for entry in payload["cases"]
+    )
