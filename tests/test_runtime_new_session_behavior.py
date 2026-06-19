@@ -2053,7 +2053,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
         tool_access=tool_access,
         provider_resume_state={
             "provider_session_id": "provider-session-123",
-            "provider_state_dir_relpath": expected_state_relpath,
+            "provider_state": {"session_id": "provider-session-123"},
             "exact_transcript_match": False,
         },
     )
@@ -2175,7 +2175,10 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
         tool_access=tool_access,
         provider_resume_state={
             "provider_session_id": "continued-session-2",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "provider_state": {
+                "session_id": "continued-session-2",
+                "resume_jsonl": "[]",
+            },
             "exact_transcript_match": True,
         },
     )
@@ -2249,12 +2252,6 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
 
     monkeypatch.setattr(subprocess, "Popen", _FakePopen)
 
-    provider_state_dir_relpath = session_runtime.provider_state_relpath(
-        InvocationRole("implementer"),
-        "opencode",
-        "main",
-    )
-
     result = asyncio.run(
         prompt_runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
@@ -2287,7 +2284,7 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
             tool_access=tool_access,
             provider_resume_state={
                 "provider_session_id": "provider-session-123",
-                "provider_state_dir_relpath": provider_state_dir_relpath,
+                "provider_state": {},
                 "exact_transcript_match": False,
             },
         ),

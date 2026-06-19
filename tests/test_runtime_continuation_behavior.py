@@ -2082,7 +2082,10 @@ def test_runtime_client_writes_resumed_opencode_session_log_with_observed_provid
         ),
         provider_resume_state={
             "provider_session_id": "recovered-session",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "provider_state": {
+                "session_id": "recovered-session",
+                "resume_jsonl": "[]",
+            },
             "exact_transcript_match": True,
         },
     )
@@ -2672,7 +2675,6 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
 ) -> None:
     worktree = tmp_path / "worktree"
     runtime_state_dir = tmp_path / "runtime-state"
-    provider_state_dir_relpath = "continuations/opencode/"
     worktree.mkdir()
     runtime_state_dir.mkdir()
     continuation = prompt_runtime.Continuation(
@@ -2685,7 +2687,10 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
         ),
         provider_resume_state={
             "provider_session_id": "persisted-session-1",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
         },
     )
     observed: dict[str, Any] = {}
@@ -2754,7 +2759,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
 
     assert "--session persisted-session-1" in observed["command"]
     assert observed["env"]["OPENCODE_HOME"] == str(
-        runtime_state_dir / provider_state_dir_relpath
+        runtime_state_dir / "implementer/main/opencode"
     )
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
@@ -2771,7 +2776,119 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
         tool_access=continuation.tool_access,
         provider_resume_state={
             "provider_session_id": "persisted-session-2",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "provider_state": {
+                "session_id": "persisted-session-2",
+                "resume_jsonl": "[]",
+            },
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_runtime_client_resumed_opencode_session_restores_continuity_without_runtime_state_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        ),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
+            "exact_transcript_match": False,
+        },
+    )
+    observed: dict[str, Any] = {}
+    worktree.mkdir()
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del stdout, stderr
+            observed["command"] = command
+            observed["shell"] = shell
+            observed["cwd"] = cwd
+            observed["env"] = env
+            observed["text"] = text
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "persisted-session-2",
+                            "part": {
+                                "type": "text",
+                                "text": "resumed answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=None,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+            )
+        )
+    )
+
+    assert "--session persisted-session-1" in observed["command"]
+    assert "OPENCODE_HOME" in observed["env"]
+    assert "--model opencode-go/glm-5" in observed["command"]
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
+        service_name="opencode",
+        provider_session_id="persisted-session-2",
+        run_kind=RunKind.RESUME,
+        session_namespace="main",
+        exact_transcript_match=False,
+    )
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=continuation.tool_access,
+        provider_resume_state={
+            "provider_session_id": "persisted-session-2",
+            "provider_state": {
+                "session_id": "persisted-session-2",
+                "resume_jsonl": "[]",
+            },
             "exact_transcript_match": False,
         },
     )
@@ -2802,7 +2919,10 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
         ),
         provider_resume_state={
             "provider_session_id": "persisted-session-1",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
             "exact_transcript_match": False,
         },
     )
@@ -2868,7 +2988,9 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
     )
 
     assert "--session persisted-session-1" in observed["command"]
-    assert observed["env"]["OPENCODE_HOME"] == str(provider_state_dir)
+    assert observed["env"]["OPENCODE_HOME"] == str(
+        runtime_state_dir / "implementer/main/opencode"
+    )
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
         service_name="opencode",
@@ -2884,7 +3006,127 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
         tool_access=continuation.tool_access,
         provider_resume_state={
             "provider_session_id": "persisted-session-1",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
+            "exact_transcript_match": False,
+        },
+    )
+
+
+def test_runtime_client_resumed_opencode_session_restores_only_portable_provider_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    provider_state_dir = runtime_state_dir / "implementer/main/opencode"
+    worktree.mkdir()
+    provider_state_dir.mkdir(parents=True)
+    (provider_state_dir / "resume.jsonl").write_text(
+        '[{"stale":true}]',
+        encoding="utf-8",
+    )
+    (provider_state_dir / "session_id").write_text(
+        "stale-session\n",
+        encoding="utf-8",
+    )
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        ),
+        provider_resume_state={
+            "provider_session_id": "portable-session",
+            "provider_state": {},
+            "exact_transcript_match": False,
+        },
+    )
+    observed: dict[str, str | None] = {}
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del command, shell, cwd, stdout, stderr, text
+            opencode_home = Path(env["OPENCODE_HOME"])
+            observed["resume_jsonl"] = (
+                (opencode_home / "resume.jsonl").read_text(encoding="utf-8")
+                if (opencode_home / "resume.jsonl").exists()
+                else None
+            )
+            observed["session_id"] = (
+                (opencode_home / "session_id").read_text(encoding="utf-8")
+                if (opencode_home / "session_id").exists()
+                else None
+            )
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "portable-session",
+                            "part": {
+                                "type": "text",
+                                "text": "resumed answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "session.status",
+                            "status": {"type": "idle"},
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+            )
+        )
+    )
+
+    assert observed["resume_jsonl"] is None
+    assert observed["session_id"] is None
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=continuation.tool_access,
+        provider_resume_state={
+            "provider_session_id": "portable-session",
+            "provider_state": {"session_id": "portable-session"},
             "exact_transcript_match": False,
         },
     )
@@ -2896,7 +3138,6 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
 ) -> None:
     worktree = tmp_path / "worktree"
     runtime_state_dir = tmp_path / "runtime-state"
-    provider_state_dir_relpath = "continuations/opencode/"
     worktree.mkdir()
     runtime_state_dir.mkdir()
     continuation = prompt_runtime.Continuation(
@@ -2909,7 +3150,10 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
         ),
         provider_resume_state={
             "provider_session_id": "persisted-session-1",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
             "exact_transcript_match": False,
         },
     )
@@ -2992,7 +3236,10 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
             tool_access=continuation.tool_access,
             provider_resume_state={
                 "provider_session_id": "persisted-session-2",
-                "provider_state_dir_relpath": provider_state_dir_relpath,
+                "provider_state": {
+                    "session_id": "persisted-session-1",
+                    "resume_jsonl": "[]",
+                },
                 "exact_transcript_match": False,
             },
         ),
