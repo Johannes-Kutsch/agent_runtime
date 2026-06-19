@@ -1145,19 +1145,31 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
     ("tool_access", "expected_flag"),
     [
         (
+            runtime.ToolAccess.no_tools(),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.NONE
+            ),
+            "--sandbox read-only",
+        ),
+        (
             runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
             ),
-            "--sandbox danger-full-access",
+            "--sandbox read-only",
         ),
         (
             runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
             ),
-            "--dangerously-bypass-approvals-and-sandbox",
+            "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.no_tools(),
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
+            ),
             "--sandbox danger-full-access",
         ),
     ],
@@ -1689,10 +1701,39 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
     ]
 
 
+@pytest.mark.parametrize(
+    ("tool_access", "expected_flag"),
+    [
+        (
+            runtime.ToolAccess.no_tools(),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
+            ),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
+            ),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
+            ),
+            "--sandbox danger-full-access",
+        ),
+    ],
+)
 def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builtin(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     stage_selection_factory: Callable[..., runtime.StageSelection],
+    tool_access: runtime.ToolAccess,
+    expected_flag: str,
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -1761,7 +1802,13 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
                     effort="medium",
                 ),
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=(
+                tool_access
+                if tool_access.kind == "none"
+                else runtime.ToolAccess.workspace_backed(
+                    tmp_path, tool_policy=tool_access.tool_policy
+                )
+            ),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -1773,7 +1820,13 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
             selected_service="claude",
             selected_model="sonnet",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=(
+                tool_access
+                if tool_access.kind == "none"
+                else runtime.ToolAccess.workspace_backed(
+                    tmp_path, tool_policy=tool_access.tool_policy
+                )
+            ),
             used_fallback=True,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("codex", "claude"),
@@ -1783,20 +1836,20 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
             ),
         ),
     )
-    assert observed_commands == [
-        (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-            "-c approval_policy=never --sandbox danger-full-access "
-            "--json < /tmp/.pycastle_prompt"
-        ),
-        (
-            "claude --verbose --dangerously-skip-permissions --output-format "
-            "stream-json -p - --disable-slash-commands "
-            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
-            f"{tmp_path / '.pycastle_prompt'}"
-        ),
-    ]
+    assert observed_commands[0] == (
+        "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+        f"-c approval_policy=never {expected_flag} "
+        "--json < /tmp/.pycastle_prompt"
+    )
+    assert observed_commands[1].startswith(
+        "claude --verbose --dangerously-skip-permissions --output-format "
+        "stream-json -p - --disable-slash-commands "
+        "--exclude-dynamic-system-prompt-sections "
+    )
+    assert (
+        f"--model sonnet --effort medium < {tmp_path / '.pycastle_prompt'}"
+        in observed_commands[1]
+    )
 
 
 def test_runtime_client_reports_no_service_available_when_every_reachable_builtin_is_exhausted(

@@ -545,9 +545,38 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     assert "--effort high" in recorded_request.command
 
 
+@pytest.mark.parametrize(
+    ("tool_access", "expected_flag"),
+    [
+        (
+            runtime.ToolAccess.no_tools(),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
+            ),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
+            ),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
+            ),
+            "--sandbox danger-full-access",
+        ),
+    ],
+)
 def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_invocation_seam(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    tool_access: runtime.ToolAccess,
+    expected_flag: str,
 ) -> None:
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
@@ -582,7 +611,13 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=(
+            tool_access
+            if tool_access.kind == "none"
+            else runtime.ToolAccess.workspace_backed(
+                tmp_path, tool_policy=tool_access.tool_policy
+            )
+        ),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "selected-thread",
@@ -619,7 +654,13 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=(
+                    tool_access
+                    if tool_access.kind == "none"
+                    else runtime.ToolAccess.workspace_backed(
+                        tmp_path, tool_policy=tool_access.tool_policy
+                    )
+                ),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "observed-thread",
@@ -650,7 +691,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
     assert recorded_request.command == (
         "codex exec resume selected-thread -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox danger-full-access --json < /tmp/.pycastle_prompt"
+        f"{expected_flag} --json < /tmp/.pycastle_prompt"
     )
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
@@ -1256,7 +1297,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     }
     assert recorded_request.command == (
         "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-        "-c approval_policy=never --dangerously-bypass-approvals-and-sandbox "
+        "-c approval_policy=never --sandbox read-only "
         "--json < /tmp/.pycastle_prompt"
     )
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
@@ -1349,7 +1390,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
     assert recorded_request.command == (
         "codex exec resume thread-123 -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox danger-full-access --json < /tmp/.pycastle_prompt"
+        "--sandbox read-only --json < /tmp/.pycastle_prompt"
     )
 
 
@@ -1456,7 +1497,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
     assert recorded_request.command == (
         "codex exec resume selected-thread -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox danger-full-access --json < /tmp/.pycastle_prompt"
+        "--sandbox read-only --json < /tmp/.pycastle_prompt"
     )
 
 
@@ -2400,9 +2441,38 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
     assert adapter.recorded_requests == []
 
 
+@pytest.mark.parametrize(
+    ("tool_access", "expected_flag"),
+    [
+        (
+            runtime.ToolAccess.no_tools(),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
+            ),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
+            ),
+            "--sandbox read-only",
+        ),
+        (
+            runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
+            ),
+            "--sandbox danger-full-access",
+        ),
+    ],
+)
 def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocation_seam(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    tool_access: runtime.ToolAccess,
+    expected_flag: str,
 ) -> None:
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
@@ -2458,7 +2528,13 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=(
+                    tool_access
+                    if tool_access.kind == "none"
+                    else runtime.ToolAccess.workspace_backed(
+                        tmp_path, tool_policy=tool_access.tool_policy
+                    )
+                ),
             )
         )
     )
@@ -2481,7 +2557,13 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=(
+                    tool_access
+                    if tool_access.kind == "none"
+                    else runtime.ToolAccess.workspace_backed(
+                        tmp_path, tool_policy=tool_access.tool_policy
+                    )
+                ),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "thread-123",
@@ -2511,6 +2593,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
         "TZ": "UTC",
         "CODEX_HOME": str(provider_state_dir),
     }
+    assert expected_flag in recorded_request.command
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
     )
