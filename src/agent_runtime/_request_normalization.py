@@ -103,6 +103,7 @@ def normalize_tool_access(
     workspace: Path,
     context: str,
     missing_message: str,
+    workspace_name: str = "worktree",
 ) -> ToolAccess:
     from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 
@@ -127,6 +128,7 @@ def normalize_tool_access(
         tool_access=resolved_tool_access,
         workspace=workspace,
         context=context,
+        workspace_name=workspace_name,
     )
 
 
@@ -135,8 +137,13 @@ def normalize_resolved_tool_access(
     tool_access: "ToolAccess",
     workspace: Path | None,
     context: str,
+    workspace_name: str = "worktree",
 ) -> "ToolAccess":
-    tool_access.require_workspace(workspace, context=context)
+    tool_access.require_workspace(
+        workspace,
+        context=context,
+        workspace_name=workspace_name,
+    )
     return tool_access
 
 
@@ -153,6 +160,7 @@ def normalize_stage_request(
     context: str,
     missing_message: str,
     validate_stage: bool = True,
+    workspace_name: str = "worktree",
 ) -> NormalizedStageRequest:
     normalized_worktree = normalize_worktree(worktree)
     return NormalizedStageRequest(
@@ -171,6 +179,7 @@ def normalize_stage_request(
             workspace=normalized_worktree.path,
             context=context,
             missing_message=missing_message,
+            workspace_name=workspace_name,
         ),
         session_namespace=normalize_session_namespace(session_namespace),
     )
@@ -184,6 +193,7 @@ def normalize_continuation_request(
     session_namespace: str,
     context: str,
     role_message: str,
+    workspace_name: str = "worktree",
 ) -> NormalizedResumedRequest:
     normalized_worktree = normalize_worktree(worktree)
     return NormalizedResumedRequest(
@@ -193,6 +203,7 @@ def normalize_continuation_request(
             tool_access=tool_access,
             workspace=normalized_worktree.path,
             context=context,
+            workspace_name=workspace_name,
         ),
         session_namespace=normalize_session_namespace(session_namespace),
     )
@@ -208,6 +219,7 @@ def normalize_session_plan_request(
     session_namespace: str,
     context: str,
     missing_message: str,
+    workspace_name: str = "worktree",
 ) -> NormalizedResumedRequest:
     normalized_worktree = normalize_worktree(worktree)
     return NormalizedResumedRequest(
@@ -220,6 +232,7 @@ def normalize_session_plan_request(
             workspace=normalized_worktree.path,
             context=context,
             missing_message=missing_message,
+            workspace_name=workspace_name,
         ),
         session_namespace=normalize_session_namespace(session_namespace),
     )

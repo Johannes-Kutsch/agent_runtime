@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import json
 import math
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .execution_contracts import CancellationToken, WorktreeMount
@@ -42,6 +43,49 @@ __all__ = [
 _MISSING_TOOL_POLICY = object()
 _DEFAULT_EPHEMERAL_ROLE = InvocationRole("implementer")
 _DEFAULT_EPHEMERAL_SESSION_NAMESPACE = ""
+_PUBLIC_INVOCATION_DIR_NAME = "invocation_dir"
+
+
+def _resolve_public_invocation_dir(
+    invocation_dir: Path | WorktreeMount | None,
+    compatibility_kwargs: dict[str, Any],
+    *,
+    context: str,
+) -> Path | WorktreeMount:
+    legacy_worktree = compatibility_kwargs.pop("worktree", None)
+    if compatibility_kwargs:
+        unexpected_argument = next(iter(compatibility_kwargs))
+        raise TypeError(
+            f"{context} got an unexpected keyword argument '{unexpected_argument}'."
+        )
+    if invocation_dir is not None and legacy_worktree is not None:
+        raise TypeError(
+            f"{context} received conflicting `{_PUBLIC_INVOCATION_DIR_NAME}` and `worktree` values."
+        )
+    resolved_invocation_dir = (
+        invocation_dir if invocation_dir is not None else legacy_worktree
+    )
+    if resolved_invocation_dir is None:
+        raise TypeError(f"{context} requires an `{_PUBLIC_INVOCATION_DIR_NAME}` value.")
+    return resolved_invocation_dir
+
+
+def _public_request_signature(
+    *parameter_names: str,
+) -> inspect.Signature:
+    return inspect.Signature(
+        [
+            inspect.Parameter(
+                name,
+                kind=(
+                    inspect.Parameter.KEYWORD_ONLY
+                    if name == "override"
+                    else inspect.Parameter.POSITIONAL_OR_KEYWORD
+                ),
+            )
+            for name in parameter_names
+        ]
+    )
 
 
 def _require_json_compatible_resume_state(
@@ -338,7 +382,7 @@ class EphemeralRunResult:
 @dataclasses.dataclass(frozen=True, init=False)
 class EphemeralRunRequest:
     prompt: str
-    worktree: Path
+    invocation_dir: Path
     stage: StageSelection
     tool_access: ToolAccess
     token: CancellationToken | None = None
@@ -347,7 +391,7 @@ class EphemeralRunRequest:
     def __init__(
         self,
         prompt: str,
-        worktree: Path | WorktreeMount,
+        invocation_dir: Path | WorktreeMount | None = None,
         stage: StageSelection | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
@@ -355,22 +399,33 @@ class EphemeralRunRequest:
         auth: ProviderAuth | None = None,
         *,
         override: StageSelection | None = None,
+        **compatibility_kwargs: Any,
     ) -> None:
+        resolved_invocation_dir = _resolve_public_invocation_dir(
+            invocation_dir,
+            compatibility_kwargs,
+            context="EphemeralRunRequest",
+        )
         normalized_request = normalize_stage_request(
             stage=stage,
             override=override,
             role=_DEFAULT_EPHEMERAL_ROLE,
-            worktree=worktree,
+            worktree=resolved_invocation_dir,
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=_MISSING_TOOL_POLICY,
             session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
             context="EphemeralRunRequest",
             missing_message="EphemeralRunRequest requires an explicit `tool_access` value.",
+            workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
         )
 
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", normalized_request.worktree.path)
+        object.__setattr__(
+            self,
+            _PUBLIC_INVOCATION_DIR_NAME,
+            normalized_request.worktree.path,
+        )
         object.__setattr__(self, "stage", normalized_request.stage)
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(self, "token", token)
@@ -378,7 +433,11 @@ class EphemeralRunRequest:
 
     @property
     def mount_path(self) -> Path:
-        return self.worktree
+        return self.invocation_dir
+
+    @property
+    def worktree(self) -> Path:
+        return self.invocation_dir
 
     @property
     def override(self) -> StageSelection:
@@ -392,7 +451,7 @@ class EphemeralRunRequest:
 @dataclasses.dataclass(frozen=True, init=False)
 class NewSessionRunRequest:
     prompt: str
-    worktree: Path
+    invocation_dir: Path
     runtime_state_dir: Path | None
     logs_dir: Path | None
     stage: StageSelection
@@ -411,7 +470,7 @@ class NewSessionRunRequest:
     def __init__(
         self,
         prompt: str,
-        worktree: Path | WorktreeMount,
+        invocation_dir: Path | WorktreeMount | None = None,
         runtime_state_dir: Path | None = None,
         logs_dir: Path | None = None,
         stage: StageSelection | None = None,
@@ -429,22 +488,33 @@ class NewSessionRunRequest:
         token: CancellationToken | None = None,
         *,
         override: StageSelection | None = None,
+        **compatibility_kwargs: Any,
     ) -> None:
+        resolved_invocation_dir = _resolve_public_invocation_dir(
+            invocation_dir,
+            compatibility_kwargs,
+            context="NewSessionRunRequest",
+        )
         normalized_request = normalize_stage_request(
             stage=stage,
             override=override,
             role=role,
-            worktree=worktree,
+            worktree=resolved_invocation_dir,
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=_MISSING_TOOL_POLICY,
             session_namespace=session_namespace,
             context="NewSessionRunRequest",
             missing_message="NewSessionRunRequest requires an explicit `tool_access` value.",
+            workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
         )
 
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", normalized_request.worktree.path)
+        object.__setattr__(
+            self,
+            _PUBLIC_INVOCATION_DIR_NAME,
+            normalized_request.worktree.path,
+        )
         object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
         object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "stage", normalized_request.stage)
@@ -470,7 +540,11 @@ class NewSessionRunRequest:
 
     @property
     def mount_path(self) -> Path:
-        return self.worktree
+        return self.invocation_dir
+
+    @property
+    def worktree(self) -> Path:
+        return self.invocation_dir
 
     @property
     def override(self) -> StageSelection:
@@ -503,7 +577,7 @@ class SessionRunResult:
 @dataclasses.dataclass(frozen=True, init=False)
 class ResumedSessionRunRequest:
     prompt: str
-    worktree: WorktreeMount
+    invocation_dir: WorktreeMount
     runtime_state_dir: Path | None
     logs_dir: Path | None
     model: str
@@ -523,7 +597,7 @@ class ResumedSessionRunRequest:
     def __init__(
         self,
         prompt: str,
-        worktree: Path | WorktreeMount,
+        invocation_dir: Path | WorktreeMount | None = None,
         runtime_state_dir: Path | None = None,
         logs_dir: Path | None = None,
         model: str | None = None,
@@ -540,7 +614,13 @@ class ResumedSessionRunRequest:
         status_display: Any = None,
         work_body: str = "",
         token: CancellationToken | None = None,
+        **compatibility_kwargs: Any,
     ) -> None:
+        resolved_invocation_dir = _resolve_public_invocation_dir(
+            invocation_dir,
+            compatibility_kwargs,
+            context="ResumedSessionRunRequest",
+        )
         if continuation is not None and session_plan is not None:
             raise TypeError(
                 "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
@@ -569,7 +649,7 @@ class ResumedSessionRunRequest:
                 )
             normalized_request = normalize_continuation_request(
                 role=resolved_role,
-                worktree=worktree,
+                worktree=resolved_invocation_dir,
                 tool_access=continuation.tool_access,
                 session_namespace=session_namespace,
                 context="ResumedSessionRunRequest",
@@ -577,6 +657,7 @@ class ResumedSessionRunRequest:
                     "ResumedSessionRunRequest requires a `role` value when "
                     "constructed from a continuation."
                 ),
+                workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
             )
             resolved_model = continuation.selected_model if model is None else model
             resolved_effort = continuation.selected_effort if effort is None else effort
@@ -595,20 +676,25 @@ class ResumedSessionRunRequest:
                 )
             normalized_request = normalize_session_plan_request(
                 role=session_plan.role,
-                worktree=worktree,
+                worktree=resolved_invocation_dir,
                 tool_access=tool_access,
                 tool_policy=tool_policy,
                 missing_sentinel=_MISSING_TOOL_POLICY,
                 session_namespace=session_plan.namespace,
                 context="ResumedSessionRunRequest",
                 missing_message="ResumedSessionRunRequest requires an explicit `tool_policy` value.",
+                workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
             )
             resolved_model = model
             resolved_effort = effort
             usage_limit_scope = session_plan.usage_limit_scope
 
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", normalized_request.worktree.mount)
+        object.__setattr__(
+            self,
+            _PUBLIC_INVOCATION_DIR_NAME,
+            normalized_request.worktree.mount,
+        )
         object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
         object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "model", resolved_model)
@@ -631,8 +717,64 @@ class ResumedSessionRunRequest:
 
     @property
     def mount_path(self) -> Any:
-        return self.worktree.host_path
+        return self.invocation_dir.host_path
+
+    @property
+    def worktree(self) -> WorktreeMount:
+        return self.invocation_dir
 
     @property
     def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
         return self.tool_access.tool_policy
+
+
+cast(Any, EphemeralRunRequest).__signature__ = _public_request_signature(
+    "prompt",
+    "invocation_dir",
+    "stage",
+    "tool_policy",
+    "tool_access",
+    "token",
+    "auth",
+    "override",
+)
+cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
+    "prompt",
+    "invocation_dir",
+    "runtime_state_dir",
+    "logs_dir",
+    "stage",
+    "role",
+    "provider_auth",
+    "session_store",
+    "provider_session_adapter",
+    "usage_limit_scope",
+    "tool_policy",
+    "tool_access",
+    "session_namespace",
+    "name",
+    "status_display",
+    "work_body",
+    "token",
+    "override",
+)
+cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
+    "prompt",
+    "invocation_dir",
+    "runtime_state_dir",
+    "logs_dir",
+    "model",
+    "effort",
+    "session_plan",
+    "continuation",
+    "role",
+    "provider_auth",
+    "session_namespace",
+    "usage_limit_scope",
+    "tool_policy",
+    "tool_access",
+    "name",
+    "status_display",
+    "work_body",
+    "token",
+)

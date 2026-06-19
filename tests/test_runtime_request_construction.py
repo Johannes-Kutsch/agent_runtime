@@ -28,7 +28,7 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
-        worktree=Path("/repo"),
+        invocation_dir=Path("/repo"),
         stage=stage_selection_factory(service="codex"),
         tool_access=runtime.ToolAccess.no_tools(),
         auth=runtime.ProviderAuth(opencode_api_key="go-key"),
@@ -42,7 +42,7 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
             getattr(request, field_name)
     assert tuple(request.__dataclass_fields__) == (
         "prompt",
-        "worktree",
+        "invocation_dir",
         "stage",
         "tool_access",
         "token",
@@ -50,7 +50,7 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
     )
     assert tuple(inspect.signature(prompt_runtime.EphemeralRunRequest).parameters) == (
         "prompt",
-        "worktree",
+        "invocation_dir",
         "stage",
         "tool_policy",
         "tool_access",
@@ -71,7 +71,7 @@ def test_ephemeral_run_request_uses_override_stage_selection_when_stage_missing(
 
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
-        worktree=Path("/repo"),
+        invocation_dir=Path("/repo"),
         override=override_stage,
         tool_access=runtime.ToolAccess.no_tools(),
     )
@@ -91,7 +91,7 @@ def test_ephemeral_run_request_rejects_conflicting_stage_selection_and_override(
     ):
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=Path("/repo"),
+            invocation_dir=Path("/repo"),
             stage=stage_selection_factory(service="codex"),
             override=stage_selection_factory(service="claude"),
             tool_access=runtime.ToolAccess.no_tools(),
@@ -107,7 +107,7 @@ def test_new_session_run_request_requires_invocation_role(
     ):
         prompt_runtime.NewSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=Path("/repo"),
+            invocation_dir=Path("/repo"),
             stage=stage_selection_factory(),
             tool_access=runtime.ToolAccess.no_tools(),
         )
@@ -136,7 +136,7 @@ def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_back
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
-        worktree=Path("/repo"),
+        invocation_dir=Path("/repo"),
         stage=stage_selection_factory(service="codex"),
         tool_policy=runtime.ToolPolicy.UNRESTRICTED,
     )
@@ -150,7 +150,7 @@ def test_ephemeral_run_request_uses_none_tool_policy_for_explicit_no_tools_acces
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
-        worktree=Path("/repo"),
+        invocation_dir=Path("/repo"),
         stage=stage_selection_factory(service="codex"),
         tool_policy=runtime.ToolPolicy.NONE,
     )
@@ -164,7 +164,7 @@ def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_ba
 ) -> None:
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
-        worktree=Path("/repo"),
+        invocation_dir=Path("/repo"),
         stage=stage_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
@@ -184,7 +184,7 @@ def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_ba
             lambda stage_selection_factory, session_namespace: (
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=Path("/repo"),
+                    invocation_dir=Path("/repo"),
                     stage=stage_selection_factory(service="codex"),
                     role=InvocationRole("implementer"),
                     tool_access=runtime.ToolAccess.no_tools(),
@@ -216,7 +216,7 @@ def test_resumed_session_run_request_uses_compatibility_tool_policy_for_workspac
 ):
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
-        worktree=Path("/repo"),
+        invocation_dir=Path("/repo"),
         model="gpt-5.4",
         effort="medium",
         session_plan=ResumableSessionPlan(
@@ -244,7 +244,7 @@ def test_resumed_session_run_request_from_session_plan_keeps_namespace_from_sess
 ):
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
-        worktree=Path("/repo"),
+        invocation_dir=Path("/repo"),
         model="gpt-5.4",
         effort="medium",
         session_plan=ResumableSessionPlan(
@@ -288,19 +288,19 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
         (
             lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=Path("/repo"),
+                invocation_dir=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
                 tool_access=runtime.ToolAccess.workspace_backed(
                     Path("/other"),
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
             ),
-            "EphemeralRunRequest workspace-backed tool access requires worktree /other, got /repo.",
+            "EphemeralRunRequest workspace-backed tool access requires invocation_dir /other, got /repo.",
         ),
         (
             lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=Path("/repo"),
+                invocation_dir=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.workspace_backed(
@@ -308,7 +308,7 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
             ),
-            "NewSessionRunRequest workspace-backed tool access requires worktree /other, got /repo.",
+            "NewSessionRunRequest workspace-backed tool access requires invocation_dir /other, got /repo.",
         ),
     ],
 )
@@ -327,7 +327,7 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
         (
             lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=Path("/repo"),
+                invocation_dir=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
             ),
             "EphemeralRunRequest requires an explicit `tool_access` value.",
@@ -335,7 +335,7 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
         (
             lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=Path("/repo"),
+                invocation_dir=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
             ),
@@ -355,10 +355,12 @@ def test_lifecycle_request_construction_requires_explicit_tool_access(
         request_factory(stage_selection_factory)
 
 
-def test_resumed_session_run_request_coerces_path_worktree_to_worktree_mount() -> None:
+def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mount() -> (
+    None
+):
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
-        worktree=Path("/repo"),
+        invocation_dir=Path("/repo"),
         model="gpt-5.4",
         effort="medium",
         session_plan=ResumableSessionPlan(
@@ -374,7 +376,7 @@ def test_resumed_session_run_request_coerces_path_worktree_to_worktree_mount() -
         tool_access=runtime.ToolAccess.no_tools(),
     )
 
-    assert request.worktree == WorktreeMount(Path("/repo"))
+    assert request.invocation_dir == WorktreeMount(Path("/repo"))
     assert request.mount_path == Path("/repo")
 
 

@@ -1589,17 +1589,17 @@ def _invoke_claude_new_session_provider(
             model=stage.model,
             effort=stage.effort,
             tool_access=request.tool_access,
-            prompt_path=request.worktree / ".pycastle_prompt",
+            prompt_path=request.invocation_dir / ".pycastle_prompt",
             run_kind=run_kind,
             session_uuid=provider_session_id,
         ),
-        worktree=request.worktree,
+        worktree=request.invocation_dir,
         environment=_claude_env(
             auth=request.provider_auth,
             state_dir_container_path=str(provider_state_dir),
         ),
         prompt_content=request.prompt,
-        prompt_path=request.worktree / ".pycastle_prompt",
+        prompt_path=request.invocation_dir / ".pycastle_prompt",
         cleanup_prompt_path=True,
         run_kind=run_kind,
         role=request.role,
@@ -1629,7 +1629,7 @@ def _invoke_codex_new_session_provider(
             run_kind=RunKind.FRESH,
             session_uuid=None,
         ),
-        worktree=request.worktree,
+        worktree=request.invocation_dir,
         environment=_codex_env(
             state_dir_container_path=str(provider_state_dir),
         ),
@@ -1664,7 +1664,7 @@ def _invoke_codex_resumed_session_provider(
             run_kind=RunKind.RESUME,
             session_uuid=provider_session_id,
         ),
-        worktree=request.worktree.host_path,
+        worktree=request.invocation_dir.host_path,
         environment=_codex_env(
             state_dir_container_path=str(provider_state_dir),
         ),
@@ -1771,13 +1771,13 @@ def _invoke_opencode_new_session_provider(
             run_kind=run_kind,
             session_uuid=provider_session_id,
         ),
-        worktree=request.worktree,
+        worktree=request.invocation_dir,
         environment=_opencode_env(
             auth=request.provider_auth,
             state_dir_container_path=str(provider_state_dir),
         ),
         prompt_content=request.prompt,
-        prompt_path=request.worktree / ".pycastle_prompt",
+        prompt_path=request.invocation_dir / ".pycastle_prompt",
         cleanup_prompt_path=True,
         run_kind=run_kind,
         role=request.role,
@@ -1860,7 +1860,7 @@ def _run_builtin_ephemeral(
                 service_name="claude",
                 observations=(),
             )
-        prompt_path = request.worktree / ".pycastle_prompt"
+        prompt_path = request.invocation_dir / ".pycastle_prompt"
     invocation_log = _start_invocation_log(
         logs_dir=None,
         role=_DEFAULT_EPHEMERAL_ROLE,
@@ -1873,7 +1873,7 @@ def _run_builtin_ephemeral(
                 effort=selected_stage.effort,
                 tool_access=request.tool_access,
             ),
-            worktree=request.worktree,
+            worktree=request.invocation_dir,
             environment=codex_env(),
             prompt_content=request.prompt,
             prompt_path=prompt_path,
@@ -1894,10 +1894,10 @@ def _run_builtin_ephemeral(
                 run_kind=RunKind.FRESH,
                 session_uuid=None,
             ),
-            worktree=request.worktree,
+            worktree=request.invocation_dir,
             environment=opencode_env(
                 auth=request.auth,
-                state_dir_container_path=str(request.worktree),
+                state_dir_container_path=str(request.invocation_dir),
             ),
             prompt_content=request.prompt,
             prompt_path=prompt_path,
@@ -1924,7 +1924,7 @@ def _run_builtin_ephemeral(
                 tool_access=request.tool_access,
                 prompt_path=prompt_path,
             ),
-            worktree=request.worktree,
+            worktree=request.invocation_dir,
             environment=claude_env(auth=request.auth),
             prompt_content=request.prompt,
             prompt_path=prompt_path,
@@ -2027,7 +2027,7 @@ def _run_builtin_new_session(
             return _run_builtin_resumed_session(
                 ResumedSessionRunRequest(
                     prompt=request.prompt,
-                    worktree=cast(Any, request.worktree),
+                    invocation_dir=cast(Any, request.invocation_dir),
                     runtime_state_dir=runtime_state_dir,
                     continuation=_build_codex_continuation(
                         model=selected_stage.model,
@@ -2110,7 +2110,7 @@ def _run_builtin_new_session(
             return _run_builtin_resumed_session(
                 ResumedSessionRunRequest(
                     prompt=request.prompt,
-                    worktree=cast(Any, request.worktree),
+                    invocation_dir=cast(Any, request.invocation_dir),
                     runtime_state_dir=runtime_state_dir,
                     continuation=_build_claude_continuation(
                         model=selected_stage.model,
@@ -2415,7 +2415,7 @@ def _run_builtin_resumed_session(
             provider_session_id = _new_provider_session_id()
         exact_transcript_match = False
         run_kind = _claude_run_kind_for_state_dir(provider_state_dir)
-    prompt_path = request.worktree.host_path / ".pycastle_prompt"
+    prompt_path = request.invocation_dir.host_path / ".pycastle_prompt"
     invocation_log = _start_invocation_log(
         logs_dir=request.logs_dir,
         role=request.role,
@@ -2483,7 +2483,7 @@ def _run_builtin_resumed_session(
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
             command=command,
-            worktree=request.worktree.host_path,
+            worktree=request.invocation_dir.host_path,
             environment=environment,
             prompt_content=request.prompt,
             prompt_path=prompt_path,

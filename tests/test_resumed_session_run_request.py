@@ -37,7 +37,7 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_access_overr
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
+            invocation_dir=WorktreeMount(Path("/repo")),
             role=InvocationRole("implementer"),
             session_namespace="main",
             continuation=prompt_runtime.Continuation(
@@ -62,7 +62,7 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_policy_overr
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
+            invocation_dir=WorktreeMount(Path("/repo")),
             role=InvocationRole("implementer"),
             session_namespace="../escape",
             continuation=prompt_runtime.Continuation(
@@ -87,7 +87,7 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_policy_overr
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/other")),
+            invocation_dir=WorktreeMount(Path("/other")),
             role=InvocationRole("implementer"),
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
@@ -112,7 +112,7 @@ def test_resumed_session_run_request_from_continuation_requires_role() -> None:
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
+            invocation_dir=WorktreeMount(Path("/repo")),
             session_namespace="main",
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
@@ -139,7 +139,7 @@ def test_resumed_session_run_request_from_continuation_preserves_empty_session_n
     if label == "":
         request = prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
+            invocation_dir=WorktreeMount(Path("/repo")),
             role=InvocationRole("implementer"),
             session_namespace=label,
             continuation=continuation,
@@ -151,7 +151,7 @@ def test_resumed_session_run_request_from_continuation_preserves_empty_session_n
     with pytest.raises(ValueError):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
+            invocation_dir=WorktreeMount(Path("/repo")),
             role=InvocationRole("implementer"),
             session_namespace=label,
             continuation=continuation,
@@ -182,7 +182,7 @@ def test_resumed_session_run_request_rejects_conflicting_continuation_and_sessio
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
+            invocation_dir=WorktreeMount(Path("/repo")),
             model="gpt-5.4",
             effort="medium",
             session_plan=session_plan,
@@ -209,7 +209,7 @@ def test_resumed_session_run_request_rejects_conflicting_tool_access_and_tool_po
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
+            invocation_dir=WorktreeMount(Path("/repo")),
             model="gpt-5.4",
             effort="medium",
             session_plan=ResumableSessionPlan(
@@ -235,7 +235,7 @@ def test_resumed_session_run_request_carries_workspace_backed_tool_access() -> N
 
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
-        worktree=WorktreeMount(Path("/repo")),
+        invocation_dir=WorktreeMount(Path("/repo")),
         model="gpt-5.4",
         effort="medium",
         session_plan=ResumableSessionPlan(
@@ -258,7 +258,7 @@ def test_resumed_session_run_request_carries_workspace_backed_tool_access() -> N
 def test_resumed_session_run_request_accepts_explicit_no_tools_tool_access() -> None:
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
-        worktree=WorktreeMount(Path("/repo")),
+        invocation_dir=WorktreeMount(Path("/repo")),
         model="gpt-5.4",
         effort="medium",
         session_plan=ResumableSessionPlan(
@@ -284,12 +284,12 @@ def test_resumed_session_run_request_rejects_workspace_backed_tool_access_for_ot
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "ResumedSessionRunRequest workspace-backed tool access requires worktree /repo, got /other."
+            "ResumedSessionRunRequest workspace-backed tool access requires invocation_dir /repo, got /other."
         ),
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/other")),
+            invocation_dir=WorktreeMount(Path("/other")),
             model="gpt-5.4",
             effort="medium",
             session_plan=ResumableSessionPlan(
@@ -315,12 +315,12 @@ def test_resumed_session_run_request_from_continuation_rejects_workspace_backed_
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "ResumedSessionRunRequest workspace-backed tool access requires worktree /repo, got /other."
+            "ResumedSessionRunRequest workspace-backed tool access requires invocation_dir /repo, got /other."
         ),
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/other")),
+            invocation_dir=WorktreeMount(Path("/other")),
             role=InvocationRole("implementer"),
             session_namespace="main",
             continuation=prompt_runtime.Continuation(
@@ -340,7 +340,7 @@ def test_resumed_session_run_request_rejects_request_level_invocation_role() -> 
     with pytest.raises(TypeError):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path(".")),
+            invocation_dir=WorktreeMount(Path(".")),
             model="gpt-5.4",
             effort="medium",
             session_plan=ResumableSessionPlan(

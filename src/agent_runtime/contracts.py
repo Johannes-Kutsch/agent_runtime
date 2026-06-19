@@ -190,13 +190,14 @@ class ToolAccess:
         workspace: Path | None,
         *,
         context: str,
+        workspace_name: str = "worktree",
     ) -> None:
         if self.kind != "workspace_backed":
             return
         if self.workspace == workspace:
             return
         raise ValueError(
-            f"{context} workspace-backed tool access requires worktree "
+            f"{context} workspace-backed tool access requires {workspace_name} "
             f"{_format_workspace_for_message(self.workspace)}, got "
             f"{_format_workspace_for_message(workspace)}."
         )
