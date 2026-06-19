@@ -3152,7 +3152,7 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
                     role=InvocationRole("implementer"),
                     provider_auth=runtime.ProviderAuth(opencode_api_key="api-key"),
                     session_namespace="main",
-                    tool_access=runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         )
@@ -3181,7 +3181,7 @@ def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_p
                         selected_service="opencode",
                         selected_model="deepseek-v4-flash",
                         selected_effort="medium",
-                        tool_access=runtime.ToolAccess.no_tools(),
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
                         provider_resume_state={
                             "run_kind": "resume",
                             "provider_session_id": "restored-session",
@@ -3615,7 +3615,7 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
                 ),
             ),
             auth=runtime.ProviderAuth(opencode_api_key="api-key"),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
     )
 
@@ -3626,7 +3626,7 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
             selected_service="opencode",
             selected_model="deepseek-v4-flash",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             used_fallback=True,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("missing", "opencode"),
