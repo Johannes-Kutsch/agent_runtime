@@ -1416,6 +1416,10 @@ def _seed_opencode_provider_state_dir(
     state_dir: Path,
     provider_state: dict[str, Any] | None,
 ) -> None:
+    for state_filename in (_OPENCODE_SESSION_ID_FILENAME, "resume.jsonl"):
+        state_path = state_dir / state_filename
+        if state_path.exists():
+            state_path.unlink()
     if not isinstance(provider_state, dict):
         return
     provider_session_id = provider_state.get("session_id")

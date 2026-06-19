@@ -2971,6 +2971,123 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
     )
 
 
+def test_runtime_client_resumed_opencode_session_restores_only_portable_provider_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    provider_state_dir = runtime_state_dir / "implementer/main/opencode"
+    worktree.mkdir()
+    provider_state_dir.mkdir(parents=True)
+    (provider_state_dir / "resume.jsonl").write_text(
+        '[{"stale":true}]',
+        encoding="utf-8",
+    )
+    (provider_state_dir / "session_id").write_text(
+        "stale-session\n",
+        encoding="utf-8",
+    )
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            worktree,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        ),
+        provider_resume_state={
+            "provider_session_id": "portable-session",
+            "provider_state": {},
+            "exact_transcript_match": False,
+        },
+    )
+    observed: dict[str, str | None] = {}
+
+    class _FakePopen:
+        def __init__(
+            self,
+            command: str,
+            *,
+            shell: bool,
+            cwd: Path,
+            env: dict[str, str],
+            stdout: Any,
+            stderr: Any,
+            text: bool,
+        ) -> None:
+            del command, shell, cwd, stdout, stderr, text
+            opencode_home = Path(env["OPENCODE_HOME"])
+            observed["resume_jsonl"] = (
+                (opencode_home / "resume.jsonl").read_text(encoding="utf-8")
+                if (opencode_home / "resume.jsonl").exists()
+                else None
+            )
+            observed["session_id"] = (
+                (opencode_home / "session_id").read_text(encoding="utf-8")
+                if (opencode_home / "session_id").exists()
+                else None
+            )
+            self.stdout = iter(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "sessionID": "portable-session",
+                            "part": {
+                                "type": "text",
+                                "text": "resumed answer",
+                                "time": {"end": "2026-01-01T00:00:00Z"},
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "session.status",
+                            "status": {"type": "idle"},
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    result = asyncio.run(
+        prompt_runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
+            )
+        )
+    )
+
+    assert observed["resume_jsonl"] is None
+    assert observed["session_id"] is None
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=continuation.tool_access,
+        provider_resume_state={
+            "provider_session_id": "portable-session",
+            "provider_state": {"session_id": "portable-session"},
+            "exact_transcript_match": False,
+        },
+    )
+
+
 def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_started_usage_limit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
