@@ -10,6 +10,7 @@ from typing import Mapping, Sequence, Any
 from uuid import uuid4
 
 from agent_runtime.errors import RuntimeConfigurationError
+from agent_runtime.runtime import ToolPolicy
 
 
 class LiveSmokeProviderSelectionStatus(str, Enum):
@@ -147,6 +148,20 @@ def classify_live_smoke_case_result(
 
     outcome_kind = getattr(runtime_outcome, "kind", None)
     if outcome_kind == "completed":
+        metadata_mismatch = _completed_outcome_metadata_mismatch(
+            case=case,
+            runtime_outcome=runtime_outcome,
+            required_output_non_empty=required_output_non_empty,
+        )
+        if metadata_mismatch is not None:
+            return LiveSmokeCaseResult(
+                service=case.service,
+                mode=case.mode,
+                policy=case.policy,
+                status=LiveSmokeCaseStatus.FAILED,
+                diagnostic=metadata_mismatch,
+                required=required,
+            )
         if required_output_non_empty and not str(
             getattr(runtime_outcome, "output", "")
         ):
@@ -230,6 +245,90 @@ def classify_live_smoke_case_result(
         required=required,
         diagnostic=getattr(runtime_outcome, "output", None),
     )
+
+
+def _completed_outcome_metadata_mismatch(
+    *,
+    case: PlannedCase,
+    runtime_outcome: Any,
+    required_output_non_empty: bool,
+) -> str | None:
+    del required_output_non_empty
+    selected = _extract_completed_outcome_metadata(
+        case=case, runtime_outcome=runtime_outcome
+    )
+    expected: dict[str, Any] = {
+        "service": case.service,
+        "model": case.model,
+        "effort": case.effort,
+    }
+    if case.policy is not None:
+        expected["tool_policy"] = _tool_policy_from_case_policy(case.policy)
+
+    mismatches = []
+    for field, expected_value in expected.items():
+        actual_value = selected.get(field)
+        if actual_value is None:
+            continue
+        if actual_value != expected_value:
+            mismatches.append(
+                f"{field}: expected {expected_value!r}, got {actual_value!r}"
+            )
+
+    if mismatches:
+        return "completed outcome metadata mismatch: " + ", ".join(mismatches)
+    return None
+
+
+def _extract_completed_outcome_metadata(
+    *,
+    case: PlannedCase,
+    runtime_outcome: Any,
+) -> dict[str, Any]:
+    result = getattr(runtime_outcome, "result", None)
+    if result is None:
+        return {}
+    if case.mode == "ephemeral":
+        tool_access = getattr(result, "tool_access", None)
+        tool_policy = _normalize_tool_policy(getattr(tool_access, "tool_policy", None))
+        return {
+            "service": getattr(result, "selected_service", None),
+            "model": getattr(result, "selected_model", None),
+            "effort": getattr(result, "selected_effort", None),
+            "tool_policy": tool_policy,
+        }
+    if case.mode == "new_session":
+        runtime_metadata = getattr(result, "runtime_metadata", None)
+        return {
+            "service": getattr(runtime_metadata, "service_name", None),
+            "model": getattr(runtime_metadata, "selected_model", None),
+            "effort": getattr(runtime_metadata, "selected_effort", None),
+            "tool_policy": _normalize_tool_policy(
+                getattr(runtime_metadata, "tool_policy", None)
+            ),
+        }
+    return {}
+
+
+def _tool_policy_from_case_policy(policy: str) -> ToolPolicy | str:
+    return _normalize_tool_policy(policy) or policy
+
+
+def _normalize_tool_policy(value: Any) -> ToolPolicy | str | None:
+    if isinstance(value, ToolPolicy):
+        return value
+    if not isinstance(value, str):
+        return value if value is not None else None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    try:
+        return ToolPolicy[normalized]
+    except KeyError:
+        try:
+            return ToolPolicy[normalized.upper()]
+        except KeyError:
+            return normalized
 
 
 def classify_live_smoke_preflight_case_result(

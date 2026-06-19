@@ -4,7 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -501,6 +501,42 @@ def test_live_smoke_case_status_distinguishes_expected_outcomes_from_failures(
     assert unavailable.status == module.LiveSmokeCaseStatus.NO_SERVICE_AVAILABLE
     assert provider_failed.status == module.LiveSmokeCaseStatus.FAILED
     assert timed_out.status == module.LiveSmokeCaseStatus.FAILED
+
+
+def test_live_smoke_case_status_checks_completed_result_metadata(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    from types import SimpleNamespace
+
+    from agent_runtime import runtime as prompt_runtime
+
+    case = module.PlannedCase(
+        service="claude",
+        mode="ephemeral",
+        policy="UNRESTRICTED",
+        model="sonnet",
+        effort="medium",
+    )
+    wrong_result = SimpleNamespace(
+        selected_service="codex",
+        selected_model="other-model",
+        selected_effort="low",
+        tool_access=SimpleNamespace(tool_policy="inspect_only"),
+    )
+
+    mismatch = module.classify_live_smoke_case_result(
+        case=case,
+        runtime_outcome=prompt_runtime.RuntimeOutcome(
+            kind="completed",
+            output="smoke output",
+            result=cast(Any, wrong_result),
+        ),
+    )
+
+    assert mismatch.status == module.LiveSmokeCaseStatus.FAILED
+    assert "metadata mismatch" in mismatch.diagnostic
 
 
 def test_live_smoke_config_error_and_all_mode_skips_classify_distinctly(

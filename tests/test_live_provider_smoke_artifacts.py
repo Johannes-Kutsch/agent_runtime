@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from types import SimpleNamespace
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "live_provider_smoke.py"
 
@@ -408,3 +409,118 @@ def test_live_smoke_preserves_provider_output_without_redaction_and_marks_sensit
     marker = tmp_path / "sensitive-output" / "sensitive-output-run" / "ARTIFACTS.md"
     assert marker.exists()
     assert "potentially sensitive" in marker.read_text(encoding="utf-8").lower()
+
+
+def test_live_smoke_ephemeral_runs_through_public_runtime_request_values(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    captured_request: dict[str, prompt_runtime.EphemeralRunRequest | None] = {
+        "request": None
+    }
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            captured_request["request"] = request
+            if request.on_live_output is not None:
+                request.on_live_output(
+                    prompt_runtime.AgentMessageTurn(
+                        text="provider says ok", service_name="claude"
+                    )
+                )
+            return SimpleNamespace(
+                kind="completed",
+                output="provider output value",
+                result=SimpleNamespace(
+                    selected_service="claude",
+                    selected_model="sonnet",
+                    selected_effort="medium",
+                    tool_access=SimpleNamespace(
+                        tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED
+                    ),
+                ),
+                live_turns=(),
+                invocation_records=(),
+            )
+
+    def _fake_client() -> _FakeRuntimeClient:
+        return _FakeRuntimeClient()
+
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+
+    run_result = module.run_live_smoke(
+        provider_selection=("claude",),
+        lifecycle_modes=("ephemeral",),
+        model_overrides={"claude": "sonnet"},
+        effort_overrides={"claude": "medium"},
+        claude_code_oauth_token="token",
+        run_id="public-runtime-run",
+        artifact_root=tmp_path / "public-runtime-smoke",
+    )
+
+    assert run_result.passed is True
+    assert run_result.cases[0].status == "passed"
+    request = captured_request["request"]
+    assert request is not None
+    assert request.stage.service == "claude"
+    assert request.stage.model == "sonnet"
+    assert request.stage.effort == "medium"
+    assert request.auth == prompt_runtime.ProviderAuth(claude_code_oauth_token="token")
+
+    case_dir = (
+        tmp_path
+        / "public-runtime-smoke"
+        / "public-runtime-run"
+        / "claude"
+        / "ephemeral"
+        / "default"
+    )
+    live_turns = module.json.loads(
+        (case_dir / "live_turns.json").read_text(encoding="utf-8")
+    )
+    assert live_turns == [{"text": "provider says ok", "service_name": "claude"}]
+
+
+def test_live_smoke_timeout_outcome_is_classified_as_failed_and_retained(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            return prompt_runtime.RuntimeOutcome.timed_out(
+                output="provider timeout",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+            )
+
+    def _fake_client() -> _FakeRuntimeClient:
+        return _FakeRuntimeClient()
+
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+
+    run_result = module.run_live_smoke(
+        provider_selection=("claude",),
+        lifecycle_modes=("ephemeral",),
+        model_overrides={"claude": "sonnet"},
+        effort_overrides={"claude": "medium"},
+        claude_code_oauth_token="token",
+        run_id="timeout-runtime-run",
+        artifact_root=tmp_path / "timeout-runtime-smoke",
+    )
+
+    assert run_result.passed is False
+    assert run_result.cases[0].status == "failed"
+    assert run_result.cases[0].diagnostic == "provider timeout"

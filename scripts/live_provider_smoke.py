@@ -8,9 +8,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, cast
 from traceback import format_exc
 from importlib import util as importlib_util
+
+import agent_runtime as public_runtime
+from agent_runtime import runtime as prompt_runtime
 
 try:
     import live_provider_smoke_plan
@@ -40,6 +43,7 @@ class LiveSmokeRunCaseResult:
     artifact_path: str
     status: str
     provider_output: str
+    diagnostic: str | None
     traceback: str | None
     duration_seconds: float
 
@@ -61,6 +65,41 @@ class _StubOutcome:
     output: str = ""
     live_turns: tuple[Any, ...] = ()
     invocation_records: tuple[Any, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ObservedRuntimeOutcome:
+    kind: str
+    output: str = ""
+    live_turns: tuple[Any, ...] = ()
+    invocation_records: tuple[Any, ...] = ()
+    result: Any | None = None
+    service_name: str | None = None
+    account_label: str | None = None
+    reset_time: Any | None = None
+    invocation_progress: Any | None = None
+    continuation: Any | None = None
+    usage: Any | None = None
+
+
+def _as_observed_runtime_outcome(
+    runtime_outcome: Any,
+    *,
+    live_turns: tuple[Any, ...] = (),
+) -> _ObservedRuntimeOutcome:
+    return _ObservedRuntimeOutcome(
+        kind=str(getattr(runtime_outcome, "kind", "failed")),
+        output=str(getattr(runtime_outcome, "output", "")),
+        live_turns=live_turns,
+        invocation_records=tuple(getattr(runtime_outcome, "invocation_records", ())),
+        result=getattr(runtime_outcome, "result", None),
+        service_name=getattr(runtime_outcome, "service_name", None),
+        account_label=getattr(runtime_outcome, "account_label", None),
+        reset_time=getattr(runtime_outcome, "reset_time", None),
+        invocation_progress=getattr(runtime_outcome, "invocation_progress", None),
+        continuation=getattr(runtime_outcome, "continuation", None),
+        usage=getattr(runtime_outcome, "usage", None),
+    )
 
 
 def _resolve_live_smoke_artifact_root(
@@ -90,6 +129,7 @@ def _build_summary_payload(
                 "effort": case.effort,
                 "artifact_path": case.artifact_path,
                 "status": case.status,
+                "diagnostic": case.diagnostic,
                 "provider_output": case.provider_output,
                 "traceback": case.traceback,
                 "duration_seconds": case.duration_seconds,
@@ -124,6 +164,92 @@ def _write_required_summary(
 def _build_case_prompt(run_id: str, planned_case: Any) -> str:
     policy = planned_case.policy or "default"
     return f"{run_id}:{planned_case.service}:{planned_case.mode}:{policy}"
+
+
+def _resolve_plan_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
+    return {} if env is None else env
+
+
+def _resolve_tool_policy(case_policy: str | None) -> prompt_runtime.ToolPolicy:
+    if case_policy is None:
+        return prompt_runtime.ToolPolicy.UNRESTRICTED
+    try:
+        return prompt_runtime.ToolPolicy[case_policy]
+    except KeyError:
+        raise ValueError(f"Unsupported tool policy: {case_policy}") from None
+
+
+def _resolve_provider_auth(
+    *,
+    service: str,
+    env: Mapping[str, str] | None,
+    claude_code_oauth_token: str | None,
+    opencode_api_key: str | None,
+) -> prompt_runtime.ProviderAuth:
+    env_map = _resolve_plan_env(env)
+    return prompt_runtime.ProviderAuth(
+        claude_code_oauth_token=claude_code_oauth_token
+        if service == "claude" and claude_code_oauth_token is not None
+        else env_map.get("CLAUDE_CODE_OAUTH_TOKEN")
+        if service == "claude"
+        else None,
+        opencode_api_key=opencode_api_key
+        if service == "opencode" and opencode_api_key is not None
+        else env_map.get("OPENCODE_GO_API_KEY")
+        if service == "opencode"
+        else None,
+    )
+
+
+def _run_public_smoke_case(
+    planned_case: Any | None = None,
+    artifact_dir: Path | None = None,
+    *,
+    case: Any | None = None,
+    run_id: str | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    prompt: str,
+    env: Mapping[str, str] | None,
+    claude_code_oauth_token: str | None,
+    opencode_api_key: str | None,
+    codex_auth_present: bool | None,
+) -> Any:
+    del run_id, model, effort, codex_auth_present  # compatibility placeholders
+    resolved_case = case if case is not None else planned_case
+    if resolved_case is None:
+        raise ValueError("case is required to run ephemeral smoke case")
+    if artifact_dir is None:
+        raise ValueError("artifact_dir is required to run ephemeral smoke case")
+    live_turns: list[Any] = []
+
+    def _on_live_output(turn: Any) -> None:
+        live_turns.append(turn)
+
+    tool_policy = _resolve_tool_policy(resolved_case.policy)
+    auth = _resolve_provider_auth(
+        service=resolved_case.service,
+        env=env,
+        claude_code_oauth_token=claude_code_oauth_token,
+        opencode_api_key=opencode_api_key,
+    )
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt=prompt,
+        invocation_dir=artifact_dir,
+        stage=public_runtime.StageSelection(
+            service=resolved_case.service,
+            model=resolved_case.model,
+            effort=resolved_case.effort,
+        ),
+        auth=auth,
+        tool_policy=tool_policy,
+        on_live_output=_on_live_output,
+    )
+    runtime_outcome = prompt_runtime.RuntimeClient().run_ephemeral(request)
+    return _as_observed_runtime_outcome(
+        runtime_outcome,
+        live_turns=tuple(live_turns),
+    )
 
 
 def _serialize_case_invocation_records(invocation_records: Any) -> list[dict[str, Any]]:
@@ -308,7 +434,7 @@ def run_live_smoke(
     warnings: list[str] = []
     case_results: list[LiveSmokeRunCaseResult] = []
     case_occurrences: dict[tuple[str, str, str | None], int] = {}
-    runner = case_runner or _run_case_stub
+    runner = case_runner or _run_public_smoke_case
     run_started = time.perf_counter()
     run_artifact_root = resolved_artifact_root / dry_run_plan.run_id
     run_artifact_root.mkdir(parents=True, exist_ok=True)
@@ -343,13 +469,23 @@ def run_live_smoke(
                 opencode_api_key=opencode_api_key,
                 codex_auth_present=codex_auth_present,
             )
-            status = str(getattr(case_outcome, "kind", "completed"))
+            case_classification = (
+                live_provider_smoke_plan.classify_live_smoke_case_result(
+                    case=cast(Any, planned_case),
+                    runtime_outcome=case_outcome,
+                )
+            )
             provider_output = str(getattr(case_outcome, "output", ""))
-        except Exception:
-            case_outcome = _StubOutcome(kind="failed")
-            status = "failed"
-            provider_output = ""
+        except Exception as exc:
             case_traceback = format_exc()
+            case_classification = (
+                live_provider_smoke_plan.classify_live_smoke_case_result(
+                    case=cast(Any, planned_case),
+                    runtime_exception=exc,
+                )
+            )
+            case_outcome = _StubOutcome(kind="failed")
+            provider_output = ""
             warnings.append(
                 f"runner exception for {planned_case.service}/{planned_case.mode}"
             )
@@ -363,7 +499,8 @@ def run_live_smoke(
                 model=planned_case.model,
                 effort=planned_case.effort,
                 artifact_path=str(invocation_dir),
-                status=status,
+                status=case_classification.status.value,
+                diagnostic=case_classification.diagnostic,
                 provider_output=provider_output,
                 traceback=case_traceback,
                 duration_seconds=case_duration,
@@ -394,7 +531,10 @@ def run_live_smoke(
         artifact_root=resolved_artifact_root,
         summary_path=summary_path,
         summary_written=False,
-        passed=all(case.status == "completed" for case in case_results),
+        passed=all(
+            case.status == live_provider_smoke_plan.LiveSmokeCaseStatus.PASSED.value
+            for case in case_results
+        ),
         cases=tuple(case_results),
         warnings=tuple(warnings),
     )
