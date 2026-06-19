@@ -252,6 +252,24 @@ def _build_summary_payload_path(artifact_root: Path, run_id: str) -> Path:
     return artifact_root / run_id / LIVE_SMOKE_SUMMARY_FILENAME
 
 
+def _build_case_artifact_dir(
+    artifact_root: Path,
+    run_id: str,
+    planned_case: Any,
+    occurrence: int,
+) -> Path:
+    artifact_dir = (
+        artifact_root
+        / run_id
+        / planned_case.service
+        / planned_case.mode
+        / (planned_case.policy or "default")
+    )
+    if occurrence == 1:
+        return artifact_dir
+    return artifact_dir.with_name(f"{artifact_dir.name}-{occurrence}")
+
+
 def run_live_smoke(
     provider_selection: str | tuple[str, ...],
     *,
@@ -289,16 +307,24 @@ def run_live_smoke(
 
     warnings: list[str] = []
     case_results: list[LiveSmokeRunCaseResult] = []
+    case_occurrences: dict[tuple[str, str, str | None], int] = {}
     runner = case_runner or _run_case_stub
     run_started = time.perf_counter()
+    run_artifact_root = resolved_artifact_root / dry_run_plan.run_id
+    run_artifact_root.mkdir(parents=True, exist_ok=True)
 
     for planned_case in dry_run_plan.cases:
-        invocation_dir = (
-            resolved_artifact_root
-            / dry_run_plan.run_id
-            / planned_case.service
-            / planned_case.mode
-            / (planned_case.policy or "default")
+        case_key = (
+            planned_case.service,
+            planned_case.mode,
+            planned_case.policy,
+        )
+        case_occurrences[case_key] = case_occurrences.get(case_key, 0) + 1
+        invocation_dir = _build_case_artifact_dir(
+            resolved_artifact_root,
+            dry_run_plan.run_id,
+            planned_case,
+            case_occurrences[case_key],
         )
         prompt = _build_case_prompt(dry_run_plan.run_id, planned_case)
         case_started = time.perf_counter()
@@ -372,18 +398,6 @@ def run_live_smoke(
         cases=tuple(case_results),
         warnings=tuple(warnings),
     )
-    summary_payload = _build_summary_payload(
-        run_result,
-        time.perf_counter() - run_started,
-        dry_run_plan.provider_plans,
-    )
-
-    summary_written = False
-    try:
-        summary_written = _write_required_summary(summary_payload, summary_path)
-    except Exception:
-        summary_written = False
-        warnings.append("required summary write failed")
 
     try:
         _write_optional_config_artifacts(
@@ -401,13 +415,35 @@ def run_live_smoke(
     except Exception:
         warnings.append("optional artifacts marker write failed")
 
-    return LiveSmokeRunResult(
+    final_run_result = LiveSmokeRunResult(
         run_id=run_result.run_id,
         artifact_root=run_result.artifact_root,
         summary_path=summary_path,
-        summary_written=summary_written,
-        passed=run_result.passed and summary_written,
+        summary_written=False,
+        passed=run_result.passed,
         cases=run_result.cases,
+        warnings=tuple(warnings),
+    )
+    summary_payload = _build_summary_payload(
+        final_run_result,
+        time.perf_counter() - run_started,
+        dry_run_plan.provider_plans,
+    )
+
+    summary_written = False
+    try:
+        summary_written = _write_required_summary(summary_payload, summary_path)
+    except Exception:
+        summary_written = False
+        warnings.append("required summary write failed")
+
+    return LiveSmokeRunResult(
+        run_id=final_run_result.run_id,
+        artifact_root=final_run_result.artifact_root,
+        summary_path=summary_path,
+        summary_written=summary_written,
+        passed=final_run_result.passed and summary_written,
+        cases=final_run_result.cases,
         warnings=tuple(warnings),
     )
 

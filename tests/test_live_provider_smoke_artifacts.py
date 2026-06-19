@@ -166,6 +166,74 @@ def test_live_smoke_optional_diagnostics_failures_are_warnings_not_run_failures(
     assert result.summary_written is True
     assert result.passed is True
     assert any("optional case artifact" in warning for warning in result.warnings)
+    summary_payload = module.json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert any(
+        "optional case artifact" in warning for warning in summary_payload["warnings"]
+    )
+
+
+def test_live_smoke_repeated_planned_cases_get_isolated_invocation_directories(
+    smoke_module: object, tmp_path: Path
+) -> None:
+    module: Any = smoke_module
+
+    invocation_directories: list[Path] = []
+
+    def _fake_case_runner(*, artifact_dir: Path, **_: object) -> _FakeRunOutcome:
+        invocation_directories.append(artifact_dir)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        return _FakeRunOutcome(kind="completed", output="ok")
+
+    result = module.run_live_smoke(
+        provider_selection=("codex",),
+        lifecycle_modes=("ephemeral", "ephemeral"),
+        model_overrides={"codex": "codex-mini"},
+        effort_overrides={"codex": "high"},
+        codex_auth_present=True,
+        run_id="repeated-cases-run",
+        artifact_root=tmp_path / "duplicate-cases",
+        case_runner=_fake_case_runner,
+    )
+
+    assert result.passed is True
+    assert len(invocation_directories) == 2
+    assert invocation_directories[0] != invocation_directories[1]
+    assert all(path.exists() for path in invocation_directories)
+    assert {case.artifact_path for case in result.cases} == {
+        str(path) for path in invocation_directories
+    }
+
+
+def test_live_smoke_summary_persists_late_optional_warning_details(
+    smoke_module: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module: Any = smoke_module
+
+    def _fake_case_runner(*, artifact_dir: Path, **_: object) -> _FakeRunOutcome:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        return _FakeRunOutcome(kind="completed", output="ok")
+
+    def _raise_marker_write(*_: Any, **__: Any) -> None:
+        raise OSError("marker write failed")
+
+    monkeypatch.setattr(module, "_write_artifacts_marker", _raise_marker_write)
+
+    result = module.run_live_smoke(
+        provider_selection=("codex",),
+        lifecycle_modes=("ephemeral",),
+        model_overrides={"codex": "codex-mini"},
+        effort_overrides={"codex": "high"},
+        codex_auth_present=True,
+        run_id="late-warning-run",
+        artifact_root=tmp_path / "late-warning-artifacts",
+        case_runner=_fake_case_runner,
+    )
+
+    assert result.summary_written is True
+    assert any("artifacts marker" in warning for warning in result.warnings)
+
+    summary_payload = module.json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert any("artifacts marker" in warning for warning in summary_payload["warnings"])
 
 
 def test_live_smoke_artifacts_capture_required_diagnostics(
