@@ -2863,6 +2863,55 @@ def test_text_output_adapter_explicit_no_tools_forbids_provider_tool_access() ->
     assert output == "allowed=none;disallowed=all"
 
 
+def test_text_output_adapter_uses_workspace_backed_tool_access_through_public_adapter_seam() -> (
+    None
+):
+    output = asyncio.run(
+        TextOutputAdapter(
+            prompt="already rendered prompt",
+            tool_access=runtime.ToolAccess.workspace_backed(
+                Path("/repo"),
+                tool_policy=runtime.ToolPolicy.PARTIAL,
+            ),
+            workspace=Path("/repo"),
+        ).invoke(
+            runner=cast(WorkExecutionAdapter, _ToolPolicyRenderingPromptRunner()),
+            role=InvocationRole("implementer"),
+            prompt="already rendered prompt",
+            run_kind=RunKind.FRESH,
+            session_uuid=None,
+            on_provider_session_id=lambda _provider_session_id: None,
+        )
+    )
+
+    assert output == _tool_policy_effect_text(runtime.ToolPolicy.PARTIAL)
+
+
+def test_text_output_adapter_prefers_tool_access_over_compatibility_tool_policy() -> (
+    None
+):
+    output = asyncio.run(
+        TextOutputAdapter(
+            prompt="already rendered prompt",
+            tool_policy=runtime.ToolPolicy.FULL,
+            tool_access=runtime.ToolAccess.workspace_backed(
+                Path("/repo"),
+                tool_policy=runtime.ToolPolicy.PARTIAL,
+            ),
+            workspace=Path("/repo"),
+        ).invoke(
+            runner=cast(WorkExecutionAdapter, _ToolPolicyRenderingPromptRunner()),
+            role=InvocationRole("implementer"),
+            prompt="already rendered prompt",
+            run_kind=RunKind.FRESH,
+            session_uuid=None,
+            on_provider_session_id=lambda _provider_session_id: None,
+        )
+    )
+
+    assert output == _tool_policy_effect_text(runtime.ToolPolicy.PARTIAL)
+
+
 def test_text_output_adapter_rejects_workspace_backed_tool_access_without_workspace_context() -> (
     None
 ):
