@@ -24,10 +24,13 @@
 | `ServiceRegistry` | The runtime-owned resolver that maps built-in services and stage chains to an executable candidate. |
 | `ExecutionProvider` | The internal execution contract implemented by runtime-shipped provider integrations. |
 | `RunKind` | The runtime mode for a service invocation, such as fresh or resumable. |
-| `ProviderInvocationRequest` | Private value describing all facts required by the Built-in Provider Invocation Seam: command, worktree, environment, prompt content or prompt-path policy, `RunKind`, invocation role, usage-limit scope, log context, and optional `ProviderSessionId`. |
-| `ToolPolicyProfile` | A provider-neutral runtime description of coarse tool-access policy used by provider adapters to render provider-specific command flags. |
-| `Tool-less Run` | A runtime invocation whose provider tool access is explicitly forbidden rather than left to provider defaults. |
-| `ToolAccess` | A closed runtime value describing whether an invocation has no tools or workspace-backed tool access. |
+| `ProviderInvocationRequest` | Private value describing all facts required by the Built-in Provider Invocation Seam: command, invocation directory, environment, prompt content or prompt-path policy, `RunKind`, invocation role, usage-limit scope, log context, and optional `ProviderSessionId`. |
+| `ToolPolicy` | A closed public runtime value describing what provider tools may be used during an invocation: `NONE`, `INSPECT_ONLY`, `NO_FILE_MUTATION`, or `UNRESTRICTED`. |
+| `ToolPolicyProfile` | Internal provider-neutral adapter policy used by provider adapters to render provider-specific command flags. |
+| `Tool-less Run` | A runtime invocation whose `ToolPolicy` explicitly forbids provider tool access rather than leaving tools to provider defaults. |
+| `ToolAccess` | Retired target vocabulary for the public API; use `ToolPolicy` instead. |
+| `Invocation Directory` | The host directory where the runtime launches a provider command; the canonical public request field is `invocation_dir`. |
+| `Tool Workspace` | The Invocation Directory when the runtime is allowed to expose it through provider tools. |
 | `UsageLimitScope` | Transitional caller-defined grouping key for usage-limit continuation policy; usage-limit grouping belongs outside the core runtime API. |
 | `ProviderSessionState` | The provider-owned session state that records how a run should start or resume. |
 | `ProviderSessionId` | The external provider or tool session identifier associated with a runtime service invocation. |
@@ -48,6 +51,7 @@
 | `RuntimeClient` | Caller-owned runtime object that holds in-process built-in provider availability state across calls without owning durable provider session storage. |
 | `InvocationProgress` | Two-state runtime outcome metadata indicating whether the model showed activity before an interruption, such as reasoning, messages, or tool invocation; unknown progress is treated as not started. |
 | `RuntimeOutcome` | A canonical runtime result category for expected orchestration outcomes such as completion, usage limits, cancellation, timeout, temporary service unavailability, or confidently retryable provider failure. |
+| `Live Provider Smoke Test` | An opt-in validation run that exercises real built-in provider integrations outside the default test suite. |
 | `ProviderUsage` | Provider-reported usage metadata for a runtime invocation: input tokens, output tokens, cache-read input tokens, cache-creation input tokens, optional cost in USD, and optional provider duration in seconds. |
 | `SessionNamespace` | Transitional secondary path-safe label that further partitions runtime-managed provider session state. |
 | `WorkInvocation` | The runtime-owned work lifecycle that turns caller intent plus execution dependencies into a text result. |
@@ -132,14 +136,22 @@
 - Shared session-backed results should have one canonical public name rather than lifecycle-specific aliases.
 - Advanced provider-session planning and provider-capability seams may retain resumable vocabulary when they describe provider resumability rather than canonical lifecycle entrypoints.
 - Tool-less execution means provider tool access is explicitly forbidden at the runtime boundary.
-- Built-in Provider Adapters enforce `ToolAccess` with the strongest provider-supported mechanism, but enforcement strength may differ by provider.
-- A provider-session continuity chain keeps the same `ToolAccess` for its lifetime.
-- Resumed-session execution derives tool policy from the resumed continuity state rather than accepting a caller override.
+- Built-in Provider Adapters accept every public `ToolPolicy` for every supported service/model pair and enforce each policy with the strongest provider-supported mechanism.
+- Tool-policy enforcement strength may vary by provider even though every public policy is valid for every supported service/model pair.
+- A provider-session continuity chain keeps the same `ToolPolicy` for its lifetime, including `ToolPolicy.NONE`.
+- Resumed-session execution derives `ToolPolicy` from the resumed continuity state rather than accepting a caller override.
 - Workspace access belongs to tool-access configuration rather than session lifecycle.
-- Under the host subprocess execution substrate, workspace-backed tool access runs the provider process in the requested worktree.
-- Runtime requests carry a worktree even for tool-less execution; tool-less execution does not grant workspace-backed provider tool access.
-- Runtime-facing tool settings should be closed tool-access values rather than a loose tool-policy enum plus unrelated workspace fields.
-- `ToolAccess` is the consumer-facing tool contract; provider flag profiles are internal built-in adapter policy.
+- Under the host subprocess execution substrate, the request path is the Invocation Directory, while any non-`NONE` `ToolPolicy` grants that directory as the Tool Workspace.
+- Runtime requests require an Invocation Directory even for tool-less execution; tool-less execution does not grant a Tool Workspace.
+- The Invocation Directory and Tool Workspace are distinct permission concepts, but not separate public paths in the current runtime model.
+- Non-`NONE` tool policies use the Invocation Directory as their Tool Workspace rather than requiring consumers to pass the same path twice.
+- Runtime-facing tool settings should be a closed `ToolPolicy` value rather than a loose policy enum plus unrelated workspace fields.
+- `ToolPolicy` is the consumer-facing tool contract; provider flag profiles are internal built-in adapter policy.
+- `ToolPolicyProfile` is not part of the ordinary consumer-facing public API.
+- Runtime requests require an explicit `ToolPolicy`; tool policy must not be inferred from omission.
+- `ToolPolicy.INSPECT_ONLY` is an allowlist policy for workspace inspection tools.
+- `ToolPolicy.NO_FILE_MUTATION` is a denylist policy that permits tools while forbidding direct workspace file mutation.
+- `ToolPolicy.UNRESTRICTED` means the runtime adds no tool restriction beyond provider defaults.
 - Canonical runtime requests should represent session intent and tool access as explicit mode values rather than nullable optional fields.
 - StageSelection is the canonical stage-chain value; StageOverride is retired compatibility vocabulary.
 - Provider execution behavior stays behind runtime-owned internal adapter contracts.
@@ -168,3 +180,6 @@
 - "OpenAI" was used in issue #93 for the third built-in provider; resolved: the intended provider is **OpenCode**, matching the existing pycastle service.
 - "Claude API key" was used loosely for Claude credentials; resolved: the migrated Claude provider uses **ClaudeCodeOAuthToken**, not a generic Anthropic API key.
 - "Adapter author" previously named an external runtime audience; resolved: custom provider services are not a supported runtime extension point.
+- "worktree" has been used for both command launch location and provider tool workspace; resolved: use **Invocation Directory** and public `invocation_dir` for the request-level command location, while non-`NONE` `ToolPolicy` grants that directory as the **Tool Workspace** without a second public path.
+- `ToolAccess` previously wrapped no-tools versus workspace-backed tool access; resolved: collapse the public API to **ToolPolicy**, where `ToolPolicy.NONE` forbids provider tools and non-`NONE` policies grant tools against the Invocation Directory.
+- `ToolPolicy.RESTRICTED`, `ToolPolicy.PARTIAL`, and `ToolPolicy.FULL` were ambiguous names; resolved: use `ToolPolicy.INSPECT_ONLY`, `ToolPolicy.NO_FILE_MUTATION`, and `ToolPolicy.UNRESTRICTED`.

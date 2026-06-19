@@ -8,7 +8,7 @@ The runtime implementation may be split across internal modules. That internal m
 
 ## Consumer Surface
 
-Ordinary consumers execute already-rendered prompts through a caller-owned `RuntimeClient`. They provide provider selection, credentials, tool access, worktree, and session lifecycle data as call arguments. They do not construct provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
+Ordinary consumers execute already-rendered prompts through a caller-owned `RuntimeClient`. They provide provider selection, credentials, tool policy, invocation directory, and session lifecycle data as call arguments. They do not construct provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
 
 The runtime executes provider work and returns data. Callers own persistence for continuations, invocation records, workflow correlation, durable logs, and usage-limit grouping policy.
 
@@ -33,7 +33,7 @@ The package root exposes stable shared vocabulary and common errors:
 - `RuntimeOutcome`
 - `RunKind`
 - `StageSelection`
-- `ToolAccess`
+- `ToolPolicy`
 - `TransientAgentError`
 - `UsageLimitError`
 
@@ -81,10 +81,10 @@ Core runtime requests do not require caller-defined labels. Application correlat
 EphemeralRunRequest(
     *,
     prompt: str,
-    worktree: Path,
+    invocation_dir: Path,
     stage: StageSelection,
     provider_auth: ProviderAuth,
-    tool_access: ToolAccess,
+    tool_policy: ToolPolicy,
     token: CancellationToken | None = None,
 ) -> None
 ```
@@ -97,10 +97,10 @@ Ephemeral execution runs an already-rendered prompt without intentionally prepar
 NewSessionRunRequest(
     *,
     prompt: str,
-    worktree: Path,
+    invocation_dir: Path,
     stage: StageSelection,
     provider_auth: ProviderAuth,
-    tool_access: ToolAccess,
+    tool_policy: ToolPolicy,
     token: CancellationToken | None = None,
 ) -> None
 ```
@@ -113,7 +113,7 @@ New-session execution selects a built-in provider, starts provider transcript co
 ResumedSessionRunRequest(
     *,
     prompt: str,
-    worktree: Path,
+    invocation_dir: Path,
     continuation: Continuation,
     provider_auth: ProviderAuth,
     model: str | None = None,
@@ -122,7 +122,7 @@ ResumedSessionRunRequest(
 ) -> None
 ```
 
-Resumed-session execution continues an existing provider-session continuity chain. The continuation fixes service and tool access. Resumed execution does not perform fallback and rejects tool-access replacement; omitted model or effort values default from result metadata associated with the continuation when available.
+Resumed-session execution continues an existing provider-session continuity chain. The continuation fixes service and tool policy. Resumed execution does not perform fallback and rejects tool-policy replacement; omitted model or effort values default from result metadata associated with the continuation when available.
 
 ### Auth
 
@@ -181,7 +181,7 @@ EphemeralRunResult(
     selected_service: str,
     selected_model: str,
     selected_effort: str,
-    tool_access: ToolAccess,
+    tool_policy: ToolPolicy,
     used_fallback: bool,
     usage: ProviderUsage | None = None,
 ) -> None
@@ -213,12 +213,12 @@ SessionRuntimeMetadata(
     run_kind: RunKind,
     selected_model: str,
     selected_effort: str,
-    tool_access: ToolAccess,
+    tool_policy: ToolPolicy,
     exact_transcript_match: bool,
 ) -> None
 ```
 
-Display and policy metadata such as selected service, model, effort, and tool access belongs in result metadata rather than in the continuation contract.
+Display and policy metadata such as selected service, model, effort, and tool policy belongs in result metadata rather than in the continuation contract.
 
 #### `Continuation`
 
@@ -278,16 +278,27 @@ StageSelection(
 
 One node in an ordered built-in provider candidate chain. The runtime validates every service/model/effort tuple.
 
-#### `ToolAccess`
+#### `ToolPolicy`
 
 ```python
-ToolAccess.no_tools() -> ToolAccess
-ToolAccess.workspace_backed(workspace: Path) -> ToolAccess
+ToolPolicy.NONE
+ToolPolicy.INSPECT_ONLY
+ToolPolicy.NO_FILE_MUTATION
+ToolPolicy.UNRESTRICTED
 ```
 
-Closed runtime value for provider tool access. `ToolAccess` is the consumer-facing tool contract. Provider flag profiles, MCP config rendering, and command-line tool-policy mappings are internal built-in adapter policy.
+Closed runtime value for provider tool access. `ToolPolicy` is the consumer-facing tool contract. Provider flag profiles, MCP config rendering, and command-line policy mappings are internal Built-in Provider Adapter policy.
 
-Workspace-backed host subprocess execution runs the provider in the requested worktree. Tool-less execution still carries a worktree on the request but does not grant workspace-backed provider tool access. A provider-session continuity chain keeps the same `ToolAccess` for its lifetime.
+Every runtime request carries an Invocation Directory through `invocation_dir`; it is the host directory where the provider command is launched. `ToolPolicy.NONE` forbids provider tools. Any non-`NONE` policy grants provider tools against that Invocation Directory, making it the Tool Workspace without requiring a second public path.
+
+Policy meanings:
+
+- `NONE`: provider tools are forbidden.
+- `INSPECT_ONLY`: workspace inspection tools are allowed.
+- `NO_FILE_MUTATION`: tools may be available, but direct workspace file mutation is forbidden.
+- `UNRESTRICTED`: the runtime adds no tool restriction beyond provider defaults.
+
+Every public `ToolPolicy` is valid for every supported service/model pair. Built-in Provider Adapters enforce each policy with the strongest provider-supported mechanism, so enforcement strength may vary by provider. A provider-session continuity chain keeps the same `ToolPolicy` for its lifetime.
 
 ## Adapter Surface
 
@@ -306,5 +317,7 @@ The following pre-release concepts are transitional and should not remain in the
 - `SessionNamespace`
 - Provider state relative paths in continuation payloads
 - Runtime-created durable invocation log files
+- `ToolAccess`
+- `ToolPolicyProfile`
 
-The target public surface keeps ordinary consumers on `RuntimeClient`, request values, outcome values, built-in provider selection, `ProviderAuth`, `ProviderUsage`, `Continuation`, `InvocationRecord`, and `ToolAccess`.
+The target public surface keeps ordinary consumers on `RuntimeClient`, request values, outcome values, built-in provider selection, `ProviderAuth`, `ProviderUsage`, `Continuation`, `InvocationRecord`, and `ToolPolicy`.
