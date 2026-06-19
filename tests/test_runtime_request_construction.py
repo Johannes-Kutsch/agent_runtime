@@ -50,6 +50,7 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
         "tool_policy",
         "token",
         "auth",
+        "on_live_output",
         "override",
     )
 
@@ -64,8 +65,82 @@ def test_resumed_session_run_request_has_minimal_public_signature() -> None:
         "provider_auth",
         "model",
         "effort",
+        "on_live_output",
         "token",
     )
+
+
+def test_new_session_run_request_signature_exposes_live_output_observer() -> None:
+    assert (
+        "on_live_output"
+        in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+    )
+
+
+@pytest.mark.parametrize(
+    ("request_factory", "request_name"),
+    [
+        (
+            lambda on_live_output, stage_selection_factory, tmp_path: (
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    stage=stage_selection_factory(service="codex"),
+                    on_live_output=on_live_output,
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            ),
+            "EphemeralRunRequest",
+        ),
+        (
+            lambda on_live_output, stage_selection_factory, tmp_path: (
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    stage=stage_selection_factory(service="codex"),
+                    on_live_output=on_live_output,
+                    role=InvocationRole("implementer"),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            ),
+            "NewSessionRunRequest",
+        ),
+        (
+            lambda on_live_output, stage_selection_factory, tmp_path: (
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    continuation=prompt_runtime.Continuation(
+                        selected_service="codex",
+                        selected_model="gpt-5.4",
+                        selected_effort="medium",
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
+                        provider_resume_state={
+                            "provider_session_id": "provider-session-id"
+                        },
+                    ),
+                    on_live_output=on_live_output,
+                )
+            ),
+            "ResumedSessionRunRequest",
+        ),
+    ],
+)
+def test_runtime_lifecycle_request_values_accept_live_output_observer(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    request_factory: Any,
+    request_name: str,
+    tmp_path: Path,
+) -> None:
+    observed: list[object] = []
+
+    def on_live_output(value: object) -> None:
+        observed.append(value)
+
+    request = request_factory(on_live_output, stage_selection_factory, tmp_path)
+    assert request.on_live_output is on_live_output
+    assert request_name in request.__class__.__name__
+    assert len(observed) == 0
 
 
 def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
