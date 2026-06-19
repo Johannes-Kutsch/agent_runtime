@@ -1,6 +1,6 @@
 # Runtime public surface narrowing
 
-Status: Partially superseded by [0009 - Built-in provider-only runtime](0009-built-in-provider-only-runtime.md) for provider adapter seams, external adapter authors, service registry construction, and provider-session adapter construction on the consumer surface. Also superseded by the current glossary and public API reference for Invocation Directory and `ToolPolicy` vocabulary.
+Status: Partially superseded by [0009 - Built-in provider-only runtime](0009-built-in-provider-only-runtime.md) for provider adapter seams, external adapter authors, service registry construction, and provider-session adapter construction on the consumer surface. Also superseded by the current glossary and public API reference for Invocation Directory and `ToolPolicy` vocabulary. This ADR is historical where it retains legacy vocabulary around invocation-role, session namespace, usage-limit scope, worktree, and managed state/log directory assumptions; these are not active target behavior.
 
 The runtime boundary should expose a smaller, clearer front-facing surface. Callers should see one canonical runtime entrypoint per mode, a narrow package root, and focused seams for work invocation, session planning, and provider policy.
 

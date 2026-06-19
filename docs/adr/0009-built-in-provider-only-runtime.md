@@ -10,7 +10,7 @@ Status: Partially superseded by [0010 - Portable continuations](0010-portable-co
 - `RuntimeClient` owns in-process built-in provider availability and exhaustion state, is safe to reuse concurrently, and does not own durable provider-session storage.
 - Provider service objects, service registries, command construction, provider stream parsing, provider-session policy, model/effort allowlists, and provider flag profiles remain runtime-owned internals.
 - Runtime constructors on the ordinary consumer surface must not expose execution adapter, service registry, or provider-session adapter injection.
-- Built-in execution uses a runtime-owned host subprocess substrate. Application-owned Docker orchestration, dependency installation, managed worktrees, prompt rendering, issue orchestration, and preflight setup stay outside the runtime boundary.
+- Built-in execution uses a runtime-owned host subprocess substrate. Application-owned Docker orchestration, dependency installation, execution-directory management, prompt rendering, issue orchestration, and preflight setup stay outside the runtime boundary.
 - Built-in provider credentials are supplied per request through immutable `ProviderAuth`, not through process-global setup. Claude uses `ClaudeCodeOAuthToken`, OpenCode uses an API key, and Codex uses host auth files.
 - Missing or invalid explicit provider credentials are credential failures and stop execution rather than triggering fallback.
 - Session-backed execution is available only for built-in providers that can satisfy the portable continuation contract. New-session and resumed-session calls do not require runtime-managed provider state directories.

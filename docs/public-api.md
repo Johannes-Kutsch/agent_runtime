@@ -306,17 +306,17 @@ There is no supported consumer-defined provider adapter surface in the target ru
 
 Public provider failure errors may expose `ProviderErrorObservation` for diagnostics. Consumers own storage, display, and redaction policy for those diagnostics.
 
-## Transitional Concepts To Remove
+## Transition Notes
 
-The following pre-release concepts are transitional and should not remain in the ordinary consumer API:
+The following legacy concepts are out of scope for the ordinary runtime consumer surface:
 
 - `InvocationRole`
 - `UsageLimitScope`
 - `RuntimeStateDir`
 - `RuntimeLogsDir`
 - `SessionNamespace`
-- Provider state relative paths in continuation payloads
-- Runtime-created durable invocation log files
-- `ToolAccess` and `ToolPolicyProfile` may remain available only as Runtime Compatibility Aliases from `agent_runtime.contracts`, not from the ordinary package-root or lifecycle runtime surface.
+- Tool-state directory identifiers in continuation payloads
+- Runtime-owned durable invocation logs
+- `ToolPolicyProfile`
 
-The target public surface keeps ordinary consumers on `RuntimeClient`, request values, outcome values, built-in provider selection, `ProviderAuth`, `ProviderUsage`, `Continuation`, `InvocationRecord`, and `ToolPolicy`.
+For callers, the ordinary surface remains `RuntimeClient`, request values, outcome values, built-in provider selection, `ProviderAuth`, `ProviderUsage`, `Continuation`, `InvocationRecord`, and `ToolPolicy`.
