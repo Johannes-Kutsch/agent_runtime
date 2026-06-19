@@ -651,3 +651,284 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
     assert resumed_request.model == "sonnet"
     assert resumed_request.effort == "medium"
     assert "session-token-2026.06.19" in run_result.cases[1].provider_output
+
+
+def test_live_smoke_tool_policy_matrix_is_ephemeral_while_lifecycle_runs_all_modes(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    captured_calls: list[tuple[str, Any]] = []
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            captured_calls.append(("ephemeral", request.tool_policy))
+            return SimpleNamespace(
+                kind="completed",
+                output="provider output value",
+                result=SimpleNamespace(
+                    selected_service=request.stage.service,
+                    selected_model=request.stage.model,
+                    selected_effort=request.stage.effort,
+                    tool_access=SimpleNamespace(
+                        tool_policy=request.tool_policy,
+                    ),
+                ),
+                invocation_records=(),
+            )
+
+        def run_new_session(
+            self,
+            request: prompt_runtime.NewSessionRunRequest,
+        ) -> object:
+            captured_calls.append(("new_session", request.tool_access.tool_policy))
+            continuation = prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=request.tool_access,
+                provider_resume_state={"provider_session_id": "session-123"},
+            )
+            return SimpleNamespace(
+                kind="completed",
+                output="start response",
+                continuation=continuation,
+                result=prompt_runtime.SessionRunResult(
+                    output="start response",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name="claude",
+                        provider_session_id="session-123",
+                        run_kind=RunKind.FRESH,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model="sonnet",
+                        selected_effort="medium",
+                        tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+                    ),
+                    continuation=continuation,
+                ),
+                invocation_records=(),
+            )
+
+    def _fake_client() -> _FakeRuntimeClient:
+        return _FakeRuntimeClient()
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    try:
+        run_result = module.run_live_smoke(
+            provider_selection=("claude",),
+            lifecycle_modes=("ephemeral", "new_session"),
+            model_overrides={"claude": "sonnet"},
+            effort_overrides={"claude": "medium"},
+            tool_policies=(
+                "NONE",
+                "INSPECT_ONLY",
+                "NO_FILE_MUTATION",
+                "UNRESTRICTED",
+            ),
+            claude_code_oauth_token="token",
+            run_id="tool-policy-matrix-run",
+            artifact_root=tmp_path / "tool-policy-matrix",
+        )
+    finally:
+        monkeypatch.undo()
+
+    lifecycle_cases = [case for case in run_result.cases if case.policy is None]
+    policy_cases = [case for case in run_result.cases if case.policy is not None]
+
+    assert run_result.passed is True
+    assert len(run_result.cases) == 6
+    assert len(lifecycle_cases) == 2
+    assert len(policy_cases) == 4
+    assert all(case.mode == "ephemeral" for case in policy_cases)
+    assert {case.mode for case in lifecycle_cases} == {"ephemeral", "new_session"}
+    assert {str(case.policy) for case in policy_cases} == {
+        "NONE",
+        "INSPECT_ONLY",
+        "NO_FILE_MUTATION",
+        "UNRESTRICTED",
+    }
+
+    calls_by_mode = {
+        "ephemeral": sum(1 for call, _ in captured_calls if call == "ephemeral"),
+        "new_session": sum(1 for call, _ in captured_calls if call == "new_session"),
+    }
+    assert calls_by_mode["ephemeral"] == 5
+    assert calls_by_mode["new_session"] == 1
+
+
+def test_live_smoke_single_tool_policy_request_reuses_ephemeral_only_path(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    captured_calls: list[Any] = []
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            captured_calls.append(request.tool_policy)
+            return SimpleNamespace(
+                kind="completed",
+                output="provider output value",
+                result=SimpleNamespace(
+                    selected_service=request.stage.service,
+                    selected_model=request.stage.model,
+                    selected_effort=request.stage.effort,
+                    tool_access=SimpleNamespace(
+                        tool_policy=request.tool_policy,
+                    ),
+                ),
+                invocation_records=(),
+            )
+
+    def _fake_client() -> _FakeRuntimeClient:
+        return _FakeRuntimeClient()
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    try:
+        run_result = module.run_live_smoke(
+            provider_selection=("claude",),
+            lifecycle_modes=("ephemeral",),
+            model_overrides={"claude": "sonnet"},
+            effort_overrides={"claude": "medium"},
+            tool_policies=("NO_FILE_MUTATION",),
+            claude_code_oauth_token="token",
+            run_id="tool-policy-rerun-run",
+            artifact_root=tmp_path / "tool-policy-rerun",
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert run_result.passed is True
+    assert len(run_result.cases) == 1
+    assert run_result.cases[0].policy == "NO_FILE_MUTATION"
+    assert run_result.cases[0].mode == "ephemeral"
+    assert captured_calls == [prompt_runtime.ToolPolicy.NO_FILE_MUTATION]
+
+
+def test_live_smoke_tool_policy_timeout_is_classified_as_failed_and_retained_for_matrix_case(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            return prompt_runtime.RuntimeOutcome.timed_out(
+                output="provider timeout",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+            )
+
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", lambda: _FakeRuntimeClient())
+
+    run_result = module.run_live_smoke(
+        provider_selection=("claude",),
+        lifecycle_modes=("ephemeral",),
+        model_overrides={"claude": "sonnet"},
+        effort_overrides={"claude": "medium"},
+        tool_policies=("NONE",),
+        claude_code_oauth_token="token",
+        run_id="tool-policy-timeout-run",
+        artifact_root=tmp_path / "tool-policy-timeout",
+    )
+
+    assert run_result.passed is False
+    assert run_result.cases[0].status == "failed"
+    assert run_result.cases[0].diagnostic == "provider timeout"
+
+    case_dir = (
+        tmp_path
+        / "tool-policy-timeout"
+        / "tool-policy-timeout-run"
+        / "claude"
+        / "ephemeral"
+        / "NONE"
+    )
+    assert (case_dir / "final_output.txt").exists()
+    assert (case_dir / "final_output.txt").read_text(
+        encoding="utf-8"
+    ) == "provider timeout"
+    assert (
+        "provider timeout"
+        in (
+            module.json.loads(
+                (
+                    tmp_path
+                    / "tool-policy-timeout"
+                    / "tool-policy-timeout-run"
+                    / "summary.json"
+                ).read_text(encoding="utf-8")
+            )["cases"][0]["diagnostic"]
+        )
+    )
+
+
+def test_live_smoke_tool_policy_exception_is_classified_and_warned(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            raise RuntimeError("provider runtime client crashed")
+
+    def _fake_client() -> _FakeRuntimeClient:
+        return _FakeRuntimeClient()
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    try:
+        run_result = module.run_live_smoke(
+            provider_selection=("claude",),
+            lifecycle_modes=("ephemeral",),
+            model_overrides={"claude": "sonnet"},
+            effort_overrides={"claude": "medium"},
+            tool_policies=("UNRESTRICTED",),
+            claude_code_oauth_token="token",
+            run_id="tool-policy-exception-run",
+            artifact_root=tmp_path / "tool-policy-exception",
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert run_result.passed is False
+    assert run_result.cases[0].status == "error"
+    assert run_result.cases[0].diagnostic == "provider runtime client crashed"
+    assert any(
+        "runner exception for claude/ephemeral" in warning
+        for warning in run_result.warnings
+    )
+    summary_payload = module.json.loads(
+        (
+            tmp_path
+            / "tool-policy-exception"
+            / "tool-policy-exception-run"
+            / "summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert summary_payload["cases"][0]["status"] == "error"
+    assert (
+        summary_payload["cases"][0]["diagnostic"] == "provider runtime client crashed"
+    )

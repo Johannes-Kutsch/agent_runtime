@@ -476,19 +476,68 @@ def run_live_smoke(
         shutil.rmtree(resolved_artifact_root, ignore_errors=True)
     resolved_artifact_root.mkdir(parents=True, exist_ok=True)
 
-    dry_run_plan = live_provider_smoke_plan.build_dry_run_plan(
-        provider_selection,
-        lifecycle_modes=lifecycle_modes,
-        tool_policies=tool_policies,
-        run_id=run_id,
-        model_overrides=model_overrides,
-        effort_overrides=effort_overrides,
-        artifact_root=resolved_artifact_root,
-        env=env,
-        claude_code_oauth_token=claude_code_oauth_token,
-        opencode_api_key=opencode_api_key,
-        codex_auth_present=codex_auth_present,
-    )
+    lifecycle_tool_policy_mode = bool(tool_policies) and set(lifecycle_modes) != {
+        "ephemeral"
+    }
+    if lifecycle_tool_policy_mode:
+        lifecycle_plan = live_provider_smoke_plan.build_dry_run_plan(
+            provider_selection,
+            lifecycle_modes=lifecycle_modes,
+            tool_policies=(),
+            run_id=run_id,
+            model_overrides=model_overrides,
+            effort_overrides=effort_overrides,
+            artifact_root=resolved_artifact_root,
+            env=env,
+            claude_code_oauth_token=claude_code_oauth_token,
+            opencode_api_key=opencode_api_key,
+            codex_auth_present=codex_auth_present,
+        )
+        policy_plan = live_provider_smoke_plan.build_dry_run_plan(
+            provider_selection,
+            lifecycle_modes=("ephemeral",),
+            tool_policies=tool_policies,
+            run_id=run_id,
+            model_overrides=model_overrides,
+            effort_overrides=effort_overrides,
+            artifact_root=resolved_artifact_root,
+            env=env,
+            claude_code_oauth_token=claude_code_oauth_token,
+            opencode_api_key=opencode_api_key,
+            codex_auth_present=codex_auth_present,
+        )
+        lifecycle_case_order = tuple(
+            c
+            for provider_plan in lifecycle_plan.provider_plans
+            for c in lifecycle_plan.cases
+            if c.service == provider_plan.service and c.policy is None
+        )
+        policy_case_order = tuple(
+            c
+            for provider_plan in lifecycle_plan.provider_plans
+            for c in policy_plan.cases
+            if c.service == provider_plan.service and c.policy is not None
+        )
+        dry_run_plan = live_provider_smoke_plan.DryRunPlan(
+            run_id=lifecycle_plan.run_id,
+            cases=lifecycle_case_order + policy_case_order,
+            provider_plans=lifecycle_plan.provider_plans,
+            artifact_root=lifecycle_plan.artifact_root,
+        )
+    else:
+        dry_run_plan = live_provider_smoke_plan.build_dry_run_plan(
+            provider_selection,
+            lifecycle_modes=lifecycle_modes,
+            tool_policies=tool_policies,
+            run_id=run_id,
+            model_overrides=model_overrides,
+            effort_overrides=effort_overrides,
+            artifact_root=resolved_artifact_root,
+            env=env,
+            claude_code_oauth_token=claude_code_oauth_token,
+            opencode_api_key=opencode_api_key,
+            codex_auth_present=codex_auth_present,
+        )
 
     warnings: list[str] = []
     case_results: list[LiveSmokeRunCaseResult] = []
@@ -496,6 +545,7 @@ def run_live_smoke(
     session_continuations: dict[tuple[str, str | None], Any] = {}
     session_turns: dict[tuple[str, str | None], str] = {}
     session_invocation_dirs: dict[tuple[str, str | None], Path] = {}
+    lifecycle_failures: set[str] = set()
     runner = case_runner or _run_public_smoke_case
     run_started = time.perf_counter()
     run_artifact_root = resolved_artifact_root / dry_run_plan.run_id
@@ -522,6 +572,52 @@ def run_live_smoke(
         required_continuation_text = None
         case_state_key = (planned_case.service, planned_case.policy)
         invocation_dir_for_run = invocation_dir
+        if (
+            lifecycle_tool_policy_mode
+            and planned_case.policy is not None
+            and planned_case.service in lifecycle_failures
+        ):
+            case_classification = live_provider_smoke_plan.LiveSmokeCaseResult(
+                service=planned_case.service,
+                mode=planned_case.mode,
+                policy=planned_case.policy,
+                status=live_provider_smoke_plan.LiveSmokeCaseStatus.SKIPPED,
+                required=False,
+                diagnostic="lifecycle smoke failed earlier for provider",
+            )
+            provider_output = ""
+            case_duration = 0.0
+            case_results.append(
+                LiveSmokeRunCaseResult(
+                    service=planned_case.service,
+                    mode=planned_case.mode,
+                    policy=planned_case.policy,
+                    model=planned_case.model,
+                    effort=planned_case.effort,
+                    artifact_path=str(invocation_dir),
+                    status=case_classification.status.value,
+                    diagnostic=case_classification.diagnostic,
+                    provider_output=provider_output,
+                    traceback=case_traceback,
+                    duration_seconds=case_duration,
+                )
+            )
+            try:
+                _write_optional_case_artifacts(
+                    planned_case=planned_case,
+                    case_outcome=_StubOutcome(kind="failed"),
+                    artifact_dir=invocation_dir,
+                    prompt=prompt,
+                    duration_seconds=case_duration,
+                    run_id=dry_run_plan.run_id,
+                    traceback_text=case_traceback,
+                )
+            except Exception as exc:
+                warnings.append(
+                    "optional case artifact write failed for "
+                    f"{planned_case.service}/{planned_case.mode}: {exc}"
+                )
+            continue
         if planned_case.mode == "resumed_session":
             case_continuation = session_continuations.get(case_state_key)
             required_continuation_text = session_turns.get(case_state_key)
@@ -591,6 +687,13 @@ def run_live_smoke(
                         )
                     )
                     session_invocation_dirs[case_state_key] = invocation_dir
+            elif (
+                lifecycle_tool_policy_mode
+                and planned_case.policy is None
+                and case_classification.status
+                is not live_provider_smoke_plan.LiveSmokeCaseStatus.PASSED
+            ):
+                lifecycle_failures.add(planned_case.service)
         except Exception as exc:
             case_traceback = format_exc()
             case_classification = (
@@ -641,15 +744,15 @@ def run_live_smoke(
     summary_path = _build_summary_payload_path(
         resolved_artifact_root, dry_run_plan.run_id
     )
+    run_case_success = all(
+        case.status in {"passed", "skipped"} for case in case_results
+    )
     run_result = LiveSmokeRunResult(
         run_id=dry_run_plan.run_id,
         artifact_root=resolved_artifact_root,
         summary_path=summary_path,
         summary_written=False,
-        passed=all(
-            case.status == live_provider_smoke_plan.LiveSmokeCaseStatus.PASSED.value
-            for case in case_results
-        ),
+        passed=run_case_success,
         cases=tuple(case_results),
         warnings=tuple(warnings),
     )
