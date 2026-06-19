@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import dataclasses
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
@@ -23,6 +24,15 @@ from agent_runtime.errors import (
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
+
+
+def _assert_runtime_outcome(
+    actual: prompt_runtime.RuntimeOutcome,
+    expected: prompt_runtime.RuntimeOutcome,
+) -> None:
+    assert actual == dataclasses.replace(
+        expected, invocation_records=actual.invocation_records
+    )
 
 
 def _write_codex_rollout(state_dir: Path, *thread_ids: str) -> None:
@@ -157,36 +167,39 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     provider_state_dir_relpath = "implementer/main/claude/"
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="final output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="final output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="session-uuid",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="final output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="session-uuid",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="sonnet",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "session-uuid",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="sonnet",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "session-uuid",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=None,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+                cost_usd=None,
+                duration_seconds=None,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=5,
-            output_tokens=None,
-            cache_read_input_tokens=0,
-            cache_creation_input_tokens=0,
-            cost_usd=None,
-            duration_seconds=None,
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -448,30 +461,33 @@ def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
 
     provider_state_dir_relpath = "implementer/main/claude/"
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="final output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="final output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="session-uuid",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="final output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="session-uuid",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="sonnet",
+                    selected_effort="medium",
+                    tool_access=tool_access,
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "session-uuid",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="sonnet",
-                selected_effort="medium",
-                tool_access=tool_access,
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "session-uuid",
-                    "exact_transcript_match": False,
-                },
-            ),
+            usage=None,
         ),
-        usage=None,
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -565,30 +581,33 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
         )
     )
 
-    assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        second_outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="session-uuid",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="session-uuid",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="opus",
+                    selected_effort="high",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "session-uuid",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="opus",
-                selected_effort="high",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "session-uuid",
-                    "exact_transcript_match": False,
-                },
-            ),
+            usage=None,
         ),
-        usage=None,
     )
     assert len(adapter.recorded_requests) == 2
     resumed_request = adapter.recorded_requests[1]
@@ -649,32 +668,35 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="final output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="final output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="observed-session",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="final output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="observed-session",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="sonnet",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "observed-session",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="sonnet",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "observed-session",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=5,
-            output_tokens=2,
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -745,32 +767,35 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="final output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="final output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="opencode",
-                provider_session_id="observed-session-id",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="final output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="opencode",
+                    provider_session_id="observed-session-id",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="opencode",
+                    selected_model="glm-5",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "provider_session_id": "observed-session-id",
+                        "provider_state": {},
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="opencode",
-                selected_model="glm-5",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "provider_session_id": "observed-session-id",
-                    "provider_state": {},
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=7,
+                output_tokens=3,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=7,
-            output_tokens=3,
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -836,24 +861,27 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="hello from opencode",
-        result=prompt_runtime.EphemeralRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="hello from opencode",
-            selected_service="opencode",
-            selected_model="kimi-k2.6",
-            selected_effort="medium",
-            tool_access=_opencode_tool_access(tool_policy, tmp_path),
-            used_fallback=False,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("opencode",),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
+            result=prompt_runtime.EphemeralRunResult(
+                output="hello from opencode",
+                selected_service="opencode",
+                selected_model="kimi-k2.6",
+                selected_effort="medium",
+                tool_access=_opencode_tool_access(tool_policy, tmp_path),
+                used_fallback=False,
+                metadata=prompt_runtime.EphemeralResultMetadata(
+                    selected_service_path=("opencode",),
+                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                        run_kind=RunKind.FRESH,
+                    ),
                 ),
+                usage=None,
             ),
             usage=None,
         ),
-        usage=None,
     )
 
     assert len(adapter.recorded_requests) == 1
@@ -1000,33 +1028,36 @@ def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="final output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="final output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="opencode",
-                provider_session_id="observed-session-id",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
-                selected_model="glm-5",
-                selected_effort="medium",
-                tool_policy=tool_policy,
+            result=prompt_runtime.SessionRunResult(
+                output="final output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="opencode",
+                    provider_session_id="observed-session-id",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                    selected_model="glm-5",
+                    selected_effort="medium",
+                    tool_policy=tool_policy,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="opencode",
+                    selected_model="glm-5",
+                    selected_effort="medium",
+                    tool_access=_opencode_tool_access(tool_policy, tmp_path),
+                    provider_resume_state={
+                        "provider_session_id": "observed-session-id",
+                        "provider_state_dir_relpath": "implementer/main/opencode/",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="opencode",
-                selected_model="glm-5",
-                selected_effort="medium",
-                tool_access=_opencode_tool_access(tool_policy, tmp_path),
-                provider_resume_state={
-                    "provider_session_id": "observed-session-id",
-                    "provider_state_dir_relpath": "implementer/main/opencode/",
-                    "exact_transcript_match": False,
-                },
-            ),
+            usage=runtime.ProviderUsage(input_tokens=7, output_tokens=3),
         ),
-        usage=runtime.ProviderUsage(input_tokens=7, output_tokens=3),
     )
     recorded_request = adapter.recorded_requests[0]
     config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
@@ -1116,23 +1147,26 @@ def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="opencode",
-                provider_session_id="persisted-session-2",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
-                selected_model="glm-5",
-                selected_effort="medium",
-                tool_policy=tool_policy,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="opencode",
+                    provider_session_id="persisted-session-2",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                    selected_model="glm-5",
+                    selected_effort="medium",
+                    tool_policy=tool_policy,
+                ),
+                continuation=continuation,
             ),
-            continuation=continuation,
+            usage=runtime.ProviderUsage(input_tokens=7, output_tokens=2),
         ),
-        usage=runtime.ProviderUsage(input_tokens=7, output_tokens=2),
     )
 
     recorded_request = adapter.recorded_requests[0]
@@ -1194,32 +1228,35 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="observed-session",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="observed-session",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="opus",
+                    selected_effort="high",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "observed-session",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="opus",
-                selected_effort="high",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "observed-session",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=7,
+                output_tokens=2,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=7,
-            output_tokens=2,
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -1293,36 +1330,39 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="claude-session-123",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="claude-session-123",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="opus",
+                    selected_effort="high",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "claude-session-123",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="opus",
-                selected_effort="high",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "claude-session-123",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=7,
+                output_tokens=None,
+                cache_read_input_tokens=1,
+                cache_creation_input_tokens=0,
+                cost_usd=None,
+                duration_seconds=None,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=7,
-            output_tokens=None,
-            cache_read_input_tokens=1,
-            cache_creation_input_tokens=0,
-            cost_usd=None,
-            duration_seconds=None,
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -1401,30 +1441,33 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="claude-session-123",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="claude-session-123",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="opus",
+                    selected_effort="high",
+                    tool_access=tool_access,
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "claude-session-123",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="opus",
-                selected_effort="high",
-                tool_access=tool_access,
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "claude-session-123",
-                    "exact_transcript_match": False,
-                },
-            ),
+            usage=None,
         ),
-        usage=None,
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -1541,39 +1584,42 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="observed-thread",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
-            ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=(
-                    tool_access
-                    if tool_access.kind == "none"
-                    else contracts_runtime.ToolAccess.workspace_backed(
-                        tmp_path, tool_policy=tool_access.tool_policy
-                    )
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id="observed-thread",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
                 ),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "observed-thread",
-                    "provider_state_dir_relpath": "implementer/main/codex/",
-                    "exact_transcript_match": False,
-                },
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=(
+                        tool_access
+                        if tool_access.kind == "none"
+                        else contracts_runtime.ToolAccess.workspace_backed(
+                            tmp_path, tool_policy=tool_access.tool_policy
+                        )
+                    ),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "observed-thread",
+                        "provider_state_dir_relpath": "implementer/main/codex/",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=7,
-            output_tokens=2,
+            usage=runtime.ProviderUsage(
+                input_tokens=7,
+                output_tokens=2,
+            ),
         ),
     )
     assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
@@ -1668,33 +1714,36 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         )
     )
 
-    assert new_outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="initial output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        new_outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="initial output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="thread-123",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="initial output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id="thread-123",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "thread-123",
+                        "provider_state_dir_relpath": "implementer/main/codex/",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "thread-123",
-                    "provider_state_dir_relpath": "implementer/main/codex/",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=5,
-            output_tokens=2,
         ),
     )
 
@@ -1714,33 +1763,36 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         )
     )
 
-    assert resumed_outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        resumed_outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="thread-123",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id="thread-123",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "thread-123",
+                        "provider_state_dir_relpath": "implementer/main/codex/",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "thread-123",
-                    "provider_state_dir_relpath": "implementer/main/codex/",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=1,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=3,
-            output_tokens=1,
         ),
     )
 
@@ -1806,32 +1858,35 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="selected-thread",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id="selected-thread",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "selected-thread",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "selected-thread",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=2,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=3,
-            output_tokens=2,
         ),
     )
     assert adapter.recorded_requests[0].environment == {"TZ": "UTC"}
@@ -1919,30 +1974,33 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             )
         )
     )
-    assert first == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="codex",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.workspace_backed(
-                tmp_path,
-                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    _assert_runtime_outcome(
+        first,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.STARTED,
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                    tmp_path,
+                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+                ),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "usage-session-1",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
             ),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "usage-session-1",
-                "provider_state_dir_relpath": "implementer/main/codex/",
-                "exact_transcript_match": False,
-            },
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=1,
-            output_tokens=1,
+            usage=runtime.ProviderUsage(
+                input_tokens=1,
+                output_tokens=1,
+            ),
         ),
     )
     assert first.continuation is not None
@@ -1963,30 +2021,33 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             )
         )
     )
-    assert second == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="codex",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.workspace_backed(
-                tmp_path,
-                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    _assert_runtime_outcome(
+        second,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.STARTED,
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                    tmp_path,
+                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+                ),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "usage-session-2",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
             ),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "usage-session-2",
-                "provider_state_dir_relpath": "implementer/main/codex/",
-                "exact_transcript_match": False,
-            },
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=1,
-            output_tokens=1,
+            usage=runtime.ProviderUsage(
+                input_tokens=1,
+                output_tokens=1,
+            ),
         ),
     )
     assert second.continuation is not None
@@ -2106,26 +2167,29 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="claude",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="claude",
-            selected_model="sonnet",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "observed-session",
-                "exact_transcript_match": False,
-            },
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=3,
-            output_tokens=1,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="claude",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.STARTED,
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "observed-session",
+                    "exact_transcript_match": False,
+                },
+            ),
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=1,
+            ),
         ),
     )
 
@@ -2189,27 +2253,30 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="codex",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "selected-thread",
-                "provider_state_dir_relpath": "implementer/main/codex/",
-                "exact_transcript_match": False,
-            },
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=3,
-            output_tokens=1,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.STARTED,
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "selected-thread",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
+            ),
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=1,
+            ),
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -2267,30 +2334,33 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="generated output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="generated output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="generated-session-id",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="generated output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="generated-session-id",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="sonnet",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "generated-session-id",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="sonnet",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "generated-session-id",
-                    "exact_transcript_match": False,
-                },
-            ),
+            usage=None,
         ),
-        usage=None,
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -2354,30 +2424,33 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="fresh output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="fresh output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="claude",
-                provider_session_id="claude-session-123",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="fresh output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="claude",
+                    provider_session_id="claude-session-123",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="sonnet",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "claude-session-123",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="sonnet",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "claude-session-123",
-                    "exact_transcript_match": False,
-                },
-            ),
+            usage=None,
         ),
-        usage=None,
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -2464,30 +2537,33 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="claude",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="claude",
-            selected_model="sonnet",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "session-uuid",
-                "exact_transcript_match": False,
-            },
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=3,
-            output_tokens=None,
-            cache_read_input_tokens=0,
-            cache_creation_input_tokens=0,
-            cost_usd=None,
-            duration_seconds=None,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="claude",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.STARTED,
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "session-uuid",
+                    "exact_transcript_match": False,
+                },
+            ),
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=None,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+                cost_usd=None,
+                duration_seconds=None,
+            ),
         ),
     )
 
@@ -2549,12 +2625,15 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="claude",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="claude",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+        ),
     )
 
 
@@ -2607,34 +2686,37 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     provider_state_dir_relpath = "implementer/main/codex/"
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="thread-123",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
-            ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.workspace_backed(
-                    tmp_path,
-                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id="thread-123",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
                 ),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "thread-123",
-                    "provider_state_dir_relpath": provider_state_dir_relpath,
-                    "exact_transcript_match": False,
-                },
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                        tmp_path,
+                        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+                    ),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "thread-123",
+                        "provider_state_dir_relpath": provider_state_dir_relpath,
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
+            usage=None,
         ),
-        usage=None,
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -2703,31 +2785,34 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="thread-123",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id="thread-123",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "thread-123",
+                        "provider_state_dir_relpath": "implementer/main/codex/",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "thread-123",
-                    "provider_state_dir_relpath": "implementer/main/codex/",
-                    "exact_transcript_match": False,
-                },
-            ),
+            usage=None,
         ),
-        usage=None,
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -2806,34 +2891,37 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="selected-thread",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id="selected-thread",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "selected-thread",
+                        "provider_state_dir_relpath": "implementer/main/codex/",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "selected-thread",
-                    "provider_state_dir_relpath": "implementer/main/codex/",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=2,
+                cache_read_input_tokens=1,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=3,
-            output_tokens=2,
-            cache_read_input_tokens=1,
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -2899,23 +2987,26 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="codex",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "thread-123",
-                "provider_state_dir_relpath": "implementer/main/codex/",
-                "exact_transcript_match": False,
-            },
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.STARTED,
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "thread-123",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
+            ),
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -2977,23 +3068,26 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="codex",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "thread-456",
-                "provider_state_dir_relpath": "implementer/main/codex/",
-                "exact_transcript_match": False,
-            },
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.STARTED,
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "thread-456",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
+            ),
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -3082,36 +3176,39 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
 
     assert outcome.output == "final output"
     assert outcome.result is not None
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="final output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="final output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id=expected_provider_session_id,
-                run_kind=RunKind.FRESH if entrypoint == "new" else RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_policy=contracts_runtime.ToolAccess.no_tools().tool_policy,
+            result=prompt_runtime.SessionRunResult(
+                output="final output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id=expected_provider_session_id,
+                    run_kind=RunKind.FRESH if entrypoint == "new" else RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_policy=contracts_runtime.ToolAccess.no_tools().tool_policy,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": expected_provider_session_id,
+                        "provider_state_dir_relpath": "implementer/main/codex/",
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": expected_provider_session_id,
-                    "provider_state_dir_relpath": "implementer/main/codex/",
-                    "exact_transcript_match": False,
-                },
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=5,
-            output_tokens=2,
         ),
     )
 
@@ -3706,24 +3803,27 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output=expected_output,
-        result=prompt_runtime.EphemeralRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output=expected_output,
-            selected_service=service_name,
-            selected_model=stage.model,
-            selected_effort=stage.effort,
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            used_fallback=False,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=(service_name,),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
+            result=prompt_runtime.EphemeralRunResult(
+                output=expected_output,
+                selected_service=service_name,
+                selected_model=stage.model,
+                selected_effort=stage.effort,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                used_fallback=False,
+                metadata=prompt_runtime.EphemeralResultMetadata(
+                    selected_service_path=(service_name,),
+                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                        run_kind=RunKind.FRESH,
+                    ),
                 ),
+                usage=expected_usage,
             ),
             usage=expected_usage,
         ),
-        usage=expected_usage,
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -3790,22 +3890,27 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="ephemeral output",
-        result=prompt_runtime.EphemeralRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="ephemeral output",
-            selected_service="opencode",
-            selected_model="deepseek-v4-flash",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            used_fallback=True,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("missing", "opencode"),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(run_kind=RunKind.FRESH),
+            result=prompt_runtime.EphemeralRunResult(
+                output="ephemeral output",
+                selected_service="opencode",
+                selected_model="deepseek-v4-flash",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                used_fallback=True,
+                metadata=prompt_runtime.EphemeralResultMetadata(
+                    selected_service_path=("missing", "opencode"),
+                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                        run_kind=RunKind.FRESH
+                    ),
+                ),
+                usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
             ),
             usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
         ),
-        usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
     )
     assert len(adapter.recorded_requests) == 1
 
@@ -3871,33 +3976,36 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="opencode",
-                provider_session_id="persisted-session-2",
-                run_kind=RunKind.RESUME,
-                session_namespace="main",
-                exact_transcript_match=False,
-            ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="opencode",
-                selected_model="glm-5",
-                selected_effort="medium",
-                tool_access=continuation.tool_access,
-                provider_resume_state={
-                    "provider_session_id": "persisted-session-2",
-                    "provider_state": {
-                        "session_id": "persisted-session-1",
-                        "resume_jsonl": "[]",
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="opencode",
+                    provider_session_id="persisted-session-2",
+                    run_kind=RunKind.RESUME,
+                    session_namespace="main",
+                    exact_transcript_match=False,
+                ),
+                continuation=prompt_runtime.Continuation(
+                    selected_service="opencode",
+                    selected_model="glm-5",
+                    selected_effort="medium",
+                    tool_access=continuation.tool_access,
+                    provider_resume_state={
+                        "provider_session_id": "persisted-session-2",
+                        "provider_state": {
+                            "session_id": "persisted-session-1",
+                            "resume_jsonl": "[]",
+                        },
+                        "exact_transcript_match": False,
                     },
-                    "exact_transcript_match": False,
-                },
+                ),
             ),
+            usage=None,
         ),
-        usage=None,
     )
     assert outcome.result is not None
     assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
@@ -4153,7 +4261,6 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                logs_dir=tmp_path / "logs",
                 stage=runtime.StageSelection(
                     service="codex",
                     model="gpt-5.4",
@@ -4175,40 +4282,43 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     provider_state_dir_relpath = "implementer/main/codex/"
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="continued output",
-        result=prompt_runtime.SessionRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="continued output",
-            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                service_name="codex",
-                provider_session_id="thread-123",
-                run_kind=RunKind.FRESH,
-                session_namespace="main",
-                exact_transcript_match=False,
-            ),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=(
-                    tool_access
-                    if tool_access.kind == "none"
-                    else contracts_runtime.ToolAccess.workspace_backed(
-                        tmp_path, tool_policy=tool_access.tool_policy
-                    )
+            result=prompt_runtime.SessionRunResult(
+                output="continued output",
+                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                    service_name="codex",
+                    provider_session_id="thread-123",
+                    run_kind=RunKind.FRESH,
+                    session_namespace="main",
+                    exact_transcript_match=False,
                 ),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "thread-123",
-                    "provider_state_dir_relpath": provider_state_dir_relpath,
-                    "exact_transcript_match": False,
-                },
+                continuation=prompt_runtime.Continuation(
+                    selected_service="codex",
+                    selected_model="gpt-5.4",
+                    selected_effort="medium",
+                    tool_access=(
+                        tool_access
+                        if tool_access.kind == "none"
+                        else contracts_runtime.ToolAccess.workspace_backed(
+                            tmp_path, tool_policy=tool_access.tool_policy
+                        )
+                    ),
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "thread-123",
+                        "provider_state_dir_relpath": provider_state_dir_relpath,
+                        "exact_transcript_match": False,
+                    },
+                ),
             ),
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=3,
-            output_tokens=2,
-            cache_read_input_tokens=1,
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=2,
+                cache_read_input_tokens=1,
+            ),
         ),
     )
     assert len(adapter.recorded_requests) == 1
@@ -4220,8 +4330,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.role == InvocationRole("implementer")
     assert recorded_request.provider_session_id is None
-    assert recorded_request.log_context is not None
-    assert recorded_request.log_context.role == InvocationRole("implementer")
+    assert recorded_request.log_context is None
     assert recorded_request.environment == {
         "TZ": "UTC",
         "CODEX_HOME": str(provider_state_dir),
@@ -4230,11 +4339,19 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
     )
-    log_path = next((tmp_path / "logs").glob("*.log"))
-    log_text = log_path.read_text(encoding="utf-8")
-    assert '"prompt": "already rendered prompt"' in log_text
-    assert '"thread_id":"thread-123"' in log_text
-    assert '"text": "continued output"' in log_text
+    assert len(outcome.invocation_records) == 1
+    invocation_record = cast(
+        prompt_runtime.InvocationRecord, outcome.invocation_records[0]
+    )
+    assert invocation_record.run_kind is RunKind.FRESH
+    assert invocation_record.service_name == "codex"
+    assert invocation_record.provider_session_id == "thread-123"
+    assert invocation_record.prompt == "already rendered prompt"
+    assert invocation_record.provider_output == (
+        b'{"type":"item.completed","item":{"type":"agent_message","text":"continued'
+        b' output"}}\n{"type":"turn.completed","usage":{"input_tokens":3,'
+        b'"cached_tokens":1,"output_tokens":2}}\n'
+    )
 
 
 def test_runtime_client_keeps_started_codex_new_session_continuation_from_provider_invocation_failure_stdout(
@@ -4288,7 +4405,6 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                logs_dir=tmp_path / "logs",
                 stage=runtime.StageSelection(
                     service="codex",
                     model="gpt-5.4",
@@ -4301,32 +4417,149 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="codex",
-        reset_time=None,
-        usage_limit_scope=None,
-        invocation_progress=runtime.InvocationProgress.STARTED,
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "thread-123",
-                "provider_state_dir_relpath": "implementer/main/codex/",
-                "exact_transcript_match": False,
-            },
-        ),
-        usage=runtime.ProviderUsage(
-            input_tokens=3,
-            output_tokens=1,
-            cache_read_input_tokens=1,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=None,
+            usage_limit_scope=None,
+            invocation_progress=runtime.InvocationProgress.STARTED,
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "thread-123",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
+            ),
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=1,
+                cache_read_input_tokens=1,
+            ),
         ),
     )
+    assert len(outcome.invocation_records) == 1
+    invocation_record = cast(
+        prompt_runtime.InvocationRecord, outcome.invocation_records[0]
+    )
+    assert invocation_record.run_kind is RunKind.FRESH
+    assert invocation_record.service_name == "codex"
+    assert invocation_record.provider_session_id == "thread-123"
+    assert invocation_record.prompt == "already rendered prompt"
+    assert invocation_record.provider_output == (
+        b'{"type":"thread.started","thread_id":"thread-123"}\n'
+        b'{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. '
+        b'Try again at January 2, 5pm (UTC)."}}\n'
+    )
     assert len(adapter.recorded_requests) == 1
-    assert adapter.recorded_requests[0].log_context is not None
+    assert adapter.recorded_requests[0].log_context is None
+
+
+def test_runtime_client_returns_invocation_records_for_session_run_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="continued output",
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
+                cache_read_input_tokens=1,
+                cache_creation_input_tokens=0,
+            ),
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "sessionID": "session-123",
+                        "part": {
+                            "type": "text",
+                            "text": "continued output",
+                            "time": {"end": "2026-01-01T00:00:00Z"},
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "session.status",
+                        "status": {"type": "idle"},
+                    }
+                )
+                + "\n",
+            ),
+            provider_session_id="session-123",
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome.output == "continued output"
+    assert outcome.usage == runtime.ProviderUsage(
+        input_tokens=5,
+        output_tokens=2,
+        cache_read_input_tokens=1,
+        cache_creation_input_tokens=0,
+    )
+    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
+    assert outcome.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
+        service_name="opencode",
+        provider_session_id="session-123",
+        run_kind=RunKind.FRESH,
+        session_namespace="",
+        exact_transcript_match=False,
+    )
+    assert outcome.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "session-123",
+            "provider_state": {"session_id": "session-123"},
+            "exact_transcript_match": False,
+        },
+    )
+    assert len(outcome.invocation_records) == 1
+    invocation_record = cast(
+        prompt_runtime.InvocationRecord, outcome.invocation_records[0]
+    )
+    assert invocation_record.run_kind is RunKind.FRESH
+    assert invocation_record.service_name == "opencode"
+    assert invocation_record.provider_session_id == "session-123"
+    assert invocation_record.prompt == "already rendered prompt"
+    assert invocation_record.provider_output is not None
+    assert (
+        b'"type": "text", "sessionID": "session-123"'
+        in invocation_record.provider_output
+    )
+    assert (
+        b'"type": "session.status", "status": {"type": "idle"}'
+        in invocation_record.provider_output
+    )
 
 
 def test_runtime_client_preserves_opencode_invalid_api_key_observations(
@@ -4482,11 +4715,14 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 4, 28, 21, 4, tzinfo=timezone.utc),
-        usage_limit_scope=None,
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.no_service_available(
+            output="",
+            reset_time=datetime(2026, 4, 28, 21, 4, tzinfo=timezone.utc),
+            usage_limit_scope=None,
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
     )
 
 
@@ -4541,11 +4777,14 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.no_service_available(
+            output="",
+            reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+            usage_limit_scope=None,
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -4738,19 +4977,22 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="completed answer",
-        result=prompt_runtime.EphemeralRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="completed answer",
-            selected_service="opencode",
-            selected_model="kimi-k2.6",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            used_fallback=False,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("opencode",),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
+            result=prompt_runtime.EphemeralRunResult(
+                output="completed answer",
+                selected_service="opencode",
+                selected_model="kimi-k2.6",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                used_fallback=False,
+                metadata=prompt_runtime.EphemeralResultMetadata(
+                    selected_service_path=("opencode",),
+                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                        run_kind=RunKind.FRESH,
+                    ),
                 ),
             ),
         ),
@@ -4797,11 +5039,14 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 1, 13, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.no_service_available(
+            output="",
+            reset_time=datetime(2026, 1, 1, 13, 2, tzinfo=timezone.utc),
+            usage_limit_scope=None,
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
     )
 
 
@@ -4921,11 +5166,14 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=datetime(2026, 1, 2, 16, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.no_service_available(
+            output="",
+            reset_time=datetime(2026, 1, 2, 16, 2, tzinfo=timezone.utc),
+            usage_limit_scope=None,
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
     )
 
 
@@ -4975,11 +5223,14 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
-        output="",
-        reset_time=reset_time + timedelta(minutes=2),
-        usage_limit_scope=None,
-        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.no_service_available(
+            output="",
+            reset_time=reset_time + timedelta(minutes=2),
+            usage_limit_scope=None,
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
     )
 
 
@@ -5015,19 +5266,22 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="final output",
-        result=prompt_runtime.EphemeralRunResult(
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.completed(
             output="final output",
-            selected_service="claude",
-            selected_model="sonnet",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            used_fallback=True,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("missing", "claude"),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
+            result=prompt_runtime.EphemeralRunResult(
+                output="final output",
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                used_fallback=True,
+                metadata=prompt_runtime.EphemeralResultMetadata(
+                    selected_service_path=("missing", "claude"),
+                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                        run_kind=RunKind.FRESH,
+                    ),
                 ),
             ),
         ),

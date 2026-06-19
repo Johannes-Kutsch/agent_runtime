@@ -31,6 +31,7 @@ __all__ = [
     "EphemeralRunResult",
     "EphemeralResultMetadata",
     "EphemeralRuntimeMetadata",
+    "InvocationRecord",
     "NewSessionRunRequest",
     "ProviderUsage",
     "ProviderAuth",
@@ -183,6 +184,16 @@ class ProviderAuth:
 
 
 @dataclasses.dataclass(frozen=True)
+class InvocationRecord:
+    run_kind: RunKind
+    service_name: str
+    provider_session_id: str | None
+    prompt: str
+    provider_output: bytes | None = None
+    usage: ProviderUsage | None = None
+
+
+@dataclasses.dataclass(frozen=True)
 class RuntimeOutcome:
     kind: str
     output: str
@@ -193,6 +204,7 @@ class RuntimeOutcome:
     invocation_progress: InvocationProgress | None = None
     continuation: Continuation | None = None
     usage: ProviderUsage | None = None
+    invocation_records: tuple[InvocationRecord, ...] = ()
 
     @classmethod
     def completed(
@@ -200,9 +212,16 @@ class RuntimeOutcome:
         *,
         output: str,
         result: EphemeralRunResult | SessionRunResult,
+        invocation_records: tuple[InvocationRecord, ...] = (),
         usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
-        return cls(kind="completed", output=output, result=result, usage=usage)
+        return cls(
+            kind="completed",
+            output=output,
+            result=result,
+            usage=usage,
+            invocation_records=invocation_records,
+        )
 
     @classmethod
     def usage_limited(
@@ -214,6 +233,7 @@ class RuntimeOutcome:
         usage_limit_scope: UsageLimitScope | None,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        invocation_records: tuple[InvocationRecord, ...] = (),
         usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
@@ -225,6 +245,7 @@ class RuntimeOutcome:
             invocation_progress=invocation_progress,
             continuation=continuation,
             usage=usage,
+            invocation_records=invocation_records,
         )
 
     @classmethod
@@ -236,6 +257,7 @@ class RuntimeOutcome:
         usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        invocation_records: tuple[InvocationRecord, ...] = (),
         usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
@@ -246,6 +268,7 @@ class RuntimeOutcome:
             invocation_progress=invocation_progress,
             continuation=continuation,
             usage=usage,
+            invocation_records=invocation_records,
         )
 
     @classmethod
@@ -255,6 +278,7 @@ class RuntimeOutcome:
         output: str,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        invocation_records: tuple[InvocationRecord, ...] = (),
         usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
@@ -263,6 +287,7 @@ class RuntimeOutcome:
             invocation_progress=invocation_progress,
             continuation=continuation,
             usage=usage,
+            invocation_records=invocation_records,
         )
 
     @classmethod
@@ -272,6 +297,7 @@ class RuntimeOutcome:
         output: str,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        invocation_records: tuple[InvocationRecord, ...] = (),
         usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
@@ -280,6 +306,7 @@ class RuntimeOutcome:
             invocation_progress=invocation_progress,
             continuation=continuation,
             usage=usage,
+            invocation_records=invocation_records,
         )
 
     @classmethod
@@ -290,6 +317,7 @@ class RuntimeOutcome:
         service_name: str,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
+        invocation_records: tuple[InvocationRecord, ...] = (),
         usage: ProviderUsage | None = None,
     ) -> RuntimeOutcome:
         return cls(
@@ -299,6 +327,7 @@ class RuntimeOutcome:
             invocation_progress=invocation_progress,
             continuation=continuation,
             usage=usage,
+            invocation_records=invocation_records,
         )
 
     @property
@@ -471,7 +500,6 @@ class NewSessionRunRequest:
     prompt: str
     invocation_dir: Path
     runtime_state_dir: Path | None
-    logs_dir: Path | None
     stage: StageSelection
     role: InvocationRole
     provider_auth: ProviderAuth | None
@@ -490,7 +518,6 @@ class NewSessionRunRequest:
         prompt: str,
         invocation_dir: Path | WorktreeMount | None = None,
         runtime_state_dir: Path | None = None,
-        logs_dir: Path | None = None,
         stage: StageSelection | None = None,
         role: InvocationRole | None = None,
         provider_auth: ProviderAuth | None = None,
@@ -534,7 +561,6 @@ class NewSessionRunRequest:
             normalized_request.worktree.path,
         )
         object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
-        object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "stage", normalized_request.stage)
         object.__setattr__(self, "role", normalized_request.role)
         object.__setattr__(self, "provider_auth", provider_auth)
@@ -599,7 +625,6 @@ class ResumedSessionRunRequest:
     prompt: str
     invocation_dir: WorktreeMount
     runtime_state_dir: Path | None
-    logs_dir: Path | None
     model: str
     effort: str
     role: InvocationRole
@@ -619,7 +644,6 @@ class ResumedSessionRunRequest:
         prompt: str,
         invocation_dir: Path | WorktreeMount | None = None,
         runtime_state_dir: Path | None = None,
-        logs_dir: Path | None = None,
         model: str | None = None,
         effort: str | None = None,
         session_plan: ResumableSessionPlan | None = None,
@@ -726,7 +750,6 @@ class ResumedSessionRunRequest:
             normalized_request.worktree.mount,
         )
         object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
-        object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "model", resolved_model)
         object.__setattr__(self, "effort", resolved_effort)
         object.__setattr__(self, "role", normalized_request.role)
@@ -767,7 +790,6 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "prompt",
     "invocation_dir",
     "runtime_state_dir",
-    "logs_dir",
     "stage",
     "role",
     "provider_auth",

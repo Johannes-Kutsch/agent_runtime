@@ -14,11 +14,9 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from . import _time as _time_module
-from .agent_log import AgentInvocationLog, WorkInvocationLog
 from ._provider_invocation import (
     ProductionProviderInvocationAdapter,
     ProviderInvocationAdapter,
-    ProviderInvocationLogContext,
     ProviderInvocationPrompt,
     ProviderInvocationRequest,
     ProviderInvocationResult,
@@ -39,6 +37,7 @@ from ._runtime_lifecycle import (
     EphemeralRuntimeMetadata,
     ProviderAuth,
     ProviderUsage,
+    InvocationRecord,
     ResumedSessionRunRequest,
     RuntimeOutcome,
     SessionRunResult,
@@ -1204,24 +1203,71 @@ def _extract_opencode_provider_session_id(lines: list[str]) -> str | None:
     return provider_session_id
 
 
+def _provider_invocation_records_output_lines(
+    service_name: str,
+    stdout_lines: tuple[str, ...],
+    *,
+    include_thread_started: bool = False,
+) -> list[str]:
+    if service_name != "codex":
+        return list(stdout_lines)
+    output_lines: list[str] = []
+    for line in stdout_lines:
+        has_trailing_newline = line.endswith("\n")
+        stripped_line = line[:-1] if has_trailing_newline else line
+        try:
+            event = json.loads(stripped_line)
+        except json.JSONDecodeError:
+            output_lines.append(line)
+            continue
+        if (
+            not include_thread_started
+            and isinstance(event, dict)
+            and event.get("type") == "thread.started"
+        ):
+            continue
+        output_line = json.dumps(event, separators=(",", ":"), ensure_ascii=False)
+        if has_trailing_newline:
+            output_line += "\n"
+        output_lines.append(output_line)
+    return output_lines
+
+
+def _provider_session_id_from_stdout_lines(
+    service_name: str,
+    stdout_lines: tuple[str, ...],
+) -> str | None:
+    if service_name == "codex":
+        return _extract_codex_provider_session_id(list(stdout_lines))
+    if service_name == "opencode":
+        return _extract_opencode_provider_session_id(list(stdout_lines))
+    return None
+
+
+def _provider_session_id_from_error(
+    service_name: str,
+    error: UsageLimitError | RetryableProviderFailureError,
+    *,
+    fallback_provider_session_id: str | None = None,
+) -> str | None:
+    provider_session_id = provider_invocation_failure_provider_session_id(error)
+    if provider_session_id is not None:
+        return provider_session_id
+    fallback_session_id = _provider_session_id_from_stdout_lines(
+        service_name,
+        provider_invocation_failure_stdout_lines(error),
+    )
+    if fallback_session_id is not None:
+        return fallback_session_id
+    provider_error_session_id = getattr(error, "provider_session_id", None)
+    if provider_error_session_id is not None:
+        return provider_error_session_id
+    return fallback_provider_session_id
+
+
 def _reduce_opencode_stream(lines: list[str]) -> str:
     return reduce_text_output_events(
         _parse_opencode_events(lines),
-        lambda _turn: None,
-        provider="opencode",
-    )
-
-
-def _reduce_logged_opencode_stream(
-    lines: list[str],
-    *,
-    work_invocation_log: WorkInvocationLog,
-) -> str:
-    return reduce_text_output_events(
-        _parse_opencode_events(
-            lines,
-            on_provider_session_id=work_invocation_log.record_provider_session_id,
-        ),
         lambda _turn: None,
         provider="opencode",
     )
@@ -1584,46 +1630,77 @@ def _build_opencode_continuation(
     ).to_continuation()
 
 
-def _start_invocation_log(
-    *,
-    logs_dir: Path | None,
-    role: Any,
-) -> Any:
-    if logs_dir is None:
-        return None
-    return AgentInvocationLog().start_logical_session(
-        log_name=role.value,
-        logs_dir=logs_dir,
+def _provider_invocation_records(
+    service_name: str,
+    run_kind: RunKind,
+    prompt: str,
+    invocation_result: ProviderInvocationResult,
+    provider_session_id: str | None = None,
+) -> tuple[InvocationRecord]:
+    resolved_provider_session_id = (
+        invocation_result.provider_session_id or provider_session_id
     )
-
-
-def _provider_invocation_log_context(
-    *,
-    invocation_log: Any,
-    role: Any,
-    usage_limit_scope: Any,
-) -> ProviderInvocationLogContext | None:
-    if invocation_log is None:
-        return None
-    return ProviderInvocationLogContext(
-        invocation_log=invocation_log,
-        role=role,
-        usage_limit_scope=usage_limit_scope,
+    stdout_output = (
+        "".join(
+            _provider_invocation_records_output_lines(
+                service_name,
+                invocation_result.stdout_lines,
+            )
+        ).encode("utf-8")
+        if invocation_result.stdout_lines
+        else None
     )
-
-
-def _reduce_logged_opencode_stream_with_usage(
-    lines: list[str],
-    *,
-    work_invocation_log: WorkInvocationLog,
-) -> tuple[str, ProviderUsage | None]:
     return (
-        _reduce_logged_opencode_stream(
-            lines,
-            work_invocation_log=work_invocation_log,
+        InvocationRecord(
+            run_kind=run_kind,
+            service_name=service_name,
+            provider_session_id=resolved_provider_session_id,
+            prompt=prompt,
+            provider_output=stdout_output,
+            usage=invocation_result.usage,
         ),
-        None,
     )
+
+
+def _provider_invocation_records_from_error(
+    service_name: str,
+    run_kind: RunKind,
+    prompt: str,
+    exc: UsageLimitError | RetryableProviderFailureError,
+) -> tuple[InvocationRecord]:
+    stdout_lines = provider_invocation_failure_stdout_lines(exc)
+    usage = getattr(exc, "usage", None)
+    provider_session_id = _provider_session_id_from_error(
+        service_name,
+        exc,
+    )
+    provider_output_lines = _provider_invocation_records_output_lines(
+        service_name,
+        stdout_lines,
+        include_thread_started=True,
+    )
+    provider_output = (
+        "".join(provider_output_lines).encode("utf-8")
+        if provider_output_lines
+        else None
+    )
+    return (
+        InvocationRecord(
+            run_kind=run_kind,
+            service_name=service_name,
+            provider_session_id=provider_session_id,
+            prompt=prompt,
+            provider_output=provider_output,
+            usage=usage,
+        ),
+    )
+
+
+def _attach_runtime_invocation_records(
+    exc: UsageLimitError | RetryableProviderFailureError,
+    invocation_records: tuple[InvocationRecord, ...],
+) -> None:
+    setattr(exc, "_runtime_invocation_records", invocation_records)
 
 
 def _default_provider_invocation_adapter() -> ProviderInvocationAdapter:
@@ -1644,12 +1721,6 @@ def _invoke_provider(
     usage_limit_scope: Any,
     provider_session_id: str | None,
     reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
-    invocation_log: Any,
-    reduce_logged_output: Callable[
-        [list[str], WorkInvocationLog],
-        tuple[str, ProviderUsage | None],
-    ]
-    | None = None,
     extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
 ) -> ProviderInvocationResult:
     return provider_invocation_adapter.execute(
@@ -1665,15 +1736,10 @@ def _invoke_provider(
             run_kind=run_kind,
             role=role,
             usage_limit_scope=usage_limit_scope,
-            log_context=_provider_invocation_log_context(
-                invocation_log=invocation_log,
-                role=role,
-                usage_limit_scope=usage_limit_scope,
-            ),
+            log_context=None,
             provider_session_id=provider_session_id,
             output_hooks=ProviderOutputReductionHooks(
                 reduce_output=reduce_output,
-                reduce_logged_output=reduce_logged_output,
                 extract_provider_session_id=extract_provider_session_id,
             ),
         )
@@ -1712,10 +1778,6 @@ def _invoke_claude_new_session_provider(
         usage_limit_scope=request.usage_limit_scope,
         provider_session_id=provider_session_id,
         reduce_output=_reduce_claude_stream,
-        invocation_log=_start_invocation_log(
-            logs_dir=request.logs_dir,
-            role=request.role,
-        ),
     )
 
 
@@ -1747,10 +1809,6 @@ def _invoke_codex_new_session_provider(
         usage_limit_scope=request.usage_limit_scope,
         provider_session_id=None,
         reduce_output=_reduce_codex_stream,
-        invocation_log=_start_invocation_log(
-            logs_dir=request.logs_dir,
-            role=request.role,
-        ),
     )
 
 
@@ -1784,7 +1842,6 @@ def _invoke_codex_resumed_session_provider(
         usage_limit_scope=request.usage_limit_scope,
         provider_session_id=provider_session_id,
         reduce_output=_reduce_codex_stream,
-        invocation_log=None,
         extract_provider_session_id=_extract_codex_provider_session_id,
     )
 
@@ -1827,10 +1884,6 @@ def _invoke_opencode_new_session_provider(
     run_kind: RunKind,
     provider_session_id: str,
 ) -> tuple[ProviderInvocationResult, str]:
-    invocation_log = _start_invocation_log(
-        logs_dir=request.logs_dir,
-        role=request.role,
-    )
     observed_provider_session_id = provider_session_id
 
     def _record_opencode_session_id(session_id: str) -> None:
@@ -1845,26 +1898,6 @@ def _invoke_opencode_new_session_provider(
                 _parse_opencode_events(
                     lines,
                     on_provider_session_id=_record_opencode_session_id,
-                ),
-                lambda _turn: None,
-                provider="opencode",
-            ),
-            None,
-        )
-
-    def _reduce_logged_opencode_session_output(
-        lines: list[str],
-        work_invocation_log: WorkInvocationLog,
-    ) -> tuple[str, ProviderUsage | None]:
-        def _record_session_id(session_id: str) -> None:
-            _record_opencode_session_id(session_id)
-            work_invocation_log.record_provider_session_id(session_id)
-
-        return (
-            reduce_text_output_events(
-                _parse_opencode_events(
-                    lines,
-                    on_provider_session_id=_record_session_id,
                 ),
                 lambda _turn: None,
                 provider="opencode",
@@ -1894,8 +1927,6 @@ def _invoke_opencode_new_session_provider(
         usage_limit_scope=request.usage_limit_scope,
         provider_session_id=provider_session_id,
         reduce_output=_reduce_opencode_session_output,
-        invocation_log=invocation_log,
-        reduce_logged_output=_reduce_logged_opencode_session_output,
         extract_provider_session_id=lambda _lines: observed_provider_session_id,
     )
     return invocation_result, (
@@ -1971,10 +2002,6 @@ def _run_builtin_ephemeral(
                 observations=(),
             )
         prompt_path = request.invocation_dir / ".pycastle_prompt"
-    invocation_log = _start_invocation_log(
-        logs_dir=None,
-        role=_DEFAULT_EPHEMERAL_ROLE,
-    )
     if selected_stage.service == "codex":
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
@@ -1993,7 +2020,6 @@ def _run_builtin_ephemeral(
             usage_limit_scope=None,
             provider_session_id=None,
             reduce_output=reduce_codex_stream,
-            invocation_log=invocation_log,
         )
     elif selected_stage.service == "opencode":
         invocation_result = _invoke_provider(
@@ -2018,13 +2044,6 @@ def _run_builtin_ephemeral(
             usage_limit_scope=None,
             provider_session_id=None,
             reduce_output=lambda lines: (reduce_opencode_stream(lines), None),
-            invocation_log=invocation_log,
-            reduce_logged_output=lambda lines, work_invocation_log: (
-                _reduce_logged_opencode_stream_with_usage(
-                    lines,
-                    work_invocation_log=work_invocation_log,
-                )
-            ),
         )
     else:
         invocation_result = _invoke_provider(
@@ -2045,7 +2064,6 @@ def _run_builtin_ephemeral(
             usage_limit_scope=None,
             provider_session_id=None,
             reduce_output=reduce_claude_stream,
-            invocation_log=invocation_log,
         )
     result_text = invocation_result.output
     usage = invocation_result.usage
@@ -2130,6 +2148,7 @@ def _run_builtin_new_session(
         if provider_invocation_adapter is None
         else provider_invocation_adapter
     )
+    invocation_records: tuple[InvocationRecord, ...] = ()
     runtime_state_dir, cleanup_runtime_state_dir, is_caller_managed_runtime_state = (
         _new_session_runtime_state_dir(
             request,
@@ -2188,6 +2207,7 @@ def _run_builtin_new_session(
                     provider_invocation_adapter=invocation_adapter,
                 )
             provider_session_id: str | None = None
+            invocation_records = ()
             try:
                 invocation_result = _invoke_codex_new_session_provider(
                     provider_invocation_adapter=invocation_adapter,
@@ -2199,12 +2219,28 @@ def _run_builtin_new_session(
                     invocation_result,
                     fallback_provider_session_id=provider_session_id,
                 )
+                invocation_records = _provider_invocation_records(
+                    service_name="codex",
+                    run_kind=RunKind.FRESH,
+                    prompt=request.prompt,
+                    invocation_result=invocation_result,
+                    provider_session_id=provider_session_id,
+                )
                 result_text = invocation_result.output
                 usage = invocation_result.usage
             except (UsageLimitError, RetryableProviderFailureError) as exc:
                 provider_session_id = _active_codex_provider_session_id_from_failure(
                     exc,
                     fallback_provider_session_id=provider_session_id,
+                )
+                _attach_runtime_invocation_records(
+                    exc,
+                    _provider_invocation_records_from_error(
+                        service_name="codex",
+                        run_kind=RunKind.FRESH,
+                        prompt=request.prompt,
+                        exc=exc,
+                    ),
                 )
                 exc.continuation = (
                     _build_codex_continuation(
@@ -2252,6 +2288,7 @@ def _run_builtin_new_session(
                     ),
                 ),
                 usage=usage,
+                invocation_records=invocation_records,
             )
         elif selected_stage.service == "claude":
             provider_state_dir_relpath, provider_state_dir = (
@@ -2277,7 +2314,6 @@ def _run_builtin_new_session(
                         provider_auth=request.provider_auth,
                         usage_limit_scope=request.usage_limit_scope,
                         session_namespace=request.session_namespace,
-                        logs_dir=request.logs_dir,
                     ),
                     provider_invocation_adapter=invocation_adapter,
                 )
@@ -2325,6 +2361,13 @@ def _run_builtin_new_session(
                     run_kind=run_kind,
                     provider_session_id=provider_session_id,
                 )
+                invocation_records = _provider_invocation_records(
+                    service_name=selected_stage.service,
+                    run_kind=run_kind,
+                    prompt=request.prompt,
+                    invocation_result=invocation_result,
+                    provider_session_id=provider_session_id,
+                )
             else:
                 assert provider_session_id is not None
                 invocation_result, provider_session_id = (
@@ -2337,13 +2380,29 @@ def _run_builtin_new_session(
                         provider_session_id=provider_session_id,
                     )
                 )
+                invocation_records = _provider_invocation_records(
+                    service_name=selected_stage.service,
+                    run_kind=run_kind,
+                    prompt=request.prompt,
+                    invocation_result=invocation_result,
+                    provider_session_id=provider_session_id,
+                )
                 _persist_opencode_session_id(provider_state_dir, provider_session_id)
         except (UsageLimitError, RetryableProviderFailureError) as exc:
-            observed_failure_provider_session_id = (
-                provider_invocation_failure_provider_session_id(exc)
+            _attach_runtime_invocation_records(
+                exc,
+                _provider_invocation_records_from_error(
+                    service_name=selected_stage.service,
+                    run_kind=run_kind,
+                    prompt=request.prompt,
+                    exc=exc,
+                ),
             )
-            if observed_failure_provider_session_id is not None:
-                provider_session_id = observed_failure_provider_session_id
+            provider_session_id = _provider_session_id_from_error(
+                selected_stage.service,
+                exc,
+                fallback_provider_session_id=provider_session_id,
+            )
             exc.continuation = None
             if (
                 exc.invocation_progress is InvocationProgress.STARTED
@@ -2407,6 +2466,7 @@ def _run_builtin_new_session(
                 ),
             ),
             usage=usage,
+            invocation_records=invocation_records,
         )
     finally:
         cleanup_runtime_state_dir()
@@ -2438,6 +2498,7 @@ def _run_builtin_resumed_session(
     provider_session_id: str | None
     provider_state_dir_relpath: str | None = None
     provider_state_dir: Path | None = None
+    invocation_records: tuple[InvocationRecord, ...] = ()
 
     def _no_cleanup() -> None:
         return None
@@ -2485,9 +2546,25 @@ def _run_builtin_resumed_session(
                 invocation_result,
                 fallback_provider_session_id=provider_session_id,
             )
+            invocation_records = _provider_invocation_records(
+                service_name="codex",
+                run_kind=run_kind,
+                prompt=request.prompt,
+                invocation_result=invocation_result,
+                provider_session_id=active_provider_session_id,
+            )
             result_text = invocation_result.output
             usage = invocation_result.usage
         except (UsageLimitError, RetryableProviderFailureError) as exc:
+            _attach_runtime_invocation_records(
+                exc,
+                _provider_invocation_records_from_error(
+                    service_name="codex",
+                    run_kind=run_kind,
+                    prompt=request.prompt,
+                    exc=exc,
+                ),
+            )
             active_provider_session_id = _active_codex_provider_session_id_from_failure(
                 exc,
                 fallback_provider_session_id=active_provider_session_id,
@@ -2532,6 +2609,7 @@ def _run_builtin_resumed_session(
                 ),
             ),
             usage=usage,
+            invocation_records=invocation_records,
         )
     if continuation_service not in {"claude", "opencode"}:
         raise RuntimeConfigurationError(
@@ -2584,10 +2662,6 @@ def _run_builtin_resumed_session(
         )
         run_kind = RunKind.RESUME
     prompt_path = request.invocation_dir.host_path / ".pycastle_prompt"
-    invocation_log = _start_invocation_log(
-        logs_dir=request.logs_dir,
-        role=request.role,
-    )
 
     def _reduce_opencode_session_output(
         lines: list[str],
@@ -2595,22 +2669,6 @@ def _run_builtin_resumed_session(
         return (
             reduce_text_output_events(
                 _parse_opencode_events(lines),
-                lambda _turn: None,
-                provider="opencode",
-            ),
-            None,
-        )
-
-    def _reduce_logged_opencode_session_output(
-        lines: list[str],
-        work_invocation_log: WorkInvocationLog,
-    ) -> tuple[str, ProviderUsage | None]:
-        return (
-            reduce_text_output_events(
-                _parse_opencode_events(
-                    lines,
-                    on_provider_session_id=work_invocation_log.record_provider_session_id,
-                ),
                 lambda _turn: None,
                 provider="opencode",
             ),
@@ -2634,7 +2692,6 @@ def _run_builtin_resumed_session(
                 ),
             )
             reduce_output = _reduce_claude_stream
-            reduce_logged_output = None
             extract_provider_session_id = None
         else:
             command = _opencode_command(
@@ -2649,7 +2706,6 @@ def _run_builtin_resumed_session(
                 tool_policy=request.tool_access.tool_policy,
             )
             reduce_output = _reduce_opencode_session_output
-            reduce_logged_output = _reduce_logged_opencode_session_output
             extract_provider_session_id = _extract_opencode_provider_session_id
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
@@ -2664,11 +2720,16 @@ def _run_builtin_resumed_session(
             usage_limit_scope=request.usage_limit_scope,
             provider_session_id=provider_session_id,
             reduce_output=reduce_output,
-            invocation_log=invocation_log,
-            reduce_logged_output=reduce_logged_output,
             extract_provider_session_id=extract_provider_session_id,
         )
         if continuation_service == "opencode":
+            invocation_records = _provider_invocation_records(
+                service_name="opencode",
+                run_kind=run_kind,
+                prompt=request.prompt,
+                invocation_result=invocation_result,
+                provider_session_id=provider_session_id,
+            )
             provider_session_id = invocation_result.provider_session_id
             assert provider_session_id is not None
             assert provider_state_dir is not None
@@ -2679,11 +2740,20 @@ def _run_builtin_resumed_session(
             )
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
     except (UsageLimitError, RetryableProviderFailureError) as exc:
-        observed_failure_provider_session_id = (
-            provider_invocation_failure_provider_session_id(exc)
+        _attach_runtime_invocation_records(
+            exc,
+            _provider_invocation_records_from_error(
+                service_name=continuation_service,
+                run_kind=run_kind,
+                prompt=request.prompt,
+                exc=exc,
+            ),
         )
-        if observed_failure_provider_session_id is not None:
-            provider_session_id = observed_failure_provider_session_id
+        provider_session_id = _provider_session_id_from_error(
+            continuation_service,
+            exc,
+            fallback_provider_session_id=provider_session_id,
+        )
         if continuation_service == "opencode":
             exact_transcript_match = _opencode_exact_transcript_match(
                 saved_exact_transcript_match=saved_exact_transcript_match,
@@ -2715,6 +2785,13 @@ def _run_builtin_resumed_session(
         cleanup_opencode_state_dir()
         raise
     if continuation_service == "claude":
+        invocation_records = _provider_invocation_records(
+            service_name="claude",
+            run_kind=run_kind,
+            prompt=request.prompt,
+            invocation_result=invocation_result,
+            provider_session_id=provider_session_id,
+        )
         provider_session_id = (
             invocation_result.provider_session_id or provider_session_id
         )
@@ -2755,4 +2832,5 @@ def _run_builtin_resumed_session(
             continuation=result_continuation,
         ),
         usage=usage,
+        invocation_records=invocation_records,
     )

@@ -28,6 +28,7 @@ from ._runtime_lifecycle import (
     EphemeralRunRequest,
     EphemeralRunResult,
     EphemeralRuntimeMetadata,
+    InvocationRecord,
     NewSessionRunRequest,
     ProviderAuth,
     ProviderUsage,
@@ -49,6 +50,7 @@ __all__ = [
     "EphemeralRuntimeMetadata",
     "NewSessionRunRequest",
     "InvocationProgress",
+    "InvocationRecord",
     "ProviderAuth",
     "ProviderUsage",
     "ResumedSessionRunRequest",
@@ -134,6 +136,10 @@ _run_builtin_resumed_session = (
 )
 
 
+def _exception_invocation_records(exc: object) -> tuple[InvocationRecord, ...]:
+    return tuple(getattr(exc, "_runtime_invocation_records", ()))
+
+
 def _parse_claude_event(line: str) -> list[Any]:
     return _builtin_runtime_client_module._parse_claude_event_with_dependencies(
         line,
@@ -190,6 +196,7 @@ def _run_builtin_session_outcome(
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
+            invocation_records=_exception_invocation_records(exc),
         )
     except UsageLimitError as exc:
         return RuntimeOutcome.usage_limited(
@@ -200,6 +207,7 @@ def _run_builtin_session_outcome(
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
+            invocation_records=_exception_invocation_records(exc),
         )
 
 

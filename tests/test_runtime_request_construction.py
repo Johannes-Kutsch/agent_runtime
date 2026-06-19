@@ -138,9 +138,9 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
 
     assert request.role == InvocationRole("implementer")
     assert request.runtime_state_dir is None
-    assert request.logs_dir is None
     assert request.usage_limit_scope is None
     assert request.session_namespace == ""
+    assert not hasattr(request, "logs_dir")
 
 
 def test_prompt_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
