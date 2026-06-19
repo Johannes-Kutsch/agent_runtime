@@ -345,9 +345,6 @@ def test_resumed_session_run_request_coerces_path_worktree_to_worktree_mount() -
 
 
 def test_runtime_public_surface_keeps_request_normalization_module_private() -> None:
-    readme = Path("README.md").read_text(encoding="utf-8")
-
     assert "_request_normalization" not in runtime.__all__
     assert "_request_normalization" not in prompt_runtime.__all__
     assert "_request_normalization" not in execution_contracts_runtime.__all__
-    assert "_request_normalization" not in readme

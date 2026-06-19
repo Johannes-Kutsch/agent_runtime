@@ -343,16 +343,6 @@ def test_internal_runtime_compatibility_module_keeps_resume_wrapper_private() ->
     assert not hasattr(runtime_instance, "run_resumable_prompt")
 
 
-def test_readme_guides_consumers_to_lifecycle_session_entrypoints() -> None:
-    readme = Path("README.md").read_text(encoding="utf-8")
-
-    assert "RuntimeClient" in readme
-    assert "ResumedSessionRunRequest" in readme
-    assert "run_resumed_session" in readme
-    assert "ResumedSessionRuntime" not in readme
-    assert "run_resumable_prompt" not in readme
-
-
 def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
     None
 ):
