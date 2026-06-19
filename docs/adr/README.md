@@ -11,3 +11,4 @@
 - [0009 - Built-in provider-only runtime](0009-built-in-provider-only-runtime.md): Ship Claude, Codex, and OpenCode integrations inside the runtime distribution and remove consumer-defined provider services as an extension point.
 - [0010 - Portable continuations](0010-portable-continuations.md): Return opaque portable continuation tokens for session-backed runtime execution while leaving durable storage policy to callers.
 - [0011 - Live runtime output observation](0011-live-runtime-output-observation.md): Add provider-neutral per-request observation for live agent-message turns without exposing raw provider streams or alternate streaming lifecycle entrypoints.
+- [0012 - Live provider smoke runner](0012-live-provider-smoke-runner.md): Add opt-in maintainer tooling that exercises real built-in providers through the Runtime Public Surface without joining the default test suite.

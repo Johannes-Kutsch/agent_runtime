@@ -53,7 +53,7 @@
 | `RuntimeClient` | Caller-owned runtime object that holds in-process built-in provider availability state across calls without owning durable provider session storage. |
 | `InvocationProgress` | Two-state runtime outcome metadata indicating whether the model showed activity before an interruption, such as reasoning, messages, or tool invocation; unknown progress is treated as not started. |
 | `RuntimeOutcome` | A canonical runtime result category for expected orchestration outcomes such as completion, usage limits, cancellation, timeout, temporary service unavailability, or confidently retryable provider failure. |
-| `Live Provider Smoke Test` | An opt-in validation run that exercises real built-in provider integrations outside the default test suite. |
+| `Live Provider Smoke Test` | An opt-in validation run that exercises real built-in provider integrations outside the default test suite to prove the Runtime Public Surface contract with minimal provider behavior assumptions. |
 | `ProviderUsage` | Provider-reported usage metadata for a runtime invocation: input tokens, output tokens, cache-read input tokens, cache-creation input tokens, optional cost in USD, and optional provider duration in seconds. |
 | `SessionNamespace` | Transitional secondary label previously used to partition runtime-managed provider session state; active session-backed requests do not require it. |
 | `WorkInvocation` | The runtime-owned work lifecycle that turns caller intent plus execution dependencies into a text result. |
@@ -71,6 +71,8 @@
 - The documented Runtime Public Surface is a stability promise rather than an inventory of every importable runtime symbol.
 - External provider adapter seams should be removed from the documented Runtime Public Surface.
 - Provider event DTOs are internal built-in adapter details, not consumer-facing API.
+- Live Provider Smoke Tests are opt-in maintainer tooling, not default automated tests or Runtime Public Surface additions.
+- Live Provider Smoke Tests prove real built-in provider invocation through the Runtime Public Surface with minimal provider behavior assumptions; they do not judge model answer quality, tool usefulness, or strict instruction-following.
 - Live Runtime Output is an observation channel for `AgentMessageTurn` text, not arbitrary provider output chunks; completed runtime output remains the authoritative invocation result.
 - Live Runtime Output callback failures are consumer-side failures and should not be silently swallowed by the runtime.
 - Live Runtime Output callback failures propagate as exceptional consumer failures rather than runtime interruption outcomes.
