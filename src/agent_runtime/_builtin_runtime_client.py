@@ -2136,31 +2136,36 @@ def _run_builtin_new_session(
             context="new-session",
         )
     )
-    if supported_builtin_stage(request.stage) is None:
-        raise RuntimeConfigurationError(
-            "RuntimeClient requires at least one supported built-in service candidate."
-        )
-    selected_stage = _select_builtin_stage(request.stage)
-    _require_portable_continuation_support(selected_stage.service)
+    try:
+        if supported_builtin_stage(request.stage) is None:
+            raise RuntimeConfigurationError(
+                "RuntimeClient requires at least one supported built-in service candidate."
+            )
+        selected_stage = _select_builtin_stage(request.stage)
+        _require_portable_continuation_support(selected_stage.service)
 
-    def _portable_codex_state_dir_relpath(
-        provider_state_dir_relpath: str | None,
-    ) -> str | None:
-        if is_caller_managed_runtime_state:
-            return provider_state_dir_relpath
-        return None
+        def _portable_codex_state_dir_relpath(
+            provider_state_dir_relpath: str | None,
+        ) -> str | None:
+            if is_caller_managed_runtime_state:
+                return provider_state_dir_relpath
+            return None
 
-    if selected_stage.service == "codex":
-        _validate_codex_stage(selected_stage)
-        provider_state_dir_relpath, provider_state_dir = _codex_prepare_runtime_state(
-            runtime_state_dir,
-            role=request.role,
-            session_namespace=request.session_namespace,
-        )
-        _codex_seed_auth(provider_state_dir)
-        recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
-        if _codex_is_resumable(provider_state_dir) and recovered_thread_id is not None:
-            try:
+        if selected_stage.service == "codex":
+            _validate_codex_stage(selected_stage)
+            provider_state_dir_relpath, provider_state_dir = (
+                _codex_prepare_runtime_state(
+                    runtime_state_dir,
+                    role=request.role,
+                    session_namespace=request.session_namespace,
+                )
+            )
+            _codex_seed_auth(provider_state_dir)
+            recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
+            if (
+                _codex_is_resumable(provider_state_dir)
+                and recovered_thread_id is not None
+            ):
                 return _run_builtin_resumed_session(
                     ResumedSessionRunRequest(
                         prompt=request.prompt,
@@ -2182,58 +2187,26 @@ def _run_builtin_new_session(
                     ),
                     provider_invocation_adapter=invocation_adapter,
                 )
-            finally:
-                cleanup_runtime_state_dir()
-        provider_session_id: str | None = None
-        try:
-            invocation_result = _invoke_codex_new_session_provider(
-                provider_invocation_adapter=invocation_adapter,
-                request=request,
-                stage=selected_stage,
-                provider_state_dir=provider_state_dir,
-            )
-            provider_session_id = _active_codex_provider_session_id_from_result(
-                invocation_result,
-                fallback_provider_session_id=provider_session_id,
-            )
-            result_text = invocation_result.output
-            usage = invocation_result.usage
-        except (UsageLimitError, RetryableProviderFailureError) as exc:
-            provider_session_id = _active_codex_provider_session_id_from_failure(
-                exc,
-                fallback_provider_session_id=provider_session_id,
-            )
-            exc.continuation = (
-                _build_codex_continuation(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=_portable_codex_state_dir_relpath(
-                        provider_state_dir_relpath
-                    ),
+            provider_session_id: str | None = None
+            try:
+                invocation_result = _invoke_codex_new_session_provider(
+                    provider_invocation_adapter=invocation_adapter,
+                    request=request,
+                    stage=selected_stage,
+                    provider_state_dir=provider_state_dir,
                 )
-                if exc.invocation_progress is InvocationProgress.STARTED
-                and provider_session_id is not None
-                else None
-            )
-            cleanup_runtime_state_dir()
-            raise
-        outcome = RuntimeOutcome.completed(
-            output=result_text,
-            result=SessionRunResult(
-                output=result_text,
-                runtime_metadata=SessionRuntimeMetadata(
-                    service_name="codex",
-                    provider_session_id=provider_session_id,
-                    run_kind=RunKind.FRESH,
-                    session_namespace=request.session_namespace,
-                    exact_transcript_match=False,
-                    selected_model=selected_stage.model,
-                    selected_effort=selected_stage.effort,
-                    tool_policy=request.tool_access.tool_policy,
-                ),
-                continuation=(
+                provider_session_id = _active_codex_provider_session_id_from_result(
+                    invocation_result,
+                    fallback_provider_session_id=provider_session_id,
+                )
+                result_text = invocation_result.output
+                usage = invocation_result.usage
+            except (UsageLimitError, RetryableProviderFailureError) as exc:
+                provider_session_id = _active_codex_provider_session_id_from_failure(
+                    exc,
+                    fallback_provider_session_id=provider_session_id,
+                )
+                exc.continuation = (
                     _build_codex_continuation(
                         model=selected_stage.model,
                         effort=selected_stage.effort,
@@ -2243,22 +2216,52 @@ def _run_builtin_new_session(
                             provider_state_dir_relpath
                         ),
                     )
-                    if provider_session_id is not None
+                    if exc.invocation_progress is InvocationProgress.STARTED
+                    and provider_session_id is not None
                     else None
+                )
+                raise
+            return RuntimeOutcome.completed(
+                output=result_text,
+                result=SessionRunResult(
+                    output=result_text,
+                    runtime_metadata=SessionRuntimeMetadata(
+                        service_name="codex",
+                        provider_session_id=provider_session_id,
+                        run_kind=RunKind.FRESH,
+                        session_namespace=request.session_namespace,
+                        exact_transcript_match=False,
+                        selected_model=selected_stage.model,
+                        selected_effort=selected_stage.effort,
+                        tool_policy=request.tool_access.tool_policy,
+                    ),
+                    continuation=(
+                        _build_codex_continuation(
+                            model=selected_stage.model,
+                            effort=selected_stage.effort,
+                            tool_access=request.tool_access,
+                            provider_session_id=provider_session_id,
+                            provider_state_dir_relpath=(
+                                _portable_codex_state_dir_relpath(
+                                    provider_state_dir_relpath
+                                )
+                            ),
+                        )
+                        if provider_session_id is not None
+                        else None
+                    ),
                 ),
-            ),
-            usage=usage,
-        )
-        cleanup_runtime_state_dir()
-        return outcome
-    elif selected_stage.service == "claude":
-        provider_state_dir_relpath, provider_state_dir = _claude_prepare_runtime_state(
-            runtime_state_dir,
-            role=request.role,
-            session_namespace=request.session_namespace,
-        )
-        if _claude_is_resumable(provider_state_dir):
-            try:
+                usage=usage,
+            )
+        elif selected_stage.service == "claude":
+            provider_state_dir_relpath, provider_state_dir = (
+                _claude_prepare_runtime_state(
+                    runtime_state_dir,
+                    role=request.role,
+                    session_namespace=request.session_namespace,
+                )
+            )
+            if _claude_is_resumable(provider_state_dir):
                 return _run_builtin_resumed_session(
                     ResumedSessionRunRequest(
                         prompt=request.prompt,
@@ -2278,57 +2281,43 @@ def _run_builtin_new_session(
                     ),
                     provider_invocation_adapter=invocation_adapter,
                 )
-            finally:
-                cleanup_runtime_state_dir()
-        _validate_claude_stage(selected_stage)
-        _require_claude_auth(request.provider_auth)
-        provider_session_id = _new_provider_session_id()
-        run_kind = RunKind.FRESH
-        exact_transcript_match = False
-    elif selected_stage.service == "opencode":
-        provider_state_dir_relpath, provider_state_dir = (
-            _opencode_prepare_runtime_state(
-                runtime_state_dir,
-                role=request.role,
-                session_namespace=request.session_namespace,
-            )
-        )
-        _validate_opencode_stage(selected_stage)
-        _require_opencode_auth(request.provider_auth)
-        recovered_state_dir_session_id = _load_opencode_state_dir_session_id(
-            provider_state_dir
-        )
-        if (
-            _opencode_is_resumable(provider_state_dir)
-            and recovered_state_dir_session_id
-        ):
-            provider_session_id = recovered_state_dir_session_id
-            run_kind = RunKind.RESUME
-            exact_transcript_match = True
-        else:
+            _validate_claude_stage(selected_stage)
+            _require_claude_auth(request.provider_auth)
             provider_session_id = _new_provider_session_id()
             run_kind = RunKind.FRESH
             exact_transcript_match = False
-    else:
-        cleanup_runtime_state_dir()
-        raise RuntimeConfigurationError(
-            "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
-        )
-    try:
-        if selected_stage.service == "claude":
-            assert provider_session_id is not None
-            invocation_result = _invoke_claude_new_session_provider(
-                provider_invocation_adapter=invocation_adapter,
-                request=request,
-                stage=selected_stage,
-                provider_state_dir=provider_state_dir,
-                run_kind=run_kind,
-                provider_session_id=provider_session_id,
+        elif selected_stage.service == "opencode":
+            provider_state_dir_relpath, provider_state_dir = (
+                _opencode_prepare_runtime_state(
+                    runtime_state_dir,
+                    role=request.role,
+                    session_namespace=request.session_namespace,
+                )
             )
+            _validate_opencode_stage(selected_stage)
+            _require_opencode_auth(request.provider_auth)
+            recovered_state_dir_session_id = _load_opencode_state_dir_session_id(
+                provider_state_dir
+            )
+            if (
+                _opencode_is_resumable(provider_state_dir)
+                and recovered_state_dir_session_id
+            ):
+                provider_session_id = recovered_state_dir_session_id
+                run_kind = RunKind.RESUME
+                exact_transcript_match = True
+            else:
+                provider_session_id = _new_provider_session_id()
+                run_kind = RunKind.FRESH
+                exact_transcript_match = False
         else:
-            assert provider_session_id is not None
-            invocation_result, provider_session_id = (
-                _invoke_opencode_new_session_provider(
+            raise RuntimeConfigurationError(
+                "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
+            )
+        try:
+            if selected_stage.service == "claude":
+                assert provider_session_id is not None
+                invocation_result = _invoke_claude_new_session_provider(
                     provider_invocation_adapter=invocation_adapter,
                     request=request,
                     stage=selected_stage,
@@ -2336,84 +2325,91 @@ def _run_builtin_new_session(
                     run_kind=run_kind,
                     provider_session_id=provider_session_id,
                 )
-            )
-            _persist_opencode_session_id(provider_state_dir, provider_session_id)
-    except (UsageLimitError, RetryableProviderFailureError) as exc:
-        observed_failure_provider_session_id = (
-            provider_invocation_failure_provider_session_id(exc)
-        )
-        if observed_failure_provider_session_id is not None:
-            provider_session_id = observed_failure_provider_session_id
-        exc.continuation = None
-        if (
-            exc.invocation_progress is InvocationProgress.STARTED
-            and provider_session_id is not None
-        ):
-            exc.continuation = (
-                _build_claude_continuation(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    provider_session_id=provider_session_id,
+            else:
+                assert provider_session_id is not None
+                invocation_result, provider_session_id = (
+                    _invoke_opencode_new_session_provider(
+                        provider_invocation_adapter=invocation_adapter,
+                        request=request,
+                        stage=selected_stage,
+                        provider_state_dir=provider_state_dir,
+                        run_kind=run_kind,
+                        provider_session_id=provider_session_id,
+                    )
                 )
-                if selected_stage.service == "claude"
-                else _build_opencode_continuation(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    provider_session_id=provider_session_id,
-                    provider_state_dir=provider_state_dir,
-                    exact_transcript_match=exact_transcript_match,
-                )
+                _persist_opencode_session_id(provider_state_dir, provider_session_id)
+        except (UsageLimitError, RetryableProviderFailureError) as exc:
+            observed_failure_provider_session_id = (
+                provider_invocation_failure_provider_session_id(exc)
             )
-        cleanup_runtime_state_dir()
-        raise
-    except Exception:
-        cleanup_runtime_state_dir()
-        raise
-    if selected_stage.service == "claude":
-        provider_session_id = (
-            invocation_result.provider_session_id or provider_session_id
-        )
-    assert provider_session_id is not None
-    result_text = invocation_result.output
-    usage = invocation_result.usage
-    outcome = RuntimeOutcome.completed(
-        output=result_text,
-        result=SessionRunResult(
+            if observed_failure_provider_session_id is not None:
+                provider_session_id = observed_failure_provider_session_id
+            exc.continuation = None
+            if (
+                exc.invocation_progress is InvocationProgress.STARTED
+                and provider_session_id is not None
+            ):
+                exc.continuation = (
+                    _build_claude_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=provider_session_id,
+                    )
+                    if selected_stage.service == "claude"
+                    else _build_opencode_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=provider_session_id,
+                        provider_state_dir=provider_state_dir,
+                        exact_transcript_match=exact_transcript_match,
+                    )
+                )
+            raise
+        if selected_stage.service == "claude":
+            provider_session_id = (
+                invocation_result.provider_session_id or provider_session_id
+            )
+        assert provider_session_id is not None
+        result_text = invocation_result.output
+        usage = invocation_result.usage
+        return RuntimeOutcome.completed(
             output=result_text,
-            runtime_metadata=SessionRuntimeMetadata(
-                service_name=selected_stage.service,
-                provider_session_id=provider_session_id,
-                run_kind=run_kind,
-                session_namespace=request.session_namespace,
-                exact_transcript_match=exact_transcript_match,
-                selected_model=selected_stage.model,
-                selected_effort=selected_stage.effort,
-                tool_policy=request.tool_access.tool_policy,
-            ),
-            continuation=(
-                _build_claude_continuation(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
+            result=SessionRunResult(
+                output=result_text,
+                runtime_metadata=SessionRuntimeMetadata(
+                    service_name=selected_stage.service,
                     provider_session_id=provider_session_id,
-                )
-                if selected_stage.service == "claude"
-                else _build_opencode_continuation(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    provider_session_id=provider_session_id,
-                    provider_state_dir=provider_state_dir,
+                    run_kind=run_kind,
+                    session_namespace=request.session_namespace,
                     exact_transcript_match=exact_transcript_match,
-                )
+                    selected_model=selected_stage.model,
+                    selected_effort=selected_stage.effort,
+                    tool_policy=request.tool_access.tool_policy,
+                ),
+                continuation=(
+                    _build_claude_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=provider_session_id,
+                    )
+                    if selected_stage.service == "claude"
+                    else _build_opencode_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=provider_session_id,
+                        provider_state_dir=provider_state_dir,
+                        exact_transcript_match=exact_transcript_match,
+                    )
+                ),
             ),
-        ),
-        usage=usage,
-    )
-    cleanup_runtime_state_dir()
-    return outcome
+            usage=usage,
+        )
+    finally:
+        cleanup_runtime_state_dir()
 
 
 def _run_builtin_resumed_session(

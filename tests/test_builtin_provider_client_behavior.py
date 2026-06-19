@@ -331,6 +331,48 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
     assert len(adapter.recorded_requests) == 0
 
 
+def test_runtime_client_new_session_validation_failure_cleans_runtime_managed_state_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    managed_state_dir = tmp_path / "runtime-managed-state"
+    cleaned_up = False
+
+    class _TrackingTemporaryDirectory:
+        def __init__(self, *, prefix: str) -> None:
+            del prefix
+            managed_state_dir.mkdir()
+            self.name = str(managed_state_dir)
+
+        def cleanup(self) -> None:
+            nonlocal cleaned_up
+            cleaned_up = True
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.tempfile,
+        "TemporaryDirectory",
+        _TrackingTemporaryDirectory,
+    )
+
+    with pytest.raises(RuntimeConfigurationError):
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    stage=runtime.StageSelection(
+                        service="unsupported",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    assert cleaned_up is True
+
+
 @pytest.mark.parametrize(
     ("tool_policy", "expected_flags"),
     [
