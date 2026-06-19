@@ -2122,7 +2122,7 @@ def test_runtime_client_writes_resumed_opencode_session_log_with_observed_provid
     )
 
 
-def test_resumed_session_runtime_returns_usage_limited_outcome_with_input_continuation_before_model_activity() -> (
+def test_resumed_session_runtime_returns_usage_limited_outcome_without_continuation_before_model_activity() -> (
     None
 ):
     worktree = Path("/repo")
@@ -2266,7 +2266,7 @@ def test_resumed_session_runtime_returns_no_service_available_outcome_with_input
     )
 
 
-def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuation_before_model_activity() -> (
+def test_resumed_session_runtime_returns_cancelled_outcome_without_continuation_before_model_activity() -> (
     None
 ):
     worktree = Path("/repo")
@@ -2311,7 +2311,7 @@ def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuati
         ),
     ],
 )
-def test_resumed_session_runtime_preserves_input_continuation_for_not_started_interruption_outcomes(
+def test_resumed_session_runtime_clears_continuation_for_not_started_interruption_outcomes(
     execution_adapter: Any,
     expected_kind: str,
     service_name: str | None,
