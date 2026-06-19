@@ -1325,6 +1325,11 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
             output_tokens=2,
         ),
     )
+    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
+    assert isinstance(
+        outcome.result.runtime_metadata, prompt_runtime.SessionRuntimeMetadata
+    )
+    assert outcome.result.runtime_metadata.tool_policy == tool_access.tool_policy
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
@@ -1582,6 +1587,161 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
     assert adapter.recorded_requests[0].command == (
         "codex exec resume selected-thread -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
         "--sandbox read-only --json < /tmp/.pycastle_prompt"
+    )
+
+
+def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationFailure(
+            error=runtime.UsageLimitError(
+                reset_time=None,
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(
+                    input_tokens=1,
+                    output_tokens=1,
+                ),
+            ),
+            stdout_lines=(
+                '{"type":"assistant","message":{"content":[{"type":"text","text":"continued"}]}}\n',
+            ),
+            provider_session_id="usage-session-1",
+        ),
+        provider_invocation_runtime.ProviderInvocationFailure(
+            error=runtime.UsageLimitError(
+                reset_time=None,
+                service_name="codex",
+                invocation_progress=runtime.InvocationProgress.STARTED,
+                usage=runtime.ProviderUsage(
+                    input_tokens=1,
+                    output_tokens=1,
+                ),
+            ),
+            stdout_lines=(
+                '{"type":"assistant","message":{"content":[{"type":"text","text":"continued"}]}}\n',
+            ),
+            provider_session_id="usage-session-2",
+        ),
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    _write_codex_rollout(provider_state_dir, "recovered-thread")
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(
+            tmp_path,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        ),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "selected-thread",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    first = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+            )
+        )
+    )
+    assert first == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(
+                tmp_path,
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            ),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "usage-session-1",
+                "provider_state_dir_relpath": "implementer/main/codex/",
+                "exact_transcript_match": False,
+            },
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=1,
+            output_tokens=1,
+        ),
+    )
+    assert first.continuation is not None
+    assert (
+        first.continuation.tool_access.tool_policy
+        == runtime.ToolPolicy.NO_FILE_MUTATION
+    )
+
+    second = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=first.continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+            )
+        )
+    )
+    assert second == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=None,
+        usage_limit_scope=None,
+        invocation_progress=runtime.InvocationProgress.STARTED,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(
+                tmp_path,
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            ),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "usage-session-2",
+                "provider_state_dir_relpath": "implementer/main/codex/",
+                "exact_transcript_match": False,
+            },
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=1,
+            output_tokens=1,
+        ),
+    )
+    assert second.continuation is not None
+    assert (
+        second.continuation.tool_access.tool_policy
+        == runtime.ToolPolicy.NO_FILE_MUTATION
     )
 
 
