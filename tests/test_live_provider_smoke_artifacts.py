@@ -763,6 +763,161 @@ def test_live_smoke_tool_policy_matrix_is_ephemeral_while_lifecycle_runs_all_mod
     assert calls_by_mode["new_session"] == 1
 
 
+def test_live_smoke_combined_mode_continues_after_lifecycle_provider_failure(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+    from agent_runtime.contracts import ToolAccess
+    from agent_runtime.session import RunKind
+
+    calls: list[tuple[str, str, str | None]] = []
+
+    codex_continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=ToolAccess.no_tools(),
+        provider_resume_state={"provider_session_id": "codex-session"},
+    )
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            calls.append(
+                (
+                    "ephemeral",
+                    request.stage.service,
+                    str(request.tool_policy),
+                )
+            )
+            return SimpleNamespace(
+                kind="completed",
+                output="provider output value",
+                result=SimpleNamespace(
+                    selected_service=request.stage.service,
+                    selected_model=request.stage.model,
+                    selected_effort=request.stage.effort,
+                    tool_access=SimpleNamespace(
+                        tool_policy=request.tool_policy,
+                    ),
+                ),
+                invocation_records=(),
+            )
+
+        def run_new_session(
+            self,
+            request: prompt_runtime.NewSessionRunRequest,
+        ) -> object:
+            calls.append(("new_session", request.stage.service, None))
+            if request.stage.service == "claude":
+                return prompt_runtime.RuntimeOutcome(
+                    kind="usage_limited",
+                    output="claude usage limit reached",
+                    service_name="claude",
+                    reset_time=None,
+                    invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+                )
+
+            return prompt_runtime.RuntimeOutcome(
+                kind="completed",
+                output="codex new session token codex-token",
+                continuation=codex_continuation,
+                result=prompt_runtime.SessionRunResult(
+                    output="codex new session token codex-token",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name="codex",
+                        provider_session_id="codex-session",
+                        run_kind=RunKind.FRESH,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model="sonnet",
+                        selected_effort="medium",
+                        tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+                    ),
+                ),
+                invocation_records=(),
+            )
+
+        def run_resumed_session(
+            self,
+            request: prompt_runtime.ResumedSessionRunRequest,
+        ) -> object:
+            continuation = cast(prompt_runtime.Continuation, request.continuation)
+            selected_service = continuation.serialized_payload.service_name
+            calls.append(("resumed_session", selected_service, None))
+            return prompt_runtime.RuntimeOutcome(
+                kind="completed",
+                output="codex resumed token codex-token",
+                continuation=cast(prompt_runtime.Continuation, request.continuation),
+                result=prompt_runtime.SessionRunResult(
+                    output="codex resumed token codex-token",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name=selected_service,
+                        provider_session_id="codex-session",
+                        run_kind=RunKind.RESUME,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model="sonnet",
+                        selected_effort="medium",
+                        tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+                    ),
+                ),
+                invocation_records=(),
+            )
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", lambda: _FakeRuntimeClient())
+    try:
+        run_result = module.run_live_smoke(
+            provider_selection=("claude", "codex"),
+            lifecycle_modes=("new_session", "resumed_session"),
+            model_overrides={"claude": "sonnet", "codex": "sonnet"},
+            effort_overrides={"claude": "medium", "codex": "medium"},
+            tool_policies=("UNRESTRICTED",),
+            claude_code_oauth_token="token",
+            opencode_api_key="api-key",
+            codex_auth_present=True,
+            run_id="combined-continue-run",
+            artifact_root=tmp_path / "combined-continue",
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert run_result.passed is False
+    assert run_result.cases[0].service == "claude"
+    assert run_result.cases[0].mode == "new_session"
+    assert run_result.cases[0].status == "usage_limited"
+    assert run_result.cases[1].service == "claude"
+    assert run_result.cases[1].mode == "resumed_session"
+    assert run_result.cases[1].status == "error"
+    assert any(
+        case.service == "codex"
+        and case.mode == "new_session"
+        and case.status == "passed"
+        for case in run_result.cases
+    )
+    assert any(
+        case.service == "codex"
+        and case.mode == "resumed_session"
+        and case.status == "passed"
+        for case in run_result.cases
+    )
+    assert any(
+        case.service == "codex"
+        and case.mode == "ephemeral"
+        and case.policy == "UNRESTRICTED"
+        and case.status == "passed"
+        for case in run_result.cases
+    )
+    assert any(call == ("new_session", "claude", None) for call in calls)
+    assert any(call[0] == "new_session" and call[1] == "codex" for call in calls)
+    assert any(call[0] == "resumed_session" and call[1] == "codex" for call in calls)
+
+
 def test_live_smoke_single_tool_policy_request_reuses_ephemeral_only_path(
     smoke_module: object,
     tmp_path: Path,

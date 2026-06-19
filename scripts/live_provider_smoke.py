@@ -621,22 +621,23 @@ def run_live_smoke(
                     f"{planned_case.service}/{planned_case.mode}: {exc}"
                 )
             continue
-        if planned_case.mode == "resumed_session":
-            case_continuation = session_continuations.get(case_state_key)
-            required_continuation_text = session_turns.get(case_state_key)
-            if case_continuation is None:
-                raise RuntimeError(
-                    "Resume session case requires prior successful new session "
-                    "continuation."
-                )
-            if case_state_key not in session_invocation_dirs:
-                raise RuntimeError(
-                    "Resume session case requires matching prior new session "
-                    "invocation directory."
-                )
-            invocation_dir_for_run = session_invocation_dirs[case_state_key]
 
         try:
+            if planned_case.mode == "resumed_session":
+                case_continuation = session_continuations.get(case_state_key)
+                required_continuation_text = session_turns.get(case_state_key)
+                if case_continuation is None:
+                    raise RuntimeError(
+                        "Resume session case requires prior successful new session "
+                        "continuation."
+                    )
+                if case_state_key not in session_invocation_dirs:
+                    raise RuntimeError(
+                        "Resume session case requires matching prior new session "
+                        "invocation directory."
+                    )
+                invocation_dir_for_run = session_invocation_dirs[case_state_key]
+
             case_outcome = runner(
                 case=planned_case,
                 artifact_dir=invocation_dir_for_run,
