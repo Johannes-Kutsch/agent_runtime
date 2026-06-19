@@ -18,6 +18,7 @@ import agent_runtime.runtime as prompt_runtime
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     HardAgentError,
+    RetryableProviderFailureError,
     RuntimeConfigurationError,
     TransientAgentError,
 )
@@ -1341,6 +1342,59 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
     assert observed == [("hello", "codex"), ("world", "codex")]
 
 
+def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions_as_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+        raise runtime.UsageLimitError(service_name="codex")
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        ),
+    )
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    with pytest.raises(runtime.UsageLimitError):
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    stage=runtime.StageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    on_live_output=on_live_output,
+                )
+            )
+        )
+
+    assert observed == [("hello", "codex")]
+
+
 def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns_before_fallback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1473,6 +1527,52 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
     assert len(adapter.recorded_requests) == 1
     assert outcome.output == "hello\nworld"
     assert observed == [("hello", "codex"), ("world", "codex")]
+
+
+def test_runtime_client_resumed_session_run_forwards_live_output_observer_exceptions_as_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+        raise RetryableProviderFailureError(
+            service_name="codex",
+            message="observer failure",
+        )
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        ),
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={"provider_session_id": "resume-session"},
+    )
+
+    with pytest.raises(RetryableProviderFailureError):
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    continuation=continuation,
+                    on_live_output=on_live_output,
+                )
+            )
+        )
+
+    assert observed == [("hello", "codex")]
 
 
 def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_once_per_turn(

@@ -704,6 +704,10 @@ def _live_output_observer(
     return observe
 
 
+def _is_live_output_exception(exc: BaseException) -> bool:
+    return bool(getattr(exc, "_is_live_output_exception", False))
+
+
 class _ObservedOutputReducer:
     __slots__ = ("reduce_output", "consume_stdout_lines")
 
@@ -816,6 +820,8 @@ def _reduce_claude_stream_with_dependencies(
             provider="claude",
         )
     except (RetryableProviderFailureError, UsageLimitError) as exc:
+        if _is_live_output_exception(exc):
+            raise
         if exc.usage is None:
             exc.usage = usage
         raise
@@ -924,6 +930,8 @@ def _reduce_codex_stream(
             provider="codex",
         )
     except (RetryableProviderFailureError, UsageLimitError) as exc:
+        if _is_live_output_exception(exc):
+            raise
         if exc.usage is None:
             exc.usage = usage
         raise

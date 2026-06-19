@@ -203,6 +203,8 @@ def _run_builtin_session_outcome(
             usage=exc.usage,
         )
     except RetryableProviderFailureError as exc:
+        if getattr(exc, "_is_live_output_exception", False):
+            raise
         return RuntimeOutcome.retryable_provider_failure(
             output="",
             service_name=exc.service_name,
@@ -212,6 +214,8 @@ def _run_builtin_session_outcome(
             invocation_records=_exception_invocation_records(exc),
         )
     except UsageLimitError as exc:
+        if getattr(exc, "_is_live_output_exception", False):
+            raise
         return RuntimeOutcome.usage_limited(
             output="",
             service_name=exc.service_name,
