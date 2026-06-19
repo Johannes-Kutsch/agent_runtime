@@ -51,6 +51,8 @@ def test_package_exports_runtime_surface() -> None:
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
     assert "ToolAccess" not in runtime.__all__
     assert "ToolPolicyProfile" not in runtime.__all__
+    assert not hasattr(runtime, "ToolAccess")
+    assert not hasattr(runtime, "ToolPolicyProfile")
     assert hasattr(contracts_runtime, "ToolAccess")
     assert hasattr(contracts_runtime, "ToolPolicyProfile")
     assert not hasattr(runtime, "assert_runtime_import_isolation")
@@ -88,6 +90,8 @@ def test_package_exports_runtime_surface() -> None:
     } <= set(prompt_runtime.__all__)
     assert "ToolAccess" not in prompt_runtime.__all__
     assert "ToolPolicyProfile" not in prompt_runtime.__all__
+    assert not hasattr(prompt_runtime, "ToolAccess")
+    assert not hasattr(prompt_runtime, "ToolPolicyProfile")
     assert {
         "EphemeralRunRequest",
         "EphemeralRunResult",
@@ -136,6 +140,38 @@ def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surfa
         exec("from agent_runtime.runtime import ProviderInvocationResult", {}, {})
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ProviderInvocationAdapter", {}, {})
+
+
+@pytest.mark.parametrize(
+    ("module_name", "removed_name"),
+    [
+        ("agent_runtime", "ToolAccess"),
+        ("agent_runtime", "ToolPolicyProfile"),
+        ("agent_runtime.runtime", "ToolAccess"),
+        ("agent_runtime.runtime", "ToolPolicyProfile"),
+    ],
+)
+def test_removed_tool_policy_compatibility_names_fail_on_ordinary_runtime_surface(
+    module_name: str,
+    removed_name: str,
+) -> None:
+    with pytest.raises(ImportError):
+        exec(f"from {module_name} import {removed_name}", {}, {})
+
+    imported_module = importlib.import_module(module_name)
+    with pytest.raises(AttributeError, match="Runtime Public Surface"):
+        getattr(imported_module, removed_name)
+
+    compatibility_imports: dict[str, object] = {}
+    exec(
+        f"from agent_runtime.contracts import {removed_name}",
+        {},
+        compatibility_imports,
+    )
+    assert compatibility_imports[removed_name] is getattr(
+        contracts_runtime,
+        removed_name,
+    )
 
 
 def test_runtime_client_constructor_stays_on_public_default_surface() -> None:
@@ -317,14 +353,14 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
         prompt="already rendered prompt",
         invocation_dir=Path("/tmp/worktree"),
         stage=stage_selection_factory(service="codex"),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     new_session_request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/tmp/worktree"),
         stage=stage_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     resumed_session_request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
@@ -343,7 +379,7 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
                 session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
             ),
         ),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
 
     assert ephemeral_request.invocation_dir == Path("/tmp/worktree")
@@ -534,11 +570,11 @@ def test_runtime_surface_exposes_tool_policy_profiles_for_no_file_mutation_and_u
     partial = runtime.ToolPolicy.NO_FILE_MUTATION.profile
     full = runtime.ToolPolicy.UNRESTRICTED.profile
 
-    assert isinstance(partial, prompt_runtime.ToolPolicyProfile)
+    assert isinstance(partial, contracts_runtime.ToolPolicyProfile)
     assert partial.allowed_tools is None
     assert partial.disallowed_tools == ("Edit", "Write", "NotebookEdit")
     assert partial.strict_mcp_config is True
-    assert isinstance(full, prompt_runtime.ToolPolicyProfile)
+    assert isinstance(full, contracts_runtime.ToolPolicyProfile)
     assert full.allowed_tools is None
     assert full.disallowed_tools == ()
     assert full.strict_mcp_config is True

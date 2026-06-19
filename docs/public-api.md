@@ -317,7 +317,6 @@ The following pre-release concepts are transitional and should not remain in the
 - `SessionNamespace`
 - Provider state relative paths in continuation payloads
 - Runtime-created durable invocation log files
-- `ToolAccess`
-- `ToolPolicyProfile`
+- `ToolAccess` and `ToolPolicyProfile` may remain available only as Runtime Compatibility Aliases from `agent_runtime.contracts`, not from the ordinary package-root or lifecycle runtime surface.
 
 The target public surface keeps ordinary consumers on `RuntimeClient`, request values, outcome values, built-in provider selection, `ProviderAuth`, `ProviderUsage`, `Continuation`, `InvocationRecord`, and `ToolPolicy`.

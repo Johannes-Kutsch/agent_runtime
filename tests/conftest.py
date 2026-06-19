@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider, ServiceSelectionProvider
 from agent_runtime.execution_contracts import PromptRunRequest, WorktreeMount
@@ -117,7 +118,7 @@ def ephemeral_request_factory(
         worktree: Path | WorktreeMount = WorktreeMount(Path(".")),
         stage: runtime.StageSelection | None = None,
         override: runtime.StageSelection | None = None,
-        tool_access: runtime.ToolAccess | None = None,
+        tool_access: contracts_runtime.ToolAccess | None = None,
         tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.NONE,
         token: Any = None,
     ) -> prompt_runtime.EphemeralRunRequest:

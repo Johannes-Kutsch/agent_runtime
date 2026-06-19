@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider, TransientError
@@ -563,7 +564,7 @@ _TOOL_POLICY_CASES = [
     pytest.param(policy, id=policy.value) for policy in runtime.ToolPolicy
 ] + [
     pytest.param(
-        runtime.ToolPolicyProfile(
+        contracts_runtime.ToolPolicyProfile(
             allowed_tools=("Read", "Bash"),
             disallowed_tools=("Edit",),
         ),
@@ -698,7 +699,7 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
                 model="gpt-5.4",
                 effort="high",
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
 
@@ -709,7 +710,7 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="high",
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("codex",),
@@ -781,7 +782,7 @@ def test_runtime_client_exposes_codex_usage_on_completed_outcome(
                 model="gpt-5.4",
                 effort="high",
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
 
@@ -849,7 +850,7 @@ def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_su
                 model="glm-5",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=prompt_runtime.ProviderAuth(opencode_api_key="token"),
         )
     )
@@ -874,7 +875,7 @@ def test_runtime_client_does_not_create_ephemeral_invocation_log_when_dispatch_n
                     model="glm-5",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
 
@@ -930,7 +931,7 @@ def test_runtime_client_exposes_claude_usage_on_completed_outcome(
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -998,7 +999,7 @@ def test_runtime_client_keeps_latest_claude_usage_facts_on_completed_outcome(
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -1070,7 +1071,7 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -1120,7 +1121,7 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             )
         )
 
@@ -1145,29 +1146,29 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
     ("tool_access", "expected_flag"),
     [
         (
-            runtime.ToolAccess.no_tools(),
+            contracts_runtime.ToolAccess.no_tools(),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.NONE
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
             ),
             "--sandbox danger-full-access",
@@ -1178,7 +1179,7 @@ def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selecti
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     stage_selection_factory: Callable[..., runtime.StageSelection],
-    tool_access: runtime.ToolAccess,
+    tool_access: contracts_runtime.ToolAccess,
     expected_flag: str,
 ) -> None:
     home_dir = tmp_path / "home"
@@ -1216,7 +1217,7 @@ def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selecti
     request_tool_access = (
         tool_access
         if tool_access.kind == "none"
-        else runtime.ToolAccess.workspace_backed(
+        else contracts_runtime.ToolAccess.workspace_backed(
             tmp_path,
             tool_policy=tool_access.tool_policy,
         )
@@ -1286,7 +1287,7 @@ def test_runtime_client_classifies_codex_refresh_token_reuse_prose_as_credential
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             )
         )
 
@@ -1356,7 +1357,7 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
                 model="gpt-5.4",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
 
@@ -1420,7 +1421,7 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
                 model="gpt-5.4",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
 
@@ -1512,7 +1513,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=first_stage,
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -1521,7 +1522,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=second_stage,
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -1539,7 +1540,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             selected_service="claude",
             selected_model="sonnet",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             used_fallback=True,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("codex", "claude"),
@@ -1635,7 +1636,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
                 model="gpt-5.4",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
     second_outcome = second_client.run_ephemeral(
@@ -1652,7 +1653,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
                     effort="medium",
                 ),
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -1670,7 +1671,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
             selected_service="claude",
             selected_model="sonnet",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             used_fallback=True,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("codex", "claude"),
@@ -1766,9 +1767,9 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
                 service="claude", model="sonnet", effort="medium"
             ),
             tool_access=(
-                runtime.ToolAccess.no_tools()
+                contracts_runtime.ToolAccess.no_tools()
                 if tool_policy is runtime.ToolPolicy.NONE
-                else runtime.ToolAccess.workspace_backed(
+                else contracts_runtime.ToolAccess.workspace_backed(
                     tmp_path,
                     tool_policy=tool_policy,
                 )
@@ -1785,9 +1786,9 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
             selected_model="sonnet",
             selected_effort="medium",
             tool_access=(
-                runtime.ToolAccess.no_tools()
+                contracts_runtime.ToolAccess.no_tools()
                 if tool_policy is runtime.ToolPolicy.NONE
-                else runtime.ToolAccess.workspace_backed(
+                else contracts_runtime.ToolAccess.workspace_backed(
                     tmp_path,
                     tool_policy=tool_policy,
                 )
@@ -1821,23 +1822,23 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
     ("tool_access", "expected_flag"),
     [
         (
-            runtime.ToolAccess.no_tools(),
+            contracts_runtime.ToolAccess.no_tools(),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
             ),
             "--sandbox danger-full-access",
@@ -1848,7 +1849,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     stage_selection_factory: Callable[..., runtime.StageSelection],
-    tool_access: runtime.ToolAccess,
+    tool_access: contracts_runtime.ToolAccess,
     expected_flag: str,
 ) -> None:
     home_dir = tmp_path / "home"
@@ -1921,7 +1922,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
             tool_access=(
                 tool_access
                 if tool_access.kind == "none"
-                else runtime.ToolAccess.workspace_backed(
+                else contracts_runtime.ToolAccess.workspace_backed(
                     tmp_path, tool_policy=tool_access.tool_policy
                 )
             ),
@@ -1939,7 +1940,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
             tool_access=(
                 tool_access
                 if tool_access.kind == "none"
-                else runtime.ToolAccess.workspace_backed(
+                else contracts_runtime.ToolAccess.workspace_backed(
                     tmp_path, tool_policy=tool_access.tool_policy
                 )
             ),
@@ -2042,7 +2043,7 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
                     effort="medium",
                 ),
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -2096,7 +2097,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 stage=stage,
-                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
                 auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             )
         )
@@ -2141,7 +2142,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=stage,
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -2153,7 +2154,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("codex",),
@@ -2224,7 +2225,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 stage=stage,
-                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
                 auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             )
         )
@@ -2267,7 +2268,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=stage,
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -2279,7 +2280,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("codex",),
@@ -2377,7 +2378,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
                         model="gpt-5.4",
                         effort="medium",
                     ),
-                    tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                    tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
                 )
             )
         )
@@ -2403,7 +2404,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
                     effort="medium",
                 ),
             ),
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
@@ -2423,7 +2424,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
             selected_service="claude",
             selected_model="sonnet",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             used_fallback=True,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("codex", "claude"),
@@ -2500,7 +2501,7 @@ def test_runtime_client_ignores_malformed_codex_lines_before_classifying_hard_er
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             )
         )
 
@@ -2536,7 +2537,7 @@ def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuati
                     model="gpt-5",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2566,7 +2567,7 @@ def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_ou
                         effort="high",
                     ),
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2593,7 +2594,7 @@ def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
                         model="gpt-5",
                         effort="medium",
                     ),
-                    tool_access=runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         )
@@ -2619,7 +2620,7 @@ def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditi
                     model="gpt-5",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2654,7 +2655,7 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
                     model="gpt-5",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2688,7 +2689,7 @@ def test_ephemeral_runtime_returns_cancelled_outcome_for_caller_cancellation(
                     model="gpt-5",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 token=cancelled_token,
             )
         )
@@ -2718,7 +2719,7 @@ def test_ephemeral_runtime_returns_timed_out_outcome_for_timeout_conditions(
                     model="gpt-5",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2747,7 +2748,7 @@ def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retrya
                     model="gpt-5",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2841,7 +2842,7 @@ def test_ephemeral_runtime_preserves_observed_usage_on_interrupted_outcomes(
                     model="gpt-5",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2870,7 +2871,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                             effort="high",
                         ),
                     ),
-                    tool_access=runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         )
@@ -2889,7 +2890,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                         model="gpt-5",
                         effort="medium",
                     ),
-                    tool_access=runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         )
@@ -2908,7 +2909,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                         model="gpt-5",
                         effort="medium",
                     ),
-                    tool_access=runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         )
@@ -2927,7 +2928,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                         model="gpt-5",
                         effort="medium",
                     ),
-                    tool_access=runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         )
@@ -2935,7 +2936,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
 
 @pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)
 def test_text_output_adapter_exposes_tool_policy_effects_through_public_adapter_seam(
-    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
+    tool_policy: runtime.ToolPolicy | contracts_runtime.ToolPolicyProfile,
 ) -> None:
     output = asyncio.run(
         TextOutputAdapter(
@@ -2958,7 +2959,7 @@ def test_text_output_adapter_explicit_no_tools_forbids_provider_tool_access() ->
     output = asyncio.run(
         TextOutputAdapter(
             prompt="already rendered prompt",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
         ).invoke(
             runner=cast(WorkExecutionAdapter, _ToolPolicyRenderingPromptRunner()),
             prompt="already rendered prompt",
@@ -2978,7 +2979,7 @@ def test_text_output_adapter_uses_workspace_backed_tool_access_through_public_ad
     output = asyncio.run(
         TextOutputAdapter(
             prompt="already rendered prompt",
-            tool_access=runtime.ToolAccess.workspace_backed(
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(
                 Path("/repo"),
                 tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
             ),
@@ -3003,7 +3004,7 @@ def test_text_output_adapter_prefers_tool_access_over_compatibility_tool_policy(
         TextOutputAdapter(
             prompt="already rendered prompt",
             tool_policy=runtime.ToolPolicy.UNRESTRICTED,
-            tool_access=runtime.ToolAccess.workspace_backed(
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(
                 Path("/repo"),
                 tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
             ),
@@ -3032,5 +3033,5 @@ def test_text_output_adapter_rejects_workspace_backed_tool_access_without_worksp
     ):
         TextOutputAdapter(
             prompt="already rendered prompt",
-            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
         )

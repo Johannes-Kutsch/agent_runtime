@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
@@ -2019,7 +2020,7 @@ _TOOL_POLICY_CASES = [
     pytest.param(policy, id=policy.value) for policy in runtime.ToolPolicy
 ] + [
     pytest.param(
-        runtime.ToolPolicyProfile(
+        contracts_runtime.ToolPolicyProfile(
             allowed_tools=("Read", "Bash"),
             disallowed_tools=("Edit",),
         ),
@@ -2955,10 +2956,10 @@ def test_prompt_run_request_accepts_explicit_no_tools_tool_access() -> None:
             effort="medium",
         ),
         role=InvocationRole("implementer"),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
 
-    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
     assert request.tool_policy is runtime.ToolPolicy.NONE
 
 
@@ -2969,7 +2970,7 @@ def test_tool_access_none_rejects_non_toolless_policy() -> None:
             "ToolAccess.no_tools() must forbid provider tool access with the closed no-tools policy."
         ),
     ):
-        runtime.ToolAccess(
+        contracts_runtime.ToolAccess(
             kind="none",
             workspace=None,
             tool_policy=runtime.ToolPolicy.UNRESTRICTED,

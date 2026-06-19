@@ -4,7 +4,7 @@ from ._import_isolation import (
     assert_runtime_import_isolation as _assert_runtime_import_isolation,
 )
 
-from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile  # noqa: F401
+from .contracts import ToolPolicy
 from .errors import (
     AgentCredentialFailureError,
     AgentFailedError,
@@ -49,6 +49,21 @@ __all__ = [
     "UsageLimitError",
     "UsageLimitScope",
 ]
+
+
+_REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES = {
+    "ToolAccess",
+    "ToolPolicyProfile",
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES:
+        raise AttributeError(
+            f"{name} is not part of the Runtime Public Surface; "
+            "import compatibility contracts from `agent_runtime.contracts`."
+        )
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 _assert_runtime_import_isolation(importer=__name__)

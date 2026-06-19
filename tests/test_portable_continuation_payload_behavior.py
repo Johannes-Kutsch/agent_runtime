@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime._portable_continuation_payload import (
     create_portable_continuation_payload,
@@ -19,7 +20,7 @@ def test_portable_continuation_payload_round_trips_current_continuation_contents
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             Path("/repo"),
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -45,7 +46,7 @@ def test_portable_continuation_payload_round_trips_current_continuation_contents
 def test_portable_continuation_payload_create_keeps_current_continuation_schema() -> (
     None
 ):
-    tool_access = runtime.ToolAccess.no_tools()
+    tool_access = contracts_runtime.ToolAccess.no_tools()
 
     payload = create_portable_continuation_payload(
         service_name="claude",
@@ -81,7 +82,7 @@ def test_portable_continuation_payload_rejects_non_object_provider_resume_state(
         selected_service="opencode",
         selected_model="glm-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state=["resume"],
     )
 
