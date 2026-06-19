@@ -24,6 +24,15 @@ ProviderLoggedOutputReducer = Callable[
 ProviderSessionIdExtractor = Callable[[list[str]], str | None]
 
 
+def _consume_new_stdout_lines(
+    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+    new_lines: list[str],
+) -> None:
+    consume_stdout_lines = getattr(reduce_output, "consume_stdout_lines", None)
+    if callable(consume_stdout_lines):
+        consume_stdout_lines(new_lines)
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationPrompt:
     content: str
@@ -141,7 +150,13 @@ class ProductionProviderInvocationAdapter:
                     stderr=subprocess.PIPE,
                     text=True,
                 )
-                stdout_lines = [] if process.stdout is None else list(process.stdout)
+                stdout_lines: list[str] = []
+                if process.stdout is not None:
+                    for line in process.stdout:
+                        stdout_lines.append(line)
+                        _consume_new_stdout_lines(
+                            request.output_hooks.reduce_output, [line]
+                        )
                 process.wait()
 
                 def _observed_provider_session_id() -> str | None:
@@ -236,6 +251,7 @@ class InMemoryProviderInvocationAdapter:
             raise prepared.error
         if isinstance(prepared, ProviderInvocationPreparedStream):
             stdout_lines = list(prepared.stdout_lines)
+            _consume_new_stdout_lines(request.output_hooks.reduce_output, stdout_lines)
 
             def _observed_provider_session_id() -> str | None:
                 provider_session_id = (

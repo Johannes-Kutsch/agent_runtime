@@ -699,6 +699,60 @@ def _live_output_observer(
     )
 
 
+class _ObservedOutputReducer:
+    __slots__ = ("reduce_output", "consume_stdout_lines")
+
+    def __init__(
+        self,
+        reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+        consume_stdout_lines: Callable[[list[str]], None],
+    ) -> None:
+        self.reduce_output = reduce_output
+        self.consume_stdout_lines = consume_stdout_lines
+
+    def __call__(self, lines: list[str]) -> tuple[str, ProviderUsage | None]:
+        return self.reduce_output(lines)
+
+
+def _observe_output_lines(
+    *,
+    lines: list[str],
+    parse_output_line: Callable[[str], list[Any]],
+    on_live_output: Callable[[AgentMessageTurn], None] | None,
+    service_name: str,
+) -> None:
+    if on_live_output is None:
+        return
+    observe_output = _live_output_observer(service_name, on_live_output)
+    for line in lines:
+        for event in parse_output_line(line):
+            if isinstance(event, AssistantTurn):
+                observe_output(event.text)
+
+
+def _observe_output_reducer(
+    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+    on_live_output: Callable[[AgentMessageTurn], None] | None,
+    parse_output_line: Callable[[str], list[Any]],
+    *,
+    service_name: str,
+) -> Callable[[list[str]], tuple[str, ProviderUsage | None]]:
+    if on_live_output is None:
+        return reduce_output
+
+    return _ObservedOutputReducer(
+        reduce_output=reduce_output,
+        consume_stdout_lines=(
+            lambda lines: _observe_output_lines(
+                lines=lines,
+                parse_output_line=parse_output_line,
+                on_live_output=on_live_output,
+                service_name=service_name,
+            )
+        ),
+    )
+
+
 def _merge_provider_usage(
     current: ProviderUsage | None,
     observed: ProviderUsage | None,
@@ -1208,6 +1262,32 @@ def _parse_opencode_events(
                     parsed_events.append(classified)
             return parsed_events
     return parsed_events
+
+
+def _parse_opencode_output_line(line: str) -> list[Any]:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(event, dict):
+        return []
+    if event.get("type") != "text":
+        return []
+    part = event.get("part")
+    if not isinstance(part, dict):
+        return []
+    if part.get("type") != "text":
+        return []
+    time = part.get("time")
+    if not isinstance(time, dict) or time.get("end") is None:
+        return []
+    text = part.get("text")
+    if not isinstance(text, str):
+        return []
+    stripped_text = text.strip()
+    if not stripped_text:
+        return []
+    return [AssistantTurn(text=stripped_text)]
 
 
 def _extract_opencode_provider_session_id(lines: list[str]) -> str | None:
@@ -1802,9 +1882,11 @@ def _invoke_claude_new_session_provider(
         role=request.role,
         usage_limit_scope=None,
         provider_session_id=provider_session_id,
-        reduce_output=lambda lines: _reduce_claude_stream(
-            lines,
-            on_live_output=on_live_output,
+        reduce_output=_observe_output_reducer(
+            lambda lines: _reduce_claude_stream(lines),
+            on_live_output,
+            _parse_claude_event,
+            service_name="claude",
         ),
     )
 
@@ -1837,9 +1919,11 @@ def _invoke_codex_new_session_provider(
         role=request.role,
         usage_limit_scope=None,
         provider_session_id=None,
-        reduce_output=lambda lines: _reduce_codex_stream(
-            lines,
-            on_live_output=on_live_output,
+        reduce_output=_observe_output_reducer(
+            lambda lines: _reduce_codex_stream(lines),
+            on_live_output,
+            _parse_codex_event,
+            service_name="codex",
         ),
     )
 
@@ -1874,9 +1958,11 @@ def _invoke_codex_resumed_session_provider(
         role=request.role,
         usage_limit_scope=None,
         provider_session_id=provider_session_id,
-        reduce_output=lambda lines: _reduce_codex_stream(
-            lines,
-            on_live_output=on_live_output,
+        reduce_output=_observe_output_reducer(
+            lambda lines: _reduce_codex_stream(lines),
+            on_live_output,
+            _parse_codex_event,
+            service_name="codex",
         ),
         extract_provider_session_id=_extract_codex_provider_session_id,
     )
@@ -1936,7 +2022,7 @@ def _invoke_opencode_new_session_provider(
                     lines,
                     on_provider_session_id=_record_opencode_session_id,
                 ),
-                _live_output_observer("opencode", on_live_output),
+                lambda _turn: None,
                 provider="opencode",
             ),
             None,
@@ -1963,7 +2049,12 @@ def _invoke_opencode_new_session_provider(
         role=request.role,
         usage_limit_scope=None,
         provider_session_id=provider_session_id,
-        reduce_output=_reduce_opencode_session_output,
+        reduce_output=_observe_output_reducer(
+            _reduce_opencode_session_output,
+            on_live_output,
+            _parse_opencode_output_line,
+            service_name="opencode",
+        ),
         extract_provider_session_id=lambda _lines: observed_provider_session_id,
     )
     return invocation_result, (
@@ -2061,9 +2152,11 @@ def _run_builtin_ephemeral(
             role=_DEFAULT_EPHEMERAL_ROLE,
             usage_limit_scope=None,
             provider_session_id=None,
-            reduce_output=lambda lines: reduce_codex_stream(
-                lines,
+            reduce_output=_observe_output_reducer(
+                lambda lines: reduce_codex_stream(lines, None),
                 request.on_live_output,
+                _parse_codex_event,
+                service_name="codex",
             ),
         )
     elif selected_stage.service == "opencode":
@@ -2088,12 +2181,11 @@ def _run_builtin_ephemeral(
             role=_DEFAULT_EPHEMERAL_ROLE,
             usage_limit_scope=None,
             provider_session_id=None,
-            reduce_output=lambda lines: (
-                reduce_opencode_stream(
-                    lines,
-                    request.on_live_output,
-                ),
-                None,
+            reduce_output=_observe_output_reducer(
+                lambda lines: (reduce_opencode_stream(lines, None), None),
+                request.on_live_output,
+                _parse_opencode_output_line,
+                service_name="opencode",
             ),
         )
     else:
@@ -2114,9 +2206,11 @@ def _run_builtin_ephemeral(
             role=_DEFAULT_EPHEMERAL_ROLE,
             usage_limit_scope=None,
             provider_session_id=None,
-            reduce_output=lambda lines: reduce_claude_stream(
-                lines,
+            reduce_output=_observe_output_reducer(
+                lambda lines: reduce_claude_stream(lines, None),
                 request.on_live_output,
+                _parse_claude_event,
+                service_name="claude",
             ),
         )
     result_text = invocation_result.output
@@ -2725,7 +2819,7 @@ def _run_builtin_resumed_session(
         return (
             reduce_text_output_events(
                 _parse_opencode_events(lines),
-                _live_output_observer("opencode", request.on_live_output),
+                lambda _turn: None,
                 provider="opencode",
             ),
             None,
@@ -2748,13 +2842,12 @@ def _run_builtin_resumed_session(
                 ),
             )
 
-            def reduce_output(
-                lines: list[str],
-            ) -> tuple[str, ProviderUsage | None]:
-                return _reduce_claude_stream(
-                    lines,
-                    on_live_output=request.on_live_output,
-                )
+            reduce_output = _observe_output_reducer(
+                lambda lines: _reduce_claude_stream(lines),
+                request.on_live_output,
+                _parse_claude_event,
+                service_name="claude",
+            )
 
             extract_provider_session_id = None
         else:
@@ -2769,7 +2862,12 @@ def _run_builtin_resumed_session(
                 state_dir_container_path=str(provider_state_dir),
                 tool_policy=request.tool_access.tool_policy,
             )
-            reduce_output = _reduce_opencode_session_output
+            reduce_output = _observe_output_reducer(
+                _reduce_opencode_session_output,
+                request.on_live_output,
+                _parse_opencode_output_line,
+                service_name="opencode",
+            )
             extract_provider_session_id = _extract_opencode_provider_session_id
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
