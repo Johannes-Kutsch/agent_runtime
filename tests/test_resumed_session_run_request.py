@@ -51,6 +51,58 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_access_overr
         )
 
 
+def test_resumed_session_run_request_from_continuation_rejects_tool_policy_override_before_validating_session_namespace() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            role=InvocationRole("implementer"),
+            session_namespace="../escape",
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={"run_kind": "resume"},
+            ),
+            tool_policy=runtime.ToolPolicy.FULL,
+        )
+
+
+def test_resumed_session_run_request_from_continuation_rejects_tool_policy_override_before_validating_workspace_backed_tool_access() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/other")),
+            role=InvocationRole("implementer"),
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.workspace_backed(
+                    Path("/repo"),
+                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                ),
+                provider_resume_state={"run_kind": "resume"},
+            ),
+            tool_policy=runtime.ToolPolicy.FULL,
+        )
+
+
 def test_resumed_session_run_request_from_continuation_requires_role() -> None:
     with pytest.raises(
         TypeError,

@@ -15,6 +15,7 @@ from ._request_normalization import (
     normalize_continuation_request,
     normalize_session_plan_request,
     normalize_stage_request,
+    require_invocation_role,
 )
 from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
@@ -567,13 +568,10 @@ class ResumedSessionRunRequest:
                 "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
             )
         if continuation is not None:
-            normalized_request = normalize_continuation_request(
-                role=role,
-                worktree=worktree,
-                tool_access=continuation.tool_access,
-                session_namespace=session_namespace,
+            resolved_role = require_invocation_role(
+                role,
                 context="ResumedSessionRunRequest",
-                role_message=(
+                message=(
                     "ResumedSessionRunRequest requires a `role` value when "
                     "constructed from a continuation."
                 ),
@@ -584,6 +582,17 @@ class ResumedSessionRunRequest:
                 raise TypeError(
                     "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
                 )
+            normalized_request = normalize_continuation_request(
+                role=resolved_role,
+                worktree=worktree,
+                tool_access=continuation.tool_access,
+                session_namespace=session_namespace,
+                context="ResumedSessionRunRequest",
+                role_message=(
+                    "ResumedSessionRunRequest requires a `role` value when "
+                    "constructed from a continuation."
+                ),
+            )
             resolved_model = continuation.selected_model if model is None else model
             resolved_effort = continuation.selected_effort if effort is None else effort
         else:
