@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
@@ -39,9 +40,7 @@ def test_package_exports_runtime_surface() -> None:
         "RuntimeOutcome",
         "RunKind",
         "StageSelection",
-        "ToolAccess",
         "ToolPolicy",
-        "ToolPolicyProfile",
         "TransientAgentError",
         "UsageLimitError",
         "UsageLimitScope",
@@ -50,6 +49,10 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(runtime, "StageOverride")
     assert runtime.AgentRuntimeError is AgentRuntimeError
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
+    assert "ToolAccess" not in runtime.__all__
+    assert "ToolPolicyProfile" not in runtime.__all__
+    assert hasattr(contracts_runtime, "ToolAccess")
+    assert hasattr(contracts_runtime, "ToolPolicyProfile")
     assert not hasattr(runtime, "assert_runtime_import_isolation")
     assert not hasattr(runtime, "run_prompt")
     assert not hasattr(runtime, "ExecutionProvider")
@@ -81,9 +84,10 @@ def test_package_exports_runtime_surface() -> None:
         "RuntimeOutcome",
         "SessionRunResult",
         "SessionRuntimeMetadata",
-        "ToolAccess",
         "WorktreeMount",
     } <= set(prompt_runtime.__all__)
+    assert "ToolAccess" not in prompt_runtime.__all__
+    assert "ToolPolicyProfile" not in prompt_runtime.__all__
     assert {
         "EphemeralRunRequest",
         "EphemeralRunResult",

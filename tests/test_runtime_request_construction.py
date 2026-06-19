@@ -53,10 +53,30 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
         "invocation_dir",
         "stage",
         "tool_policy",
-        "tool_access",
         "token",
         "auth",
         "override",
+    )
+
+
+def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
+    assert (
+        "tool_access"
+        not in inspect.signature(
+            prompt_runtime.EphemeralRunRequest,
+        ).parameters
+    )
+    assert (
+        "tool_access"
+        not in inspect.signature(
+            prompt_runtime.NewSessionRunRequest,
+        ).parameters
+    )
+    assert (
+        "tool_access"
+        not in inspect.signature(
+            prompt_runtime.ResumedSessionRunRequest,
+        ).parameters
     )
 
 
