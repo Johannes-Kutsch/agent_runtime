@@ -10,6 +10,7 @@ from typing import Any, Callable
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.errors import (
@@ -56,8 +57,8 @@ def _install_in_memory_provider_invocation_adapter(
 
 
 def _normalize_tool_policy_profile(
-    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
-) -> runtime.ToolPolicyProfile:
+    tool_policy: runtime.ToolPolicy | contracts_runtime.ToolPolicyProfile,
+) -> contracts_runtime.ToolPolicyProfile:
     return (
         tool_policy.profile
         if isinstance(tool_policy, runtime.ToolPolicy)
@@ -66,18 +67,18 @@ def _normalize_tool_policy_profile(
 
 
 def _opencode_tool_access(
-    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
+    tool_policy: runtime.ToolPolicy | contracts_runtime.ToolPolicyProfile,
     invocation_dir: Path,
-) -> runtime.ToolAccess:
+) -> contracts_runtime.ToolAccess:
     return (
-        runtime.ToolAccess(
+        contracts_runtime.ToolAccess(
             kind="none",
             workspace=None,
             tool_policy=tool_policy,
         )
         if _normalize_tool_policy_profile(tool_policy)
         == runtime.ToolPolicy.NONE.profile
-        else runtime.ToolAccess.workspace_backed(
+        else contracts_runtime.ToolAccess.workspace_backed(
             invocation_dir,
             tool_policy=tool_policy,
         )
@@ -85,7 +86,7 @@ def _opencode_tool_access(
 
 
 def _expected_opencode_permission(
-    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
+    tool_policy: runtime.ToolPolicy | contracts_runtime.ToolPolicyProfile,
 ) -> dict[str, str] | str | None:
     profile = _normalize_tool_policy_profile(tool_policy)
     if profile == runtime.ToolPolicy.NONE.profile:
@@ -146,7 +147,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -170,7 +171,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
                 selected_service="claude",
                 selected_model="sonnet",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "session-uuid",
@@ -247,9 +248,11 @@ def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     tool_access = (
-        runtime.ToolAccess.no_tools()
+        contracts_runtime.ToolAccess.no_tools()
         if tool_policy is runtime.ToolPolicy.NONE
-        else runtime.ToolAccess.workspace_backed(tmp_path, tool_policy=tool_policy)
+        else contracts_runtime.ToolAccess.workspace_backed(
+            tmp_path, tool_policy=tool_policy
+        )
     )
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
@@ -359,7 +362,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -406,7 +409,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
                 selected_service="claude",
                 selected_model="opus",
                 selected_effort="high",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "session-uuid",
@@ -466,7 +469,7 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
         role=InvocationRole("implementer"),
         session_namespace="main",
         provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     outcome = prompt_runtime._run_builtin_session_outcome(
         lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
@@ -490,7 +493,7 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
                 selected_service="claude",
                 selected_model="sonnet",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "observed-session",
@@ -562,7 +565,7 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
         role=InvocationRole("implementer"),
         session_namespace="main",
         provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     outcome = prompt_runtime._run_builtin_session_outcome(
         lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
@@ -586,7 +589,7 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
                 selected_service="opencode",
                 selected_model="glm-5",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "provider_session_id": "observed-session-id",
                     "provider_state": {},
@@ -712,7 +715,7 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
 def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_profile_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    tool_policy: runtime.ToolPolicyProfile,
+    tool_policy: contracts_runtime.ToolPolicyProfile,
 ) -> None:
     expected_permission = _expected_opencode_permission(tool_policy)
     adapter = _install_in_memory_provider_invocation_adapter(
@@ -995,7 +998,7 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
         selected_service="claude",
         selected_model="sonnet",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "claude-session-123",
@@ -1035,7 +1038,7 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
                 selected_service="claude",
                 selected_model="opus",
                 selected_effort="high",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "observed-session",
@@ -1095,7 +1098,7 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
         selected_service="claude",
         selected_model="sonnet",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "claude-session-123",
@@ -1134,7 +1137,7 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
                 selected_service="claude",
                 selected_model="opus",
                 selected_effort="high",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "claude-session-123",
@@ -1193,9 +1196,11 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
     )
 
     tool_access = (
-        runtime.ToolAccess.no_tools()
+        contracts_runtime.ToolAccess.no_tools()
         if tool_policy is runtime.ToolPolicy.NONE
-        else runtime.ToolAccess.workspace_backed(tmp_path, tool_policy=tool_policy)
+        else contracts_runtime.ToolAccess.workspace_backed(
+            tmp_path, tool_policy=tool_policy
+        )
     )
 
     outcome = asyncio.run(
@@ -1275,23 +1280,23 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
     ("tool_access", "expected_flag"),
     [
         (
-            runtime.ToolAccess.no_tools(),
+            contracts_runtime.ToolAccess.no_tools(),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
             ),
             "--sandbox danger-full-access",
@@ -1301,7 +1306,7 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
 def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_invocation_seam(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    tool_access: runtime.ToolAccess,
+    tool_access: contracts_runtime.ToolAccess,
     expected_flag: str,
 ) -> None:
     host_home = tmp_path / "host-home"
@@ -1340,7 +1345,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
         tool_access=(
             tool_access
             if tool_access.kind == "none"
-            else runtime.ToolAccess.workspace_backed(
+            else contracts_runtime.ToolAccess.workspace_backed(
                 tmp_path, tool_policy=tool_access.tool_policy
             )
         ),
@@ -1383,7 +1388,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
                 tool_access=(
                     tool_access
                     if tool_access.kind == "none"
-                    else runtime.ToolAccess.workspace_backed(
+                    else contracts_runtime.ToolAccess.workspace_backed(
                         tmp_path, tool_policy=tool_access.tool_policy
                     )
                 ),
@@ -1487,7 +1492,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -1507,7 +1512,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "thread-123",
@@ -1553,7 +1558,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "thread-123",
@@ -1610,7 +1615,7 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "selected-thread",
@@ -1645,7 +1650,7 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "selected-thread",
@@ -1719,7 +1724,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             tmp_path,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -1753,7 +1758,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(
                 tmp_path,
                 tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
             ),
@@ -1797,7 +1802,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(
                 tmp_path,
                 tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
             ),
@@ -1860,7 +1865,7 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -1924,7 +1929,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             ),
             provider_invocation_adapter=adapter,
         )
@@ -1940,7 +1945,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
             selected_service="claude",
             selected_model="sonnet",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "observed-session",
@@ -1991,7 +1996,7 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "selected-thread",
@@ -2023,7 +2028,7 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "selected-thread",
@@ -2067,7 +2072,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
         selected_service="claude",
         selected_model="sonnet",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_state_dir_relpath": provider_state_dir_relpath,
@@ -2106,7 +2111,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
                 selected_service="claude",
                 selected_model="sonnet",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "generated-session-id",
@@ -2153,7 +2158,7 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
         selected_service="claude",
         selected_model="sonnet",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "claude-session-123",
@@ -2193,7 +2198,7 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
                 selected_service="claude",
                 selected_model="sonnet",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "claude-session-123",
@@ -2283,7 +2288,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2298,7 +2303,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
             selected_service="claude",
             selected_model="sonnet",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "session-uuid",
@@ -2368,7 +2373,7 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2420,7 +2425,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                tool_access=runtime.ToolAccess.workspace_backed(
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     tmp_path,
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
@@ -2446,7 +2451,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.workspace_backed(
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     tmp_path,
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
@@ -2522,7 +2527,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2542,7 +2547,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "thread-123",
@@ -2605,7 +2610,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "selected-thread",
@@ -2645,7 +2650,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "selected-thread",
@@ -2718,7 +2723,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -2733,7 +2738,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "thread-123",
@@ -2776,7 +2781,7 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "selected-thread",
@@ -2811,7 +2816,7 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "thread-456",
@@ -2857,7 +2862,7 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "selected-thread",
@@ -2882,7 +2887,7 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
                     provider_auth=runtime.ProviderAuth(
                         claude_code_oauth_token="oauth-token"
                     ),
-                    tool_access=runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         )
@@ -2918,13 +2923,13 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
                 exact_transcript_match=False,
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_policy=runtime.ToolAccess.no_tools().tool_policy,
+                tool_policy=contracts_runtime.ToolAccess.no_tools().tool_policy,
             ),
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": expected_provider_session_id,
@@ -2959,7 +2964,7 @@ def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_stat
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "selected-thread",
@@ -3013,7 +3018,7 @@ def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_stat
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "selected-thread",
@@ -3075,7 +3080,7 @@ def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_se
                         selected_service="codex",
                         selected_model="gpt-5.4",
                         selected_effort="medium",
-                        tool_access=runtime.ToolAccess.no_tools(),
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
                         provider_resume_state={
                             "run_kind": "resume",
                             "provider_session_id": "   ",
@@ -3108,7 +3113,7 @@ def test_runtime_client_rejects_resumed_session_with_non_object_portable_continu
                         selected_service="codex",
                         selected_model="gpt-5.4",
                         selected_effort="medium",
-                        tool_access=runtime.ToolAccess.no_tools(),
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
                         provider_resume_state=["resume"],
                     ),
                     role=InvocationRole("implementer"),
@@ -3221,7 +3226,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
                         ),
                         role=InvocationRole("implementer"),
                         session_namespace="main",
-                        tool_access=runtime.ToolAccess.no_tools(),
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
                     )
                 )
             )
@@ -3236,7 +3241,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
                             selected_service="codex",
                             selected_model="gpt-5.4",
                             selected_effort="medium",
-                            tool_access=runtime.ToolAccess.no_tools(),
+                            tool_access=contracts_runtime.ToolAccess.no_tools(),
                             provider_resume_state={
                                 "run_kind": "resume",
                                 "provider_session_id": "selected-thread",
@@ -3307,7 +3312,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -3525,7 +3530,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=stage,
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=auth,
         )
     )
@@ -3537,7 +3542,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
             selected_service=service_name,
             selected_model=stage.model,
             selected_effort=stage.effort,
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=(service_name,),
@@ -3667,7 +3672,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         selected_service="opencode",
         selected_model="glm-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -3789,7 +3794,7 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
@@ -3823,7 +3828,7 @@ def test_runtime_client_reachable_opencode_stage_requires_api_key_without_fallin
                         ),
                     ),
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(),
             )
         )
@@ -3875,7 +3880,7 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
                         ),
                     ),
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(),
             )
         )
@@ -3902,23 +3907,23 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
     ("tool_access", "expected_flag"),
     [
         (
-            runtime.ToolAccess.no_tools(),
+            contracts_runtime.ToolAccess.no_tools(),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
             ),
             "--sandbox read-only",
         ),
         (
-            runtime.ToolAccess.workspace_backed(
+            contracts_runtime.ToolAccess.workspace_backed(
                 Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
             ),
             "--sandbox danger-full-access",
@@ -3928,7 +3933,7 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
 def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocation_seam(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    tool_access: runtime.ToolAccess,
+    tool_access: contracts_runtime.ToolAccess,
     expected_flag: str,
 ) -> None:
     host_home = tmp_path / "host-home"
@@ -3988,7 +3993,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
                 tool_access=(
                     tool_access
                     if tool_access.kind == "none"
-                    else runtime.ToolAccess.workspace_backed(
+                    else contracts_runtime.ToolAccess.workspace_backed(
                         tmp_path, tool_policy=tool_access.tool_policy
                     )
                 ),
@@ -4017,7 +4022,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
                 tool_access=(
                     tool_access
                     if tool_access.kind == "none"
-                    else runtime.ToolAccess.workspace_backed(
+                    else contracts_runtime.ToolAccess.workspace_backed(
                         tmp_path, tool_policy=tool_access.tool_policy
                     )
                 ),
@@ -4120,7 +4125,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
@@ -4135,7 +4140,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "thread-123",
@@ -4191,7 +4196,7 @@ def test_runtime_client_preserves_opencode_invalid_api_key_observations(
                     model="kimi-k2.6",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
@@ -4235,7 +4240,7 @@ def test_runtime_client_validates_opencode_model_allowlist_and_medium_effort(
                     model=model,
                     effort=effort,
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
@@ -4301,7 +4306,7 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
                 model="kimi-k2.6",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         )
     )
@@ -4361,7 +4366,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
                 model="gpt-5.4",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
     )
 
@@ -4435,7 +4440,7 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
                     model="kimi-k2.6",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
@@ -4486,7 +4491,7 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
                     model="kimi-k2.6",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
@@ -4557,7 +4562,7 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
                 model="kimi-k2.6",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         )
     )
@@ -4569,7 +4574,7 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
             selected_service="opencode",
             selected_model="kimi-k2.6",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("opencode",),
@@ -4616,7 +4621,7 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
@@ -4655,7 +4660,7 @@ def test_runtime_client_reachable_claude_stage_requires_token_without_falling_th
                         ),
                     ),
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(),
             )
         )
@@ -4695,7 +4700,7 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
                     model="sonnet",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             )
         )
@@ -4740,7 +4745,7 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
@@ -4794,7 +4799,7 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
@@ -4834,7 +4839,7 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
                     effort="medium",
                 ),
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
@@ -4846,7 +4851,7 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
             selected_service="claude",
             selected_model="sonnet",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             used_fallback=True,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 selected_service_path=("missing", "claude"),
@@ -4880,7 +4885,7 @@ def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metad
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
@@ -4926,7 +4931,7 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_usage_limit_scope(
                 model="sonnet",
                 effort="medium",
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
@@ -4967,7 +4972,7 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
                     model="sonnet",
                     effort="medium",
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             )
         )

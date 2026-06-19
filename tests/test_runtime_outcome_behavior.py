@@ -7,6 +7,7 @@ from typing import Any, Callable, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider
@@ -115,7 +116,7 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
     stage_selection_factory: Callable[..., runtime.StageSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         Path("/repo"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -161,7 +162,7 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
 def test_completed_runtime_outcome_only_exposes_ephemeral_selection_metadata_for_ephemeral_results() -> (
     None
 ):
-    tool_access = runtime.ToolAccess.no_tools()
+    tool_access = contracts_runtime.ToolAccess.no_tools()
     result = prompt_runtime.EphemeralRunResult(
         output="done",
         selected_service="claude",
@@ -195,7 +196,7 @@ def test_completed_runtime_outcome_rejects_ephemeral_selection_metadata_for_sess
         selected_service="claude",
         selected_model="gpt-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
         provider_resume_state={"provider_session_id": "session-123"},
     )
     result = prompt_runtime.SessionRunResult(

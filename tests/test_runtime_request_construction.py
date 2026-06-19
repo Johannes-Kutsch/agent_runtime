@@ -9,6 +9,7 @@ from typing import cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime.execution_contracts as execution_contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider
@@ -30,7 +31,7 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
         stage=stage_selection_factory(service="codex"),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         token=execution_contracts_runtime.CancellationToken(),
     )
@@ -40,23 +41,35 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
     for field_name in ("role", "logs_dir", "usage_limit_scope", "session_namespace"):
         with pytest.raises(AttributeError, match=field_name):
             getattr(request, field_name)
-    assert tuple(request.__dataclass_fields__) == (
-        "prompt",
-        "invocation_dir",
-        "stage",
-        "tool_access",
-        "token",
-        "auth",
-    )
     assert tuple(inspect.signature(prompt_runtime.EphemeralRunRequest).parameters) == (
         "prompt",
         "invocation_dir",
         "stage",
         "tool_policy",
-        "tool_access",
         "token",
         "auth",
         "override",
+    )
+
+
+def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
+    assert (
+        "tool_access"
+        not in inspect.signature(
+            prompt_runtime.EphemeralRunRequest,
+        ).parameters
+    )
+    assert (
+        "tool_access"
+        not in inspect.signature(
+            prompt_runtime.NewSessionRunRequest,
+        ).parameters
+    )
+    assert (
+        "tool_access"
+        not in inspect.signature(
+            prompt_runtime.ResumedSessionRunRequest,
+        ).parameters
     )
 
 
@@ -73,7 +86,7 @@ def test_ephemeral_run_request_uses_override_stage_selection_when_stage_missing(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
         override=override_stage,
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
 
     assert request.stage == override_stage
@@ -94,7 +107,7 @@ def test_ephemeral_run_request_rejects_conflicting_stage_selection_and_override(
             invocation_dir=Path("/repo"),
             stage=stage_selection_factory(service="codex"),
             override=stage_selection_factory(service="claude"),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
 
 
@@ -109,7 +122,7 @@ def test_new_session_run_request_requires_invocation_role(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
             stage=stage_selection_factory(),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
 
 
@@ -124,7 +137,7 @@ def test_prompt_run_request_uses_compatibility_tool_policy_for_workspace_backed_
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
-    assert request.tool_access == runtime.ToolAccess.workspace_backed(
+    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
         Path("/repo"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -141,7 +154,9 @@ def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_back
         tool_policy=runtime.ToolPolicy.UNRESTRICTED,
     )
 
-    assert request.tool_access == runtime.ToolAccess.workspace_backed(Path("/repo"))
+    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
+        Path("/repo")
+    )
     assert request.tool_policy is runtime.ToolPolicy.UNRESTRICTED
 
 
@@ -155,7 +170,7 @@ def test_ephemeral_run_request_uses_none_tool_policy_for_explicit_no_tools_acces
         tool_policy=runtime.ToolPolicy.NONE,
     )
 
-    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
     assert request.tool_policy is runtime.ToolPolicy.NONE
 
 
@@ -170,7 +185,7 @@ def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_ba
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
-    assert request.tool_access == runtime.ToolAccess.workspace_backed(
+    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
         Path("/repo"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -189,7 +204,7 @@ def test_new_session_request_non_none_tool_policy_uses_invocation_dir_as_tool_wo
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
-    assert request.tool_access == runtime.ToolAccess.workspace_backed(
+    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
         tmp_path,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -205,7 +220,7 @@ def test_new_session_request_non_none_tool_policy_uses_invocation_dir_as_tool_wo
                     invocation_dir=Path("/repo"),
                     stage=stage_selection_factory(service="codex"),
                     role=InvocationRole("implementer"),
-                    tool_access=runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
                     session_namespace=session_namespace,
                 )
             ),
@@ -250,7 +265,7 @@ def test_resumed_session_run_request_uses_compatibility_tool_policy_for_workspac
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
-    assert request.tool_access == runtime.ToolAccess.workspace_backed(
+    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
         Path("/repo"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -275,7 +290,7 @@ def test_resumed_session_run_request_from_session_plan_keeps_namespace_from_sess
             provider_session_id=None,
             auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
         ),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         session_namespace="../escape",
     )
 
@@ -296,7 +311,7 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
             worktree=WorktreeMount(Path("/repo")),
             stage=stage_selection_factory(service="codex"),
             role=InvocationRole("implementer"),
-            tool_access=runtime.ToolAccess.workspace_backed(Path("/other")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/other")),
         )
 
 
@@ -308,7 +323,7 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
                 prompt="already rendered prompt",
                 invocation_dir=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
-                tool_access=runtime.ToolAccess.workspace_backed(
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     Path("/other"),
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
@@ -321,7 +336,7 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
                 invocation_dir=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
-                tool_access=runtime.ToolAccess.workspace_backed(
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     Path("/other"),
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
@@ -385,7 +400,7 @@ def test_ephemeral_request_none_tool_policy_prohibits_provider_tools_and_require
     )
 
     assert request.invocation_dir == tmp_path
-    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
     assert request.tool_policy is runtime.ToolPolicy.NONE
 
 
@@ -402,7 +417,7 @@ def test_new_session_request_none_tool_policy_prohibits_provider_tools_and_requi
     )
 
     assert request.invocation_dir == tmp_path
-    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
     assert request.tool_policy is runtime.ToolPolicy.NONE
 
 
@@ -424,7 +439,7 @@ def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mou
             provider_session_id=None,
             auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
         ),
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
 
     assert request.invocation_dir == WorktreeMount(Path("/repo"))
@@ -439,7 +454,7 @@ def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mou
                 prompt="already rendered prompt",
                 worktree=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             ),
             Path("/repo"),
         ),
@@ -449,7 +464,7 @@ def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mou
                 worktree=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             ),
             Path("/repo"),
         ),
@@ -469,7 +484,7 @@ def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mou
                     provider_session_id=None,
                     auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
                 ),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             ),
             WorktreeMount(Path("/repo")),
         ),
@@ -493,7 +508,7 @@ def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_publ
             invocation_dir=Path("/repo"),
             worktree=Path("/other"),
             stage=stage_selection_factory(service="codex"),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
         lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
             prompt="already rendered prompt",
@@ -501,7 +516,7 @@ def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_publ
             worktree=Path("/other"),
             stage=stage_selection_factory(service="codex"),
             role=InvocationRole("implementer"),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
         lambda _stage_selection_factory: prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
@@ -519,7 +534,7 @@ def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_publ
                 provider_session_id=None,
                 auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
             ),
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
     ],
 )

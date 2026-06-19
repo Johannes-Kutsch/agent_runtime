@@ -4,11 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import _time as _time_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
-from .contracts import (
-    ToolAccess,
-    ToolPolicy,
-    ToolPolicyProfile,
-)
+from .contracts import ToolPolicy
 from .execution_contracts import (
     PromptRunRequest as _PromptRunRequest,
     PromptRuntimeExecutionAdapter as _PromptRuntimeExecutionAdapter,
@@ -60,11 +56,14 @@ __all__ = [
     "RuntimeOutcome",
     "SessionRunResult",
     "SessionRuntimeMetadata",
-    "ToolAccess",
     "ToolPolicy",
-    "ToolPolicyProfile",
     "WorktreeMount",
 ]
+
+_REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES = {
+    "ToolAccess",
+    "ToolPolicyProfile",
+}
 
 _RuntimeIntent = _runtime_facade_lifecycle_module._RuntimeIntent
 _EphemeralPreparedProviderRunSession = (
@@ -347,3 +346,12 @@ async def _run_prompt(
             token=request.token,
         )
     )
+
+
+def __getattr__(name: str) -> object:
+    if name in _REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES:
+        raise AttributeError(
+            f"{name} is not part of the Runtime Public Surface; "
+            "import compatibility contracts from `agent_runtime.contracts`."
+        )
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

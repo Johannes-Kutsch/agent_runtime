@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
@@ -1075,7 +1076,7 @@ def test_new_session_runtime_selects_fallback_service_before_binding_continuatio
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1133,7 +1134,7 @@ def test_new_session_runtime_retries_fallback_before_binding_continuation(
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1202,7 +1203,7 @@ def test_new_session_runtime_keeps_started_usage_limit_outcome(
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1258,7 +1259,7 @@ def test_new_session_runtime_returns_continuation_for_started_interruption(
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1307,7 +1308,7 @@ def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1419,7 +1420,7 @@ def test_new_session_runtime_reports_not_started_progress_without_continuation(
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1463,7 +1464,7 @@ def test_new_session_runtime_does_not_create_continuation_from_session_allocatio
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1504,7 +1505,7 @@ def test_new_session_runtime_returns_continuation_for_started_cancellation(
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1557,7 +1558,7 @@ def test_new_session_runtime_keeps_not_started_cancellation_without_continuation
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1601,7 +1602,7 @@ def test_new_session_runtime_returns_timed_out_outcome_with_continuation_after_m
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1654,7 +1655,7 @@ def test_new_session_runtime_returns_retryable_provider_failure_outcome_with_con
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1708,7 +1709,7 @@ def test_new_session_runtime_keeps_not_started_timeout_without_continuation(
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1751,7 +1752,7 @@ def test_new_session_runtime_keeps_not_started_retryable_provider_failure_withou
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     worktree = Path("/repo")
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -1807,7 +1808,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
         provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
             "codex"
         ),
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             Path("/repo"),
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -1917,7 +1918,7 @@ def test_runtime_client_writes_session_invocation_log_to_logs_dir_without_mixing
                     effort="medium",
                 ),
                 role=InvocationRole("implementer"),
-                tool_access=runtime.ToolAccess.workspace_backed(worktree),
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
                 provider_auth=prompt_runtime.ProviderAuth(
                     claude_code_oauth_token="token"
                 ),
@@ -1962,7 +1963,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
     runtime_state_dir = tmp_path / "runtime-state"
     worktree.mkdir()
     runtime_state_dir.mkdir()
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -2068,7 +2069,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
     runtime_state_dir = tmp_path / "runtime-state"
     worktree.mkdir()
     runtime_state_dir.mkdir()
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -2196,7 +2197,7 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
     runtime_state_dir = tmp_path / "runtime-state"
     worktree.mkdir()
     runtime_state_dir.mkdir()
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -2359,7 +2360,7 @@ def test_runtime_client_writes_new_opencode_session_invocation_log_header_with_o
                 role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
-                tool_access=runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
                 logs_dir=logs_dir,
             )
         )

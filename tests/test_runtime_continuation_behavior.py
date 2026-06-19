@@ -12,6 +12,7 @@ from typing import Any, Callable, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session_planning as session_planning_runtime
@@ -205,7 +206,7 @@ _TOOL_POLICY_CASES = [
     pytest.param(policy, id=policy.value) for policy in runtime.ToolPolicy
 ] + [
     pytest.param(
-        runtime.ToolPolicyProfile(
+        contracts_runtime.ToolPolicyProfile(
             allowed_tools=("Read", "Bash"),
             disallowed_tools=("Edit",),
         ),
@@ -719,7 +720,7 @@ def test_continuation_provider_resume_state_requires_json_compatible_data() -> N
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "provider_session_id": "prepared:recovered-session",
             "attempts": [1, 2],
@@ -743,7 +744,7 @@ def test_continuation_provider_resume_state_requires_json_compatible_data() -> N
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.no_tools(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
             provider_resume_state={"provider_state_dir": Path("/repo/state")},
         )
 
@@ -755,7 +756,7 @@ def test_resumed_session_runtime_rejects_non_object_portable_continuation_resume
         selected_service="bound-service",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
         provider_resume_state=["resume"],
     )
 
@@ -784,7 +785,7 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -828,7 +829,7 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -853,7 +854,7 @@ def test_resumed_session_runtime_reuses_continuation_tool_policy_across_roundtri
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -910,7 +911,7 @@ def test_resumed_session_runtime_resumes_from_opaque_continuation_token() -> Non
         service_name="codex",
         model="gpt-5.4",
         effort="medium",
-        tool_access=runtime.ToolAccess.no_tools(),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "recovered-session",
@@ -1090,7 +1091,7 @@ def test_resumed_session_runtime_passes_continuation_provider_resume_state_to_ad
                     selected_service="codex",
                     selected_model="gpt-5.4",
                     selected_effort="medium",
-                    tool_access=runtime.ToolAccess.workspace_backed(
+                    tool_access=contracts_runtime.ToolAccess.workspace_backed(
                         worktree,
                         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                     ),
@@ -1117,7 +1118,7 @@ def test_resumed_session_runtime_completed_outcome_keeps_service_bound_in_contin
         selected_service="bound-service",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "recovered-session",
@@ -1146,7 +1147,7 @@ def test_resumed_session_runtime_completed_outcome_keeps_service_bound_in_contin
         selected_service="bound-service",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "prepared:recovered-session",
@@ -1303,7 +1304,7 @@ def test_resumed_session_runtime_returns_latest_adapter_updated_provider_resume_
                     selected_service="codex",
                     selected_model="gpt-5.4",
                     selected_effort="medium",
-                    tool_access=runtime.ToolAccess.workspace_backed(worktree),
+                    tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
                     provider_resume_state=initial_resume_state,
                 ),
             )
@@ -1315,7 +1316,7 @@ def test_resumed_session_runtime_returns_latest_adapter_updated_provider_resume_
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "resume_cursor": {"session": "prepared:next-session", "turn": 9},
             "phase": "completed",
@@ -1473,7 +1474,7 @@ def test_resumed_session_runtime_keeps_frozen_adapter_session_seam_unchanged() -
                     selected_service="codex",
                     selected_model="gpt-5.4",
                     selected_effort="medium",
-                    tool_access=runtime.ToolAccess.workspace_backed(worktree),
+                    tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
                     provider_resume_state=initial_resume_state,
                 ),
             )
@@ -1486,7 +1487,7 @@ def test_resumed_session_runtime_keeps_frozen_adapter_session_seam_unchanged() -
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "resume_cursor": {"session": "prepared:next-session", "turn": 9},
             "phase": "completed",
@@ -1502,7 +1503,7 @@ def test_resumed_session_runtime_from_continuation_defaults_and_overrides_model_
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "recovered-session",
@@ -1545,7 +1546,7 @@ def test_resumed_session_runtime_from_continuation_defaults_and_overrides_model_
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "prepared:recovered-session",
@@ -1558,7 +1559,7 @@ def test_resumed_session_runtime_from_continuation_defaults_and_overrides_model_
         selected_service="codex",
         selected_model="gpt-5.5",
         selected_effort="high",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "prepared:recovered-session",
@@ -1598,7 +1599,7 @@ def test_resumed_session_runtime_started_usage_limit_keeps_service_bound_in_cont
             selected_service="bound-service",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "prepared:recovered-session",
@@ -1611,7 +1612,7 @@ def test_resumed_session_runtime_started_usage_limit_keeps_service_bound_in_cont
 
 @pytest.mark.parametrize("tool_policy", _TOOL_POLICY_CASES)
 def test_resumed_session_runtime_exposes_tool_policy_effects_through_runtime_result(
-    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
+    tool_policy: runtime.ToolPolicy | contracts_runtime.ToolPolicyProfile,
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
@@ -1687,7 +1688,7 @@ def test_resumed_session_runtime_reports_started_progress_for_usage_limited_outc
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path(".")),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "prepared:recovered-session",
@@ -1739,7 +1740,7 @@ def test_resumed_session_runtime_prefers_adapter_reported_model_activity_for_usa
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path(".")),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "prepared:recovered-session",
@@ -1890,7 +1891,7 @@ def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuati
             selected_service="bound-service",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "prepared:recovered-session",
@@ -1928,7 +1929,7 @@ def test_resumed_session_runtime_returns_timed_out_outcome_with_input_continuati
             selected_service="bound-service",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "prepared:recovered-session",
@@ -1967,7 +1968,7 @@ def test_resumed_session_runtime_returns_retryable_provider_failure_outcome_with
             selected_service="bound-service",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "prepared:recovered-session",
@@ -1985,7 +1986,7 @@ def _bound_service_resumed_continuation(
         selected_service="bound-service",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "recovered-session",
@@ -2041,7 +2042,7 @@ def test_runtime_client_writes_resumed_session_invocation_log_to_logs_dir(
         selected_service="claude",
         selected_model="sonnet",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(worktree),
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "recovered-session",
@@ -2139,7 +2140,7 @@ def test_runtime_client_writes_resumed_opencode_session_log_with_observed_provid
         selected_service="opencode",
         selected_model="glm-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -2605,7 +2606,7 @@ def test_resumed_session_runtime_returns_portable_continuation_resume_data(
             provider_session_adapter=external_state_provider_session_adapter,
         )
     )
-    tool_access = runtime.ToolAccess.workspace_backed(
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
         worktree,
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -2721,7 +2722,7 @@ def test_resumed_session_runtime_reports_started_progress_for_timed_out_outcome(
             selected_service="codex",
             selected_model="gpt-5.4",
             selected_effort="medium",
-            tool_access=runtime.ToolAccess.workspace_backed(Path(".")),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path(".")),
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "prepared:recovered-session",
@@ -2744,7 +2745,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
         selected_service="opencode",
         selected_model="glm-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -2861,7 +2862,7 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
         selected_service="opencode",
         selected_model="glm-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -2980,7 +2981,7 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
         selected_service="opencode",
         selected_model="glm-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -3103,7 +3104,7 @@ def test_runtime_client_resumed_opencode_session_restores_only_portable_provider
         selected_service="opencode",
         selected_model="glm-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
@@ -3211,7 +3212,7 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
         selected_service="opencode",
         selected_model="glm-5",
         selected_effort="medium",
-        tool_access=runtime.ToolAccess.workspace_backed(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
             tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
