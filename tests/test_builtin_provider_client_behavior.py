@@ -652,6 +652,87 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     assert "--effort high" in recorded_request.command
 
 
+def test_runtime_client_runs_claude_resumed_session_from_portable_continuation_without_runtime_state_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "continued output"}) + "\n",
+            ),
+        ),
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "claude-session-123",
+            "exact_transcript_match": False,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                model="opus",
+                effort="high",
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="claude-session-123",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="opus",
+                selected_effort="high",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "claude-session-123",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=None,
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.RESUME
+    assert recorded_request.provider_session_id == "claude-session-123"
+    assert recorded_request.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+    }
+    assert "--resume claude-session-123" in recorded_request.command
+    assert "--session-id" not in recorded_request.command
+    assert "--model opus" in recorded_request.command
+    assert "--effort high" in recorded_request.command
+
+
 @pytest.mark.parametrize(
     ("tool_access", "expected_flag"),
     [

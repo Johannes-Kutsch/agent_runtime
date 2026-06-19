@@ -2280,10 +2280,6 @@ def _run_builtin_resumed_session(
         if provider_invocation_adapter is None
         else provider_invocation_adapter
     )
-    runtime_state_dir = _require_runtime_state_dir(
-        request.runtime_state_dir,
-        context="ResumedSessionRunRequest",
-    )
     continuation = request.continuation
     if continuation is None:
         raise RuntimeConfigurationError(
@@ -2297,6 +2293,10 @@ def _run_builtin_resumed_session(
     provider_resume_state = continuation_payload.provider_resume_state
     provider_session_id: str | None
     if continuation_service == "codex":
+        runtime_state_dir = _require_runtime_state_dir(
+            request.runtime_state_dir,
+            context="ResumedSessionRunRequest",
+        )
         _validate_codex_stage(
             StageSelection(
                 service="codex",
@@ -2390,13 +2390,18 @@ def _run_builtin_resumed_session(
     if continuation_service == "claude":
         _require_claude_auth(request.provider_auth)
     else:
+        runtime_state_dir = _require_runtime_state_dir(
+            request.runtime_state_dir,
+            context="ResumedSessionRunRequest",
+        )
         _require_opencode_auth(request.provider_auth)
     provider_state_dir_relpath = cast(
         str | None,
         provider_resume_state.get("provider_state_dir_relpath"),
     )
     provider_state_dir: Path | None = None
-    if provider_state_dir_relpath:
+    if provider_state_dir_relpath and request.runtime_state_dir is not None:
+        runtime_state_dir = request.runtime_state_dir
         provider_state_dir = runtime_state_dir / provider_state_dir_relpath
         provider_state_dir.mkdir(parents=True, exist_ok=True)
     provider_session_id = cast(
