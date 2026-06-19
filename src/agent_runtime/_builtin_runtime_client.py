@@ -1344,6 +1344,9 @@ def _observe_output_opencode(
                     is_complete = True
                     return
                 continue
+            if event.get("type") == "error":
+                is_complete = True
+                return
             if event.get("type") != "text":
                 continue
             part = event.get("part")

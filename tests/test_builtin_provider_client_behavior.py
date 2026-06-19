@@ -1537,6 +1537,177 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
     assert len(adapter.recorded_requests) == 1
 
 
+def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "timestamp": 1,
+                        "sessionID": "sess_123",
+                        "part": {
+                            "id": "part_1",
+                            "sessionID": "sess_123",
+                            "messageID": "msg_1",
+                            "type": "text",
+                            "text": "hello",
+                            "time": {"start": 1, "end": 2},
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "error",
+                        "timestamp": 2,
+                        "sessionID": "sess_123",
+                        "error": {
+                            "name": "InternalServerError",
+                            "data": {
+                                "message": "provider failed",
+                                "statusCode": 503,
+                                "isRetryable": True,
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "text",
+                        "timestamp": 3,
+                        "sessionID": "sess_123",
+                        "part": {
+                            "id": "part_2",
+                            "sessionID": "sess_123",
+                            "messageID": "msg_2",
+                            "type": "text",
+                            "text": "should not be observed",
+                            "time": {"start": 3, "end": 4},
+                        },
+                    }
+                )
+                + "\n",
+            ),
+        ),
+    )
+
+    with pytest.raises(TransientAgentError):
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+                auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                on_live_output=on_live_output,
+                tool_policy=runtime.ToolPolicy.NONE,
+            )
+        )
+
+    assert observed == [("hello", "opencode")]
+
+
+def test_runtime_client_new_opencode_session_observes_live_runtime_output_before_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "timestamp": 1,
+                        "part": {
+                            "id": "part_1",
+                            "messageID": "msg_1",
+                            "type": "text",
+                            "text": "hello before session id",
+                            "time": {"start": 1, "end": 2},
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "text",
+                        "timestamp": 2,
+                        "sessionID": "sess_123",
+                        "part": {
+                            "id": "part_2",
+                            "sessionID": "sess_123",
+                            "messageID": "msg_1",
+                            "type": "text",
+                            "text": "hello after session id",
+                            "time": {"start": 2, "end": 3},
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "session.status",
+                        "timestamp": 3,
+                        "sessionID": "sess_123",
+                        "status": {"type": "idle"},
+                    }
+                )
+                + "\n",
+            ),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
+        )
+    )
+
+    session_result = cast(prompt_runtime.SessionRunResult, outcome.result)
+    assert session_result.continuation is not None
+
+    assert outcome.output == "hello before session id\n\nhello after session id"
+    assert observed == [
+        ("hello before session id", "opencode"),
+        ("hello after session id", "opencode"),
+    ]
+    assert session_result.continuation.provider_resume_state["provider_session_id"] == (
+        "sess_123"
+    )
+
+
 def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_invocation_seam(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
