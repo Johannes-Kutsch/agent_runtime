@@ -55,6 +55,48 @@ def _install_in_memory_provider_invocation_adapter(
     return adapter
 
 
+def _normalize_tool_policy_profile(
+    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
+) -> runtime.ToolPolicyProfile:
+    return (
+        tool_policy.profile
+        if isinstance(tool_policy, runtime.ToolPolicy)
+        else tool_policy
+    )
+
+
+def _opencode_tool_access(
+    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
+    invocation_dir: Path,
+) -> runtime.ToolAccess:
+    return (
+        runtime.ToolAccess(
+            kind="none",
+            workspace=None,
+            tool_policy=tool_policy,
+        )
+        if _normalize_tool_policy_profile(tool_policy)
+        == runtime.ToolPolicy.NONE.profile
+        else runtime.ToolAccess.workspace_backed(
+            invocation_dir,
+            tool_policy=tool_policy,
+        )
+    )
+
+
+def _expected_opencode_permission(
+    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
+) -> dict[str, str] | str | None:
+    profile = _normalize_tool_policy_profile(tool_policy)
+    if profile == runtime.ToolPolicy.NONE.profile:
+        return "deny"
+    if profile == runtime.ToolPolicy.INSPECT_ONLY.profile:
+        return {"edit": "deny", "bash": "deny"}
+    if profile == runtime.ToolPolicy.NO_FILE_MUTATION.profile:
+        return {"edit": "deny"}
+    return None
+
+
 def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -304,6 +346,11 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
             )
         ]
     )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     request = prompt_runtime.NewSessionRunRequest(
@@ -383,7 +430,19 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
                     output_tokens=3,
                 ),
                 stdout_lines=(
-                    '{"type":"text","sessionID":"observed-session-id","part":{"type":"text","text":"thinking"}}\n',
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "part": {
+                                "type": "text",
+                                "time": {"end": True},
+                                "text": "final output",
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                    + "\n",
                 ),
                 provider_session_id="observed-session-id",
             )
@@ -451,6 +510,363 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
         "observed-session-id"
     )
+
+
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_permission"),
+    [
+        (runtime.ToolPolicy.NONE, "deny"),
+        (runtime.ToolPolicy.INSPECT_ONLY, {"edit": "deny", "bash": "deny"}),
+        (runtime.ToolPolicy.NO_FILE_MUTATION, {"edit": "deny"}),
+        (runtime.ToolPolicy.UNRESTRICTED, None),
+    ],
+)
+def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_permission: dict[str, str] | str | None,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "part": {
+                            "type": "text",
+                            "time": {"end": True},
+                            "text": "hello from opencode",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="opencode",
+                model="kimi-k2.6",
+                effort="medium",
+            ),
+            tool_access=_opencode_tool_access(tool_policy, tmp_path),
+            auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from opencode",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from opencode",
+            selected_service="opencode",
+            selected_model="kimi-k2.6",
+            selected_effort="medium",
+            tool_access=_opencode_tool_access(tool_policy, tmp_path),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("opencode",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                ),
+            ),
+            usage=None,
+        ),
+        usage=None,
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
+    if expected_permission is None:
+        assert "permission" not in config
+    else:
+        assert config["permission"] == expected_permission
+
+
+@pytest.mark.parametrize(
+    "tool_policy",
+    [
+        pytest.param(runtime.ToolPolicy.NONE.profile, id="none-profile"),
+        pytest.param(
+            runtime.ToolPolicy.INSPECT_ONLY.profile,
+            id="inspect-only-profile",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.NO_FILE_MUTATION.profile,
+            id="no-file-mutation-profile",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.UNRESTRICTED.profile,
+            id="unrestricted-profile",
+        ),
+    ],
+)
+def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_profile_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicyProfile,
+) -> None:
+    expected_permission = _expected_opencode_permission(tool_policy)
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "part": {
+                            "type": "text",
+                            "time": {"end": True},
+                            "text": "hello from opencode",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="opencode",
+                model="kimi-k2.6",
+                effort="medium",
+            ),
+            tool_access=_opencode_tool_access(tool_policy, tmp_path),
+            auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+        )
+    )
+
+    assert outcome.output == "hello from opencode"
+    recorded_request = adapter.recorded_requests[0]
+    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
+    if expected_permission is None:
+        assert "permission" not in config
+    else:
+        assert config["permission"] == expected_permission
+
+
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_permission"),
+    [
+        (runtime.ToolPolicy.NONE, "deny"),
+        (runtime.ToolPolicy.INSPECT_ONLY, {"edit": "deny", "bash": "deny"}),
+        (runtime.ToolPolicy.NO_FILE_MUTATION, {"edit": "deny"}),
+        (runtime.ToolPolicy.UNRESTRICTED, None),
+    ],
+)
+def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_permission: dict[str, str] | str | None,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "prepared-session-id",
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="final output",
+            usage=runtime.ProviderUsage(
+                input_tokens=7,
+                output_tokens=3,
+            ),
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "part": {
+                            "type": "text",
+                            "time": {"end": True},
+                            "text": "final output",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+            provider_session_id="observed-session-id",
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                tool_access=_opencode_tool_access(tool_policy, tmp_path),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="final output",
+        result=prompt_runtime.SessionRunResult(
+            output="final output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="opencode",
+                provider_session_id="observed-session-id",
+                run_kind=RunKind.FRESH,
+                session_namespace="main",
+                exact_transcript_match=False,
+                selected_model="glm-5",
+                selected_effort="medium",
+                tool_policy=tool_policy,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="opencode",
+                selected_model="glm-5",
+                selected_effort="medium",
+                tool_access=_opencode_tool_access(tool_policy, tmp_path),
+                provider_resume_state={
+                    "provider_session_id": "observed-session-id",
+                    "provider_state_dir_relpath": "implementer/main/opencode/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(input_tokens=7, output_tokens=3),
+    )
+    recorded_request = adapter.recorded_requests[0]
+    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
+    if expected_permission is None:
+        assert "permission" not in config
+    else:
+        assert config["permission"] == expected_permission
+
+
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_permission"),
+    [
+        (runtime.ToolPolicy.NONE, "deny"),
+        (runtime.ToolPolicy.INSPECT_ONLY, {"edit": "deny", "bash": "deny"}),
+        (runtime.ToolPolicy.NO_FILE_MUTATION, {"edit": "deny"}),
+        (runtime.ToolPolicy.UNRESTRICTED, None),
+    ],
+)
+def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_permission: dict[str, str] | str | None,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="continued output",
+            usage=runtime.ProviderUsage(
+                input_tokens=7,
+                output_tokens=2,
+            ),
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "part": {
+                            "type": "text",
+                            "time": {"end": True},
+                            "text": "continued output",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+            provider_session_id="persisted-session-2",
+        ),
+    )
+
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    provider_state_dir_relpath = "implementer/main/opencode/"
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    worktree.mkdir()
+    provider_state_dir.mkdir(parents=True)
+    (provider_state_dir / "resume.jsonl").write_text("[]\n", encoding="utf-8")
+    (provider_state_dir / "session_id").write_text(
+        "persisted-session-1\n",
+        encoding="utf-8",
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5",
+        selected_effort="medium",
+        tool_access=_opencode_tool_access(tool_policy, worktree),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "exact_transcript_match": True,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="opencode",
+                provider_session_id="persisted-session-2",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+                selected_model="glm-5",
+                selected_effort="medium",
+                tool_policy=tool_policy,
+            ),
+            continuation=continuation,
+        ),
+        usage=runtime.ProviderUsage(input_tokens=7, output_tokens=2),
+    )
+
+    recorded_request = adapter.recorded_requests[0]
+    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
+    if expected_permission is None:
+        assert "permission" not in config
+    else:
+        assert config["permission"] == expected_permission
 
 
 def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_invocation_seam(

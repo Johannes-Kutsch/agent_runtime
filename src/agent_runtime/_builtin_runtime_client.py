@@ -399,27 +399,46 @@ def _opencode_go_model_ref(model: str) -> str:
     return f"{_OPENCODE_GO_PROVIDER_ID}/{model}"
 
 
-def _opencode_go_config_content() -> str:
-    return json.dumps(
-        {
-            "$schema": "https://opencode.ai/config.json",
-            "provider": {
-                _OPENCODE_GO_PROVIDER_ID: {
-                    "npm": "@ai-sdk/openai-compatible",
-                    "name": "OpenCode Go",
-                    "options": {
-                        "baseURL": _OPENCODE_GO_BASE_URL,
-                        "apiKey": "{env:OPENCODE_GO_API_KEY}",
-                    },
-                    "models": {
-                        model: {"name": model} for model in sorted(_OPENCODE_GO_MODELS)
-                    },
-                }
-            },
-        },
-        sort_keys=True,
-        separators=(",", ":"),
+def _opencode_tool_policy_permission(
+    tool_policy: ToolPolicy | ToolPolicyProfile,
+) -> dict[str, str] | str | None:
+    profile = (
+        tool_policy.profile if isinstance(tool_policy, ToolPolicy) else tool_policy
     )
+    if profile == ToolPolicy.NONE.profile:
+        return "deny"
+    if profile == ToolPolicy.INSPECT_ONLY.profile:
+        return {"edit": "deny", "bash": "deny"}
+    if profile == ToolPolicy.NO_FILE_MUTATION.profile:
+        return {"edit": "deny"}
+    return None
+
+
+def _opencode_go_config_content(
+    *,
+    tool_policy: ToolPolicy | ToolPolicyProfile | None = None,
+) -> str:
+    config: dict[str, Any] = {
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {
+            _OPENCODE_GO_PROVIDER_ID: {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "OpenCode Go",
+                "options": {
+                    "baseURL": _OPENCODE_GO_BASE_URL,
+                    "apiKey": "{env:OPENCODE_GO_API_KEY}",
+                },
+                "models": {
+                    model: {"name": model} for model in sorted(_OPENCODE_GO_MODELS)
+                },
+            }
+        },
+    }
+    if tool_policy is not None:
+        permission = _opencode_tool_policy_permission(tool_policy)
+        if permission is not None:
+            config["permission"] = permission
+    return json.dumps(config, sort_keys=True, separators=(",", ":"))
 
 
 def _opencode_command(
@@ -443,6 +462,7 @@ def _opencode_env(
     *,
     auth: ProviderAuth | None,
     state_dir_container_path: str | None = None,
+    tool_policy: ToolPolicy | ToolPolicyProfile | None = None,
 ) -> dict[str, str]:
     env: dict[str, str] = {"TZ": "UTC"}
     if state_dir_container_path:
@@ -450,7 +470,9 @@ def _opencode_env(
     api_key = None if auth is None else auth.opencode_api_key
     if api_key:
         env["OPENCODE_GO_API_KEY"] = api_key
-        env["OPENCODE_CONFIG_CONTENT"] = _opencode_go_config_content()
+        env["OPENCODE_CONFIG_CONTENT"] = _opencode_go_config_content(
+            tool_policy=tool_policy
+        )
     return env
 
 
@@ -1863,6 +1885,7 @@ def _invoke_opencode_new_session_provider(
         environment=_opencode_env(
             auth=request.provider_auth,
             state_dir_container_path=str(provider_state_dir),
+            tool_policy=request.tool_access.tool_policy,
         ),
         prompt_content=request.prompt,
         prompt_path=request.invocation_dir / ".pycastle_prompt",
@@ -1986,6 +2009,7 @@ def _run_builtin_ephemeral(
             environment=opencode_env(
                 auth=request.auth,
                 state_dir_container_path=str(request.invocation_dir),
+                tool_policy=request.tool_access.tool_policy,
             ),
             prompt_content=request.prompt,
             prompt_path=prompt_path,
@@ -2593,6 +2617,7 @@ def _run_builtin_resumed_session(
             environment = _opencode_env(
                 auth=request.provider_auth,
                 state_dir_container_path=str(provider_state_dir),
+                tool_policy=request.tool_access.tool_policy,
             )
             reduce_output = _reduce_opencode_session_output
             reduce_logged_output = _reduce_logged_opencode_session_output
