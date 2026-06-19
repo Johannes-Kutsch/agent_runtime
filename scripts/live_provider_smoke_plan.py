@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, Any
 from uuid import uuid4
 
 from agent_runtime.errors import RuntimeConfigurationError
@@ -16,6 +16,26 @@ class LiveSmokeProviderSelectionStatus(str, Enum):
     RUNNABLE = "runnable"
     SKIPPED = "skipped"
     CONFIG_ERROR = "config_error"
+
+
+class LiveSmokeCaseStatus(str, Enum):
+    PASSED = "passed"
+    SKIPPED = "skipped"
+    CONFIG_ERROR = "config_error"
+    USAGE_LIMITED = "usage_limited"
+    NO_SERVICE_AVAILABLE = "no_service_available"
+    FAILED = "failed"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class LiveSmokeCaseResult:
+    service: str
+    mode: str
+    policy: str | None
+    status: LiveSmokeCaseStatus
+    diagnostic: str | None = None
+    required: bool = True
 
 
 SUPPORTED_PROVIDERS: tuple[str, ...] = ("claude", "codex", "opencode")
@@ -84,6 +104,193 @@ class DryRunPlan:
     cases: tuple[DryRunPlannedCase, ...]
     provider_plans: tuple[ProviderPlan, ...]
     artifact_root: Path
+
+
+def classify_live_smoke_case_result(
+    *,
+    case: PlannedCase,
+    runtime_outcome: Any | None = None,
+    runtime_exception: BaseException | None = None,
+    artifact_error: str | None = None,
+    required_output_non_empty: bool = True,
+    required_continuation_text: str | None = None,
+    required: bool = True,
+) -> LiveSmokeCaseResult:
+    if artifact_error is not None:
+        return LiveSmokeCaseResult(
+            service=case.service,
+            mode=case.mode,
+            policy=case.policy,
+            status=LiveSmokeCaseStatus.ERROR,
+            diagnostic=artifact_error,
+            required=required,
+        )
+    if runtime_exception is not None:
+        return LiveSmokeCaseResult(
+            service=case.service,
+            mode=case.mode,
+            policy=case.policy,
+            status=LiveSmokeCaseStatus.ERROR,
+            diagnostic=str(runtime_exception),
+            required=required,
+        )
+
+    if runtime_outcome is None:
+        return LiveSmokeCaseResult(
+            service=case.service,
+            mode=case.mode,
+            policy=case.policy,
+            status=LiveSmokeCaseStatus.ERROR,
+            diagnostic="no runtime outcome",
+            required=required,
+        )
+
+    outcome_kind = getattr(runtime_outcome, "kind", None)
+    if outcome_kind == "completed":
+        if required_output_non_empty and not str(
+            getattr(runtime_outcome, "output", "")
+        ):
+            return LiveSmokeCaseResult(
+                service=case.service,
+                mode=case.mode,
+                policy=case.policy,
+                status=LiveSmokeCaseStatus.FAILED,
+                diagnostic="completed outcome missing required output",
+                required=required,
+            )
+        if required_continuation_text is not None:
+            continuation = getattr(runtime_outcome, "continuation", None)
+            continuation_text = (
+                continuation.serialized if continuation is not None else None
+            )
+            if continuation_text is None:
+                continuation_text = getattr(runtime_outcome, "result", None)
+            if required_continuation_text not in str(continuation_text or ""):
+                return LiveSmokeCaseResult(
+                    service=case.service,
+                    mode=case.mode,
+                    policy=case.policy,
+                    status=LiveSmokeCaseStatus.FAILED,
+                    diagnostic="completed outcome missing required continuation evidence",
+                    required=required,
+                )
+        return LiveSmokeCaseResult(
+            service=case.service,
+            mode=case.mode,
+            policy=case.policy,
+            status=LiveSmokeCaseStatus.PASSED,
+            required=required,
+        )
+
+    if outcome_kind == "usage_limited":
+        return LiveSmokeCaseResult(
+            service=case.service,
+            mode=case.mode,
+            policy=case.policy,
+            status=LiveSmokeCaseStatus.USAGE_LIMITED,
+            required=required,
+            diagnostic=getattr(runtime_outcome, "output", None),
+        )
+
+    if outcome_kind == "no_service_available":
+        return LiveSmokeCaseResult(
+            service=case.service,
+            mode=case.mode,
+            policy=case.policy,
+            status=LiveSmokeCaseStatus.NO_SERVICE_AVAILABLE,
+            required=required,
+            diagnostic=getattr(runtime_outcome, "output", None),
+        )
+
+    if outcome_kind == "retryable_provider_failure":
+        return LiveSmokeCaseResult(
+            service=case.service,
+            mode=case.mode,
+            policy=case.policy,
+            status=LiveSmokeCaseStatus.FAILED,
+            required=required,
+            diagnostic=getattr(runtime_outcome, "output", None),
+        )
+
+    if outcome_kind == "timed_out":
+        return LiveSmokeCaseResult(
+            service=case.service,
+            mode=case.mode,
+            policy=case.policy,
+            status=LiveSmokeCaseStatus.FAILED,
+            required=required,
+            diagnostic=getattr(runtime_outcome, "output", None),
+        )
+
+    return LiveSmokeCaseResult(
+        service=case.service,
+        mode=case.mode,
+        policy=case.policy,
+        status=LiveSmokeCaseStatus.FAILED,
+        required=required,
+        diagnostic=getattr(runtime_outcome, "output", None),
+    )
+
+
+def classify_live_smoke_preflight_case_result(
+    *,
+    case: PlannedCase,
+    provider_plan: ProviderPlan,
+    required: bool = True,
+    dependent_skip: bool = False,
+) -> LiveSmokeCaseResult:
+    if provider_plan.status == LiveSmokeProviderSelectionStatus.CONFIG_ERROR:
+        status = LiveSmokeCaseStatus.CONFIG_ERROR
+    elif provider_plan.status == LiveSmokeProviderSelectionStatus.SKIPPED:
+        status = LiveSmokeCaseStatus.SKIPPED
+    else:
+        raise ValueError(
+            "Only non-runnable provider plans can be classified as preflight cases"
+        )
+
+    return LiveSmokeCaseResult(
+        service=case.service,
+        mode=case.mode,
+        policy=case.policy,
+        status=status,
+        required=required if not dependent_skip else False,
+        diagnostic=provider_plan.reason,
+    )
+
+
+def live_smoke_case_results_payload(
+    case_results: Sequence[LiveSmokeCaseResult],
+) -> dict[str, object]:
+    cases = [
+        {
+            "service": result.service,
+            "mode": result.mode,
+            "policy": result.policy,
+            "status": result.status.value,
+            "diagnostic": result.diagnostic,
+            "required": result.required,
+        }
+        for result in case_results
+    ]
+    return {
+        "cases": cases,
+        "status_counts": {
+            status.value: sum(1 for result in case_results if result.status is status)
+            for status in LiveSmokeCaseStatus
+        },
+    }
+
+
+def compute_live_smoke_exit_status(
+    case_results: Sequence[LiveSmokeCaseResult],
+) -> int:
+    for result in case_results:
+        if result.status is LiveSmokeCaseStatus.PASSED:
+            continue
+        if result.status is LiveSmokeCaseStatus.SKIPPED and not result.required:
+            continue
+        return 1
+    return 0
 
 
 @dataclass(frozen=True)
@@ -427,6 +634,8 @@ def all_selected_provider_statuses_have_error(plans: Sequence[ProviderPlan]) -> 
 
 __all__ = [
     "LiveSmokeProviderSelectionStatus",
+    "LiveSmokeCaseStatus",
+    "LiveSmokeCaseResult",
     "ProviderPlan",
     "ProviderSelection",
     "PlannedCase",
@@ -449,4 +658,8 @@ __all__ = [
     "resolve_model_and_effort",
     "resolve_run_id",
     "all_selected_provider_statuses_have_error",
+    "classify_live_smoke_case_result",
+    "classify_live_smoke_preflight_case_result",
+    "live_smoke_case_results_payload",
+    "compute_live_smoke_exit_status",
 ]
