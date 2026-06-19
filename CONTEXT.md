@@ -48,6 +48,8 @@
 | `RuntimeStateDir` | Transitional caller-supplied directory root where built-in provider integrations keep provider-native session state for session-backed runs. |
 | `RuntimeLogsDir` | Transitional caller-supplied directory root where runtime invocation logs are written. |
 | `InvocationRecord` | Structured runtime output describing an invocation for callers that want to persist or display execution traces. |
+| `Live Runtime Output` | Provider-neutral consumer-observable agent-message text and selected service identity emitted during a runtime invocation, not token-by-token streaming, derived from runtime-owned provider event parsing without exposing provider-specific event DTOs, raw JSON, or stdout as the public contract. |
+| `AgentMessageTurn` | An immutable provider-neutral unit with `text` and selected `service_name`, observed by the runtime as one meaningful assistant-authored message during provider execution. |
 | `RuntimeClient` | Caller-owned runtime object that holds in-process built-in provider availability state across calls without owning durable provider session storage. |
 | `InvocationProgress` | Two-state runtime outcome metadata indicating whether the model showed activity before an interruption, such as reasoning, messages, or tool invocation; unknown progress is treated as not started. |
 | `RuntimeOutcome` | A canonical runtime result category for expected orchestration outcomes such as completion, usage limits, cancellation, timeout, temporary service unavailability, or confidently retryable provider failure. |
@@ -62,11 +64,34 @@
 
 - The runtime package must remain importable without application modules.
 - Application-specific prompt rendering, CLI wiring, issue orchestration, and output parsing belong outside the runtime boundary.
+- Application-specific protocol parsing of Live Runtime Output belongs outside the runtime boundary.
 - The runtime/request seam stays a single vertical flow from caller intent through session planning to work invocation.
 - The package root should stay a narrow compatibility entrypoint, not a catch-all export surface.
+- `AgentMessageTurn` is shared public runtime vocabulary and may be exported from both the package root and `agent_runtime.runtime`.
 - The documented Runtime Public Surface is a stability promise rather than an inventory of every importable runtime symbol.
 - External provider adapter seams should be removed from the documented Runtime Public Surface.
 - Provider event DTOs are internal built-in adapter details, not consumer-facing API.
+- Live Runtime Output is an observation channel for `AgentMessageTurn` text, not arbitrary provider output chunks; completed runtime output remains the authoritative invocation result.
+- Live Runtime Output callback failures are consumer-side failures and should not be silently swallowed by the runtime.
+- Live Runtime Output callback failures propagate as exceptional consumer failures rather than runtime interruption outcomes.
+- Consumers observe Live Runtime Output through per-request invocation observers rather than RuntimeClient-wide display state or alternate streaming lifecycle entrypoints.
+- The public per-request observer should use Live Runtime Output vocabulary, such as `on_live_output`, rather than provider- or parser-specific naming.
+- Live Runtime Output observers are synchronous; async consumers bridge observation into their own queues or event loops outside the runtime boundary.
+- Backpressure from synchronous Live Runtime Output observers is consumer responsibility; the runtime does not own buffering or drop policy for observed turns.
+- Live Runtime Output observers are notification-only and do not steer runtime control flow; consumers use cancellation to stop an invocation.
+- Live Runtime Output observers receive `AgentMessageTurn` values directly, not bare strings, speculative event wrappers, or provider-specific event payloads.
+- Live Runtime Output values include the selected `ServiceName` so consumers can correlate observed turns during provider fallback or display.
+- Live Runtime Output values do not repeat selected model or effort metadata unless a separate live-display need is established.
+- Live Runtime Output may include turns from provider attempts later abandoned by fallback; consumers use `ServiceName` and the authoritative final output to correlate or discard those observations.
+- Live Runtime Output observers should see each runtime-observed `AgentMessageTurn` at most once per provider attempt.
+- Live Runtime Output is independent of session lifecycle and may be observed for Ephemeral Run, Start Session Run, and Resume Session Run invocations.
+- Live Runtime Output reports only newly observed output from the current invocation and does not replay prior turns from continuations, logs, or provider transcript state.
+- Live Runtime Output is not coupled to `ProviderSessionId` detection and should not delay observed turns until session metadata is available.
+- Live Runtime Output carries normalized agent-message text without runtime-owned durable redaction or persistence policy; consumers own display, redaction, and persistence decisions.
+- Live Runtime Output uses the same runtime-owned provider parsing semantics as final output reduction, but observed turns are not guaranteed to be literal substrings of authoritative completed output.
+- Live Runtime Output does not change completed or interrupted `RuntimeOutcome` output semantics.
+- Live Runtime Output observation is independent of `ToolPolicy` and grants no tool capability, workspace access, or logging permission.
+- Built-in Provider Adapters should emit Live Runtime Output when runtime-owned provider parsing observes an `AgentMessageTurn` equivalent; absence of live turns for a provider must not reject an invocation.
 - Public provider failure errors may expose provider diagnostic observations; consumers own storage, display, and redaction policy for those diagnostics.
 - Removing runtime compatibility aliases does not move lifecycle runtime entrypoints to the package root.
 - Runtime Compatibility Aliases are not Runtime Public Surface promises.
@@ -78,6 +103,7 @@
 - Lifecycle-specific runtime execution adapter names are canonical public spellings even when they share the same underlying adapter protocol.
 - Request-construction compatibility spellings may remain when they do not create alternate public type names or lifecycle entrypoints.
 - Ordinary consuming projects should use runtime entrypoints rather than low-level work invocation internals or provider adapter seams.
+- Ordinary consuming projects may observe Live Runtime Output through the Runtime Consumer Surface without importing provider adapters or provider event parsers.
 - Ordinary consuming projects should select Built-in Provider Adapters through runtime call arguments rather than constructing provider services or service registries.
 - Consumer-defined provider services are not supported runtime functionality.
 - Provider selection remains caller-supplied through `StageSelection`; the runtime validates and executes built-in service names but does not own application workflow default chains.

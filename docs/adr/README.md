@@ -9,3 +9,5 @@
 - [0007 - Session-backed result vocabulary](0007-session-backed-result-vocabulary.md): Use session vocabulary for completed session-backed runtime results and metadata.
 - [0008 - Resumed-session request construction](0008-resumed-session-request-construction.md): Keep the canonical resumed-session request name while preserving ordinary continuation and advanced session-plan construction paths.
 - [0009 - Built-in provider-only runtime](0009-built-in-provider-only-runtime.md): Ship Claude, Codex, and OpenCode integrations inside the runtime distribution and remove consumer-defined provider services as an extension point.
+- [0010 - Portable continuations](0010-portable-continuations.md): Return opaque portable continuation tokens for session-backed runtime execution while leaving durable storage policy to callers.
+- [0011 - Live runtime output observation](0011-live-runtime-output-observation.md): Add provider-neutral per-request observation for live agent-message turns without exposing raw provider streams or alternate streaming lifecycle entrypoints.
