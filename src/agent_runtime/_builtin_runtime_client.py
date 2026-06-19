@@ -753,6 +753,20 @@ def _observe_output_reducer(
     )
 
 
+def _observe_opencode_output_reducer(
+    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+    on_live_output: Callable[[AgentMessageTurn], None] | None,
+) -> Callable[[list[str]], tuple[str, ProviderUsage | None]]:
+    if on_live_output is None:
+        return reduce_output
+    return _ObservedOutputReducer(
+        reduce_output=reduce_output,
+        consume_stdout_lines=_observe_output_opencode(
+            on_live_output=on_live_output,
+        ),
+    )
+
+
 def _merge_provider_usage(
     current: ProviderUsage | None,
     observed: ProviderUsage | None,
@@ -1288,6 +1302,68 @@ def _parse_opencode_output_line(line: str) -> list[Any]:
     if not stripped_text:
         return []
     return [AssistantTurn(text=stripped_text)]
+
+
+def _observe_output_opencode(
+    *,
+    on_live_output: Callable[[AgentMessageTurn], None],
+    on_provider_session_id: Callable[[str], None] | None = None,
+) -> Callable[[list[str]], None]:
+    observe_output = _live_output_observer("opencode", on_live_output)
+    seen_session_id: str | None = None
+    has_text_output = False
+    is_complete = False
+
+    def _observe_output_lines(lines: list[str]) -> None:
+        nonlocal seen_session_id, has_text_output, is_complete
+        if is_complete:
+            return
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            session_id = event.get("sessionID")
+            if (
+                isinstance(session_id, str)
+                and session_id
+                and session_id != seen_session_id
+                and on_provider_session_id is not None
+            ):
+                seen_session_id = session_id
+                on_provider_session_id(session_id)
+            if event.get("type") == "session.status":
+                status = event.get("status")
+                if (
+                    isinstance(status, dict)
+                    and status.get("type") == "idle"
+                    and has_text_output
+                ):
+                    is_complete = True
+                    return
+                continue
+            if event.get("type") != "text":
+                continue
+            part = event.get("part")
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") != "text":
+                continue
+            time = part.get("time")
+            if not isinstance(time, dict) or time.get("end") is None:
+                continue
+            text = part.get("text")
+            if not isinstance(text, str):
+                continue
+            stripped = text.strip()
+            if not stripped:
+                continue
+            observe_output(stripped)
+            has_text_output = True
+
+    return _observe_output_lines
 
 
 def _extract_opencode_provider_session_id(lines: list[str]) -> str | None:
@@ -2049,11 +2125,9 @@ def _invoke_opencode_new_session_provider(
         role=request.role,
         usage_limit_scope=None,
         provider_session_id=provider_session_id,
-        reduce_output=_observe_output_reducer(
+        reduce_output=_observe_opencode_output_reducer(
             _reduce_opencode_session_output,
             on_live_output,
-            _parse_opencode_output_line,
-            service_name="opencode",
         ),
         extract_provider_session_id=lambda _lines: observed_provider_session_id,
     )
@@ -2181,11 +2255,9 @@ def _run_builtin_ephemeral(
             role=_DEFAULT_EPHEMERAL_ROLE,
             usage_limit_scope=None,
             provider_session_id=None,
-            reduce_output=_observe_output_reducer(
+            reduce_output=_observe_opencode_output_reducer(
                 lambda lines: (reduce_opencode_stream(lines, None), None),
                 request.on_live_output,
-                _parse_opencode_output_line,
-                service_name="opencode",
             ),
         )
     else:
@@ -2862,11 +2934,9 @@ def _run_builtin_resumed_session(
                 state_dir_container_path=str(provider_state_dir),
                 tool_policy=request.tool_access.tool_policy,
             )
-            reduce_output = _observe_output_reducer(
+            reduce_output = _observe_opencode_output_reducer(
                 _reduce_opencode_session_output,
                 request.on_live_output,
-                _parse_opencode_output_line,
-                service_name="opencode",
             )
             extract_provider_session_id = _extract_opencode_provider_session_id
         invocation_result = _invoke_provider(
