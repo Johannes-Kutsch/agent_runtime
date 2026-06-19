@@ -10,13 +10,15 @@ pip install ruhken-agent-runtime
 
 The accepted runtime direction is to ship Claude, Codex, and OpenCode execution inside this package. Consuming projects select a built-in provider, model, effort, credentials, tool access, and session lifecycle through runtime call arguments; they do not construct provider services, service registries, command builders, provider-session adapters, or provider event parsers.
 
-For complete target signatures, invariants, and migration notes, see [the public API reference](docs/public-api.md).
+For complete target signatures and invariants, see [the public API reference](docs/public-api.md). For the portable continuation decision, see [ADR 0010](docs/adr/0010-portable-continuations.md).
 
 Only the documented import paths are stable. Internal runtime modules may be reorganized as the implementation is split, but ordinary consumers should continue importing from `agent_runtime` and `agent_runtime.runtime`.
 
 ## Consumer Integration
 
-Ordinary consumers should use a caller-owned `RuntimeClient` and the small package vocabulary such as `InvocationRole`, `StageSelection`, `ToolAccess`, and `ProviderAuth`.
+Ordinary consumers should use a caller-owned `RuntimeClient` and the small package vocabulary such as `StageSelection`, `ToolAccess`, `ProviderAuth`, and `Continuation`.
+
+The runtime executes prompts and returns data. Callers own persistence for continuations, invocation records, workflow correlation, durable logs, and any usage-limit grouping policy.
 
 ### Ephemeral Execution
 
@@ -25,7 +27,7 @@ Use ephemeral execution for an already-rendered prompt when the runtime should n
 ```python
 from pathlib import Path
 
-from agent_runtime import InvocationRole, ProviderAuth, StageSelection, ToolAccess
+from agent_runtime import ProviderAuth, StageSelection, ToolAccess
 from agent_runtime.runtime import EphemeralRunRequest, RuntimeClient
 
 runtime = RuntimeClient()
@@ -39,7 +41,6 @@ result = await runtime.run_ephemeral(
             model="sonnet",
             effort="medium",
         ),
-        role=InvocationRole("issue-triage"),
         provider_auth=ProviderAuth(
             claude_code_oauth_token=claude_code_oauth_token,
         ),
@@ -52,16 +53,16 @@ if result.kind == "completed":
     print(result.usage)
 ```
 
-Older adapter-wired runtime wrappers remain internal compatibility seams and are not part of the documented `Runtime Public Surface`.
+Ephemeral execution does not return a continuation and does not require session storage inputs.
 
 ### New-Session Execution
 
-Use new-session execution when the runtime should preserve provider-native transcript continuity and return consumer-owned continuation state for later calls. Session-backed calls require an explicit `runtime_state_dir`; durable invocation logs remain opt-in through `logs_dir`.
+Use new-session execution when the runtime should preserve provider transcript continuity and return an opaque portable `Continuation` for later calls. A completed session-backed run always returns output text and a meaningful continuation.
 
 ```python
 from pathlib import Path
 
-from agent_runtime import InvocationRole, ProviderAuth, StageSelection, ToolAccess
+from agent_runtime import ProviderAuth, StageSelection, ToolAccess
 from agent_runtime.runtime import NewSessionRunRequest, RuntimeClient
 
 runtime = RuntimeClient()
@@ -70,32 +71,31 @@ result = await runtime.run_new_session(
     NewSessionRunRequest(
         prompt=rendered_prompt,
         worktree=Path("."),
-        runtime_state_dir=Path(".agent-runtime/state"),
         stage=StageSelection(
             service="opencode",
             model="github-copilot/gpt-5.1-codex",
             effort="medium",
         ),
-        role=InvocationRole("issue-implementation"),
         provider_auth=ProviderAuth(opencode_api_key=opencode_api_key),
         tool_access=ToolAccess.workspace_backed(Path(".")),
     )
 )
 
 if result.kind == "completed":
+    print(result.output)
     continuation = result.result.continuation
 ```
 
-Consumers own persistence and retention for returned continuations and for `runtime_state_dir`. The runtime returns the latest continuation; the consuming project decides whether to store it, discard it, or pass it to another process.
+Callers persist the continuation object wherever they want. The continuation is a resume token, not a public schema for provider state, display data, or policy decisions.
 
 ### Resumed-Session Execution
 
-Use resumed-session execution to continue an existing provider-session continuity chain. The continuation fixes the selected service and tool access; resumed execution does not perform fallback and only allows model or effort overrides.
+Use resumed-session execution to continue an existing provider-session continuity chain. The continuation fixes the selected service and tool access. Resumed execution does not perform fallback and only allows model or effort overrides.
 
 ```python
 from pathlib import Path
 
-from agent_runtime import InvocationRole, ProviderAuth
+from agent_runtime import ProviderAuth
 from agent_runtime.runtime import ResumedSessionRunRequest, RuntimeClient
 
 runtime = RuntimeClient()
@@ -104,23 +104,26 @@ result = await runtime.run_resumed_session(
     ResumedSessionRunRequest(
         prompt=rendered_prompt,
         worktree=Path("."),
-        runtime_state_dir=Path(".agent-runtime/state"),
-        role=InvocationRole("issue-implementation"),
         continuation=continuation,
         provider_auth=ProviderAuth(opencode_api_key=opencode_api_key),
     )
 )
 
 if result.kind == "completed":
+    print(result.output)
     continuation = result.result.continuation
 ```
 
-Older resumed-session wrapper spellings remain internal compatibility seams and are not the intended consumer integration path.
+### Invocation Records
+
+The runtime may return structured invocation records for callers that want traces. Callers decide if, where, and how to persist those records. The runtime does not own durable log file names, directories, retention, or cleanup policy.
 
 ### Runtime Outcomes
 
 Lifecycle entrypoints return `RuntimeOutcome`. Completed work has `kind == "completed"` and carries the completed result on `result.result`. When a provider reports usage, the outcome also carries `usage` with input tokens, output tokens, cache-read input tokens, cache-creation input tokens, optional cost, and optional provider duration.
 
-Expected interruptions are normal outcomes: `usage_limited`, `no_service_available`, `cancelled`, `timed_out`, and `retryable_provider_failure`. Session-backed interruption outcomes may carry `continuation` and always report `invocation_progress`, so consumers can choose between retrying the same prompt or continuing the returned provider-session chain.
+Expected interruptions are normal outcomes: `usage_limited`, `no_service_available`, `cancelled`, `timed_out`, and `retryable_provider_failure`. Session-backed interruption outcomes may carry `continuation` only when provider progress made resume meaningful, and they always report `invocation_progress`.
+
+Usage-limit outcomes expose provider and service facts such as service name, account label, reset time, invocation progress, provider usage, and continuation state. Caller workflow grouping and retry/sleep policy stay outside the runtime package.
 
 Exceptional failures remain errors: malformed runtime inputs, credential problems, hard provider failures, adapter/protocol bugs, unclassified provider failures, and unexpected exceptions.

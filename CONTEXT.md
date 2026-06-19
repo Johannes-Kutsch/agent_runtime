@@ -28,7 +28,7 @@
 | `ToolPolicyProfile` | A provider-neutral runtime description of coarse tool-access policy used by provider adapters to render provider-specific command flags. |
 | `Tool-less Run` | A runtime invocation whose provider tool access is explicitly forbidden rather than left to provider defaults. |
 | `ToolAccess` | A closed runtime value describing whether an invocation has no tools or workspace-backed tool access. |
-| `UsageLimitScope` | A caller-defined, validated grouping key used for usage-limit continuation policy. |
+| `UsageLimitScope` | Transitional caller-defined grouping key for usage-limit continuation policy; usage-limit grouping belongs outside the core runtime API. |
 | `ProviderSessionState` | The provider-owned session state that records how a run should start or resume. |
 | `ProviderSessionId` | The external provider or tool session identifier associated with a runtime service invocation. |
 | `ProviderInvocationResult` | Private value returned by the Built-in Provider Invocation Seam containing normalized output, optional `ProviderUsage`, raw stdout lines when lifecycle policy needs them, and optional observed `ProviderSessionId`. |
@@ -37,19 +37,21 @@
 | `Ephemeral Run` | A runtime invocation that does not prepare or promise provider-session continuity. |
 | `Start Session Run` | A runtime invocation that selects a service and prepares provider-session continuity for future invocations. |
 | `Resume Session Run` | A runtime invocation that continues an existing provider-session continuity chain without service fallback or reselection. |
-| `SessionRunResult` | The completed result value for session-backed runtime execution, whether the session is newly started or resumed. |
+| `Session-backed Provider` | A built-in provider that can produce and consume portable continuation data. |
+| `SessionRunResult` | The completed result value for session-backed runtime execution, containing output text and a meaningful continuation. |
 | `SessionRuntimeMetadata` | Runtime metadata for completed session-backed execution. |
-| `Continuation` | A runtime value containing all consumer-owned data needed to resume a provider-session continuity chain across process calls, including selected service, model, effort, tool access, and provider resume state. |
-| `ProviderResumeState` | Provider-owned JSON-compatible data carried inside a continuation and interpreted by the provider adapter when resuming. |
-| `RuntimeStateDir` | Caller-supplied directory root where built-in provider integrations keep provider-native session state for session-backed runs. |
-| `RuntimeLogsDir` | Caller-supplied directory root where runtime invocation logs are written. |
+| `Continuation` | An opaque portable resume token that callers persist and pass back to resume a provider-session continuity chain. |
+| `ProviderResumeState` | Provider-owned opaque data carried inside a continuation and interpreted only by the provider adapter when resuming. |
+| `RuntimeStateDir` | Transitional caller-supplied directory root where built-in provider integrations keep provider-native session state for session-backed runs. |
+| `RuntimeLogsDir` | Transitional caller-supplied directory root where runtime invocation logs are written. |
+| `InvocationRecord` | Structured runtime output describing an invocation for callers that want to persist or display execution traces. |
 | `RuntimeClient` | Caller-owned runtime object that holds in-process built-in provider availability state across calls without owning durable provider session storage. |
 | `InvocationProgress` | Two-state runtime outcome metadata indicating whether the model showed activity before an interruption, such as reasoning, messages, or tool invocation; unknown progress is treated as not started. |
 | `RuntimeOutcome` | A canonical runtime result category for expected orchestration outcomes such as completion, usage limits, cancellation, timeout, temporary service unavailability, or confidently retryable provider failure. |
 | `ProviderUsage` | Provider-reported usage metadata for a runtime invocation: input tokens, output tokens, cache-read input tokens, cache-creation input tokens, optional cost in USD, and optional provider duration in seconds. |
-| `SessionNamespace` | An optional path-safe label that partitions provider session state for an invocation role. |
+| `SessionNamespace` | Transitional secondary path-safe label that further partitions runtime-managed provider session state. |
 | `WorkInvocation` | The runtime-owned work lifecycle that turns caller intent plus execution dependencies into a text result. |
-| `InvocationRole` | A caller-defined, path-safe runtime invocation label used for provider execution metadata, not a runtime-owned workflow model. |
+| `InvocationRole` | Obsolete transitional term for a caller-defined invocation label; core runtime requests should not require caller-defined labels. |
 | `AgentRuntimeError` | The base error for runtime failures. |
 
 ## Boundary Rules
@@ -93,17 +95,15 @@
 - Provider-session continuity is a pre-run intent, not a post-run side effect.
 - Ephemeral execution means the runtime does not intentionally prepare provider-session continuity, not merely that the caller discards continuation state.
 - The runtime returns continuation state; consuming projects own persistence and retention decisions for that state.
-- Continuations are portable but semantically immutable runtime data from the consumer's perspective.
-- Continuations may carry provider-owned serializable resume state that the runtime transports but does not interpret.
-- Continuations carry provider state identifiers relative to `RuntimeStateDir`, not absolute provider state paths.
+- Continuations are opaque, portable, and semantically immutable runtime data from the consumer's perspective.
+- Continuations may carry provider-owned serializable resume state, including encoded provider state when needed.
+- Continuations do not expose provider state paths as their public resume contract.
 - Session-backed runtime results return the latest continuation needed for the next resume.
-- Session-backed execution is in scope for all built-in provider integrations.
-- Session-backed built-in provider execution must preserve provider-native transcript continuity.
-- Session-backed built-in provider state lives under a caller-supplied `RuntimeStateDir`; consumers own persistence and retention of that directory.
-- New-session and resumed-session requests require an explicit `RuntimeStateDir`; ephemeral requests do not.
-- Worktree, `RuntimeStateDir`, and `RuntimeLogsDir` are separate runtime concepts even when a caller chooses nearby filesystem paths.
-- Durable runtime invocation logging is opt-in through `RuntimeLogsDir`; omitted logs do not create hidden log files by default.
-- The runtime must not own durable provider-session storage or cleanup policy.
+- Session-backed execution is available only for built-in provider integrations that can produce and consume portable continuation data.
+- Session-backed built-in provider execution must preserve provider-native transcript continuity through portable continuations.
+- Session-backed public requests do not require runtime-managed provider state directories.
+- The runtime must not own durable provider-session storage, durable invocation-log storage, or cleanup policy.
+- Durable invocation traces are returned as structured records for callers to persist when needed.
 - Fallback service selection can start a continuity chain but must not silently replace an existing provider-session continuity chain.
 - Resumed-session availability or usage-limit failures do not invalidate the continuation and must not trigger automatic fallback.
 - Session-backed interruptions should report invocation progress so callers can choose retry or continuation prompts.
