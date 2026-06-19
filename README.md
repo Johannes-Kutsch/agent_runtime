@@ -8,7 +8,7 @@ Install the distribution as `ruhken-agent-runtime` and import it as `agent_runti
 pip install ruhken-agent-runtime
 ```
 
-The accepted runtime direction is to ship Claude, Codex, and OpenCode execution inside this package. Consuming projects select a built-in provider, model, effort, credentials, tool access, and session lifecycle through runtime call arguments; they do not construct provider services, service registries, command builders, provider-session adapters, or provider event parsers.
+The accepted runtime direction is to ship Claude, Codex, and OpenCode execution inside this package. Consuming projects select a built-in provider, model, effort, credentials, tool policy, invocation directory, and session lifecycle through runtime call arguments; they do not construct provider services, service registries, command builders, provider-session adapters, or provider event parsers.
 
 For complete target signatures and invariants, see [the public API reference](docs/public-api.md). For the portable continuation decision, see [ADR 0010](docs/adr/0010-portable-continuations.md).
 
@@ -16,18 +16,20 @@ Only the documented import paths are stable. Internal runtime modules may be reo
 
 ## Consumer Integration
 
-Ordinary consumers should use a caller-owned `RuntimeClient` and the small package vocabulary such as `StageSelection`, `ToolAccess`, `ProviderAuth`, and `Continuation`.
+Ordinary consumers should use a caller-owned `RuntimeClient` and the small package vocabulary such as `StageSelection`, `ToolPolicy`, `ProviderAuth`, and `Continuation`.
 
 The runtime executes prompts and returns data. Callers own persistence for continuations, invocation records, workflow correlation, durable logs, and any usage-limit grouping policy.
 
+Every run receives an `invocation_dir`, the host directory where the provider command is launched. Tool policy is explicit: `ToolPolicy.NONE` forbids provider tools, `ToolPolicy.INSPECT_ONLY` allows workspace inspection, `ToolPolicy.NO_FILE_MUTATION` permits tools while forbidding direct workspace file mutation, and `ToolPolicy.UNRESTRICTED` adds no runtime restriction beyond provider defaults.
+
 ### Ephemeral Execution
 
-Use ephemeral execution for an already-rendered prompt when the runtime should not prepare provider-session continuity. Tool access is explicit; `ToolAccess.no_tools()` is the closed no-tools value.
+Use ephemeral execution for an already-rendered prompt when the runtime should not prepare provider-session continuity. Tool policy is explicit; `ToolPolicy.NONE` is the closed no-tools value.
 
 ```python
 from pathlib import Path
 
-from agent_runtime import ProviderAuth, StageSelection, ToolAccess
+from agent_runtime import ProviderAuth, StageSelection, ToolPolicy
 from agent_runtime.runtime import EphemeralRunRequest, RuntimeClient
 
 runtime = RuntimeClient()
@@ -35,7 +37,7 @@ runtime = RuntimeClient()
 result = await runtime.run_ephemeral(
     EphemeralRunRequest(
         prompt=rendered_prompt,
-        worktree=Path("."),
+        invocation_dir=Path("."),
         stage=StageSelection(
             service="claude",
             model="sonnet",
@@ -44,7 +46,7 @@ result = await runtime.run_ephemeral(
         provider_auth=ProviderAuth(
             claude_code_oauth_token=claude_code_oauth_token,
         ),
-        tool_access=ToolAccess.no_tools(),
+        tool_policy=ToolPolicy.NONE,
     )
 )
 
@@ -62,7 +64,7 @@ Use new-session execution when the runtime should preserve provider transcript c
 ```python
 from pathlib import Path
 
-from agent_runtime import ProviderAuth, StageSelection, ToolAccess
+from agent_runtime import ProviderAuth, StageSelection, ToolPolicy
 from agent_runtime.runtime import NewSessionRunRequest, RuntimeClient
 
 runtime = RuntimeClient()
@@ -70,14 +72,14 @@ runtime = RuntimeClient()
 result = await runtime.run_new_session(
     NewSessionRunRequest(
         prompt=rendered_prompt,
-        worktree=Path("."),
+        invocation_dir=Path("."),
         stage=StageSelection(
             service="opencode",
             model="github-copilot/gpt-5.1-codex",
             effort="medium",
         ),
         provider_auth=ProviderAuth(opencode_api_key=opencode_api_key),
-        tool_access=ToolAccess.workspace_backed(Path(".")),
+        tool_policy=ToolPolicy.NO_FILE_MUTATION,
     )
 )
 
@@ -90,7 +92,7 @@ Callers persist the continuation object wherever they want. The continuation is 
 
 ### Resumed-Session Execution
 
-Use resumed-session execution to continue an existing provider-session continuity chain. The continuation fixes the selected service and tool access. Resumed execution does not perform fallback and only allows model or effort overrides.
+Use resumed-session execution to continue an existing provider-session continuity chain. The continuation fixes the selected service and tool policy. Resumed execution does not perform fallback and only allows model or effort overrides.
 
 ```python
 from pathlib import Path
@@ -103,7 +105,7 @@ runtime = RuntimeClient()
 result = await runtime.run_resumed_session(
     ResumedSessionRunRequest(
         prompt=rendered_prompt,
-        worktree=Path("."),
+        invocation_dir=Path("."),
         continuation=continuation,
         provider_auth=ProviderAuth(opencode_api_key=opencode_api_key),
     )
