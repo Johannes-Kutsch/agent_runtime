@@ -52,6 +52,7 @@ from .contracts import (
     Result,
     ToolAccess,
     ToolPolicy,
+    ToolPolicyProfile,
     TransientError,
     UsageLimit,
 )
@@ -299,11 +300,19 @@ def _claude_command(
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
 ) -> str:
-    profile = (
-        tool_access.tool_policy.profile
-        if isinstance(tool_access.tool_policy, ToolPolicy)
-        else tool_access.tool_policy
-    )
+    if isinstance(tool_access.tool_policy, ToolPolicy):
+        if tool_access.tool_policy is ToolPolicy.NONE:
+            profile = ToolPolicyProfile(disallowed_tools=("all",))
+        elif tool_access.tool_policy is ToolPolicy.INSPECT_ONLY:
+            profile = ToolPolicyProfile(allowed_tools=("Read", "Glob"))
+        elif tool_access.tool_policy is ToolPolicy.NO_FILE_MUTATION:
+            profile = ToolPolicyProfile(
+                disallowed_tools=("Edit", "Write", "NotebookEdit")
+            )
+        else:
+            profile = ToolPolicyProfile()
+    else:
+        profile = tool_access.tool_policy
     flags = (
         "--verbose --dangerously-skip-permissions --output-format stream-json -p -"
         " --disable-slash-commands --exclude-dynamic-system-prompt-sections"

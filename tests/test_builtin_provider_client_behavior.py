@@ -159,6 +159,126 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     assert provider_state_dir.is_dir()
 
 
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_flags"),
+    [
+        (runtime.ToolPolicy.NONE, ('--disallowedTools "all"',)),
+        (
+            runtime.ToolPolicy.INSPECT_ONLY,
+            ("--tools 'Read Glob'",),
+        ),
+        (
+            runtime.ToolPolicy.NO_FILE_MUTATION,
+            ('--disallowedTools "Edit Write NotebookEdit"',),
+        ),
+        (runtime.ToolPolicy.UNRESTRICTED, tuple()),
+    ],
+)
+def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_flags: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "intermediate"}],
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "result", "result": "final output"}) + "\n",
+            )
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    tool_access = (
+        runtime.ToolAccess.no_tools()
+        if tool_policy is runtime.ToolPolicy.NONE
+        else runtime.ToolAccess.workspace_backed(tmp_path, tool_policy=tool_policy)
+    )
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=tool_access,
+            )
+        )
+    )
+
+    provider_state_dir_relpath = "implementer/main/claude/"
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="final output",
+        result=prompt_runtime.SessionRunResult(
+            output="final output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="session-uuid",
+                run_kind=RunKind.FRESH,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=tool_access,
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "session-uuid",
+                    "provider_state_dir_relpath": provider_state_dir_relpath,
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=None,
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.provider_session_id == "session-uuid"
+    assert recorded_request.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+        "CLAUDE_CONFIG_DIR": str(provider_state_dir),
+    }
+    command = recorded_request.command
+    if tool_policy is runtime.ToolPolicy.NONE:
+        assert "--tools none" not in command
+    if tool_policy is runtime.ToolPolicy.INSPECT_ONLY:
+        assert '--disallowedTools "all"' not in command
+    if tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION:
+        assert "--tools" not in command
+    if tool_policy is runtime.ToolPolicy.UNRESTRICTED:
+        assert "--tools" not in command
+        assert "--disallowedTools" not in command
+    for flag in expected_flags:
+        assert flag in command
+
+
 def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invocation_adapter(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
