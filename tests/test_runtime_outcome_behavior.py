@@ -133,7 +133,6 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
                     model="gpt-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=tool_access,
             )
         )
@@ -152,7 +151,6 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
                 selected_service_path=("claude",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -175,7 +173,6 @@ def test_completed_runtime_outcome_only_exposes_ephemeral_selection_metadata_for
             selected_service_path=("codex", "claude"),
             runtime=prompt_runtime.EphemeralRuntimeMetadata(
                 run_kind=RunKind.FRESH,
-                session_namespace="review",
             ),
         ),
     )

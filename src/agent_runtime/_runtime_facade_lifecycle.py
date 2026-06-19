@@ -10,6 +10,8 @@ from ._portable_continuation_payload import (
     read_portable_continuation_payload,
 )
 from ._runtime_lifecycle import (
+    _DEFAULT_EPHEMERAL_ROLE,
+    _DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
     Continuation,
     EphemeralResultMetadata,
     EphemeralRunRequest,
@@ -255,13 +257,16 @@ async def _run_ephemeral_outcome(
     service_registry: ServiceRegistry,
     request: EphemeralRunRequest,
 ) -> RuntimeOutcome:
-    return await _run_runtime_outcome(
+    outcome = await _run_runtime_outcome(
         _run_ephemeral(
             runner=runner,
             service_registry=service_registry,
             request=request,
         )
     )
+    if outcome.kind in {"usage_limited", "no_service_available"}:
+        return dataclasses.replace(outcome, usage_limit_scope=None)
+    return outcome
 
 
 async def _run_new_session_outcome(
@@ -303,7 +308,7 @@ async def _run_ephemeral(
             "Ephemeral runtime requires at least one configured service candidate."
         )
 
-    role = request.role
+    role = _DEFAULT_EPHEMERAL_ROLE
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
         runner,
@@ -323,8 +328,7 @@ async def _run_ephemeral(
             )
             raise NoServiceAvailableError(
                 reset_time=next_wake_time,
-                usage_limit_scope=request.usage_limit_scope
-                or UsageLimitScope(role.value),
+                usage_limit_scope=None,
             )
 
         resolved_override = service_registry.resolve(request.stage, now)
@@ -340,10 +344,10 @@ async def _run_ephemeral(
                 run_session=_build_run_session(
                     mount_path=request.mount_path,
                     role=role,
-                    session_namespace=request.session_namespace,
+                    session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
                     service=resolved_service,
                     container_workspace=dependencies.execution.container_workspace,
-                    usage_limit_scope=request.usage_limit_scope,
+                    usage_limit_scope=None,
                 ),
                 model=resolved_override.model,
                 effort=resolved_override.effort,
@@ -383,7 +387,6 @@ async def _run_ephemeral(
                 selected_service_path=selected_service_path,
                 runtime=EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace=request.session_namespace,
                 ),
             ),
         )

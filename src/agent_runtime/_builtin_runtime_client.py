@@ -30,6 +30,7 @@ from ._portable_continuation_payload import (
     read_portable_continuation_payload,
 )
 from ._runtime_lifecycle import (
+    _DEFAULT_EPHEMERAL_ROLE,
     Continuation,
     EphemeralResultMetadata,
     EphemeralRunRequest,
@@ -1861,8 +1862,8 @@ def _run_builtin_ephemeral(
             )
         prompt_path = request.worktree / ".pycastle_prompt"
     invocation_log = _start_invocation_log(
-        logs_dir=request.logs_dir,
-        role=request.role,
+        logs_dir=None,
+        role=_DEFAULT_EPHEMERAL_ROLE,
     )
     if selected_stage.service == "codex":
         invocation_result = _invoke_provider(
@@ -1878,8 +1879,8 @@ def _run_builtin_ephemeral(
             prompt_path=prompt_path,
             cleanup_prompt_path=True,
             run_kind=RunKind.FRESH,
-            role=request.role,
-            usage_limit_scope=request.usage_limit_scope,
+            role=_DEFAULT_EPHEMERAL_ROLE,
+            usage_limit_scope=None,
             provider_session_id=None,
             reduce_output=reduce_codex_stream,
             invocation_log=invocation_log,
@@ -1902,8 +1903,8 @@ def _run_builtin_ephemeral(
             prompt_path=prompt_path,
             cleanup_prompt_path=True,
             run_kind=RunKind.FRESH,
-            role=request.role,
-            usage_limit_scope=request.usage_limit_scope,
+            role=_DEFAULT_EPHEMERAL_ROLE,
+            usage_limit_scope=None,
             provider_session_id=None,
             reduce_output=lambda lines: (reduce_opencode_stream(lines), None),
             invocation_log=invocation_log,
@@ -1929,8 +1930,8 @@ def _run_builtin_ephemeral(
             prompt_path=prompt_path,
             cleanup_prompt_path=True,
             run_kind=RunKind.FRESH,
-            role=request.role,
-            usage_limit_scope=request.usage_limit_scope,
+            role=_DEFAULT_EPHEMERAL_ROLE,
+            usage_limit_scope=None,
             provider_session_id=None,
             reduce_output=reduce_claude_stream,
             invocation_log=invocation_log,
@@ -1952,7 +1953,6 @@ def _run_builtin_ephemeral(
             selected_service_path=service_path,
             runtime=EphemeralRuntimeMetadata(
                 run_kind=RunKind.FRESH,
-                session_namespace=request.session_namespace,
             ),
         ),
         usage=usage,

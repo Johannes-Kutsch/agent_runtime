@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import threading
 from collections.abc import Callable
@@ -699,7 +698,6 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
                 model="gpt-5.4",
                 effort="high",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
@@ -717,7 +715,6 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
                 selected_service_path=("codex",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -784,7 +781,6 @@ def test_runtime_client_exposes_codex_usage_on_completed_outcome(
                 model="gpt-5.4",
                 effort="high",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
@@ -853,27 +849,13 @@ def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_su
                 model="glm-5",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=prompt_runtime.ProviderAuth(opencode_api_key="token"),
-            logs_dir=logs_dir,
         )
     )
 
     assert outcome.output == "hello from opencode"
-    log_paths = sorted(logs_dir.glob("*.log"))
-    assert len(log_paths) == 1
-    log_text = log_paths[0].read_text()
-    header = json.loads(log_text.splitlines()[0])
-    assert header == {
-        "type": "agent_invocation",
-        "invocation_role": "implementer",
-        "run_kind": "fresh",
-        "provider_session_id": "observed-session",
-        "prompt": "already rendered prompt",
-    }
-    assert '"sessionID":"observed-session"' in log_text
-    assert '"type":"session.status"' in log_text
+    assert list(logs_dir.glob("*.log")) == []
 
 
 def test_runtime_client_does_not_create_ephemeral_invocation_log_when_dispatch_never_starts(
@@ -892,9 +874,7 @@ def test_runtime_client_does_not_create_ephemeral_invocation_log_when_dispatch_n
                     model="glm-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
-                logs_dir=logs_dir,
             )
         )
 
@@ -950,7 +930,6 @@ def test_runtime_client_exposes_claude_usage_on_completed_outcome(
                 model="sonnet",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1019,7 +998,6 @@ def test_runtime_client_keeps_latest_claude_usage_facts_on_completed_outcome(
                 model="sonnet",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1092,7 +1070,6 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
                 model="sonnet",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1101,7 +1078,7 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         usage=runtime.ProviderUsage(
             input_tokens=40,
@@ -1143,7 +1120,6 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             )
         )
@@ -1242,7 +1218,6 @@ def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selecti
                 model="gpt-5.4",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=request_tool_access,
         )
     )
@@ -1299,7 +1274,6 @@ def test_runtime_client_classifies_codex_refresh_token_reuse_prose_as_credential
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             )
         )
@@ -1370,7 +1344,6 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
                 model="gpt-5.4",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
@@ -1378,7 +1351,7 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -1435,7 +1408,6 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
                 model="gpt-5.4",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
@@ -1443,7 +1415,7 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2027, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -1528,7 +1500,6 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=first_stage,
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1538,7 +1509,6 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=second_stage,
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1547,7 +1517,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
     assert first_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
@@ -1563,7 +1533,6 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
                 selected_service_path=("codex", "claude"),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -1654,7 +1623,6 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
                 model="gpt-5.4",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
         )
     )
@@ -1672,7 +1640,6 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
                     effort="medium",
                 ),
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1681,7 +1648,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
     assert first_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
@@ -1697,7 +1664,6 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
                 selected_service_path=("codex", "claude"),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -1795,7 +1761,6 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
                     effort="medium",
                 ),
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1814,7 +1779,6 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
                 selected_service_path=("codex", "claude"),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -1909,7 +1873,6 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
                     effort="medium",
                 ),
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1918,7 +1881,7 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert observed_commands == [
@@ -1964,7 +1927,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 stage=stage,
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
                 auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             )
@@ -2010,7 +1972,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=stage,
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -2029,7 +1990,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
                 selected_service_path=("codex",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -2095,7 +2055,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 stage=stage,
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
                 auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             )
@@ -2139,7 +2098,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=stage,
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -2158,7 +2116,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
                 selected_service_path=("codex",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -2251,7 +2208,6 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
                         model="gpt-5.4",
                         effort="medium",
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
                 )
             )
@@ -2278,7 +2234,6 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
                     effort="medium",
                 ),
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -2288,7 +2243,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
         prompt_runtime.RuntimeOutcome.no_service_available(
             output="",
             reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-            usage_limit_scope=runtime.UsageLimitScope("implementer"),
+            usage_limit_scope=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         )
     ]
@@ -2305,7 +2260,6 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
                 selected_service_path=("codex", "claude"),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -2377,7 +2331,6 @@ def test_runtime_client_ignores_malformed_codex_lines_before_classifying_hard_er
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.workspace_backed(tmp_path),
             )
         )
@@ -2414,7 +2367,6 @@ def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuati
                     model="gpt-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
             )
         )
@@ -2445,7 +2397,6 @@ def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_ou
                         effort="high",
                     ),
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
             )
         )
@@ -2473,7 +2424,6 @@ def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
                         model="gpt-5",
                         effort="medium",
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=runtime.ToolAccess.no_tools(),
                 )
             )
@@ -2500,7 +2450,6 @@ def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditi
                     model="gpt-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
             )
         )
@@ -2510,7 +2459,7 @@ def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditi
         output="",
         service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
     )
     assert result.result is None
@@ -2536,7 +2485,6 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
                     model="gpt-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
             )
         )
@@ -2545,7 +2493,7 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
     assert result == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert result.result is None
@@ -2571,7 +2519,6 @@ def test_ephemeral_runtime_returns_cancelled_outcome_for_caller_cancellation(
                     model="gpt-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 token=cancelled_token,
             )
@@ -2602,7 +2549,6 @@ def test_ephemeral_runtime_returns_timed_out_outcome_for_timeout_conditions(
                     model="gpt-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
             )
         )
@@ -2632,7 +2578,6 @@ def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retrya
                     model="gpt-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
             )
         )
@@ -2660,7 +2605,7 @@ def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retrya
                 output="",
                 service_name="codex",
                 reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-                usage_limit_scope=runtime.UsageLimitScope("implementer"),
+                usage_limit_scope=None,
                 invocation_progress=prompt_runtime.InvocationProgress.STARTED,
                 usage=runtime.ProviderUsage(input_tokens=10, output_tokens=4),
             ),
@@ -2727,7 +2672,6 @@ def test_ephemeral_runtime_preserves_observed_usage_on_interrupted_outcomes(
                     model="gpt-5",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
             )
         )
@@ -2757,7 +2701,6 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                             effort="high",
                         ),
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=runtime.ToolAccess.no_tools(),
                 )
             )
@@ -2777,7 +2720,6 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                         model="gpt-5",
                         effort="medium",
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=runtime.ToolAccess.no_tools(),
                 )
             )
@@ -2797,7 +2739,6 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                         model="gpt-5",
                         effort="medium",
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=runtime.ToolAccess.no_tools(),
                 )
             )
@@ -2817,7 +2758,6 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                         model="gpt-5",
                         effort="medium",
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=runtime.ToolAccess.no_tools(),
                 )
             )
@@ -2834,8 +2774,8 @@ def test_text_output_adapter_exposes_tool_policy_effects_through_public_adapter_
             tool_policy=tool_policy,
         ).invoke(
             runner=cast(WorkExecutionAdapter, _ToolPolicyRenderingPromptRunner()),
-            role=InvocationRole("implementer"),
             prompt="already rendered prompt",
+            role=InvocationRole("implementer"),
             run_kind=RunKind.FRESH,
             session_uuid=None,
             on_provider_session_id=lambda _provider_session_id: None,
@@ -2852,8 +2792,8 @@ def test_text_output_adapter_explicit_no_tools_forbids_provider_tool_access() ->
             tool_access=runtime.ToolAccess.no_tools(),
         ).invoke(
             runner=cast(WorkExecutionAdapter, _ToolPolicyRenderingPromptRunner()),
-            role=InvocationRole("implementer"),
             prompt="already rendered prompt",
+            role=InvocationRole("implementer"),
             run_kind=RunKind.FRESH,
             session_uuid=None,
             on_provider_session_id=lambda _provider_session_id: None,
@@ -2876,8 +2816,8 @@ def test_text_output_adapter_uses_workspace_backed_tool_access_through_public_ad
             workspace=Path("/repo"),
         ).invoke(
             runner=cast(WorkExecutionAdapter, _ToolPolicyRenderingPromptRunner()),
-            role=InvocationRole("implementer"),
             prompt="already rendered prompt",
+            role=InvocationRole("implementer"),
             run_kind=RunKind.FRESH,
             session_uuid=None,
             on_provider_session_id=lambda _provider_session_id: None,
@@ -2901,8 +2841,8 @@ def test_text_output_adapter_prefers_tool_access_over_compatibility_tool_policy(
             workspace=Path("/repo"),
         ).invoke(
             runner=cast(WorkExecutionAdapter, _ToolPolicyRenderingPromptRunner()),
-            role=InvocationRole("implementer"),
             prompt="already rendered prompt",
+            role=InvocationRole("implementer"),
             run_kind=RunKind.FRESH,
             session_uuid=None,
             on_provider_session_id=lambda _provider_session_id: None,

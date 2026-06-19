@@ -40,6 +40,8 @@ __all__ = [
 ]
 
 _MISSING_TOOL_POLICY = object()
+_DEFAULT_EPHEMERAL_ROLE = InvocationRole("implementer")
+_DEFAULT_EPHEMERAL_SESSION_NAMESPACE = ""
 
 
 def _require_json_compatible_resume_state(
@@ -301,7 +303,6 @@ class RuntimeOutcome:
 @dataclasses.dataclass(frozen=True)
 class EphemeralRuntimeMetadata:
     run_kind: RunKind
-    session_namespace: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -338,12 +339,8 @@ class EphemeralRunResult:
 class EphemeralRunRequest:
     prompt: str
     worktree: Path
-    logs_dir: Path | None
     stage: StageSelection
-    role: InvocationRole
     tool_access: ToolAccess
-    usage_limit_scope: UsageLimitScope | None = None
-    session_namespace: str = ""
     token: CancellationToken | None = None
     auth: ProviderAuth | None = None
 
@@ -351,13 +348,9 @@ class EphemeralRunRequest:
         self,
         prompt: str,
         worktree: Path | WorktreeMount,
-        logs_dir: Path | None = None,
         stage: StageSelection | None = None,
-        role: InvocationRole | None = None,
-        usage_limit_scope: UsageLimitScope | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
-        session_namespace: str = "",
         token: CancellationToken | None = None,
         auth: ProviderAuth | None = None,
         *,
@@ -366,28 +359,20 @@ class EphemeralRunRequest:
         normalized_request = normalize_stage_request(
             stage=stage,
             override=override,
-            role=role,
+            role=_DEFAULT_EPHEMERAL_ROLE,
             worktree=worktree,
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=_MISSING_TOOL_POLICY,
-            session_namespace=session_namespace,
+            session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
             context="EphemeralRunRequest",
             missing_message="EphemeralRunRequest requires an explicit `tool_access` value.",
         )
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", normalized_request.worktree.path)
-        object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "stage", normalized_request.stage)
-        object.__setattr__(self, "role", normalized_request.role)
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
-        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
-        object.__setattr__(
-            self,
-            "session_namespace",
-            normalized_request.session_namespace,
-        )
         object.__setattr__(self, "token", token)
         object.__setattr__(self, "auth", auth)
 

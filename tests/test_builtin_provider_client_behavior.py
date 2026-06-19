@@ -2085,10 +2085,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            logs_dir=tmp_path / "logs",
             stage=stage,
-            role=InvocationRole("implementer"),
-            session_namespace="ephemeral-main",
             tool_access=runtime.ToolAccess.no_tools(),
             auth=auth,
         )
@@ -2107,7 +2104,6 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
                 selected_service_path=(service_name,),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="ephemeral-main",
                 ),
             ),
             usage=expected_usage,
@@ -2124,9 +2120,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     assert recorded_request.role == InvocationRole("implementer")
     assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id is None
-    assert recorded_request.log_context is not None
-    assert recorded_request.log_context.role == InvocationRole("implementer")
-    assert recorded_request.log_context.usage_limit_scope is None
+    assert recorded_request.log_context is None
     for key, value in expected_env.items():
         assert recorded_request.environment[key] == value
     if service_name == "claude":
@@ -2142,11 +2136,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         assert "deepseek-v4-flash" in provider["models"]
     for command_part in expected_command_parts:
         assert command_part in recorded_request.command
-    log_path = next((tmp_path / "logs").glob("*.log"))
-    log_text = log_path.read_text(encoding="utf-8")
-    assert '"prompt": "already rendered prompt"' in log_text
-    for stdout_line in prepared_invocation.stdout_lines:
-        assert stdout_line in log_text
+    assert list((tmp_path / "logs").glob("*.log")) == []
 
 
 def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_invocation_seam(
@@ -2293,7 +2283,6 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
                 model="sonnet",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
@@ -2328,7 +2317,6 @@ def test_runtime_client_reachable_opencode_stage_requires_api_key_without_fallin
                         ),
                     ),
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(),
             )
@@ -2381,7 +2369,6 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
                         ),
                     ),
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(),
             )
@@ -2656,7 +2643,6 @@ def test_runtime_client_preserves_opencode_invalid_api_key_observations(
                     model="kimi-k2.6",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
@@ -2701,7 +2687,6 @@ def test_runtime_client_validates_opencode_model_allowlist_and_medium_effort(
                     model=model,
                     effort=effort,
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
@@ -2768,7 +2753,6 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
                 model="kimi-k2.6",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         )
@@ -2777,7 +2761,7 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 4, 28, 21, 4, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -2824,13 +2808,11 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            logs_dir=tmp_path / "logs",
             stage=runtime.StageSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
         )
     )
@@ -2838,7 +2820,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert len(adapter.recorded_requests) == 1
@@ -2848,10 +2830,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.environment["TZ"] == "UTC"
     assert "codex exec" in recorded_request.command
-    log_path = next((tmp_path / "logs").glob("*.log"))
-    log_text = log_path.read_text(encoding="utf-8")
-    assert '"prompt": "already rendered prompt"' in log_text
-    assert '"type": "turn.failed"' in log_text
+    assert list((tmp_path / "logs").glob("*.log")) == []
 
 
 def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error(
@@ -2908,7 +2887,6 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
                     model="kimi-k2.6",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
@@ -2960,7 +2938,6 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
                     model="kimi-k2.6",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
@@ -3032,7 +3009,6 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
                 model="kimi-k2.6",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         )
@@ -3051,7 +3027,6 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
                 selected_service_path=("opencode",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
@@ -3093,7 +3068,6 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
                 model="sonnet",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
@@ -3102,7 +3076,7 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 1, 13, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -3133,7 +3107,6 @@ def test_runtime_client_reachable_claude_stage_requires_token_without_falling_th
                         ),
                     ),
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(),
             )
@@ -3174,7 +3147,6 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
                     model="sonnet",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             )
@@ -3220,7 +3192,6 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
                 model="sonnet",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
@@ -3229,7 +3200,7 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 16, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -3275,7 +3246,6 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
                 model="sonnet",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
@@ -3284,7 +3254,7 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=reset_time + timedelta(minutes=2),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -3316,7 +3286,6 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
                     effort="medium",
                 ),
             ),
-            role=InvocationRole("implementer"),
             tool_access=runtime.ToolAccess.no_tools(),
             auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
@@ -3335,11 +3304,87 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
                 selected_service_path=("missing", "claude"),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
-                    session_namespace="",
                 ),
             ),
         ),
     )
+
+
+def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "final output"}) + "\n",
+            )
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert outcome.runtime_metadata == prompt_runtime.EphemeralRuntimeMetadata(
+        run_kind=RunKind.FRESH,
+    )
+    assert not hasattr(outcome.runtime_metadata, "session_namespace")
+
+
+def test_runtime_client_ephemeral_usage_limit_outcome_hides_usage_limit_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "result",
+                        "is_error": True,
+                        "api_error_status": 429,
+                        "result": "Claude usage limit reached.",
+                    }
+                )
+                + "\n",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        prompt_runtime._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            tool_access=runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert outcome.kind == "no_service_available"
+    assert outcome.usage_limit_scope is None
 
 
 def test_runtime_client_preserves_claude_credential_failure_observations(
@@ -3374,7 +3419,6 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
                     model="sonnet",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.no_tools(),
                 auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             )

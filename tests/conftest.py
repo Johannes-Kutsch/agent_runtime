@@ -13,7 +13,6 @@ from agent_runtime.contracts import ExecutionProvider, ServiceSelectionProvider
 from agent_runtime.execution_contracts import PromptRunRequest, WorktreeMount
 from agent_runtime.roles import InvocationRole
 from agent_runtime.service_registry import ServiceRegistry
-from agent_runtime.usage_limit_scope import UsageLimitScope
 
 from tests.runtime_boundary_fakes import (
     ExecutionServiceFake,
@@ -118,10 +117,7 @@ def ephemeral_request_factory(
         worktree: Path | WorktreeMount = WorktreeMount(Path(".")),
         stage: runtime.StageSelection | None = None,
         override: runtime.StageSelection | None = None,
-        role: InvocationRole = InvocationRole("implementer"),
         tool_access: runtime.ToolAccess = runtime.ToolAccess.no_tools(),
-        usage_limit_scope: UsageLimitScope | None = None,
-        session_namespace: str = "",
         token: Any = None,
     ) -> prompt_runtime.EphemeralRunRequest:
         return prompt_runtime.EphemeralRunRequest(
@@ -129,10 +125,7 @@ def ephemeral_request_factory(
             worktree=worktree,
             stage=stage or override or stage_selection_factory(),
             override=override,
-            role=role,
             tool_access=tool_access,
-            usage_limit_scope=usage_limit_scope,
-            session_namespace=session_namespace,
             token=token,
         )
 
