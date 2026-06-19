@@ -393,11 +393,14 @@ def _opencode_go_model_ref(model: str) -> str:
 def _opencode_tool_policy_permission(
     tool_policy: ToolPolicy | ToolPolicyProfile,
 ) -> dict[str, str] | str | None:
-    if tool_policy is ToolPolicy.NONE:
+    profile = (
+        tool_policy.profile if isinstance(tool_policy, ToolPolicy) else tool_policy
+    )
+    if profile == ToolPolicy.NONE.profile:
         return "deny"
-    if tool_policy is ToolPolicy.INSPECT_ONLY:
+    if profile == ToolPolicy.INSPECT_ONLY.profile:
         return {"edit": "deny", "bash": "deny"}
-    if tool_policy is ToolPolicy.NO_FILE_MUTATION:
+    if profile == ToolPolicy.NO_FILE_MUTATION.profile:
         return {"edit": "deny"}
     return None
 

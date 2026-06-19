@@ -55,13 +55,28 @@ def _install_in_memory_provider_invocation_adapter(
     return adapter
 
 
+def _normalize_tool_policy_profile(
+    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
+) -> runtime.ToolPolicyProfile:
+    return (
+        tool_policy.profile
+        if isinstance(tool_policy, runtime.ToolPolicy)
+        else tool_policy
+    )
+
+
 def _opencode_tool_access(
-    tool_policy: runtime.ToolPolicy,
+    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
     invocation_dir: Path,
 ) -> runtime.ToolAccess:
     return (
-        runtime.ToolAccess.no_tools()
-        if tool_policy is runtime.ToolPolicy.NONE
+        runtime.ToolAccess(
+            kind="none",
+            workspace=None,
+            tool_policy=tool_policy,
+        )
+        if _normalize_tool_policy_profile(tool_policy)
+        == runtime.ToolPolicy.NONE.profile
         else runtime.ToolAccess.workspace_backed(
             invocation_dir,
             tool_policy=tool_policy,
@@ -70,13 +85,14 @@ def _opencode_tool_access(
 
 
 def _expected_opencode_permission(
-    tool_policy: runtime.ToolPolicy,
+    tool_policy: runtime.ToolPolicy | runtime.ToolPolicyProfile,
 ) -> dict[str, str] | str | None:
-    if tool_policy is runtime.ToolPolicy.NONE:
+    profile = _normalize_tool_policy_profile(tool_policy)
+    if profile == runtime.ToolPolicy.NONE.profile:
         return "deny"
-    if tool_policy is runtime.ToolPolicy.INSPECT_ONLY:
+    if profile == runtime.ToolPolicy.INSPECT_ONLY.profile:
         return {"edit": "deny", "bash": "deny"}
-    if tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION:
+    if profile == runtime.ToolPolicy.NO_FILE_MUTATION.profile:
         return {"edit": "deny"}
     return None
 
@@ -446,6 +462,74 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
     )
 
     assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
+    if expected_permission is None:
+        assert "permission" not in config
+    else:
+        assert config["permission"] == expected_permission
+
+
+@pytest.mark.parametrize(
+    "tool_policy",
+    [
+        pytest.param(runtime.ToolPolicy.NONE.profile, id="none-profile"),
+        pytest.param(
+            runtime.ToolPolicy.INSPECT_ONLY.profile,
+            id="inspect-only-profile",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.NO_FILE_MUTATION.profile,
+            id="no-file-mutation-profile",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.UNRESTRICTED.profile,
+            id="unrestricted-profile",
+        ),
+    ],
+)
+def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_profile_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicyProfile,
+) -> None:
+    expected_permission = _expected_opencode_permission(tool_policy)
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "part": {
+                            "type": "text",
+                            "time": {"end": True},
+                            "text": "hello from opencode",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="opencode",
+                model="kimi-k2.6",
+                effort="medium",
+            ),
+            tool_access=_opencode_tool_access(tool_policy, tmp_path),
+            auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+        )
+    )
+
+    assert outcome.output == "hello from opencode"
     recorded_request = adapter.recorded_requests[0]
     config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
     if expected_permission is None:
