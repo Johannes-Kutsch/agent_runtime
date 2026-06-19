@@ -932,3 +932,53 @@ def test_live_smoke_tool_policy_exception_is_classified_and_warned(
     assert (
         summary_payload["cases"][0]["diagnostic"] == "provider runtime client crashed"
     )
+    assert summary_payload["cases"][0]["required"] is True
+
+
+def test_live_smoke_explicit_provider_config_error_does_not_pass_empty_run(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+
+    run_result = module.run_live_smoke(
+        provider_selection=("claude",),
+        lifecycle_modes=("ephemeral",),
+        run_id="missing-config-run",
+        artifact_root=tmp_path / "missing-config",
+        env={},
+    )
+
+    assert run_result.passed is False
+    assert run_result.summary_written is True
+    assert run_result.cases == ()
+    assert "no runnable smoke cases planned" in run_result.warnings
+
+    summary_payload = module.json.loads(run_result.summary_path.read_text("utf-8"))
+    assert summary_payload["case_count"] == 0
+    assert summary_payload["provider_plans"][0]["service"] == "claude"
+    assert summary_payload["provider_plans"][0]["status"] == "config_error"
+
+
+def test_live_smoke_all_selection_with_no_configured_providers_does_not_pass_empty_run(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+
+    run_result = module.run_live_smoke(
+        provider_selection="all",
+        lifecycle_modes=("ephemeral",),
+        run_id="all-missing-config-run",
+        artifact_root=tmp_path / "all-missing-config",
+        env={},
+    )
+
+    assert run_result.passed is False
+    assert run_result.summary_written is True
+    assert run_result.cases == ()
+    assert "no runnable smoke cases planned" in run_result.warnings
+
+    summary_payload = module.json.loads(run_result.summary_path.read_text("utf-8"))
+    assert summary_payload["case_count"] == 0
+    assert {plan["status"] for plan in summary_payload["provider_plans"]} == {"skipped"}

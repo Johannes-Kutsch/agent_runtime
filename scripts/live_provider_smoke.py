@@ -42,6 +42,7 @@ class LiveSmokeRunCaseResult:
     effort: str
     artifact_path: str
     status: str
+    required: bool
     provider_output: str
     diagnostic: str | None
     traceback: str | None
@@ -129,6 +130,7 @@ def _build_summary_payload(
                 "effort": case.effort,
                 "artifact_path": case.artifact_path,
                 "status": case.status,
+                "required": case.required,
                 "diagnostic": case.diagnostic,
                 "provider_output": case.provider_output,
                 "traceback": case.traceback,
@@ -596,6 +598,7 @@ def run_live_smoke(
                     effort=planned_case.effort,
                     artifact_path=str(invocation_dir),
                     status=case_classification.status.value,
+                    required=case_classification.required,
                     diagnostic=case_classification.diagnostic,
                     provider_output=provider_output,
                     traceback=case_traceback,
@@ -718,6 +721,7 @@ def run_live_smoke(
                 effort=planned_case.effort,
                 artifact_path=str(invocation_dir),
                 status=case_classification.status.value,
+                required=case_classification.required,
                 diagnostic=case_classification.diagnostic,
                 provider_output=provider_output,
                 traceback=case_traceback,
@@ -744,8 +748,11 @@ def run_live_smoke(
     summary_path = _build_summary_payload_path(
         resolved_artifact_root, dry_run_plan.run_id
     )
-    run_case_success = all(
-        case.status in {"passed", "skipped"} for case in case_results
+    if not case_results:
+        warnings.append("no runnable smoke cases planned")
+    run_case_success = bool(case_results) and all(
+        case.status == "passed" or (case.status == "skipped" and not case.required)
+        for case in case_results
     )
     run_result = LiveSmokeRunResult(
         run_id=dry_run_plan.run_id,
