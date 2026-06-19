@@ -1456,6 +1456,57 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
     ]
 
 
+def test_runtime_client_new_session_run_propagates_claude_live_output_observer_failure_for_resumed_claude(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer" / "main" / "claude"
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "session-state.json").write_text("{}", encoding="utf-8")
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(_claude_assistant_output_line("intermediate"),),
+        ),
+    )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+
+    def on_live_output(_turn: runtime.AgentMessageTurn) -> None:
+        raise RuntimeError("observer failed")
+
+    with pytest.raises(RuntimeError, match="observer failed"):
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    stage=runtime.StageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    session_namespace="main",
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    on_live_output=on_live_output,
+                )
+            )
+        )
+
+    assert len(adapter.recorded_requests) == 1
+
+
 def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_once_per_turn(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
