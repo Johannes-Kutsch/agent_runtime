@@ -354,7 +354,7 @@ async def _run_ephemeral(
                 output_adapter=TextOutputAdapter(
                     prompt=request.prompt,
                     tool_access=request.tool_access,
-                    workspace=request.worktree,
+                    workspace=request.invocation_dir,
                 ),
                 dependencies=dataclasses.replace(
                     dependencies,
@@ -420,7 +420,7 @@ async def _run_new_session(
         resolved_service = resolve_service(resolved_override.service)
         session_plan = plan_resumable_session(
             ResumableSessionPlanRequest(
-                worktree=request.worktree,
+                worktree=request.invocation_dir,
                 role=request.role,
                 namespace=request.session_namespace,
                 service=resolved_service,
@@ -434,7 +434,7 @@ async def _run_new_session(
                 runner=runner,
                 request=ResumedSessionRunRequest(
                     prompt=request.prompt,
-                    worktree=WorktreeMount(request.worktree),
+                    invocation_dir=WorktreeMount(request.invocation_dir),
                     model=resolved_override.model,
                     effort=resolved_override.effort,
                     session_plan=session_plan,
@@ -533,7 +533,7 @@ async def _run_resumed_session(
         ),
     )
     run_session = _build_run_session(
-        mount_path=request.worktree.host_path,
+        mount_path=request.invocation_dir.host_path,
         role=request.role,
         session_namespace=request.session_namespace,
         service=service,
@@ -545,7 +545,7 @@ async def _run_resumed_session(
             provider_resume_state if request.continuation is not None else None
         ),
         provider_state_dir_container_path=_provider_state_dir_container_path(
-            worktree=request.worktree.host_path,
+            worktree=request.invocation_dir.host_path,
             provider_state_dir=provider_state_dir,
             provider_state_dir_relpath=provider_state_dir_relpath,
             container_workspace=dependencies.execution.container_workspace,
@@ -561,7 +561,7 @@ async def _run_resumed_session(
                 output_adapter=TextOutputAdapter(
                     prompt=request.prompt,
                     tool_access=request.tool_access,
-                    workspace=request.worktree.host_path,
+                    workspace=request.invocation_dir.host_path,
                 ),
                 dependencies=resumable_dependencies,
                 presentation=WorkInvocationPresentation(

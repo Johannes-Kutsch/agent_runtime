@@ -436,10 +436,6 @@ class EphemeralRunRequest:
         return self.invocation_dir
 
     @property
-    def worktree(self) -> Path:
-        return self.invocation_dir
-
-    @property
     def override(self) -> StageSelection:
         return self.stage
 
@@ -540,10 +536,6 @@ class NewSessionRunRequest:
 
     @property
     def mount_path(self) -> Path:
-        return self.invocation_dir
-
-    @property
-    def worktree(self) -> Path:
         return self.invocation_dir
 
     @property
@@ -718,10 +710,6 @@ class ResumedSessionRunRequest:
     @property
     def mount_path(self) -> Any:
         return self.invocation_dir.host_path
-
-    @property
-    def worktree(self) -> WorktreeMount:
-        return self.invocation_dir
 
     @property
     def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:

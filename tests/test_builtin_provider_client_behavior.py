@@ -92,7 +92,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 stage=runtime.StageSelection(
                     service="claude",
@@ -375,7 +375,7 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),

@@ -692,7 +692,7 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
     outcome = prompt_runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             stage=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",

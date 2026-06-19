@@ -380,6 +380,109 @@ def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mou
     assert request.mount_path == Path("/repo")
 
 
+@pytest.mark.parametrize(
+    ("request_factory", "expected_invocation_dir"),
+    [
+        (
+            lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("/repo"),
+                stage=stage_selection_factory(service="codex"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            ),
+            Path("/repo"),
+        ),
+        (
+            lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("/repo"),
+                stage=stage_selection_factory(service="codex"),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.no_tools(),
+            ),
+            Path("/repo"),
+        ),
+        (
+            lambda _stage_selection_factory: prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("/repo"),
+                model="gpt-5.4",
+                effort="medium",
+                session_plan=ResumableSessionPlan(
+                    role=InvocationRole("reviewer"),
+                    worktree=Path("/repo"),
+                    namespace="main",
+                    service=cast(ExecutionProvider, _ExecutionService("codex")),
+                    run_kind=RunKind.FRESH,
+                    provider_state_dir=None,
+                    provider_session_id=None,
+                    auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+                ),
+                tool_access=runtime.ToolAccess.no_tools(),
+            ),
+            WorktreeMount(Path("/repo")),
+        ),
+    ],
+)
+def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_public_surface(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    request_factory: Callable[[Callable[..., runtime.StageSelection]], object],
+    expected_invocation_dir: Path | WorktreeMount,
+) -> None:
+    request = request_factory(stage_selection_factory)
+
+    assert getattr(request, "invocation_dir") == expected_invocation_dir
+
+
+@pytest.mark.parametrize(
+    "request_factory",
+    [
+        lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            worktree=Path("/other"),
+            stage=stage_selection_factory(service="codex"),
+            tool_access=runtime.ToolAccess.no_tools(),
+        ),
+        lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            worktree=Path("/other"),
+            stage=stage_selection_factory(service="codex"),
+            role=InvocationRole("implementer"),
+            tool_access=runtime.ToolAccess.no_tools(),
+        ),
+        lambda _stage_selection_factory: prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            worktree=Path("/other"),
+            model="gpt-5.4",
+            effort="medium",
+            session_plan=ResumableSessionPlan(
+                role=InvocationRole("reviewer"),
+                worktree=Path("/repo"),
+                namespace="main",
+                service=cast(ExecutionProvider, _ExecutionService("codex")),
+                run_kind=RunKind.FRESH,
+                provider_state_dir=None,
+                provider_session_id=None,
+                auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+            ),
+            tool_access=runtime.ToolAccess.no_tools(),
+        ),
+    ],
+)
+def test_lifecycle_request_construction_rejects_conflicting_invocation_dir_and_legacy_worktree(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    request_factory: Callable[[Callable[..., runtime.StageSelection]], object],
+) -> None:
+    with pytest.raises(
+        TypeError,
+        match=re.escape("received conflicting `invocation_dir` and `worktree` values."),
+    ):
+        request_factory(stage_selection_factory)
+
+
 def test_runtime_public_surface_keeps_request_normalization_module_private() -> None:
     assert "_request_normalization" not in runtime.__all__
     assert "_request_normalization" not in prompt_runtime.__all__

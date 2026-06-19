@@ -4,7 +4,7 @@ import importlib
 import inspect
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -304,6 +304,54 @@ def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     assert prompt_runtime.ResumedSessionRunRequest.__name__ == (
         "ResumedSessionRunRequest"
     )
+
+
+def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_worktree_alias(
+    stage_selection_factory,
+) -> None:
+    ephemeral_request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/tmp/worktree"),
+        stage=stage_selection_factory(service="codex"),
+        tool_access=runtime.ToolAccess.no_tools(),
+    )
+    new_session_request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/tmp/worktree"),
+        stage=stage_selection_factory(service="codex"),
+        role=InvocationRole("implementer"),
+        tool_access=runtime.ToolAccess.no_tools(),
+    )
+    resumed_session_request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/tmp/worktree"),
+        model="gpt-5.4",
+        effort="medium",
+        session_plan=session_planning_runtime.ResumableSessionPlan(
+            role=InvocationRole("implementer"),
+            worktree=Path("/tmp/worktree"),
+            namespace="main",
+            service=cast(Any, object()),
+            run_kind=RunKind.FRESH,
+            provider_state_dir=None,
+            provider_session_id=None,
+            auth_seeding_requirement=(
+                session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
+            ),
+        ),
+        tool_access=runtime.ToolAccess.no_tools(),
+    )
+
+    assert ephemeral_request.invocation_dir == Path("/tmp/worktree")
+    assert new_session_request.invocation_dir == Path("/tmp/worktree")
+    assert resumed_session_request.invocation_dir.host_path == Path("/tmp/worktree")
+    for request in (
+        ephemeral_request,
+        new_session_request,
+        resumed_session_request,
+    ):
+        with pytest.raises(AttributeError):
+            getattr(request, "worktree")
 
 
 def test_runtime_lifecycle_values_keep_runtime_module_names_after_extraction() -> None:
