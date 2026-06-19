@@ -2310,6 +2310,8 @@ def _run_builtin_resumed_session(
             str | None,
             provider_resume_state.get("provider_session_id"),
         )
+        if provider_session_id is not None:
+            provider_session_id = provider_session_id.strip() or None
         provider_state_dir: Path | None = None
         if runtime_state_dir is not None and provider_state_dir_relpath:
             provider_state_dir = runtime_state_dir / provider_state_dir_relpath

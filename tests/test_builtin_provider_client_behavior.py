@@ -2062,6 +2062,41 @@ def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_stat
     assert adapter.recorded_requests == []
 
 
+def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    continuation=prompt_runtime.Continuation(
+                        selected_service="codex",
+                        selected_model="gpt-5.4",
+                        selected_effort="medium",
+                        tool_access=runtime.ToolAccess.no_tools(),
+                        provider_resume_state={
+                            "run_kind": "resume",
+                            "provider_session_id": "   ",
+                            "exact_transcript_match": False,
+                        },
+                    ),
+                    role=InvocationRole("implementer"),
+                    session_namespace="main",
+                )
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Codex continuation is missing `provider_session_id`."
+    )
+    assert adapter.recorded_requests == []
+
+
 def test_runtime_client_rejects_resumed_session_with_non_object_portable_continuation_resume_state(
     tmp_path: Path,
 ) -> None:
