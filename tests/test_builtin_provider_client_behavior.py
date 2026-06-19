@@ -309,7 +309,7 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
                 tool_access=runtime.ToolAccess.no_tools(),
                 provider_resume_state={
                     "provider_session_id": "observed-session-id",
-                    "provider_state_dir_relpath": "implementer/main/opencode/",
+                    "provider_state": {},
                     "exact_transcript_match": False,
                 },
             ),
@@ -2219,7 +2219,10 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         ),
         provider_resume_state={
             "provider_session_id": "persisted-session-1",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
             "exact_transcript_match": True,
         },
     )
@@ -2256,7 +2259,10 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
                 tool_access=continuation.tool_access,
                 provider_resume_state={
                     "provider_session_id": "persisted-session-2",
-                    "provider_state_dir_relpath": provider_state_dir_relpath,
+                    "provider_state": {
+                        "session_id": "persisted-session-1",
+                        "resume_jsonl": "[]",
+                    },
                     "exact_transcript_match": False,
                 },
             ),
@@ -2271,9 +2277,6 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         outcome.result.runtime_metadata.tool_policy
         == runtime.ToolPolicy.NO_FILE_MUTATION
     )
-    assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
-        "persisted-session-2"
-    )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
@@ -2284,7 +2287,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     assert recorded_request.role == InvocationRole("implementer")
     assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id == "persisted-session-1"
-    assert recorded_request.environment["OPENCODE_HOME"] == str(provider_state_dir)
+    assert Path(recorded_request.environment["OPENCODE_HOME"]).name == "opencode"
     assert recorded_request.environment["OPENCODE_GO_API_KEY"] == "go-key"
     assert "--session persisted-session-1" in recorded_request.command
     assert "--model opencode-go/glm-5" in recorded_request.command
