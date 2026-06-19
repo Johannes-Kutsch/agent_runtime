@@ -524,3 +524,38 @@ def test_live_smoke_timeout_outcome_is_classified_as_failed_and_retained(
     assert run_result.passed is False
     assert run_result.cases[0].status == "failed"
     assert run_result.cases[0].diagnostic == "provider timeout"
+
+
+def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            raise AssertionError(f"unexpected ephemeral request: {request!r}")
+
+    def _fake_client() -> _FakeRuntimeClient:
+        return _FakeRuntimeClient()
+
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+
+    run_result = module.run_live_smoke(
+        provider_selection=("claude",),
+        lifecycle_modes=("new_session",),
+        model_overrides={"claude": "sonnet"},
+        effort_overrides={"claude": "medium"},
+        claude_code_oauth_token="token",
+        run_id="unsupported-mode-run",
+        artifact_root=tmp_path / "unsupported-mode-smoke",
+    )
+
+    assert run_result.passed is False
+    assert run_result.cases[0].status == "error"
+    assert "only supports ephemeral mode" in str(run_result.cases[0].diagnostic)

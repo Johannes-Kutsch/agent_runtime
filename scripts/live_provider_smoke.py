@@ -219,6 +219,11 @@ def _run_public_smoke_case(
     resolved_case = case if case is not None else planned_case
     if resolved_case is None:
         raise ValueError("case is required to run ephemeral smoke case")
+    if resolved_case.mode != "ephemeral":
+        raise ValueError(
+            "public smoke runner only supports ephemeral mode; "
+            f"got {resolved_case.mode!r}"
+        )
     if artifact_dir is None:
         raise ValueError("artifact_dir is required to run ephemeral smoke case")
     live_turns: list[Any] = []
