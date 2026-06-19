@@ -9,10 +9,10 @@ from typing import Any
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .execution_contracts import CancellationToken, WorktreeMount
-from .identity import validate_session_namespace
 from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
 from ._request_normalization import (
+    normalize_session_namespace,
     normalize_stage_selection,
     normalize_tool_access,
     normalize_worktree_mount,
@@ -380,7 +380,7 @@ class EphemeralRunRequest:
             context="EphemeralRunRequest",
             missing_message="EphemeralRunRequest requires an explicit `tool_access` value.",
         )
-        validate_session_namespace(session_namespace)
+        resolved_session_namespace = normalize_session_namespace(session_namespace)
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree_path)
@@ -389,7 +389,7 @@ class EphemeralRunRequest:
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "tool_access", resolved_tool_access)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
-        object.__setattr__(self, "session_namespace", session_namespace)
+        object.__setattr__(self, "session_namespace", resolved_session_namespace)
         object.__setattr__(self, "token", token)
         object.__setattr__(self, "auth", auth)
 
@@ -462,7 +462,7 @@ class NewSessionRunRequest:
             context="NewSessionRunRequest",
             missing_message="NewSessionRunRequest requires an explicit `tool_access` value.",
         )
-        validate_session_namespace(session_namespace)
+        resolved_session_namespace = normalize_session_namespace(session_namespace)
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", worktree_path)
@@ -479,7 +479,7 @@ class NewSessionRunRequest:
         )
         object.__setattr__(self, "tool_access", resolved_tool_access)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
-        object.__setattr__(self, "session_namespace", session_namespace)
+        object.__setattr__(self, "session_namespace", resolved_session_namespace)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
@@ -585,12 +585,11 @@ class ResumedSessionRunRequest:
                 raise TypeError(
                     "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
                 )
-            validate_session_namespace(session_namespace)
             resolved_model = continuation.selected_model if model is None else model
             resolved_effort = continuation.selected_effort if effort is None else effort
             resolved_tool_access = continuation.tool_access
             resolved_role = role
-            resolved_session_namespace = session_namespace
+            resolved_session_namespace = normalize_session_namespace(session_namespace)
         else:
             if session_plan is None:
                 raise TypeError(

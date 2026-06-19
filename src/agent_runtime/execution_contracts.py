@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
 from ._request_normalization import (
+    normalize_session_namespace,
     normalize_stage_selection,
     normalize_tool_access,
     normalize_worktree_mount,
     require_invocation_role,
 )
 from .contracts import ExecutionProvider, ToolAccess, ToolPolicy, ToolPolicyProfile
-from .identity import validate_session_namespace
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
 from .session import RunKind
@@ -37,7 +37,11 @@ class PromptRunSession:
     plan: Any = None
 
     def __post_init__(self) -> None:
-        validate_session_namespace(self.namespace)
+        object.__setattr__(
+            self,
+            "namespace",
+            normalize_session_namespace(self.namespace),
+        )
 
 
 class PromptRuntimeExecutionAdapter(Protocol):

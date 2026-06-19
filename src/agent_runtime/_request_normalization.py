@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from .identity import validate_session_namespace
 from .roles import InvocationRole
 from .types import StageSelection, validate_stage_selection
 
@@ -40,6 +41,11 @@ def require_invocation_role(
     if role is None:
         raise TypeError(message or f"{context} requires a `role` value.")
     return role
+
+
+def normalize_session_namespace(session_namespace: str) -> str:
+    validate_session_namespace(session_namespace)
+    return session_namespace
 
 
 def normalize_worktree_path(worktree: Path | WorktreeMount) -> Path:
