@@ -1702,6 +1702,122 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
 
 
 @pytest.mark.parametrize(
+    ("tool_policy", "expected_flags"),
+    [
+        (runtime.ToolPolicy.NONE, ('--disallowedTools "all"',)),
+        (runtime.ToolPolicy.INSPECT_ONLY, ("--tools 'Read Glob'",)),
+        (
+            runtime.ToolPolicy.NO_FILE_MUTATION,
+            ('--disallowedTools "Edit Write NotebookEdit"',),
+        ),
+        (runtime.ToolPolicy.UNRESTRICTED, tuple()),
+    ],
+)
+def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tool_policy: runtime.ToolPolicy,
+    expected_flags: tuple[str, ...],
+) -> None:
+    _stub_codex_prompt_path(monkeypatch)
+
+    observed_commands: list[str] = []
+
+    class _FakeProcess:
+        def __init__(self, stdout: Any) -> None:
+            self.stdout = stdout
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del shell, cwd, env, stdout, stderr, text
+        observed_commands.append(command)
+        return _FakeProcess(
+            iter(
+                [
+                    '{"type":"assistant","message":{"content":[{"type":"text","text":"hello from claude"}]}}\n',
+                    '{"type":"result","result":"hello from claude"}\n',
+                ]
+            )
+        )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = prompt_runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="claude", model="sonnet", effort="medium"
+            ),
+            tool_access=(
+                runtime.ToolAccess.no_tools()
+                if tool_policy is runtime.ToolPolicy.NONE
+                else runtime.ToolAccess.workspace_backed(
+                    tmp_path,
+                    tool_policy=tool_policy,
+                )
+            ),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from claude",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from claude",
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=(
+                runtime.ToolAccess.no_tools()
+                if tool_policy is runtime.ToolPolicy.NONE
+                else runtime.ToolAccess.workspace_backed(
+                    tmp_path,
+                    tool_policy=tool_policy,
+                )
+            ),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("claude",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                ),
+            ),
+        ),
+        usage=None,
+    )
+    command = observed_commands[0]
+    if tool_policy is runtime.ToolPolicy.NONE:
+        assert "--tools none" not in command
+    if tool_policy is runtime.ToolPolicy.INSPECT_ONLY:
+        assert "--tools none" not in command
+        assert '--disallowedTools "' not in command
+    elif tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION:
+        assert "--tools" not in command
+    elif tool_policy is runtime.ToolPolicy.UNRESTRICTED:
+        assert "--tools" not in command
+        assert "--disallowedTools" not in command
+    for flag in expected_flags:
+        assert flag in command
+
+
+@pytest.mark.parametrize(
     ("tool_access", "expected_flag"),
     [
         (
