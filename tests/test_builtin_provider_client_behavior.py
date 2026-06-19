@@ -1725,6 +1725,33 @@ def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_stat
     assert adapter.recorded_requests == []
 
 
+def test_runtime_client_rejects_resumed_session_with_non_object_portable_continuation_resume_state(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                    continuation=prompt_runtime.Continuation(
+                        selected_service="codex",
+                        selected_model="gpt-5.4",
+                        selected_effort="medium",
+                        tool_access=runtime.ToolAccess.no_tools(),
+                        provider_resume_state=["resume"],
+                    ),
+                    role=InvocationRole("implementer"),
+                )
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Continuation provider_resume_state must be a JSON object."
+    )
+
+
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
 def test_runtime_client_requires_host_codex_auth_for_session_execution(
     monkeypatch: pytest.MonkeyPatch,

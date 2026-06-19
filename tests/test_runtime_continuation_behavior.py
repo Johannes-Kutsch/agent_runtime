@@ -27,6 +27,7 @@ from agent_runtime.errors import (
     AgentCancelledError,
     AgentTimeoutError,
     NoServiceAvailableError,
+    RuntimeConfigurationError,
     UsageLimitError,
 )
 from agent_runtime.execution_contracts import (
@@ -742,6 +743,36 @@ def test_continuation_provider_resume_state_requires_json_compatible_data() -> N
             tool_access=runtime.ToolAccess.no_tools(),
             provider_resume_state={"provider_state_dir": Path("/repo/state")},
         )
+
+
+def test_resumed_session_runtime_rejects_non_object_portable_continuation_resume_state() -> (
+    None
+):
+    continuation = prompt_runtime.Continuation(
+        selected_service="bound-service",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.workspace_backed(Path("/repo")),
+        provider_resume_state=["resume"],
+    )
+
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
+        asyncio.run(
+            compat_runtime.ResumedSessionRuntime(
+                execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+            ).run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=WorktreeMount(Path("/repo")),
+                    continuation=continuation,
+                    role=InvocationRole("implementer"),
+                )
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Continuation provider_resume_state must be a JSON object."
+    )
 
 
 def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> None:
