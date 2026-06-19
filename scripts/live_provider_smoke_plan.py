@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -65,6 +66,144 @@ class PlannedCase:
     policy: str | None
     model: str
     effort: str
+
+
+@dataclass(frozen=True)
+class DryRunPlannedCase:
+    service: str
+    mode: str
+    policy: str | None
+    model: str
+    effort: str
+    artifact_path: Path
+
+
+@dataclass(frozen=True)
+class DryRunPlan:
+    run_id: str
+    cases: tuple[DryRunPlannedCase, ...]
+    provider_plans: tuple[ProviderPlan, ...]
+    artifact_root: Path
+
+
+@dataclass(frozen=True)
+class ProviderRuntimeConfiguration:
+    service: str
+    configured: bool
+
+
+def build_dry_run_plan(
+    provider_selection: str | Sequence[str],
+    *,
+    lifecycle_modes: tuple[str, ...],
+    tool_policies: tuple[str, ...] = (),
+    run_id: str | None = None,
+    model_overrides: Mapping[str, str] | None = None,
+    effort_overrides: Mapping[str, str] | None = None,
+    artifact_root: Path | str = Path("."),
+    env: Mapping[str, str] | None = None,
+    claude_code_oauth_token: str | None = None,
+    opencode_api_key: str | None = None,
+    codex_auth_present: bool | None = None,
+) -> DryRunPlan:
+    selected = parse_provider_selection(provider_selection)
+    resolved_run_id = resolve_run_id(run_id)
+    provider_plans = plan_selected_providers(
+        selected,
+        model_overrides=model_overrides,
+        effort_overrides=effort_overrides,
+        env=env,
+        claude_code_oauth_token=claude_code_oauth_token,
+        opencode_api_key=opencode_api_key,
+        codex_auth_present=codex_auth_present,
+    )
+    planned_cases = plan_smoke_cases(
+        provider_plans,
+        lifecycle_modes=lifecycle_modes,
+        tool_policies=tool_policies,
+    )
+    artifact_root_path = Path(artifact_root)
+    dry_run_cases = tuple(
+        _build_dry_run_case(resolved_run_id, artifact_root_path, case)
+        for case in planned_cases
+    )
+    return DryRunPlan(
+        run_id=resolved_run_id,
+        cases=dry_run_cases,
+        provider_plans=provider_plans,
+        artifact_root=artifact_root_path,
+    )
+
+
+def _build_dry_run_case(
+    run_id: str, artifact_root: Path, planned_case: PlannedCase
+) -> DryRunPlannedCase:
+    artifact_path = (
+        artifact_root
+        / run_id
+        / planned_case.service
+        / planned_case.mode
+        / (planned_case.policy if planned_case.policy else "default")
+    )
+    return DryRunPlannedCase(
+        service=planned_case.service,
+        mode=planned_case.mode,
+        policy=planned_case.policy,
+        model=planned_case.model,
+        effort=planned_case.effort,
+        artifact_path=artifact_path,
+    )
+
+
+def list_supported_providers(
+    *,
+    env: Mapping[str, str] | None = None,
+    claude_code_oauth_token: str | None = None,
+    opencode_api_key: str | None = None,
+    codex_auth_present: bool | None = None,
+) -> tuple[ProviderRuntimeConfiguration, ...]:
+    return tuple(
+        ProviderRuntimeConfiguration(
+            service=provider,
+            configured=_provider_has_runtime_config(
+                provider,
+                env=env,
+                claude_code_oauth_token=claude_code_oauth_token,
+                opencode_api_key=opencode_api_key,
+                codex_auth_present=codex_auth_present,
+            ),
+        )
+        for provider in SUPPORTED_PROVIDERS
+    )
+
+
+def dry_run_plan_to_json(dry_run_plan: DryRunPlan) -> str:
+    payload = {
+        "run_id": dry_run_plan.run_id,
+        "artifact_root": str(dry_run_plan.artifact_root),
+        "providers": [
+            {
+                "service": provider.service,
+                "status": provider.status,
+                "model": provider.model,
+                "effort": provider.effort,
+                "reason": provider.reason,
+            }
+            for provider in dry_run_plan.provider_plans
+        ],
+        "cases": [
+            {
+                "service": case.service,
+                "mode": case.mode,
+                "policy": case.policy,
+                "model": case.model,
+                "effort": case.effort,
+                "artifact_path": str(case.artifact_path),
+            }
+            for case in dry_run_plan.cases
+        ],
+    }
+    return json.dumps(payload, sort_keys=True)
 
 
 def parse_provider_selection(selection: str | Sequence[str]) -> ProviderSelection:
@@ -291,6 +430,9 @@ __all__ = [
     "ProviderPlan",
     "ProviderSelection",
     "PlannedCase",
+    "DryRunPlannedCase",
+    "DryRunPlan",
+    "ProviderRuntimeConfiguration",
     "SUPPORTED_PROVIDERS",
     "LIVE_SMOKE_CLAUDE_MODEL_ENV",
     "LIVE_SMOKE_CLAUDE_EFFORT_ENV",
@@ -300,6 +442,9 @@ __all__ = [
     "LIVE_SMOKE_OPENCODE_EFFORT_ENV",
     "parse_provider_selection",
     "plan_selected_providers",
+    "build_dry_run_plan",
+    "list_supported_providers",
+    "dry_run_plan_to_json",
     "plan_smoke_cases",
     "resolve_model_and_effort",
     "resolve_run_id",

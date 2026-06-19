@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 from typing import Any
@@ -200,3 +201,157 @@ def test_live_smoke_planning_emits_provider_mode_policy_cases_without_side_effec
     assert first.model == "sonnet"
     assert first.effort == "medium"
     assert any(case.service == "opencode" for case in cases)
+
+
+def test_live_smoke_dry_run_reports_planned_cases_and_artifact_paths(
+    planning_module: Any,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    summary = module.build_dry_run_plan(
+        provider_selection=("claude", "opencode"),
+        lifecycle_modes=("ephemeral", "new_session"),
+        tool_policies=("NONE", "UNRESTRICTED"),
+        run_id="smoke-run-2026.06.19",
+        model_overrides={"claude": "sonnet", "opencode": "deepseek-v4-flash"},
+        effort_overrides={"claude": "medium", "opencode": "high"},
+        claude_code_oauth_token="token",
+        opencode_api_key="api-key",
+        artifact_root=tmp_path / "live-smoke-artifacts",
+    )
+
+    assert summary.run_id == "smoke-run-2026.06.19"
+    assert len(summary.cases) == 8
+    assert len(summary.provider_plans) == 2
+    first_case = summary.cases[0]
+    assert isinstance(first_case, module.DryRunPlannedCase)
+    assert first_case.service in {"claude", "opencode"}
+    assert first_case.mode in {"ephemeral", "new_session"}
+    assert first_case.policy in {"NONE", "UNRESTRICTED"}
+    assert first_case.model in {"sonnet", "deepseek-v4-flash"}
+    assert first_case.effort in {"medium", "high"}
+    assert "smoke-run-2026.06.19" in str(first_case.artifact_path)
+    assert str(first_case.artifact_path).startswith(
+        str((tmp_path / "live-smoke-artifacts" / "smoke-run-2026.06.19"))
+    )
+
+
+def test_live_smoke_dry_run_validation_matches_preflight_rules(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    from agent_runtime.errors import RuntimeConfigurationError
+
+    with pytest.raises(RuntimeConfigurationError):
+        module.build_dry_run_plan(
+            provider_selection="bad_provider",
+            lifecycle_modes=("ephemeral",),
+        )
+
+    with pytest.raises(RuntimeConfigurationError):
+        module.build_dry_run_plan(
+            provider_selection=("claude",),
+            lifecycle_modes=("ephemeral",),
+            run_id="../unsafe-run-id",
+            claude_code_oauth_token="token",
+        )
+
+    explicit_missing = module.build_dry_run_plan(
+        provider_selection=("codex",),
+        lifecycle_modes=("ephemeral",),
+        run_id="explicit-missing",
+    )
+    assert (
+        explicit_missing.provider_plans[0].status
+        is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+    )
+
+    all_missing = module.build_dry_run_plan(
+        provider_selection="all",
+        lifecycle_modes=("ephemeral",),
+        run_id="all-missing",
+    )
+    assert all(
+        plan.status is module.LiveSmokeProviderSelectionStatus.SKIPPED
+        for plan in all_missing.provider_plans
+    )
+
+
+def test_live_smoke_dry_run_planning_writes_no_artifacts(
+    planning_module: Any,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    summary = module.build_dry_run_plan(
+        provider_selection=("claude",),
+        lifecycle_modes=("ephemeral", "new_session"),
+        tool_policies=("NONE",),
+        run_id="no-side-effects",
+        model_overrides={"claude": "sonnet"},
+        effort_overrides={"claude": "medium"},
+        claude_code_oauth_token="token",
+        artifact_root=tmp_path / "live-smoke-artifacts",
+    )
+
+    assert not any(case.artifact_path.exists() for case in summary.cases)
+    assert not (tmp_path / "live-smoke-artifacts").exists()
+
+
+def test_live_smoke_dry_run_to_json_is_machine_readable(
+    planning_module: Any,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    summary = module.build_dry_run_plan(
+        provider_selection=("codex",),
+        lifecycle_modes=("ephemeral",),
+        run_id="json-readability",
+        model_overrides={"codex": "codex-mini"},
+        effort_overrides={"codex": "high"},
+        codex_auth_present=True,
+        artifact_root=tmp_path / "artifacts",
+    )
+    payload = json.loads(module.dry_run_plan_to_json(summary))
+
+    assert payload["run_id"] == "json-readability"
+    assert len(payload["cases"]) == 1
+    assert payload["cases"][0]["service"] in {"codex"}
+    assert payload["cases"][0]["policy"] is None
+    assert payload["cases"][0]["artifact_path"].endswith(
+        "json-readability/codex/ephemeral/default"
+    )
+    assert payload["providers"][0]["status"] == "runnable"
+
+
+def test_live_smoke_provider_listing_reports_configuration_without_secrets(
+    planning_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = planning_module
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "very-secret-claude-token")
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "very-secret-opencode-key")
+
+    listing = module.list_supported_providers(
+        env={"CODex": "ignored"},
+        claude_code_oauth_token="cli-claude-token",
+        opencode_api_key="cli-opencode-key",
+        codex_auth_present=False,
+    )
+
+    assert {entry.service for entry in listing} == set(module.SUPPORTED_PROVIDERS)
+    status_by_service = {entry.service: entry.configured for entry in listing}
+    assert status_by_service["claude"] is True
+    assert status_by_service["opencode"] is True
+    assert status_by_service["codex"] is False
+
+    for entry in listing:
+        text = repr(entry)
+        assert "very-secret-claude-token" not in text
+        assert "very-secret-opencode-key" not in text
+        assert "cli-claude-token" not in text
+        assert "cli-opencode-key" not in text
