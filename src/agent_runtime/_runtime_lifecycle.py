@@ -496,14 +496,14 @@ class EphemeralRunRequest:
 class NewSessionRunRequest:
     prompt: str
     invocation_dir: Path
-    runtime_state_dir: Path | None
+    _runtime_state_dir: Path | None
     stage: StageSelection
     role: InvocationRole
     provider_auth: ProviderAuth | None
     session_store: Any
     provider_session_adapter: ProviderSessionAdapter
     tool_access: ToolAccess
-    session_namespace: str = ""
+    _session_namespace: str
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
@@ -513,7 +513,6 @@ class NewSessionRunRequest:
         self,
         prompt: str,
         invocation_dir: Path | WorktreeMount | None = None,
-        runtime_state_dir: Path | None = None,
         stage: StageSelection | None = None,
         role: InvocationRole | None = None,
         provider_auth: ProviderAuth | None = None,
@@ -521,7 +520,8 @@ class NewSessionRunRequest:
         provider_session_adapter: ProviderSessionAdapter | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
-        session_namespace: str = "",
+        _runtime_state_dir: Path | None = None,
+        _session_namespace: str = "",
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
@@ -530,6 +530,27 @@ class NewSessionRunRequest:
         override: StageSelection | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
+        compatibility_session_namespace = compatibility_kwargs.pop(
+            "session_namespace",
+            _session_namespace,
+        )
+        compatibility_runtime_state_dir = compatibility_kwargs.pop(
+            "runtime_state_dir",
+            _runtime_state_dir,
+        )
+        if _session_namespace and compatibility_session_namespace != _session_namespace:
+            raise TypeError(
+                "NewSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
+            )
+        if (
+            _runtime_state_dir is not None
+            and compatibility_runtime_state_dir != _runtime_state_dir
+        ):
+            raise TypeError(
+                "NewSessionRunRequest received conflicting `runtime_state_dir` and `_runtime_state_dir` values."
+            )
+        _session_namespace = compatibility_session_namespace
+        _runtime_state_dir = compatibility_runtime_state_dir
         resolved_invocation_dir = _resolve_public_invocation_dir(
             invocation_dir,
             compatibility_kwargs,
@@ -543,7 +564,7 @@ class NewSessionRunRequest:
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=_MISSING_TOOL_POLICY,
-            session_namespace=session_namespace,
+            session_namespace=_session_namespace,
             context="NewSessionRunRequest",
             missing_message="NewSessionRunRequest requires an explicit `tool_policy` value.",
             workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
@@ -555,7 +576,7 @@ class NewSessionRunRequest:
             _PUBLIC_INVOCATION_DIR_NAME,
             normalized_request.worktree.path,
         )
-        object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
+        object.__setattr__(self, "_runtime_state_dir", _runtime_state_dir)
         object.__setattr__(self, "stage", normalized_request.stage)
         object.__setattr__(self, "role", normalized_request.role)
         object.__setattr__(self, "provider_auth", provider_auth)
@@ -567,9 +588,7 @@ class NewSessionRunRequest:
         )
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(
-            self,
-            "session_namespace",
-            normalized_request.session_namespace,
+            self, "_session_namespace", normalized_request.session_namespace
         )
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
@@ -618,11 +637,11 @@ class SessionRunResult:
 class ResumedSessionRunRequest:
     prompt: str
     invocation_dir: WorktreeMount
-    runtime_state_dir: Path | None
     model: str
     effort: str
     role: InvocationRole
-    session_namespace: str
+    _runtime_state_dir: Path | None
+    _session_namespace: str
     session_plan: ResumableSessionPlan | None
     continuation: Continuation | None
     provider_auth: ProviderAuth | None
@@ -636,14 +655,14 @@ class ResumedSessionRunRequest:
         self,
         prompt: str,
         invocation_dir: Path | WorktreeMount | None = None,
-        runtime_state_dir: Path | None = None,
         model: str | None = None,
         effort: str | None = None,
         session_plan: ResumableSessionPlan | None = None,
         continuation: Continuation | None = None,
         role: InvocationRole | None = None,
         provider_auth: ProviderAuth | None = None,
-        session_namespace: str = "",
+        _runtime_state_dir: Path | None = None,
+        _session_namespace: str = "",
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         name: str = "Runtime Agent",
@@ -652,6 +671,27 @@ class ResumedSessionRunRequest:
         token: CancellationToken | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
+        compatibility_session_namespace = compatibility_kwargs.pop(
+            "session_namespace",
+            _session_namespace,
+        )
+        compatibility_runtime_state_dir = compatibility_kwargs.pop(
+            "runtime_state_dir",
+            _runtime_state_dir,
+        )
+        if _session_namespace and compatibility_session_namespace != _session_namespace:
+            raise TypeError(
+                "ResumedSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
+            )
+        if (
+            _runtime_state_dir is not None
+            and compatibility_runtime_state_dir != _runtime_state_dir
+        ):
+            raise TypeError(
+                "ResumedSessionRunRequest received conflicting `runtime_state_dir` and `_runtime_state_dir` values."
+            )
+        _session_namespace = compatibility_session_namespace
+        _runtime_state_dir = compatibility_runtime_state_dir
         resolved_invocation_dir = _resolve_public_invocation_dir(
             invocation_dir,
             compatibility_kwargs,
@@ -693,7 +733,7 @@ class ResumedSessionRunRequest:
                     role=resolved_role,
                     worktree=resolved_invocation_dir,
                     tool_access=continuation_payload.tool_access,
-                    session_namespace=session_namespace,
+                    session_namespace=_session_namespace,
                     context="ResumedSessionRunRequest",
                     role_message=(
                         "ResumedSessionRunRequest requires a `role` value when "
@@ -740,13 +780,13 @@ class ResumedSessionRunRequest:
             _PUBLIC_INVOCATION_DIR_NAME,
             normalized_request.worktree.mount,
         )
-        object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
+        object.__setattr__(self, "_runtime_state_dir", _runtime_state_dir)
         object.__setattr__(self, "model", resolved_model)
         object.__setattr__(self, "effort", resolved_effort)
         object.__setattr__(self, "role", normalized_request.role)
         object.__setattr__(
             self,
-            "session_namespace",
+            "_session_namespace",
             normalized_request.session_namespace,
         )
         object.__setattr__(self, "session_plan", session_plan)
@@ -779,14 +819,12 @@ cast(Any, EphemeralRunRequest).__signature__ = _public_request_signature(
 cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "prompt",
     "invocation_dir",
-    "runtime_state_dir",
     "stage",
     "role",
     "provider_auth",
     "session_store",
     "provider_session_adapter",
     "tool_policy",
-    "session_namespace",
     "name",
     "status_display",
     "work_body",

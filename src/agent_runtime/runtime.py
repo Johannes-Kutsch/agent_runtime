@@ -65,6 +65,8 @@ __all__ = [
 _REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES = {
     "ToolAccess",
     "ToolPolicyProfile",
+    "InvocationRole",
+    "UsageLimitScope",
 }
 
 _RuntimeIntent = _runtime_facade_lifecycle_module._RuntimeIntent

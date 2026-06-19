@@ -410,7 +410,7 @@ async def _run_new_session(
             ResumableSessionPlanRequest(
                 worktree=request.invocation_dir,
                 role=request.role,
-                namespace=request.session_namespace,
+                namespace=request._session_namespace,
                 service=resolved_service,
                 session_store=request.session_store,
                 provider_session_adapter=request.provider_session_adapter,
@@ -522,7 +522,7 @@ async def _run_resumed_session(
     run_session = _build_run_session(
         mount_path=request.invocation_dir.host_path,
         role=request.role,
-        session_namespace=request.session_namespace,
+        session_namespace=request._session_namespace,
         service=service,
         container_workspace=dependencies.execution.container_workspace,
         run_kind=run_kind,
@@ -591,7 +591,7 @@ async def _run_resumed_session(
             service_name=service_name,
             provider_session_id=provider_run_session.provider_session_id,
             run_kind=run_kind,
-            session_namespace=request.session_namespace,
+            session_namespace=request._session_namespace,
             exact_transcript_match=exact_transcript_match,
             selected_model=request.model,
             selected_effort=request.effort,

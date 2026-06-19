@@ -20,6 +20,7 @@ from agent_runtime.execution_contracts import (
     WorkPresentationDependencies,
 )
 from agent_runtime.roles import InvocationRole
+from agent_runtime.usage_limit_scope import UsageLimitScope
 from agent_runtime.service_registry import ServiceRegistry
 from agent_runtime.session import RunKind
 
@@ -241,5 +242,5 @@ def test_no_service_available_outcome_rejects_caller_defined_usage_limit_scope()
             output="",
             reset_time=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-            usage_limit_scope=runtime.UsageLimitScope("review"),
+            usage_limit_scope=UsageLimitScope("review"),
         )

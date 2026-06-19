@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-import agent_runtime as runtime
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime.errors import (
     AgentFailedError,
@@ -18,6 +17,7 @@ from agent_runtime.errors import (
 )
 from agent_runtime.execution_contracts import PromptRunSession
 from agent_runtime.roles import InvocationRole
+from agent_runtime.usage_limit_scope import UsageLimitScope
 from agent_runtime.session import RunKind
 from agent_runtime.usage_limit_decision import (
     SleepUntil,
@@ -30,13 +30,13 @@ from agent_runtime.usage_limit_decision import (
 @pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
 def test_invocation_role_rejects_unsafe_labels(label: str) -> None:
     with pytest.raises(ValueError):
-        runtime.InvocationRole(label)
+        InvocationRole(label)
 
 
 @pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
 def test_usage_limit_scope_rejects_unsafe_labels(label: str) -> None:
     with pytest.raises(ValueError):
-        runtime.UsageLimitScope(label)
+        UsageLimitScope(label)
 
 
 @pytest.mark.parametrize("label", [" ", "a/b", "../escape"])
@@ -117,10 +117,10 @@ def test_agent_failed_error_builds_session_dir_from_namespace_and_service_name_m
 def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
     error = UsageLimitError(
         reset_time=None,
-        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+        usage_limit_scope=UsageLimitScope("quota-review"),
     )
 
-    assert error.usage_limit_scope == runtime.UsageLimitScope("quota-review")
+    assert error.usage_limit_scope == UsageLimitScope("quota-review")
 
 
 def test_permanent_usage_limit_account_label_remains_diagnostic_metadata() -> None:
@@ -205,7 +205,7 @@ def test_agent_invocation_log_omits_default_usage_limit_scope(
     with invocation_log.open_work_invocation(
         log_path=log_path,
         role=InvocationRole("implementer"),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
+        usage_limit_scope=UsageLimitScope("implementer"),
         run_kind=RunKind.FRESH,
         session_uuid=None,
         prompt="same scope as role",
@@ -228,7 +228,7 @@ def test_agent_invocation_log_records_non_default_usage_limit_scope(
     with invocation_log.open_work_invocation(
         log_path=log_path,
         role=InvocationRole("implementer"),
-        usage_limit_scope=runtime.UsageLimitScope("repo-write"),
+        usage_limit_scope=UsageLimitScope("repo-write"),
         run_kind=RunKind.RESUME,
         session_uuid=None,
         prompt="different scope from role",
@@ -252,7 +252,7 @@ def test_agent_invocation_log_records_provider_session_id_in_header(
     with invocation_log.open_work_invocation(
         log_path=log_path,
         role=InvocationRole("implementer"),
-        usage_limit_scope=runtime.UsageLimitScope("repo-write"),
+        usage_limit_scope=UsageLimitScope("repo-write"),
         run_kind=RunKind.RESUME,
         session_uuid=None,
         prompt="different scope from role",
@@ -272,7 +272,7 @@ def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
         UsageLimitOutcome(
             reset_time=None,
             service_name="codex",
-            usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+            usage_limit_scope=UsageLimitScope("quota-review"),
         ),
         stage_override=None,
         service_registry=None,
@@ -284,7 +284,7 @@ def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
         wake_time=wake_time,
         message="Usage limit reached. Sleeping until 12:00. Press Ctrl+C to abort.",
         is_estimated=False,
-        usage_limit_scope=runtime.UsageLimitScope("quota-review"),
+        usage_limit_scope=UsageLimitScope("quota-review"),
     )
 
 

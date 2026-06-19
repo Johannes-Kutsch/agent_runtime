@@ -31,7 +31,6 @@ def test_package_exports_runtime_surface() -> None:
         "AgentTimeoutError",
         "Continuation",
         "HardAgentError",
-        "InvocationRole",
         "InvocationProgress",
         "ProviderAuth",
         "ProviderUsage",
@@ -43,7 +42,6 @@ def test_package_exports_runtime_surface() -> None:
         "ToolPolicy",
         "TransientAgentError",
         "UsageLimitError",
-        "UsageLimitScope",
     ]
     assert runtime.StageSelection.__module__.startswith("agent_runtime")
     assert not hasattr(runtime, "StageOverride")
@@ -51,8 +49,12 @@ def test_package_exports_runtime_surface() -> None:
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
     assert "ToolAccess" not in runtime.__all__
     assert "ToolPolicyProfile" not in runtime.__all__
+    assert "InvocationRole" not in runtime.__all__
+    assert "UsageLimitScope" not in runtime.__all__
     assert not hasattr(runtime, "ToolAccess")
     assert not hasattr(runtime, "ToolPolicyProfile")
+    assert not hasattr(runtime, "InvocationRole")
+    assert not hasattr(runtime, "UsageLimitScope")
     assert hasattr(contracts_runtime, "ToolAccess")
     assert hasattr(contracts_runtime, "ToolPolicyProfile")
     assert not hasattr(runtime, "assert_runtime_import_isolation")
@@ -172,6 +174,22 @@ def test_removed_tool_policy_compatibility_names_fail_on_ordinary_runtime_surfac
         contracts_runtime,
         removed_name,
     )
+
+
+@pytest.mark.parametrize(
+    ("module_name", "removed_name"),
+    [("agent_runtime", "InvocationRole"), ("agent_runtime", "UsageLimitScope")],
+)
+def test_removed_value_object_compatibility_names_fail_on_ordinary_runtime_surface(
+    module_name: str,
+    removed_name: str,
+) -> None:
+    with pytest.raises(ImportError):
+        exec(f"from {module_name} import {removed_name}", {}, {})
+
+    imported_module = importlib.import_module(module_name)
+    with pytest.raises(AttributeError, match="Runtime Public Surface"):
+        getattr(imported_module, removed_name)
 
 
 def test_runtime_client_constructor_stays_on_public_default_surface() -> None:
@@ -535,18 +553,6 @@ def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> N
         "auth_seed_action",
         "use_service_state_dir_for_container",
     ]
-
-
-def test_package_surface_exposes_invocation_role_value_object() -> None:
-    role = runtime.InvocationRole("implementer")
-
-    assert role.value == "implementer"
-
-
-def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
-    usage_limit_scope = runtime.UsageLimitScope("quota-review")
-
-    assert usage_limit_scope.value == "quota-review"
 
 
 def test_tool_policy_inspect_only_resolves_to_provider_neutral_profile() -> None:

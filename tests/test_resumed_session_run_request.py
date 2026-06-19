@@ -42,8 +42,6 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_access_overr
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=WorktreeMount(Path("/repo")),
-            role=InvocationRole("implementer"),
-            session_namespace="main",
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
@@ -68,7 +66,6 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_policy_overr
             prompt="already rendered prompt",
             invocation_dir=WorktreeMount(Path("/repo")),
             role=InvocationRole("implementer"),
-            session_namespace="../escape",
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
@@ -111,7 +108,6 @@ def test_resumed_session_run_request_from_continuation_defaults_role() -> None:
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=WorktreeMount(Path("/repo")),
-        session_namespace="main",
         continuation=prompt_runtime.Continuation(
             selected_service="codex",
             selected_model="gpt-5.4",
@@ -140,9 +136,9 @@ def test_resumed_session_run_request_from_continuation_accepts_minimal_fields() 
     assert request.model == "gpt-5.4"
     assert request.effort == "medium"
     assert request.role == InvocationRole("implementer")
-    assert request.runtime_state_dir is None
+    assert not hasattr(request, "runtime_state_dir")
     assert not hasattr(request, "usage_limit_scope")
-    assert request.session_namespace == ""
+    assert not hasattr(request, "session_namespace")
     assert request.provider_auth is None
     assert request.token is None
     assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
@@ -166,11 +162,11 @@ def test_resumed_session_run_request_from_continuation_preserves_empty_session_n
             prompt="already rendered prompt",
             invocation_dir=WorktreeMount(Path("/repo")),
             role=InvocationRole("implementer"),
-            session_namespace=label,
+            _session_namespace=label,
             continuation=continuation,
         )
 
-        assert request.session_namespace == ""
+        assert not hasattr(request, "session_namespace")
         return
 
     with pytest.raises(ValueError):
@@ -178,7 +174,7 @@ def test_resumed_session_run_request_from_continuation_preserves_empty_session_n
             prompt="already rendered prompt",
             invocation_dir=WorktreeMount(Path("/repo")),
             role=InvocationRole("implementer"),
-            session_namespace=label,
+            _session_namespace=label,
             continuation=continuation,
         )
 
@@ -379,7 +375,6 @@ def test_resumed_session_run_request_from_continuation_rejects_workspace_backed_
             prompt="already rendered prompt",
             invocation_dir=WorktreeMount(Path("/other")),
             role=InvocationRole("implementer"),
-            session_namespace="main",
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",

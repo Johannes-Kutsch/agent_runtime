@@ -16,6 +16,7 @@ from agent_runtime.contracts import ExecutionProvider
 from agent_runtime.execution_contracts import WorktreeMount
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
+from agent_runtime.usage_limit_scope import UsageLimitScope
 from agent_runtime.session_planning import (
     AuthSeedingRequirement,
     ResumableSessionPlan,
@@ -85,6 +86,14 @@ def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
             prompt_runtime.ResumedSessionRunRequest,
         ).parameters
     )
+    assert (
+        "runtime_state_dir"
+        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+    )
+    assert (
+        "session_namespace"
+        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+    )
 
 
 def test_ephemeral_run_request_uses_override_stage_selection_when_stage_missing(
@@ -137,9 +146,9 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
     )
 
     assert request.role == InvocationRole("implementer")
-    assert request.runtime_state_dir is None
+    assert not hasattr(request, "runtime_state_dir")
     assert not hasattr(request, "usage_limit_scope")
-    assert request.session_namespace == ""
+    assert not hasattr(request, "session_namespace")
     assert not hasattr(request, "logs_dir")
 
 
@@ -232,7 +241,7 @@ def test_new_session_run_request_rejects_caller_provided_usage_limit_scope() -> 
                 effort="high",
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            usage_limit_scope=runtime.UsageLimitScope("review"),
+            usage_limit_scope=UsageLimitScope("review"),
         )
 
 
@@ -250,7 +259,7 @@ def test_ephemeral_run_request_rejects_caller_provided_usage_limit_scope() -> No
                 effort="high",
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            usage_limit_scope=runtime.UsageLimitScope("review"),
+            usage_limit_scope=UsageLimitScope("review"),
         )
 
 
@@ -271,7 +280,7 @@ def test_resumed_session_run_request_rejects_caller_provided_usage_limit_scope()
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 provider_resume_state={"run_kind": "resume"},
             ),
-            usage_limit_scope=runtime.UsageLimitScope("review"),
+            usage_limit_scope=UsageLimitScope("review"),
         )
 
 
@@ -290,7 +299,7 @@ def test_prompt_run_request_rejects_caller_provided_usage_limit_scope() -> None:
             ),
             role=InvocationRole("implementer"),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            usage_limit_scope=runtime.UsageLimitScope("review"),
+            usage_limit_scope=UsageLimitScope("review"),
         )
 
 
@@ -378,38 +387,18 @@ def test_new_session_request_non_none_tool_policy_uses_invocation_dir_as_tool_wo
     )
 
 
-@pytest.mark.parametrize(
-    ("request_factory", "expected_message"),
-    [
-        (
-            lambda stage_selection_factory, session_namespace: (
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
-                    invocation_dir=Path("/repo"),
-                    stage=stage_selection_factory(service="codex"),
-                    role=InvocationRole("implementer"),
-                    tool_access=contracts_runtime.ToolAccess.no_tools(),
-                    session_namespace=session_namespace,
-                )
-            ),
-            "Session namespace",
-        ),
-    ],
-)
-def test_lifecycle_request_construction_preserves_empty_session_namespace_and_rejects_unsafe_non_empty_values(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-    request_factory: Callable[
-        [Callable[..., runtime.StageSelection], str],
-        prompt_runtime.NewSessionRunRequest,
-    ],
-    expected_message: str,
-) -> None:
-    request = request_factory(stage_selection_factory, "")
+def test_lifecycle_request_construction_does_not_expose_session_namespace_field_as_public_attribute() -> (
+    None
+):
+    request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        stage=runtime.StageSelection(service="codex", model="gpt-5.4", effort="high"),
+        role=InvocationRole("implementer"),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+    )
 
-    assert request.session_namespace == ""
-
-    with pytest.raises(ValueError, match=re.escape(expected_message)):
-        request_factory(stage_selection_factory, "../escape")
+    assert not hasattr(request, "session_namespace")
 
 
 def test_resumed_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access() -> (
@@ -459,10 +448,9 @@ def test_resumed_session_run_request_from_session_plan_keeps_namespace_from_sess
             auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
         ),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
-        session_namespace="../escape",
     )
 
-    assert request.session_namespace == "main"
+    assert not hasattr(request, "session_namespace")
 
 
 def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_worktree(
