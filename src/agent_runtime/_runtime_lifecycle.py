@@ -676,7 +676,7 @@ class ResumedSessionRunRequest:
                 normalized_request = normalize_continuation_request(
                     role=resolved_role,
                     worktree=resolved_invocation_dir,
-                    tool_access=continuation.tool_access,
+                    tool_access=continuation_payload.tool_access,
                     session_namespace=session_namespace,
                     context="ResumedSessionRunRequest",
                     role_message=(

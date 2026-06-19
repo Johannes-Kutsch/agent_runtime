@@ -2162,6 +2162,12 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
         session_namespace="main",
         exact_transcript_match=True,
     )
+    assert result.result.runtime_metadata.selected_model == "glm-5"
+    assert result.result.runtime_metadata.selected_effort == "medium"
+    assert (
+        result.result.runtime_metadata.tool_policy
+        == runtime.ToolPolicy.NO_FILE_MUTATION
+    )
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
         selected_model="glm-5",

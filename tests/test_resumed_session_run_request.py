@@ -8,6 +8,9 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime.runtime as prompt_runtime
+from agent_runtime._portable_continuation_payload import (
+    create_portable_continuation_payload,
+)
 from agent_runtime.contracts import ExecutionProvider
 from agent_runtime.execution_contracts import WorktreeMount
 from agent_runtime.roles import InvocationRole
@@ -156,6 +159,38 @@ def test_resumed_session_run_request_from_continuation_preserves_empty_session_n
             session_namespace=label,
             continuation=continuation,
         )
+
+
+def test_resumed_session_run_request_from_opaque_continuation_defaults_model_effort_and_tool_access() -> (
+    None
+):
+    continuation = prompt_runtime.Continuation(
+        serialized=create_portable_continuation_payload(
+            service_name="codex",
+            model="gpt-5.4",
+            effort="medium",
+            tool_access=runtime.ToolAccess.workspace_backed(
+                Path("/repo"),
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            ),
+            provider_resume_state={"run_kind": "resume"},
+        ).serialized
+    )
+
+    request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=WorktreeMount(Path("/repo")),
+        role=InvocationRole("implementer"),
+        continuation=continuation,
+    )
+
+    assert request.model == "gpt-5.4"
+    assert request.effort == "medium"
+    assert request.tool_access == runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+    assert request.tool_policy == runtime.ToolPolicy.NO_FILE_MUTATION
 
 
 def test_resumed_session_run_request_rejects_conflicting_continuation_and_session_plan(
