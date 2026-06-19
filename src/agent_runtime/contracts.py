@@ -99,12 +99,15 @@ class ToolPolicyProfile:
 
 
 class ToolPolicy(enum.Enum):
+    NONE = "none"
     INSPECT_ONLY = "inspect_only"
     NO_FILE_MUTATION = "no_file_mutation"
     UNRESTRICTED = "unrestricted"
 
     @property
     def profile(self) -> ToolPolicyProfile:
+        if self is ToolPolicy.NONE:
+            return _NO_TOOLS_POLICY
         if self is ToolPolicy.INSPECT_ONLY:
             return ToolPolicyProfile(allowed_tools=("Read", "Glob"))
         if self is ToolPolicy.NO_FILE_MUTATION:
@@ -116,6 +119,12 @@ _NO_TOOLS_POLICY = ToolPolicyProfile(
     allowed_tools=("none",),
     disallowed_tools=("all",),
 )
+
+
+def _is_no_tools_policy(tool_policy: ToolPolicy | ToolPolicyProfile) -> bool:
+    if isinstance(tool_policy, ToolPolicy):
+        return tool_policy is ToolPolicy.NONE
+    return tool_policy == _NO_TOOLS_POLICY
 
 
 def _format_workspace_for_message(workspace: Path | None) -> str:
@@ -141,7 +150,7 @@ class ToolAccess:
             raise ValueError(f"Unsupported tool access kind: {kind}")
         if kind == "none" and workspace is not None:
             raise ValueError("ToolAccess.no_tools() cannot carry a workspace.")
-        if kind == "none" and tool_policy != _NO_TOOLS_POLICY:
+        if kind == "none" and not _is_no_tools_policy(tool_policy):
             raise ValueError(
                 "ToolAccess.no_tools() must forbid provider tool access with the closed no-tools policy."
             )
@@ -156,7 +165,7 @@ class ToolAccess:
         return cls(
             kind="none",
             workspace=None,
-            tool_policy=_NO_TOOLS_POLICY,
+            tool_policy=ToolPolicy.NONE,
         )
 
     @classmethod

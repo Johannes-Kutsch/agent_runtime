@@ -468,6 +468,14 @@ def test_tool_policy_inspect_only_resolves_to_provider_neutral_profile() -> None
     assert profile.strict_mcp_config is True
 
 
+def test_tool_policy_none_resolves_to_closed_no_tools_profile() -> None:
+    profile = runtime.ToolPolicy.NONE.profile
+
+    assert profile.allowed_tools == ("none",)
+    assert profile.disallowed_tools == ("all",)
+    assert profile.strict_mcp_config is True
+
+
 def test_runtime_surface_exposes_tool_policy_profiles_for_no_file_mutation_and_unrestricted() -> (
     None
 ):

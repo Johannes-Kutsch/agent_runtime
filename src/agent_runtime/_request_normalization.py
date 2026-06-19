@@ -113,10 +113,14 @@ def normalize_tool_access(
     if isinstance(tool_access, ToolAccess):
         resolved_tool_access = tool_access
     elif tool_policy is not missing_sentinel:
-        resolved_tool_access = ToolAccess.workspace_backed(
-            workspace,
-            tool_policy=cast(ToolPolicy | ToolPolicyProfile, tool_policy),
-        )
+        resolved_tool_policy = cast(ToolPolicy | ToolPolicyProfile, tool_policy)
+        if resolved_tool_policy is ToolPolicy.NONE:
+            resolved_tool_access = ToolAccess.no_tools()
+        else:
+            resolved_tool_access = ToolAccess.workspace_backed(
+                workspace,
+                tool_policy=resolved_tool_policy,
+            )
     else:
         raise TypeError(missing_message)
     return normalize_resolved_tool_access(

@@ -2959,7 +2959,7 @@ def test_prompt_run_request_accepts_explicit_no_tools_tool_access() -> None:
     )
 
     assert request.tool_access == runtime.ToolAccess.no_tools()
-    assert request.tool_policy == runtime.ToolAccess.no_tools().tool_policy
+    assert request.tool_policy is runtime.ToolPolicy.NONE
 
 
 def test_tool_access_none_rejects_non_toolless_policy() -> None:

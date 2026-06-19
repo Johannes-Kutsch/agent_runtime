@@ -145,6 +145,20 @@ def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_back
     assert request.tool_policy is runtime.ToolPolicy.UNRESTRICTED
 
 
+def test_ephemeral_run_request_uses_none_tool_policy_for_explicit_no_tools_access(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        worktree=Path("/repo"),
+        stage=stage_selection_factory(service="codex"),
+        tool_policy=runtime.ToolPolicy.NONE,
+    )
+
+    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_policy is runtime.ToolPolicy.NONE
+
+
 def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
     stage_selection_factory: Callable[..., runtime.StageSelection],
 ) -> None:
