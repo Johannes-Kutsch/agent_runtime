@@ -166,6 +166,7 @@ _CLAUDE_MONTHS = {
 }
 
 _SUPPORTED_BUILTIN_SERVICES = frozenset({"claude", "codex", "opencode"})
+_PORTABLE_CONTINUATION_PROVIDERS = frozenset({"claude", "codex", "opencode"})
 _WAKE_TIME_BUFFER = timedelta(minutes=2)
 
 
@@ -2105,6 +2106,14 @@ def _require_opencode_auth(auth: ProviderAuth | None) -> None:
     )
 
 
+def _require_portable_continuation_support(service_name: str) -> None:
+    if service_name not in _PORTABLE_CONTINUATION_PROVIDERS:
+        raise RuntimeConfigurationError(
+            f"Portable continuation support is required for session-backed "
+            f"execution with {service_name!r}."
+        )
+
+
 def _run_builtin_new_session(
     request: NewSessionRunRequest,
     *,
@@ -2124,6 +2133,7 @@ def _run_builtin_new_session(
             "RuntimeClient requires at least one supported built-in service candidate."
         )
     selected_stage = _select_builtin_stage(request.stage)
+    _require_portable_continuation_support(selected_stage.service)
     if selected_stage.service == "codex":
         _validate_codex_stage(selected_stage)
         provider_state_dir_relpath, provider_state_dir = _codex_prepare_runtime_state(
@@ -2389,6 +2399,7 @@ def _run_builtin_resumed_session(
     except TypeError as exc:
         raise RuntimeConfigurationError(str(exc)) from exc
     continuation_service = continuation_payload.service_name
+    _require_portable_continuation_support(continuation_service)
     provider_resume_state = continuation_payload.provider_resume_state
     provider_session_id: str | None
     provider_state_dir_relpath: str | None = None

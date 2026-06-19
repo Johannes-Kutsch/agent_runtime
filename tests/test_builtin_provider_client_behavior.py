@@ -3121,6 +3121,72 @@ def test_runtime_client_rejects_resumed_session_with_non_object_portable_continu
     )
 
 
+def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_PORTABLE_CONTINUATION_PROVIDERS",
+        frozenset({"claude"}),
+    )
+
+    with pytest.raises(RuntimeConfigurationError, match="Portable continuation"):
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                    stage=runtime.StageSelection(
+                        service="opencode",
+                        model="deepseek-v4-flash",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="api-key"),
+                    session_namespace="main",
+                    tool_access=runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+
+def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_PORTABLE_CONTINUATION_PROVIDERS",
+        frozenset({"claude"}),
+    )
+
+    with pytest.raises(RuntimeConfigurationError, match="Portable continuation"):
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                    continuation=prompt_runtime.Continuation(
+                        selected_service="opencode",
+                        selected_model="deepseek-v4-flash",
+                        selected_effort="medium",
+                        tool_access=runtime.ToolAccess.no_tools(),
+                        provider_resume_state={
+                            "run_kind": "resume",
+                            "provider_session_id": "restored-session",
+                            "exact_transcript_match": False,
+                        },
+                    ),
+                    role=InvocationRole("implementer"),
+                    session_namespace="main",
+                )
+            )
+        )
+
+
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
 def test_runtime_client_requires_host_codex_auth_for_session_execution(
     monkeypatch: pytest.MonkeyPatch,
@@ -3506,6 +3572,57 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     for command_part in expected_command_parts:
         assert command_part in recorded_request.command
     assert list((tmp_path / "logs").glob("*.log")) == []
+
+
+def test_runtime_client_ephemeral_execution_remains_available_when_session_backed_support_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="ephemeral output",
+            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+        ),
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_PORTABLE_CONTINUATION_PROVIDERS",
+        frozenset({"claude"}),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="opencode",
+                model="deepseek-v4-flash",
+                effort="medium",
+            ),
+            auth=runtime.ProviderAuth(opencode_api_key="api-key"),
+            tool_access=runtime.ToolAccess.no_tools(),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="ephemeral output",
+        result=prompt_runtime.EphemeralRunResult(
+            output="ephemeral output",
+            selected_service="opencode",
+            selected_model="deepseek-v4-flash",
+            selected_effort="medium",
+            tool_access=runtime.ToolAccess.no_tools(),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("opencode",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(run_kind=RunKind.FRESH),
+            ),
+            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+        ),
+        usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+    )
+    assert len(adapter.recorded_requests) == 1
 
 
 def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_invocation_seam(
