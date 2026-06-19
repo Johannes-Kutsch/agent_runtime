@@ -255,6 +255,46 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
                 worktree=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.workspace_backed(
+                    Path("/other"),
+                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                ),
+            ),
+            "EphemeralRunRequest workspace-backed tool access requires worktree /other, got /repo.",
+        ),
+        (
+            lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("/repo"),
+                stage=stage_selection_factory(service="codex"),
+                role=InvocationRole("implementer"),
+                tool_access=runtime.ToolAccess.workspace_backed(
+                    Path("/other"),
+                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                ),
+            ),
+            "NewSessionRunRequest workspace-backed tool access requires worktree /other, got /repo.",
+        ),
+    ],
+)
+def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for_other_worktree(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    request_factory: Callable[[Callable[..., runtime.StageSelection]], object],
+    expected_message: str,
+) -> None:
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        request_factory(stage_selection_factory)
+
+
+@pytest.mark.parametrize(
+    ("request_factory", "expected_message"),
+    [
+        (
+            lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=Path("/repo"),
+                stage=stage_selection_factory(service="codex"),
+                role=InvocationRole("implementer"),
             ),
             "EphemeralRunRequest requires an explicit `tool_access` value.",
         ),
