@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Any, cast
 
 from . import _time as _time_module
+from ._portable_continuation_payload import (
+    create_portable_continuation_payload,
+    read_portable_continuation_payload,
+)
 from ._runtime_lifecycle import (
     Continuation,
     EphemeralResultMetadata,
@@ -639,12 +643,10 @@ def _provider_state_dir_container_path(
 
 
 def _continuation_resume_state(continuation: Continuation) -> dict[str, Any]:
-    provider_resume_state = continuation.provider_resume_state
-    if not isinstance(provider_resume_state, dict):
-        raise RuntimeConfigurationError(
-            "Continuation provider_resume_state must be a JSON object."
-        )
-    return provider_resume_state
+    try:
+        return read_portable_continuation_payload(continuation).provider_resume_state
+    except TypeError as exc:
+        raise RuntimeConfigurationError(str(exc)) from exc
 
 
 def _build_continuation(
@@ -688,13 +690,13 @@ def _build_continuation(
             "provider_state_dir_relpath": provider_state_dir_relpath,
             "exact_transcript_match": exact_transcript_match,
         }
-    return Continuation(
-        selected_service=service_name,
-        selected_model=model,
-        selected_effort=effort,
+    return create_portable_continuation_payload(
+        service_name=service_name,
+        model=model,
+        effort=effort,
         tool_access=tool_access,
         provider_resume_state=provider_resume_state,
-    )
+    ).to_continuation()
 
 
 def _interruption_continuation(

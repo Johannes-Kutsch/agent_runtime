@@ -25,6 +25,10 @@ from ._provider_invocation import (
     provider_invocation_failure_provider_session_id,
     provider_invocation_failure_stdout_lines,
 )
+from ._portable_continuation_payload import (
+    create_portable_continuation_payload,
+    read_portable_continuation_payload,
+)
 from ._runtime_lifecycle import (
     Continuation,
     EphemeralResultMetadata,
@@ -1318,10 +1322,10 @@ def _build_codex_continuation(
     provider_session_id: str,
     provider_state_dir_relpath: str,
 ) -> Continuation:
-    return Continuation(
-        selected_service="codex",
-        selected_model=model,
-        selected_effort=effort,
+    return create_portable_continuation_payload(
+        service_name="codex",
+        model=model,
+        effort=effort,
         tool_access=tool_access,
         provider_resume_state={
             "run_kind": RunKind.RESUME.value,
@@ -1329,7 +1333,7 @@ def _build_codex_continuation(
             "provider_state_dir_relpath": provider_state_dir_relpath,
             "exact_transcript_match": False,
         },
-    )
+    ).to_continuation()
 
 
 def _claude_provider_state_dir_relpath(
@@ -1435,10 +1439,10 @@ def _build_claude_continuation(
     provider_session_id: str,
     provider_state_dir_relpath: str,
 ) -> Continuation:
-    return Continuation(
-        selected_service="claude",
-        selected_model=model,
-        selected_effort=effort,
+    return create_portable_continuation_payload(
+        service_name="claude",
+        model=model,
+        effort=effort,
         tool_access=tool_access,
         provider_resume_state={
             "run_kind": RunKind.RESUME.value,
@@ -1446,7 +1450,7 @@ def _build_claude_continuation(
             "provider_state_dir_relpath": provider_state_dir_relpath,
             "exact_transcript_match": False,
         },
-    )
+    ).to_continuation()
 
 
 def _build_opencode_continuation(
@@ -1464,13 +1468,13 @@ def _build_opencode_continuation(
     }
     if exact_transcript_match is not None:
         provider_resume_state["exact_transcript_match"] = exact_transcript_match
-    return Continuation(
-        selected_service="opencode",
-        selected_model=model,
-        selected_effort=effort,
+    return create_portable_continuation_payload(
+        service_name="opencode",
+        model=model,
+        effort=effort,
         tool_access=tool_access,
         provider_resume_state=provider_resume_state,
-    )
+    ).to_continuation()
 
 
 def _start_invocation_log(
@@ -2277,11 +2281,12 @@ def _run_builtin_resumed_session(
                 effort=request.effort,
             )
         )
-        provider_resume_state = continuation.provider_resume_state
-        if not isinstance(provider_resume_state, dict):
-            raise RuntimeConfigurationError(
-                "Continuation provider_resume_state must be a JSON object."
-            )
+        try:
+            provider_resume_state = read_portable_continuation_payload(
+                continuation
+            ).provider_resume_state
+        except TypeError as exc:
+            raise RuntimeConfigurationError(str(exc)) from exc
         provider_state_dir_relpath = cast(
             str | None,
             provider_resume_state.get("provider_state_dir_relpath"),
@@ -2366,11 +2371,12 @@ def _run_builtin_resumed_session(
         _require_claude_auth(request.provider_auth)
     else:
         _require_opencode_auth(request.provider_auth)
-    provider_resume_state = continuation.provider_resume_state
-    if not isinstance(provider_resume_state, dict):
-        raise RuntimeConfigurationError(
-            "Continuation provider_resume_state must be a JSON object."
-        )
+    try:
+        provider_resume_state = read_portable_continuation_payload(
+            continuation
+        ).provider_resume_state
+    except TypeError as exc:
+        raise RuntimeConfigurationError(str(exc)) from exc
     provider_state_dir_relpath = cast(
         str | None,
         provider_resume_state.get("provider_state_dir_relpath"),
