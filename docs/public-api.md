@@ -37,6 +37,10 @@ The package root exposes stable shared vocabulary and common errors:
 - `TransientAgentError`
 - `UsageLimitError`
 
+The following values and objects are also part of the shared import surface and are available from both `agent_runtime` and `agent_runtime.runtime`:
+
+- `AgentMessageTurn`
+
 Behaviorful lifecycle entrypoints live in `agent_runtime.runtime`, not at the package root.
 
 ### Runtime Client
@@ -50,6 +54,8 @@ async run_ephemeral(request: EphemeralRunRequest) -> RuntimeOutcome
 async run_new_session(request: NewSessionRunRequest) -> RuntimeOutcome
 async run_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOutcome
 ```
+
+`run_new_session` implements Start Session Run in public terminology.
 
 `RuntimeClient` holds in-process built-in provider availability and exhaustion state across calls. It does not own durable provider state, durable logs, process-global auth setup, workflow defaults, prompt rendering, issue orchestration, execution-directory management, dependency installation, or application logging policy. It is safe to reuse across concurrent runtime requests and synchronizes provider availability updates internally.
 
@@ -85,11 +91,13 @@ EphemeralRunRequest(
     stage: StageSelection,
     provider_auth: ProviderAuth,
     tool_policy: ToolPolicy,
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
     token: CancellationToken | None = None,
 ) -> None
 ```
 
 Ephemeral execution runs an already-rendered prompt without intentionally preparing provider-session continuity. It does not require session storage inputs and does not return a continuation.
+`on_live_output` can observe provider-observed assistant turns for this invocation.
 
 #### `NewSessionRunRequest`
 
@@ -101,11 +109,13 @@ NewSessionRunRequest(
     stage: StageSelection,
     provider_auth: ProviderAuth,
     tool_policy: ToolPolicy,
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
     token: CancellationToken | None = None,
 ) -> None
 ```
 
 New-session execution selects a built-in provider, starts provider transcript continuity, and returns a portable opaque continuation for later resumed execution. A completed session-backed run must include meaningful continuation data; if a provider cannot produce resume data, the runtime must not report a successful session-backed result.
+`on_live_output` is also available for Start Session Run.
 
 #### `ResumedSessionRunRequest`
 
@@ -118,11 +128,34 @@ ResumedSessionRunRequest(
     provider_auth: ProviderAuth,
     model: str | None = None,
     effort: str | None = None,
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
     token: CancellationToken | None = None,
 ) -> None
 ```
 
 Resumed-session execution continues an existing provider-session continuity chain. The continuation fixes service and tool policy. Resumed execution does not perform fallback and rejects tool-policy replacement; omitted model or effort values default from result metadata associated with the continuation when available.
+`on_live_output` is also available for Resume Session Run.
+
+### Live Runtime Output
+
+`on_live_output` publishes per-invocation `AgentMessageTurn` observations while a run is executing. Observers receive turns from the current invocation only.
+
+- Live Runtime Output is agent-message-turn observation, not token-by-token streaming.
+- It is provider-neutral and does not expose raw provider stdout, raw JSON, or provider DTO events.
+- It does not replay prior turns from continuations, logs, or historical transcript state.
+- Completed runtime output and `RuntimeOutcome` interruption semantics remain authoritative and unchanged.
+- `on_live_output` callbacks are synchronous and notification-only. Callback exceptions are propagated to the caller as consumer failures.
+- Consumers own backpressure policy, queueing, display formatting, redaction, and persistence for observed turns.
+- Live Runtime Output observers are for display/telemetry only and do not control runtime flow.
+
+A reference consumer pattern is pycastle (conceptual, not a runtime dependency):
+
+```python
+def on_turn(turn: str) -> None:
+    self._status_display.print(self.name, turn)
+```
+
+Runtime-provided `AgentMessageTurn` data is intentionally minimal and requires consumers to apply their own protocol parsing and downstream policy.
 
 ### Auth
 
@@ -299,6 +332,19 @@ Policy meanings:
 - `UNRESTRICTED`: the runtime adds no tool restriction beyond provider defaults.
 
 Every public `ToolPolicy` is valid for every supported service/model pair. Built-in Provider Adapters enforce each policy with the strongest provider-supported mechanism, so enforcement strength may vary by provider. A provider-session continuity chain keeps the same `ToolPolicy` for its lifetime.
+
+#### `AgentMessageTurn`
+
+```python
+AgentMessageTurn(
+    text: str,
+    service_name: str,
+) -> None
+```
+
+Provider-observable output unit for Live Runtime Output. `text` is the assistant-message content and `service_name` is the selected built-in service for that emitted turn.
+
+The type is shared runtime vocabulary and is importable from both `agent_runtime` and `agent_runtime.runtime`.
 
 ## Adapter Surface
 
