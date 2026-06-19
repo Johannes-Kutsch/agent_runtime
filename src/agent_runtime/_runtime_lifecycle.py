@@ -12,13 +12,9 @@ from .execution_contracts import CancellationToken, WorktreeMount
 from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
 from ._request_normalization import (
-    normalize_session_namespace,
-    normalize_resolved_tool_access,
-    normalize_stage_selection,
-    normalize_tool_access,
-    normalize_worktree_mount,
-    normalize_worktree_path,
-    require_invocation_role,
+    normalize_continuation_request,
+    normalize_session_plan_request,
+    normalize_stage_request,
 )
 from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
@@ -366,31 +362,31 @@ class EphemeralRunRequest:
         *,
         override: StageSelection | None = None,
     ) -> None:
-        stage = normalize_stage_selection(
-            stage,
+        normalized_request = normalize_stage_request(
+            stage=stage,
             override=override,
-            context="EphemeralRunRequest",
-        )
-        role = require_invocation_role(role, context="EphemeralRunRequest")
-        worktree_path = normalize_worktree_path(worktree)
-        resolved_tool_access = normalize_tool_access(
+            role=role,
+            worktree=worktree,
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=_MISSING_TOOL_POLICY,
-            workspace=worktree_path,
+            session_namespace=session_namespace,
             context="EphemeralRunRequest",
             missing_message="EphemeralRunRequest requires an explicit `tool_access` value.",
         )
-        resolved_session_namespace = normalize_session_namespace(session_namespace)
 
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", worktree_path)
+        object.__setattr__(self, "worktree", normalized_request.worktree.path)
         object.__setattr__(self, "logs_dir", logs_dir)
-        object.__setattr__(self, "stage", stage)
-        object.__setattr__(self, "role", role)
-        object.__setattr__(self, "tool_access", resolved_tool_access)
+        object.__setattr__(self, "stage", normalized_request.stage)
+        object.__setattr__(self, "role", normalized_request.role)
+        object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
-        object.__setattr__(self, "session_namespace", resolved_session_namespace)
+        object.__setattr__(
+            self,
+            "session_namespace",
+            normalized_request.session_namespace,
+        )
         object.__setattr__(self, "token", token)
         object.__setattr__(self, "auth", auth)
 
@@ -448,29 +444,25 @@ class NewSessionRunRequest:
         *,
         override: StageSelection | None = None,
     ) -> None:
-        stage = normalize_stage_selection(
-            stage,
+        normalized_request = normalize_stage_request(
+            stage=stage,
             override=override,
-            context="NewSessionRunRequest",
-        )
-        role = require_invocation_role(role, context="NewSessionRunRequest")
-        worktree_path = normalize_worktree_path(worktree)
-        resolved_tool_access = normalize_tool_access(
+            role=role,
+            worktree=worktree,
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=_MISSING_TOOL_POLICY,
-            workspace=worktree_path,
+            session_namespace=session_namespace,
             context="NewSessionRunRequest",
             missing_message="NewSessionRunRequest requires an explicit `tool_access` value.",
         )
-        resolved_session_namespace = normalize_session_namespace(session_namespace)
 
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", worktree_path)
+        object.__setattr__(self, "worktree", normalized_request.worktree.path)
         object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
         object.__setattr__(self, "logs_dir", logs_dir)
-        object.__setattr__(self, "stage", stage)
-        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "stage", normalized_request.stage)
+        object.__setattr__(self, "role", normalized_request.role)
         object.__setattr__(self, "provider_auth", provider_auth)
         object.__setattr__(self, "session_store", session_store)
         object.__setattr__(
@@ -478,9 +470,13 @@ class NewSessionRunRequest:
             "provider_session_adapter",
             provider_session_adapter,
         )
-        object.__setattr__(self, "tool_access", resolved_tool_access)
+        object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
-        object.__setattr__(self, "session_namespace", resolved_session_namespace)
+        object.__setattr__(
+            self,
+            "session_namespace",
+            normalized_request.session_namespace,
+        )
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
@@ -563,7 +559,6 @@ class ResumedSessionRunRequest:
             raise TypeError(
                 "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
             )
-        worktree_path = normalize_worktree_path(worktree)
         if (
             isinstance(tool_access, ToolAccess)
             and tool_policy is not _MISSING_TOOL_POLICY
@@ -572,10 +567,13 @@ class ResumedSessionRunRequest:
                 "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
             )
         if continuation is not None:
-            role = require_invocation_role(
-                role,
+            normalized_request = normalize_continuation_request(
+                role=role,
+                worktree=worktree,
+                tool_access=continuation.tool_access,
+                session_namespace=session_namespace,
                 context="ResumedSessionRunRequest",
-                message=(
+                role_message=(
                     "ResumedSessionRunRequest requires a `role` value when "
                     "constructed from a continuation."
                 ),
@@ -588,13 +586,6 @@ class ResumedSessionRunRequest:
                 )
             resolved_model = continuation.selected_model if model is None else model
             resolved_effort = continuation.selected_effort if effort is None else effort
-            resolved_tool_access = normalize_resolved_tool_access(
-                tool_access=continuation.tool_access,
-                workspace=worktree_path,
-                context="ResumedSessionRunRequest",
-            )
-            resolved_role = role
-            resolved_session_namespace = normalize_session_namespace(session_namespace)
         else:
             if session_plan is None:
                 raise TypeError(
@@ -608,33 +599,36 @@ class ResumedSessionRunRequest:
                 raise TypeError(
                     "ResumedSessionRunRequest does not accept request-level `role` when `session_plan` is supplied."
                 )
-            resolved_tool_access = normalize_tool_access(
+            normalized_request = normalize_session_plan_request(
+                role=session_plan.role,
+                worktree=worktree,
                 tool_access=tool_access,
                 tool_policy=tool_policy,
                 missing_sentinel=_MISSING_TOOL_POLICY,
-                workspace=worktree_path,
+                session_namespace=session_plan.namespace,
                 context="ResumedSessionRunRequest",
                 missing_message="ResumedSessionRunRequest requires an explicit `tool_policy` value.",
             )
             resolved_model = model
             resolved_effort = effort
-            resolved_role = session_plan.role
-            resolved_session_namespace = session_plan.namespace
             usage_limit_scope = session_plan.usage_limit_scope
-        resolved_worktree = normalize_worktree_mount(worktree)
 
         object.__setattr__(self, "prompt", prompt)
-        object.__setattr__(self, "worktree", resolved_worktree)
+        object.__setattr__(self, "worktree", normalized_request.worktree.mount)
         object.__setattr__(self, "runtime_state_dir", runtime_state_dir)
         object.__setattr__(self, "logs_dir", logs_dir)
         object.__setattr__(self, "model", resolved_model)
         object.__setattr__(self, "effort", resolved_effort)
-        object.__setattr__(self, "role", resolved_role)
-        object.__setattr__(self, "session_namespace", resolved_session_namespace)
+        object.__setattr__(self, "role", normalized_request.role)
+        object.__setattr__(
+            self,
+            "session_namespace",
+            normalized_request.session_namespace,
+        )
         object.__setattr__(self, "session_plan", session_plan)
         object.__setattr__(self, "continuation", continuation)
         object.__setattr__(self, "provider_auth", provider_auth)
-        object.__setattr__(self, "tool_access", resolved_tool_access)
+        object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
