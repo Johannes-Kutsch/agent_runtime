@@ -2402,10 +2402,6 @@ def _run_builtin_resumed_session(
         return None
 
     if continuation_service == "codex":
-        runtime_state_dir = _require_runtime_state_dir(
-            request.runtime_state_dir,
-            context="ResumedSessionRunRequest",
-        )
         _validate_codex_stage(
             StageSelection(
                 service="codex",
@@ -2497,12 +2493,6 @@ def _run_builtin_resumed_session(
             ),
             usage=usage,
         )
-    if runtime_state_dir is None:
-        _require_runtime_state_dir(
-            runtime_state_dir,
-            context="ResumedSessionRunRequest",
-        )
-    assert runtime_state_dir is not None
     if continuation_service not in {"claude", "opencode"}:
         raise RuntimeConfigurationError(
             "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
