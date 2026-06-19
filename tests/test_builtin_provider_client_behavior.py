@@ -3125,6 +3125,7 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_PORTABLE_CONTINUATION_PROVIDERS",
@@ -3150,12 +3151,14 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
                 )
             )
         )
+    assert adapter.recorded_requests == []
 
 
 def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_PORTABLE_CONTINUATION_PROVIDERS",
@@ -3185,6 +3188,7 @@ def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_p
                 )
             )
         )
+    assert adapter.recorded_requests == []
 
 
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
@@ -3596,9 +3600,14 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
             prompt="already rendered prompt",
             worktree=tmp_path,
             stage=runtime.StageSelection(
-                service="opencode",
-                model="deepseek-v4-flash",
-                effort="medium",
+                service="missing",
+                model="placeholder",
+                effort="placeholder",
+                fallback=runtime.StageSelection(
+                    service="opencode",
+                    model="deepseek-v4-flash",
+                    effort="medium",
+                ),
             ),
             auth=runtime.ProviderAuth(opencode_api_key="api-key"),
             tool_access=runtime.ToolAccess.no_tools(),
@@ -3613,9 +3622,9 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
             selected_model="deepseek-v4-flash",
             selected_effort="medium",
             tool_access=runtime.ToolAccess.no_tools(),
-            used_fallback=False,
+            used_fallback=True,
             metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("opencode",),
+                selected_service_path=("missing", "opencode"),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(run_kind=RunKind.FRESH),
             ),
             usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
