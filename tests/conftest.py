@@ -118,7 +118,7 @@ def ephemeral_request_factory(
         stage: runtime.StageSelection | None = None,
         override: runtime.StageSelection | None = None,
         tool_access: runtime.ToolAccess | None = None,
-        tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.UNRESTRICTED,
+        tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.NONE,
         token: Any = None,
     ) -> prompt_runtime.EphemeralRunRequest:
         kwargs: dict[str, Any] = {"tool_policy": tool_policy}

@@ -389,6 +389,23 @@ def test_ephemeral_request_none_tool_policy_prohibits_provider_tools_and_require
     assert request.tool_policy is runtime.ToolPolicy.NONE
 
 
+def test_new_session_request_none_tool_policy_prohibits_provider_tools_and_requires_invocation_dir(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
+) -> None:
+    request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=tmp_path,
+        stage=stage_selection_factory(service="codex"),
+        role=InvocationRole("implementer"),
+        tool_policy=runtime.ToolPolicy.NONE,
+    )
+
+    assert request.invocation_dir == tmp_path
+    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_policy is runtime.ToolPolicy.NONE
+
+
 def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mount() -> (
     None
 ):
