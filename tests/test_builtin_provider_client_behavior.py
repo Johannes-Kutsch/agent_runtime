@@ -666,6 +666,120 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
 
 
 @pytest.mark.parametrize(
+    ("tool_policy", "expected_flags"),
+    [
+        (runtime.ToolPolicy.NONE, ('--disallowedTools "all"',)),
+        (runtime.ToolPolicy.INSPECT_ONLY, ("--tools 'Read Glob'",)),
+        (
+            runtime.ToolPolicy.NO_FILE_MUTATION,
+            ('--disallowedTools "Edit Write NotebookEdit"',),
+        ),
+        (runtime.ToolPolicy.UNRESTRICTED, tuple()),
+    ],
+)
+def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_policy_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_flags: tuple[str, ...],
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "continued output"}) + "\n",
+            ),
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/claude"
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "session.jsonl").write_text("{}\n", encoding="utf-8")
+    tool_access = (
+        runtime.ToolAccess.no_tools()
+        if tool_policy is runtime.ToolPolicy.NONE
+        else runtime.ToolAccess.workspace_backed(tmp_path, tool_policy=tool_policy)
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=prompt_runtime.Continuation(
+                    selected_service="claude",
+                    selected_model="sonnet",
+                    selected_effort="medium",
+                    tool_access=tool_access,
+                    provider_resume_state={
+                        "run_kind": "resume",
+                        "provider_session_id": "claude-session-123",
+                        "provider_state_dir_relpath": "implementer/main/claude/",
+                        "exact_transcript_match": False,
+                    },
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                model="opus",
+                effort="high",
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="claude-session-123",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="opus",
+                selected_effort="high",
+                tool_access=tool_access,
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "claude-session-123",
+                    "provider_state_dir_relpath": "implementer/main/claude/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=None,
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.provider_session_id == "claude-session-123"
+    assert recorded_request.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+        "CLAUDE_CONFIG_DIR": str(provider_state_dir),
+    }
+    command = recorded_request.command
+    assert "--resume claude-session-123" in command
+    if tool_policy is runtime.ToolPolicy.NONE:
+        assert "--tools none" not in command
+    elif tool_policy is runtime.ToolPolicy.INSPECT_ONLY:
+        assert '--disallowedTools "all"' not in command
+    elif tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION:
+        assert "--tools" not in command
+    elif tool_policy is runtime.ToolPolicy.UNRESTRICTED:
+        assert "--tools" not in command
+        assert "--disallowedTools" not in command
+    for flag in expected_flags:
+        assert flag in command
+
+
+@pytest.mark.parametrize(
     ("tool_access", "expected_flag"),
     [
         (
