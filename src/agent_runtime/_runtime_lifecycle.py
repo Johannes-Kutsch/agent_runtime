@@ -5,7 +5,7 @@ import inspect
 import math
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .execution_contracts import CancellationToken, WorktreeMount
@@ -25,6 +25,7 @@ from .types import StageSelection
 from .errors import RuntimeConfigurationError
 
 __all__ = [
+    "AgentMessageTurn",
     "Continuation",
     "EphemeralRunRequest",
     "EphemeralRunResult",
@@ -180,6 +181,12 @@ class Continuation:
 class ProviderAuth:
     claude_code_oauth_token: str | None = None
     opencode_api_key: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class AgentMessageTurn:
+    text: str
+    service_name: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -433,6 +440,7 @@ class EphemeralRunRequest:
     invocation_dir: Path
     stage: StageSelection
     tool_access: ToolAccess
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None
     token: CancellationToken | None = None
     auth: ProviderAuth | None = None
 
@@ -445,6 +453,7 @@ class EphemeralRunRequest:
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         token: CancellationToken | None = None,
         auth: ProviderAuth | None = None,
+        on_live_output: Callable[[AgentMessageTurn], None] | None = None,
         *,
         override: StageSelection | None = None,
         **compatibility_kwargs: Any,
@@ -476,6 +485,7 @@ class EphemeralRunRequest:
         )
         object.__setattr__(self, "stage", normalized_request.stage)
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
+        object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
         object.__setattr__(self, "auth", auth)
 
@@ -505,6 +515,7 @@ class NewSessionRunRequest:
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None
     token: CancellationToken | None = None
 
     if TYPE_CHECKING:
@@ -527,6 +538,7 @@ class NewSessionRunRequest:
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
+        on_live_output: Callable[[AgentMessageTurn], None] | None = None,
         token: CancellationToken | None = None,
         *,
         override: StageSelection | None = None,
@@ -595,6 +607,7 @@ class NewSessionRunRequest:
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
+        object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
 
     @property
@@ -649,6 +662,7 @@ class ResumedSessionRunRequest:
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None
     token: CancellationToken | None = None
 
     if TYPE_CHECKING:
@@ -672,6 +686,7 @@ class ResumedSessionRunRequest:
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
+        on_live_output: Callable[[AgentMessageTurn], None] | None = None,
         token: CancellationToken | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
@@ -800,6 +815,7 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
+        object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
 
     @property
@@ -818,6 +834,7 @@ cast(Any, EphemeralRunRequest).__signature__ = _public_request_signature(
     "tool_policy",
     "token",
     "auth",
+    "on_live_output",
     "override",
 )
 cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
@@ -833,6 +850,7 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "status_display",
     "work_body",
     "token",
+    "on_live_output",
     "override",
 )
 cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
@@ -842,5 +860,6 @@ cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
     "provider_auth",
     "model",
     "effort",
+    "on_live_output",
     "token",
 )

@@ -109,6 +109,21 @@ def _expected_opencode_permission(
     return None
 
 
+def _codex_assistant_output_line(text: str) -> str:
+    return (
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "agent_message",
+                    "text": text,
+                },
+            }
+        )
+        + "\n"
+    )
+
+
 def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -225,7 +240,7 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
         "_new_provider_session_id",
         lambda: "prepared-session-id",
     )
-    _install_in_memory_provider_invocation_adapter(
+    _ = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1175,6 +1190,150 @@ def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
         assert "permission" not in config
     else:
         assert config["permission"] == expected_permission
+
+
+def test_runtime_client_ephemeral_run_calls_live_output_observer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        ),
+    )
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            on_live_output=on_live_output,
+        )
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    assert outcome.output == "hello\nworld"
+    assert observed == [("hello", "codex"), ("world", "codex")]
+
+
+def test_runtime_client_new_session_run_calls_live_output_observer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        ),
+    )
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
+        )
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    assert outcome.output == "hello\nworld"
+    assert observed == [("hello", "codex"), ("world", "codex")]
+
+
+def test_runtime_client_resumed_session_run_calls_live_output_observer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        ),
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={"provider_session_id": "resume-session"},
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                continuation=continuation,
+                on_live_output=on_live_output,
+            )
+        )
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    assert outcome.output == "hello\nworld"
+    assert observed == [("hello", "codex"), ("world", "codex")]
 
 
 def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_invocation_seam(

@@ -17,6 +17,7 @@ from .errors import (
 )
 from .invocation_progress import InvocationProgress
 from .runtime import (
+    AgentMessageTurn,
     Continuation,
     ProviderAuth,
     ProviderUsage,
@@ -29,6 +30,7 @@ from .types import StageSelection
 __all__ = [
     "AgentCredentialFailureError",
     "AgentFailedError",
+    "AgentMessageTurn",
     "AgentRuntimeError",
     "AgentTimeoutError",
     "Continuation",

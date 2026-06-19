@@ -27,6 +27,7 @@ def test_package_exports_runtime_surface() -> None:
     assert runtime.__all__ == [
         "AgentCredentialFailureError",
         "AgentFailedError",
+        "AgentMessageTurn",
         "AgentRuntimeError",
         "AgentTimeoutError",
         "Continuation",
@@ -78,6 +79,7 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
     assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
     assert {
+        "AgentMessageTurn",
         "Continuation",
         "EphemeralRunRequest",
         "NewSessionRunRequest",
@@ -362,6 +364,21 @@ def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     assert prompt_runtime.ResumedSessionRunRequest.__name__ == (
         "ResumedSessionRunRequest"
     )
+
+
+def test_runtime_surface_exports_agent_message_turn_public_vocabulary() -> None:
+    assert hasattr(runtime, "AgentMessageTurn")
+    assert runtime.AgentMessageTurn is prompt_runtime.AgentMessageTurn
+    assert [field.name for field in fields(runtime.AgentMessageTurn)] == [
+        "text",
+        "service_name",
+    ]
+    with pytest.raises(FrozenInstanceError):
+        setattr(
+            runtime.AgentMessageTurn(text="hello", service_name="codex"),
+            "service_name",
+            "claude",
+        )
 
 
 def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_worktree_alias(

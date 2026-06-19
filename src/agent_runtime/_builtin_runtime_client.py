@@ -31,6 +31,7 @@ from ._portable_continuation_payload import (
 from ._runtime_lifecycle import (
     _DEFAULT_EPHEMERAL_ROLE,
     Continuation,
+    AgentMessageTurn,
     EphemeralResultMetadata,
     EphemeralRunRequest,
     EphemeralRunResult,
@@ -675,10 +676,26 @@ def _parse_claude_event_with_dependencies(
     return []
 
 
-def _reduce_claude_stream(lines: list[str]) -> tuple[str, ProviderUsage | None]:
+def _reduce_claude_stream(
+    lines: list[str],
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+) -> tuple[str, ProviderUsage | None]:
     return _reduce_claude_stream_with_dependencies(
         lines,
         parse_claude_event=_parse_claude_event,
+        on_live_output=on_live_output,
+    )
+
+
+def _live_output_observer(
+    service_name: str,
+    on_live_output: Callable[[AgentMessageTurn], None] | None,
+) -> Callable[[str], None]:
+    if on_live_output is None:
+        return lambda _turn: None
+
+    return lambda turn_text: on_live_output(
+        AgentMessageTurn(text=turn_text, service_name=service_name)
     )
 
 
@@ -726,6 +743,7 @@ def _reduce_claude_stream_with_dependencies(
     lines: list[str],
     *,
     parse_claude_event: Callable[[str], list[Any]],
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
     usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
@@ -735,7 +753,7 @@ def _reduce_claude_stream_with_dependencies(
     try:
         output = reduce_text_output_events(
             parsed_events,
-            lambda _turn: None,
+            _live_output_observer("claude", on_live_output),
             provider="claude",
         )
     except (RetryableProviderFailureError, UsageLimitError) as exc:
@@ -831,7 +849,10 @@ def _parse_codex_event(line: str) -> list[Any]:
     return []
 
 
-def _reduce_codex_stream(lines: list[str]) -> tuple[str, ProviderUsage | None]:
+def _reduce_codex_stream(
+    lines: list[str],
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+) -> tuple[str, ProviderUsage | None]:
     usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
     for line in lines:
@@ -840,7 +861,7 @@ def _reduce_codex_stream(lines: list[str]) -> tuple[str, ProviderUsage | None]:
     try:
         output = reduce_text_output_events(
             parsed_events,
-            lambda _turn: None,
+            _live_output_observer("codex", on_live_output),
             provider="codex",
         )
     except (RetryableProviderFailureError, UsageLimitError) as exc:
@@ -1265,10 +1286,13 @@ def _provider_session_id_from_error(
     return fallback_provider_session_id
 
 
-def _reduce_opencode_stream(lines: list[str]) -> str:
+def _reduce_opencode_stream(
+    lines: list[str],
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+) -> str:
     return reduce_text_output_events(
         _parse_opencode_events(lines),
-        lambda _turn: None,
+        _live_output_observer("opencode", on_live_output),
         provider="opencode",
     )
 
@@ -1754,6 +1778,7 @@ def _invoke_claude_new_session_provider(
     provider_state_dir: Path,
     run_kind: RunKind,
     provider_session_id: str,
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
 ) -> ProviderInvocationResult:
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
@@ -1777,7 +1802,10 @@ def _invoke_claude_new_session_provider(
         role=request.role,
         usage_limit_scope=None,
         provider_session_id=provider_session_id,
-        reduce_output=_reduce_claude_stream,
+        reduce_output=lambda lines: _reduce_claude_stream(
+            lines,
+            on_live_output=on_live_output,
+        ),
     )
 
 
@@ -1787,6 +1815,7 @@ def _invoke_codex_new_session_provider(
     request: NewSessionRunRequest,
     stage: StageSelection,
     provider_state_dir: Path,
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
 ) -> ProviderInvocationResult:
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
@@ -1808,7 +1837,10 @@ def _invoke_codex_new_session_provider(
         role=request.role,
         usage_limit_scope=None,
         provider_session_id=None,
-        reduce_output=_reduce_codex_stream,
+        reduce_output=lambda lines: _reduce_codex_stream(
+            lines,
+            on_live_output=on_live_output,
+        ),
     )
 
 
@@ -1818,6 +1850,7 @@ def _invoke_codex_resumed_session_provider(
     request: ResumedSessionRunRequest,
     provider_state_dir: Path | None,
     provider_session_id: str,
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
 ) -> ProviderInvocationResult:
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
@@ -1841,7 +1874,10 @@ def _invoke_codex_resumed_session_provider(
         role=request.role,
         usage_limit_scope=None,
         provider_session_id=provider_session_id,
-        reduce_output=_reduce_codex_stream,
+        reduce_output=lambda lines: _reduce_codex_stream(
+            lines,
+            on_live_output=on_live_output,
+        ),
         extract_provider_session_id=_extract_codex_provider_session_id,
     )
 
@@ -1883,6 +1919,7 @@ def _invoke_opencode_new_session_provider(
     provider_state_dir: Path,
     run_kind: RunKind,
     provider_session_id: str,
+    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
 ) -> tuple[ProviderInvocationResult, str]:
     observed_provider_session_id = provider_session_id
 
@@ -1899,7 +1936,7 @@ def _invoke_opencode_new_session_provider(
                     lines,
                     on_provider_session_id=_record_opencode_session_id,
                 ),
-                lambda _turn: None,
+                _live_output_observer("opencode", on_live_output),
                 provider="opencode",
             ),
             None,
@@ -1951,16 +1988,21 @@ def _run_builtin_ephemeral(
     claude_command: Callable[..., str] = _claude_command,
     claude_env: Callable[..., dict[str, str]] = _claude_env,
     reduce_claude_stream: Callable[
-        [list[str]], tuple[str, ProviderUsage | None]
+        [list[str], Callable[[AgentMessageTurn], None] | None],
+        tuple[str, ProviderUsage | None],
     ] = _reduce_claude_stream,
     codex_command: Callable[..., str] = _codex_command,
     codex_env: Callable[..., dict[str, str]] = _codex_env,
     reduce_codex_stream: Callable[
-        [list[str]], tuple[str, ProviderUsage | None]
+        [list[str], Callable[[AgentMessageTurn], None] | None],
+        tuple[str, ProviderUsage | None],
     ] = _reduce_codex_stream,
     opencode_command: Callable[..., str] = _opencode_command,
     opencode_env: Callable[..., dict[str, str]] = _opencode_env,
-    reduce_opencode_stream: Callable[[list[str]], str] = _reduce_opencode_stream,
+    reduce_opencode_stream: Callable[
+        [list[str], Callable[[AgentMessageTurn], None] | None],
+        str,
+    ] = _reduce_opencode_stream,
     validate_codex_auth: Callable[[], None] = _validate_codex_auth,
     selected_service_path: Callable[..., tuple[str, ...]] = _selected_service_path,
 ) -> EphemeralRunResult:
@@ -2019,7 +2061,10 @@ def _run_builtin_ephemeral(
             role=_DEFAULT_EPHEMERAL_ROLE,
             usage_limit_scope=None,
             provider_session_id=None,
-            reduce_output=reduce_codex_stream,
+            reduce_output=lambda lines: reduce_codex_stream(
+                lines,
+                request.on_live_output,
+            ),
         )
     elif selected_stage.service == "opencode":
         invocation_result = _invoke_provider(
@@ -2043,7 +2088,13 @@ def _run_builtin_ephemeral(
             role=_DEFAULT_EPHEMERAL_ROLE,
             usage_limit_scope=None,
             provider_session_id=None,
-            reduce_output=lambda lines: (reduce_opencode_stream(lines), None),
+            reduce_output=lambda lines: (
+                reduce_opencode_stream(
+                    lines,
+                    request.on_live_output,
+                ),
+                None,
+            ),
         )
     else:
         invocation_result = _invoke_provider(
@@ -2063,7 +2114,10 @@ def _run_builtin_ephemeral(
             role=_DEFAULT_EPHEMERAL_ROLE,
             usage_limit_scope=None,
             provider_session_id=None,
-            reduce_output=reduce_claude_stream,
+            reduce_output=lambda lines: reduce_claude_stream(
+                lines,
+                request.on_live_output,
+            ),
         )
     result_text = invocation_result.output
     usage = invocation_result.usage
@@ -2213,6 +2267,7 @@ def _run_builtin_new_session(
                     request=request,
                     stage=selected_stage,
                     provider_state_dir=provider_state_dir,
+                    on_live_output=request.on_live_output,
                 )
                 provider_session_id = _active_codex_provider_session_id_from_result(
                     invocation_result,
@@ -2358,6 +2413,7 @@ def _run_builtin_new_session(
                     provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
                     provider_session_id=provider_session_id,
+                    on_live_output=request.on_live_output,
                 )
                 invocation_records = _provider_invocation_records(
                     service_name=selected_stage.service,
@@ -2376,6 +2432,7 @@ def _run_builtin_new_session(
                         provider_state_dir=provider_state_dir,
                         run_kind=run_kind,
                         provider_session_id=provider_session_id,
+                        on_live_output=request.on_live_output,
                     )
                 )
                 invocation_records = _provider_invocation_records(
@@ -2539,6 +2596,7 @@ def _run_builtin_resumed_session(
                 provider_session_id=provider_session_id,
                 request=request,
                 provider_state_dir=provider_state_dir,
+                on_live_output=request.on_live_output,
             )
             active_provider_session_id = _active_codex_provider_session_id_from_result(
                 invocation_result,
@@ -2667,7 +2725,7 @@ def _run_builtin_resumed_session(
         return (
             reduce_text_output_events(
                 _parse_opencode_events(lines),
-                lambda _turn: None,
+                _live_output_observer("opencode", request.on_live_output),
                 provider="opencode",
             ),
             None,
@@ -2689,7 +2747,15 @@ def _run_builtin_resumed_session(
                     str(provider_state_dir) if provider_state_dir is not None else None
                 ),
             )
-            reduce_output = _reduce_claude_stream
+
+            def reduce_output(
+                lines: list[str],
+            ) -> tuple[str, ProviderUsage | None]:
+                return _reduce_claude_stream(
+                    lines,
+                    on_live_output=request.on_live_output,
+                )
+
             extract_provider_session_id = None
         else:
             command = _opencode_command(
