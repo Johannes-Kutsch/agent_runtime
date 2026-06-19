@@ -72,6 +72,40 @@ def test_resumed_session_run_request_from_continuation_requires_role() -> None:
         )
 
 
+@pytest.mark.parametrize("label", ["", "../escape"])
+def test_resumed_session_run_request_from_continuation_preserves_empty_session_namespace_and_rejects_unsafe_non_empty_values(
+    label: str,
+) -> None:
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={"run_kind": "resume"},
+    )
+
+    if label == "":
+        request = prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            role=InvocationRole("implementer"),
+            session_namespace=label,
+            continuation=continuation,
+        )
+
+        assert request.session_namespace == ""
+        return
+
+    with pytest.raises(ValueError):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            role=InvocationRole("implementer"),
+            session_namespace=label,
+            continuation=continuation,
+        )
+
+
 def test_resumed_session_run_request_rejects_conflicting_continuation_and_session_plan(
     session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,

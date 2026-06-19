@@ -128,6 +128,53 @@ def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_ba
     assert request.tool_policy is runtime.ToolPolicy.PARTIAL
 
 
+@pytest.mark.parametrize(
+    ("request_factory", "expected_message"),
+    [
+        (
+            lambda stage_selection_factory, session_namespace: (
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=Path("/repo"),
+                    stage=stage_selection_factory(service="codex"),
+                    role=InvocationRole("implementer"),
+                    tool_access=runtime.ToolAccess.no_tools(),
+                    session_namespace=session_namespace,
+                )
+            ),
+            "Session namespace",
+        ),
+        (
+            lambda stage_selection_factory, session_namespace: (
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=Path("/repo"),
+                    stage=stage_selection_factory(service="codex"),
+                    role=InvocationRole("implementer"),
+                    tool_access=runtime.ToolAccess.no_tools(),
+                    session_namespace=session_namespace,
+                )
+            ),
+            "Session namespace",
+        ),
+    ],
+)
+def test_lifecycle_request_construction_preserves_empty_session_namespace_and_rejects_unsafe_non_empty_values(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    request_factory: Callable[
+        [Callable[..., runtime.StageSelection], str],
+        prompt_runtime.EphemeralRunRequest | prompt_runtime.NewSessionRunRequest,
+    ],
+    expected_message: str,
+) -> None:
+    request = request_factory(stage_selection_factory, "")
+
+    assert request.session_namespace == ""
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        request_factory(stage_selection_factory, "../escape")
+
+
 def test_resumed_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access() -> (
     None
 ):
@@ -154,6 +201,31 @@ def test_resumed_session_run_request_uses_compatibility_tool_policy_for_workspac
         tool_policy=runtime.ToolPolicy.PARTIAL,
     )
     assert request.tool_policy is runtime.ToolPolicy.PARTIAL
+
+
+def test_resumed_session_run_request_from_session_plan_keeps_namespace_from_session_plan() -> (
+    None
+):
+    request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        worktree=Path("/repo"),
+        model="gpt-5.4",
+        effort="medium",
+        session_plan=ResumableSessionPlan(
+            role=InvocationRole("reviewer"),
+            worktree=Path("/repo"),
+            namespace="main",
+            service=cast(ExecutionProvider, _ExecutionService("codex")),
+            run_kind=RunKind.FRESH,
+            provider_state_dir=None,
+            provider_session_id=None,
+            auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+        ),
+        tool_access=runtime.ToolAccess.no_tools(),
+        session_namespace="../escape",
+    )
+
+    assert request.session_namespace == "main"
 
 
 def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_worktree(
