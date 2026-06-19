@@ -321,6 +321,8 @@ class _StartedUsageLimitNewSessionRunner(_ResidentSeamRunner):
             reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
             service_name="codex",
             invocation_progress=runtime.InvocationProgress.STARTED,
+            account_label="team-account-1",
+            usage=runtime.ProviderUsage(input_tokens=128),
         )
 
 
@@ -1236,8 +1238,9 @@ def test_new_session_runtime_keeps_started_usage_limit_outcome(
         output="",
         service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=runtime.InvocationProgress.STARTED,
+        account_label="team-account-1",
+        usage=runtime.ProviderUsage(input_tokens=128),
         continuation=prompt_runtime.Continuation(
             selected_service="codex",
             selected_model="gpt-5.4",
@@ -1452,7 +1455,6 @@ def test_new_session_runtime_reports_not_started_progress_without_continuation(
     assert result == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=runtime.InvocationProgress.NOT_STARTED,
     )
     assert result.continuation is None
@@ -2276,7 +2278,6 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
         output="",
         service_name="opencode",
         reset_time=None,
-        usage_limit_scope=None,
         invocation_progress=runtime.InvocationProgress.STARTED,
         continuation=prompt_runtime.Continuation(
             selected_service="opencode",

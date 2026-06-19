@@ -1651,7 +1651,6 @@ def test_resumed_session_runtime_started_usage_limit_keeps_service_bound_in_cont
         output="",
         service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         continuation=prompt_runtime.Continuation(
             selected_service="bound-service",
@@ -1740,7 +1739,6 @@ def test_resumed_session_runtime_reports_started_progress_for_usage_limited_outc
         output="",
         service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         continuation=prompt_runtime.Continuation(
             selected_service="codex",
@@ -1792,7 +1790,6 @@ def test_resumed_session_runtime_prefers_adapter_reported_model_activity_for_usa
         output="",
         service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         continuation=prompt_runtime.Continuation(
             selected_service="codex",
@@ -1820,7 +1817,6 @@ def test_resumed_session_runtime_returns_no_service_available_outcome_for_bound_
             assert service_name == "bound-service"
             raise NoServiceAvailableError(
                 reset_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
-                usage_limit_scope=runtime.UsageLimitScope("resume-scope"),
                 invocation_progress=runtime.InvocationProgress.STARTED,
             )
 
@@ -1852,7 +1848,6 @@ def test_resumed_session_runtime_returns_no_service_available_outcome_for_bound_
     assert result == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("resume-scope"),
         invocation_progress=runtime.InvocationProgress.STARTED,
         continuation=continuation,
     )
@@ -2337,7 +2332,6 @@ def test_resumed_session_runtime_returns_usage_limited_outcome_without_continuat
         output="",
         service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=runtime.UsageLimitScope("implementer"),
         invocation_progress=runtime.InvocationProgress.NOT_STARTED,
         continuation=None,
     )
@@ -2385,7 +2379,6 @@ def test_resumed_session_runtime_returns_no_service_available_outcome_with_input
     assert result == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=runtime.InvocationProgress.NOT_STARTED,
         continuation=continuation,
     )
@@ -3353,7 +3346,6 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
         output="",
         service_name="opencode",
         reset_time=None,
-        usage_limit_scope=None,
         invocation_progress=runtime.InvocationProgress.STARTED,
         continuation=prompt_runtime.Continuation(
             selected_service="opencode",

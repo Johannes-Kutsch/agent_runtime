@@ -139,8 +139,26 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
     assert request.role == InvocationRole("implementer")
     assert request.runtime_state_dir is None
     assert request.logs_dir is None
-    assert request.usage_limit_scope is None
+    assert not hasattr(request, "usage_limit_scope")
     assert request.session_namespace == ""
+
+
+def test_new_session_run_request_rejects_caller_provided_usage_limit_scope() -> None:
+    with pytest.raises(
+        TypeError,
+        match="got an unexpected keyword argument 'usage_limit_scope'",
+    ):
+        prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            stage=runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="high",
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            usage_limit_scope=runtime.UsageLimitScope("review"),
+        )
 
 
 def test_prompt_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(

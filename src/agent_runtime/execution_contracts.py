@@ -65,7 +65,6 @@ class PromptRunRequest:
     stage: StageSelection
     role: InvocationRole
     tool_access: ToolAccess
-    usage_limit_scope: UsageLimitScope | None = None
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
@@ -78,7 +77,6 @@ class PromptRunRequest:
         worktree: WorktreeMount,
         stage: StageSelection | None = None,
         role: InvocationRole | None = None,
-        usage_limit_scope: UsageLimitScope | None = None,
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         name: str = "Runtime Agent",
@@ -111,7 +109,6 @@ class PromptRunRequest:
         object.__setattr__(self, "worktree", resolved_worktree)
         object.__setattr__(self, "stage", stage)
         object.__setattr__(self, "role", role)
-        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
         object.__setattr__(self, "tool_access", resolved_tool_access)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)

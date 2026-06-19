@@ -51,7 +51,6 @@ from .session_planning import (
     plan_resumable_session,
 )
 from .types import StageSelection
-from .usage_limit_scope import UsageLimitScope
 from .work import invoke_work
 
 _DEFAULT_RUNTIME_NAME = "Runtime Agent"
@@ -154,7 +153,6 @@ def _build_run_session(
     session_namespace: str,
     service: Any,
     container_workspace: str,
-    usage_limit_scope: UsageLimitScope | None = None,
     run_kind: RunKind = RunKind.FRESH,
     provider_session_id: str | None = None,
     provider_resume_state: Any = None,
@@ -167,7 +165,6 @@ def _build_run_session(
         session_namespace=session_namespace,
         service=service,
         container_workspace=container_workspace,
-        usage_limit_scope=usage_limit_scope,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
         provider_resume_state=provider_resume_state,
@@ -225,7 +222,6 @@ async def _run_runtime_outcome(
         return RuntimeOutcome.no_service_available(
             output="",
             reset_time=exc.reset_time,
-            usage_limit_scope=exc.usage_limit_scope,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -243,7 +239,7 @@ async def _run_runtime_outcome(
             output="",
             service_name=exc.service_name,
             reset_time=exc.reset_time,
-            usage_limit_scope=exc.usage_limit_scope,
+            account_label=exc.account_label,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -264,8 +260,6 @@ async def _run_ephemeral_outcome(
             request=request,
         )
     )
-    if outcome.kind in {"usage_limited", "no_service_available"}:
-        return dataclasses.replace(outcome, usage_limit_scope=None)
     return outcome
 
 
@@ -326,10 +320,7 @@ async def _run_ephemeral(
                 request.stage,
                 now,
             )
-            raise NoServiceAvailableError(
-                reset_time=next_wake_time,
-                usage_limit_scope=None,
-            )
+            raise NoServiceAvailableError(reset_time=next_wake_time)
 
         resolved_override = service_registry.resolve(request.stage, now)
         resolved_service = resolve_service(resolved_override.service)
@@ -347,7 +338,6 @@ async def _run_ephemeral(
                     session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
                     service=resolved_service,
                     container_workspace=dependencies.execution.container_workspace,
-                    usage_limit_scope=None,
                 ),
                 model=resolved_override.model,
                 effort=resolved_override.effort,
@@ -411,8 +401,6 @@ async def _run_new_session(
         if not service_registry.has_available_for(request.stage, now):
             raise NoServiceAvailableError(
                 reset_time=service_registry.next_wake_time_for(request.stage, now),
-                usage_limit_scope=request.usage_limit_scope
-                or UsageLimitScope(request.role.value),
             )
 
         resolved_override = service_registry.resolve(request.stage, now)
@@ -426,7 +414,6 @@ async def _run_new_session(
                 service=resolved_service,
                 session_store=request.session_store,
                 provider_session_adapter=request.provider_session_adapter,
-                usage_limit_scope=request.usage_limit_scope,
             )
         )
         try:
@@ -459,7 +446,6 @@ async def _run_new_session(
                         request.stage,
                         exhausted_now,
                     ),
-                    usage_limit_scope=exc.usage_limit_scope,
                     invocation_progress=exc.invocation_progress,
                 ) from exc
 
@@ -539,7 +525,6 @@ async def _run_resumed_session(
         session_namespace=request.session_namespace,
         service=service,
         container_workspace=dependencies.execution.container_workspace,
-        usage_limit_scope=request.usage_limit_scope,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
         provider_resume_state=(

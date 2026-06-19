@@ -23,7 +23,6 @@ from .session import RunKind
 from .session_planning import ResumableSessionPlan
 from .types import StageSelection
 from .errors import RuntimeConfigurationError
-from .usage_limit_scope import UsageLimitScope
 
 __all__ = [
     "Continuation",
@@ -188,8 +187,8 @@ class RuntimeOutcome:
     output: str
     result: EphemeralRunResult | SessionRunResult | None = None
     service_name: str | None = None
+    account_label: str | None = None
     reset_time: datetime | None = None
-    usage_limit_scope: UsageLimitScope | None = None
     invocation_progress: InvocationProgress | None = None
     continuation: Continuation | None = None
     usage: ProviderUsage | None = None
@@ -211,7 +210,7 @@ class RuntimeOutcome:
         output: str,
         service_name: str | None,
         reset_time: datetime | None,
-        usage_limit_scope: UsageLimitScope | None,
+        account_label: str | None = None,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
         usage: ProviderUsage | None = None,
@@ -220,8 +219,8 @@ class RuntimeOutcome:
             kind="usage_limited",
             output=output,
             service_name=service_name,
+            account_label=account_label,
             reset_time=reset_time,
-            usage_limit_scope=usage_limit_scope,
             invocation_progress=invocation_progress,
             continuation=continuation,
             usage=usage,
@@ -233,7 +232,6 @@ class RuntimeOutcome:
         *,
         output: str,
         reset_time: datetime | None,
-        usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress,
         continuation: Continuation | None = None,
         usage: ProviderUsage | None = None,
@@ -242,7 +240,6 @@ class RuntimeOutcome:
             kind="no_service_available",
             output=output,
             reset_time=reset_time,
-            usage_limit_scope=usage_limit_scope,
             invocation_progress=invocation_progress,
             continuation=continuation,
             usage=usage,
@@ -478,7 +475,6 @@ class NewSessionRunRequest:
     session_store: Any
     provider_session_adapter: ProviderSessionAdapter
     tool_access: ToolAccess
-    usage_limit_scope: UsageLimitScope | None = None
     session_namespace: str = ""
     name: str = "Runtime Agent"
     status_display: Any = None
@@ -496,7 +492,6 @@ class NewSessionRunRequest:
         provider_auth: ProviderAuth | None = None,
         session_store: Any | None = None,
         provider_session_adapter: ProviderSessionAdapter | None = None,
-        usage_limit_scope: UsageLimitScope | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         session_namespace: str = "",
@@ -545,7 +540,6 @@ class NewSessionRunRequest:
             provider_session_adapter,
         )
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
-        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
         object.__setattr__(
             self,
             "session_namespace",
@@ -608,7 +602,6 @@ class ResumedSessionRunRequest:
     continuation: Continuation | None
     provider_auth: ProviderAuth | None
     tool_access: ToolAccess
-    usage_limit_scope: UsageLimitScope | None = None
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
@@ -627,7 +620,6 @@ class ResumedSessionRunRequest:
         role: InvocationRole | None = None,
         provider_auth: ProviderAuth | None = None,
         session_namespace: str = "",
-        usage_limit_scope: UsageLimitScope | None = None,
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         name: str = "Runtime Agent",
@@ -717,7 +709,6 @@ class ResumedSessionRunRequest:
             )
             resolved_model = model
             resolved_effort = effort
-            usage_limit_scope = session_plan.usage_limit_scope
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(
@@ -739,7 +730,6 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "continuation", continuation)
         object.__setattr__(self, "provider_auth", provider_auth)
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
-        object.__setattr__(self, "usage_limit_scope", usage_limit_scope)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
@@ -773,7 +763,6 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "provider_auth",
     "session_store",
     "provider_session_adapter",
-    "usage_limit_scope",
     "tool_policy",
     "session_namespace",
     "name",
