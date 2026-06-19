@@ -1327,19 +1327,21 @@ def _build_codex_continuation(
     effort: str,
     tool_access: ToolAccess,
     provider_session_id: str,
-    provider_state_dir_relpath: str,
+    provider_state_dir_relpath: str | None = None,
 ) -> Continuation:
+    provider_resume_state: dict[str, Any] = {
+        "run_kind": RunKind.RESUME.value,
+        "provider_session_id": provider_session_id,
+        "exact_transcript_match": False,
+    }
+    if provider_state_dir_relpath is not None:
+        provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
     return create_portable_continuation_payload(
         service_name="codex",
         model=model,
         effort=effort,
         tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": RunKind.RESUME.value,
-            "provider_session_id": provider_session_id,
-            "provider_state_dir_relpath": provider_state_dir_relpath,
-            "exact_transcript_match": False,
-        },
+        provider_resume_state=provider_resume_state,
     ).to_continuation()
 
 
@@ -1658,7 +1660,7 @@ def _invoke_codex_resumed_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
     request: ResumedSessionRunRequest,
-    provider_state_dir: Path,
+    provider_state_dir: Path | None,
     provider_session_id: str,
 ) -> ProviderInvocationResult:
     return _invoke_provider(
@@ -1672,7 +1674,9 @@ def _invoke_codex_resumed_session_provider(
         ),
         worktree=request.invocation_dir.host_path,
         environment=_codex_env(
-            state_dir_container_path=str(provider_state_dir),
+            state_dir_container_path=(
+                str(provider_state_dir) if provider_state_dir is not None else None
+            ),
         ),
         prompt_content=request.prompt,
         prompt_path=Path("/tmp/.pycastle_prompt"),
@@ -2277,10 +2281,7 @@ def _run_builtin_resumed_session(
         if provider_invocation_adapter is None
         else provider_invocation_adapter
     )
-    runtime_state_dir = _require_runtime_state_dir(
-        request.runtime_state_dir,
-        context="ResumedSessionRunRequest",
-    )
+    runtime_state_dir = request.runtime_state_dir
     continuation = request.continuation
     if continuation is None:
         raise RuntimeConfigurationError(
@@ -2305,20 +2306,23 @@ def _run_builtin_resumed_session(
             str | None,
             provider_resume_state.get("provider_state_dir_relpath"),
         )
-        if not provider_state_dir_relpath:
-            raise RuntimeConfigurationError(
-                "Codex continuation is missing `provider_state_dir_relpath`."
-            )
-        provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-        provider_state_dir.mkdir(parents=True, exist_ok=True)
-        _codex_seed_auth(provider_state_dir)
-        provider_session_id = _resolve_recoverable_codex_session_id(
-            provider_state_dir=provider_state_dir,
-            provider_session_id=cast(
-                str | None,
-                provider_resume_state.get("provider_session_id"),
-            ),
+        provider_session_id = cast(
+            str | None,
+            provider_resume_state.get("provider_session_id"),
         )
+        provider_state_dir: Path | None = None
+        if runtime_state_dir is not None and provider_state_dir_relpath:
+            provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+            provider_state_dir.mkdir(parents=True, exist_ok=True)
+            _codex_seed_auth(provider_state_dir)
+            provider_session_id = _resolve_recoverable_codex_session_id(
+                provider_state_dir=provider_state_dir,
+                provider_session_id=provider_session_id,
+            )
+        elif provider_session_id is None:
+            raise RuntimeConfigurationError(
+                "Codex continuation is missing `provider_session_id`."
+            )
         run_kind = RunKind.RESUME
         active_provider_session_id: str | None = provider_session_id
         try:
@@ -2380,6 +2384,12 @@ def _run_builtin_resumed_session(
             ),
             usage=usage,
         )
+    if runtime_state_dir is None:
+        _require_runtime_state_dir(
+            runtime_state_dir,
+            context="ResumedSessionRunRequest",
+        )
+    assert runtime_state_dir is not None
     if continuation_service not in {"claude", "opencode"}:
         raise RuntimeConfigurationError(
             "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."

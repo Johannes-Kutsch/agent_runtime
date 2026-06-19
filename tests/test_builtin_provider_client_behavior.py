@@ -108,6 +108,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
             )
         )
     )
+    assert len(adapter.recorded_requests) == 1
 
     provider_state_dir_relpath = "implementer/main/claude/"
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
@@ -695,6 +696,301 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
     )
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
+    )
+
+
+def test_runtime_client_resumes_codex_session_from_completed_new_session_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="initial output",
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
+            ),
+            stdout_lines=(
+                '{"type":"thread.started","thread_id":"thread-123"}\n',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"initial output"}}\n',
+                '{"type":"turn.completed"}\n',
+            ),
+            provider_session_id="thread-123",
+        ),
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="continued output",
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=1,
+            ),
+            stdout_lines=(
+                '{"type":"thread.started","thread_id":"thread-123"}\n',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
+                '{"type":"turn.completed"}\n',
+            ),
+            provider_session_id=None,
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    new_outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert new_outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="initial output",
+        result=prompt_runtime.SessionRunResult(
+            output="initial output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="thread-123",
+                run_kind=RunKind.FRESH,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "thread-123",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=5,
+            output_tokens=2,
+        ),
+    )
+
+    assert isinstance(new_outcome.result, prompt_runtime.SessionRunResult)
+    continuation = new_outcome.result.continuation
+    assert continuation is not None
+
+    resumed_outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+            )
+        )
+    )
+
+    assert resumed_outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="thread-123",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "thread-123",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=3,
+            output_tokens=1,
+        ),
+    )
+
+    assert adapter.recorded_requests[0].command.startswith("codex exec -m gpt-5.4")
+    assert adapter.recorded_requests[1].command == (
+        "codex exec resume thread-123 -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
+        "--sandbox read-only --json < /tmp/.pycastle_prompt"
+    )
+
+
+def test_runtime_client_runs_codex_resumed_session_from_continuation_without_portable_state_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="continued output",
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=2,
+            ),
+            stdout_lines=(
+                '{"type":"thread.started","thread_id":"selected-thread"}\n',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
+                '{"type":"turn.completed"}\n',
+            ),
+            provider_session_id="selected-thread",
+        ),
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "selected-thread",
+            "exact_transcript_match": False,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+            )
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="selected-thread",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "selected-thread",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=runtime.ProviderUsage(
+            input_tokens=3,
+            output_tokens=2,
+        ),
+    )
+    assert adapter.recorded_requests[0].environment == {"TZ": "UTC"}
+    assert adapter.recorded_requests[0].command == (
+        "codex exec resume selected-thread -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
+        "--sandbox read-only --json < /tmp/.pycastle_prompt"
+    )
+
+
+def test_runtime_client_does_not_store_provider_credentials_in_codex_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="initial output",
+            usage=runtime.ProviderUsage(input_tokens=1, output_tokens=1),
+            stdout_lines=(
+                '{"type":"thread.started","thread_id":"thread-123"}\n',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"initial output"}}\n',
+                '{"type":"turn.completed"}\n',
+            ),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+    assert len(adapter.recorded_requests) == 1
+
+    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
+    continuation = outcome.result.continuation
+    assert continuation is not None
+    assert "provider_auth" not in continuation.provider_resume_state
+    assert "auth" not in continuation.provider_resume_state
+    assert "provider_secret" not in continuation.provider_resume_state
+    assert continuation.provider_resume_state["provider_session_id"] == "thread-123"
+
+    assert not any(
+        key.startswith("codex") for key in continuation.provider_resume_state.keys()
     )
 
 
