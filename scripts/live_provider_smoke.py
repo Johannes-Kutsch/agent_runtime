@@ -74,58 +74,6 @@ def _build_case_rerun_command(
     return " ".join(shlex.quote(part) for part in command_parts)
 
 
-def _build_rerun_matrix(
-    cases: Sequence[LiveSmokeRunCaseResult],
-    *,
-    run_id: str | None = None,
-) -> tuple[dict[str, str | None], ...]:
-    failed_runs = []
-    for case in cases:
-        if case.status in {"passed", "skipped"} and not (
-            case.status == "skipped" and not case.required
-        ):
-            continue
-        if case.status in {"skipped"}:
-            if case.required:
-                failed_runs.append(
-                    {"provider": case.service, "mode": case.mode, "policy": case.policy}
-                )
-            continue
-        failed_runs.append(
-            {
-                "provider": case.service,
-                "mode": case.mode,
-                "policy": case.policy,
-                "status": case.status,
-                "command": _build_case_rerun_command(case, run_id=run_id),
-            }
-        )
-    return tuple(failed_runs)
-
-
-def _build_failed_case_command_matrix(
-    cases: Sequence[LiveSmokeRunCaseResult],
-    *,
-    run_id: str | None = None,
-) -> tuple[dict[str, str | None], ...]:
-    failed = []
-    for case in cases:
-        if case.status == "passed":
-            continue
-        if case.status == "skipped" and not case.required:
-            continue
-        failed.append(
-            {
-                "provider": case.service,
-                "mode": case.mode,
-                "policy": case.policy,
-                "status": case.status,
-                "command": _build_case_rerun_command(case, run_id=run_id),
-            }
-        )
-    return tuple(failed)
-
-
 def _build_summary_payload_with_reruns(
     run_result: LiveSmokeRunResult,
     run_duration_seconds: float,
@@ -403,10 +351,8 @@ def _print_run_result(
     *,
     verbose: bool,
     artifact_root: Path,
-    run_json: bool = False,
     dry_run: bool = False,
 ) -> tuple[str, int]:
-    del run_json
     lines: list[str] = []
     if not dry_run:
         lines.append(f"artifact root: {artifact_root}")
@@ -458,30 +404,7 @@ def _build_failed_case_runs(
     return tuple(failed_runs)
 
 
-def _json_payload_for_run_result(
-    run_result: LiveSmokeRunResult,
-    provider_plans: Any,
-    *,
-    summary_path: Path,
-) -> dict[str, Any]:
-    failed_case_runs = _build_failed_case_runs(
-        run_result.cases, run_id=run_result.run_id
-    )
-    if provider_plans is not None:
-        return _build_summary_payload_with_reruns(
-            run_result,
-            0.0,
-            provider_plans,
-            failed_case_runs=failed_case_runs,
-        )
-    return _build_cli_summary_payload(
-        run_result,
-        failed_case_runs=failed_case_runs,
-    )
-
-
-def _print_provider_listing(json_output: bool = False) -> int:
-    del json_output
+def _print_provider_listing() -> int:
     providers = live_provider_smoke_plan.list_supported_providers(
         env=os.environ if os is not None else None
     )
@@ -498,10 +421,8 @@ def _print_provider_listing(json_output: bool = False) -> int:
 def _print_dry_run_plan(
     dry_run_plan: Any,
     *,
-    verbose: bool,
     json_output: bool,
 ) -> int:
-    del verbose
     if json_output:
         print(live_provider_smoke_plan.dry_run_plan_to_json(dry_run_plan))
         return 0
@@ -522,7 +443,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     lifecycle_modes = _coerce_lifecycle_modes(args)
 
     if args.list_providers:
-        return _print_provider_listing(json_output=args.json)
+        return _print_provider_listing()
 
     if args.dry_run:
         dry_run_plan = live_provider_smoke_plan.build_dry_run_plan(
@@ -534,9 +455,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             effort_overrides=effort_overrides,
             artifact_root=args.artifact_root,
         )
-        return _print_dry_run_plan(
-            dry_run_plan, verbose=args.verbose, json_output=args.json
-        )
+        return _print_dry_run_plan(dry_run_plan, json_output=args.json)
 
     run_result = run_live_smoke(
         provider_selection=providers,

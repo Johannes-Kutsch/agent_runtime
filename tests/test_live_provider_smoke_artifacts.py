@@ -1146,8 +1146,13 @@ def test_live_smoke_cli_help_documents_run_modes_and_sensitive_artifacts_notice(
 ) -> None:
     module: Any = smoke_module
 
-    parser_help = module._build_live_smoke_parser().format_help()
+    output = io.StringIO()
+    with redirect_stdout(output), pytest.raises(SystemExit) as excinfo:
+        module.main(["--help"])
 
+    parser_help = output.getvalue()
+
+    assert excinfo.value.code == 0
     assert "provider" in parser_help.lower()
     assert "mode" in parser_help.lower()
     assert "policy" in parser_help.lower()
