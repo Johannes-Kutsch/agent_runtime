@@ -654,7 +654,7 @@ class ResumedSessionRunRequest:
             )
         if continuation is not None:
             resolved_role = require_invocation_role(
-                role,
+                role or _DEFAULT_EPHEMERAL_ROLE,
                 context="ResumedSessionRunRequest",
                 message=(
                     "ResumedSessionRunRequest requires a `role` value when "
@@ -785,19 +785,9 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
 cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
     "prompt",
     "invocation_dir",
-    "runtime_state_dir",
-    "logs_dir",
+    "continuation",
+    "provider_auth",
     "model",
     "effort",
-    "session_plan",
-    "continuation",
-    "role",
-    "provider_auth",
-    "session_namespace",
-    "usage_limit_scope",
-    "tool_policy",
-    "name",
-    "status_display",
-    "work_body",
     "token",
 )

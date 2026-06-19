@@ -52,6 +52,20 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
     )
 
 
+def test_resumed_session_run_request_has_minimal_public_signature() -> None:
+    assert tuple(
+        inspect.signature(prompt_runtime.ResumedSessionRunRequest).parameters
+    ) == (
+        "prompt",
+        "invocation_dir",
+        "continuation",
+        "provider_auth",
+        "model",
+        "effort",
+        "token",
+    )
+
+
 def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
     assert (
         "tool_access"

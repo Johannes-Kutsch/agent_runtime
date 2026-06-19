@@ -107,25 +107,21 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_policy_overr
         )
 
 
-def test_resumed_session_run_request_from_continuation_requires_role() -> None:
-    with pytest.raises(
-        TypeError,
-        match=re.escape(
-            "ResumedSessionRunRequest requires a `role` value when constructed from a continuation."
+def test_resumed_session_run_request_from_continuation_defaults_role() -> None:
+    request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=WorktreeMount(Path("/repo")),
+        session_namespace="main",
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={"run_kind": "resume"},
         ),
-    ):
-        prompt_runtime.ResumedSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=WorktreeMount(Path("/repo")),
-            session_namespace="main",
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={"run_kind": "resume"},
-            ),
-        )
+    )
+
+    assert request.role == InvocationRole("implementer")
 
 
 @pytest.mark.parametrize("label", ["", "../escape"])
