@@ -4,7 +4,7 @@ import inspect
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -148,7 +148,7 @@ def test_new_session_run_request_rejects_caller_provided_usage_limit_scope() -> 
         TypeError,
         match="got an unexpected keyword argument 'usage_limit_scope'",
     ):
-        prompt_runtime.NewSessionRunRequest(
+        cast(Any, prompt_runtime.NewSessionRunRequest)(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
             stage=runtime.StageSelection(
@@ -156,6 +156,64 @@ def test_new_session_run_request_rejects_caller_provided_usage_limit_scope() -> 
                 model="gpt-5.4",
                 effort="high",
             ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            usage_limit_scope=runtime.UsageLimitScope("review"),
+        )
+
+
+def test_ephemeral_run_request_rejects_caller_provided_usage_limit_scope() -> None:
+    with pytest.raises(
+        TypeError,
+        match="got an unexpected keyword argument 'usage_limit_scope'",
+    ):
+        cast(Any, prompt_runtime.EphemeralRunRequest)(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            stage=runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="high",
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            usage_limit_scope=runtime.UsageLimitScope("review"),
+        )
+
+
+def test_resumed_session_run_request_rejects_caller_provided_usage_limit_scope() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match="got an unexpected keyword argument 'usage_limit_scope'",
+    ):
+        cast(Any, prompt_runtime.ResumedSessionRunRequest)(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={"run_kind": "resume"},
+            ),
+            usage_limit_scope=runtime.UsageLimitScope("review"),
+        )
+
+
+def test_prompt_run_request_rejects_caller_provided_usage_limit_scope() -> None:
+    with pytest.raises(
+        TypeError,
+        match="got an unexpected keyword argument 'usage_limit_scope'",
+    ):
+        cast(Any, execution_contracts_runtime.PromptRunRequest)(
+            prompt="already rendered prompt",
+            worktree=WorktreeMount(Path("/repo")),
+            stage=runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="high",
+            ),
+            role=InvocationRole("implementer"),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
             usage_limit_scope=runtime.UsageLimitScope("review"),
         )
