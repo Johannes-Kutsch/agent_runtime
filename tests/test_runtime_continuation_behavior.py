@@ -2783,6 +2783,10 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
         session_namespace="main",
         exact_transcript_match=False,
     )
+    assert (
+        result.result.runtime_metadata.tool_policy
+        == runtime.ToolPolicy.NO_FILE_MUTATION
+    )
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
         selected_model="glm-5",
@@ -3015,4 +3019,9 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
                 "exact_transcript_match": False,
             },
         ),
+    )
+    assert result.continuation is not None
+    assert (
+        result.continuation.tool_access.tool_policy
+        == runtime.ToolPolicy.NO_FILE_MUTATION
     )
