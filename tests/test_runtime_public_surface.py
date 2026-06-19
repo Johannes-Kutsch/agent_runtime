@@ -401,6 +401,7 @@ def test_runtime_lifecycle_values_keep_runtime_module_names_after_extraction() -
         "EphemeralRunRequest",
         "EphemeralRunResult",
         "EphemeralRuntimeMetadata",
+        "InvocationRecord",
         "NewSessionRunRequest",
         "ProviderAuth",
         "ResumedSessionRunRequest",

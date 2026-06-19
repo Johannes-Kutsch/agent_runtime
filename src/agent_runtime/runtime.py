@@ -105,6 +105,7 @@ for _runtime_export in (
     EphemeralRunRequest,
     EphemeralRunResult,
     EphemeralRuntimeMetadata,
+    InvocationRecord,
     NewSessionRunRequest,
     ProviderAuth,
     ProviderUsage,

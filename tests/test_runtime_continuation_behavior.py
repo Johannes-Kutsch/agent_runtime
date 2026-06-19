@@ -2099,7 +2099,7 @@ def _bound_service_resumed_continuation(
     )
 
 
-def test_runtime_client_writes_resumed_session_invocation_log_to_logs_dir(
+def test_runtime_client_returns_resumed_claude_invocation_record(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:

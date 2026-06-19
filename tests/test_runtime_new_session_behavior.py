@@ -1900,7 +1900,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
         )
 
 
-def test_runtime_client_writes_session_invocation_log_to_logs_dir_without_mixing_runtime_state(
+def test_runtime_client_returns_claude_invocation_record_without_mixing_runtime_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     stage_selection_factory: Callable[..., runtime.StageSelection],
@@ -2333,7 +2333,7 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
     )
 
 
-def test_runtime_client_writes_new_opencode_session_invocation_log_header_with_observed_provider_session_id(
+def test_runtime_client_returns_new_opencode_invocation_record_with_observed_provider_session_id(
     stage_selection_factory: Callable[..., runtime.StageSelection],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
