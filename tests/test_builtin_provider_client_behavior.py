@@ -5,7 +5,8 @@ import json
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+import re
+from typing import Any, Callable, cast
 
 import pytest
 
@@ -200,6 +201,134 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     assert "--session-id session-uuid" in recorded_request.command
     assert "--resume" not in recorded_request.command
     assert provider_state_dir.is_dir()
+
+
+def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful_continuation_without_state_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "prepared-session-id",
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "sessionID": "provider-session-777",
+                        "part": {
+                            "type": "text",
+                            "text": "hello from opencode",
+                            "time": {"end": True},
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+            )
+        )
+    )
+
+    assert outcome.output == "hello from opencode"
+    session_result = cast(prompt_runtime.SessionRunResult, outcome.result)
+    assert session_result.continuation is not None
+    assert (
+        "provider_state_dir_relpath"
+        not in session_result.continuation.provider_resume_state
+    )
+    assert (
+        session_result.continuation.provider_resume_state["provider_session_id"]
+        == "provider-session-777"
+    )
+
+
+def test_runtime_client_new_session_still_validates_provider_selection_credentials_invocation_dir_and_tool_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+
+    with pytest.raises(RuntimeConfigurationError):
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    stage=runtime.StageSelection(
+                        service="unsupported",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    with pytest.raises(AgentCredentialFailureError):
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    stage=runtime.StageSelection(
+                        service="opencode",
+                        model="glm-5",
+                        effort="medium",
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    with pytest.raises(TypeError, match="requires an `invocation_dir` value"):
+        prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            stage=runtime.StageSelection(
+                service="opencode",
+                model="glm-5",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "NewSessionRunRequest requires an explicit `tool_policy` value."
+        ),
+    ):
+        prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="opencode",
+                model="glm-5",
+                effort="medium",
+            ),
+        )
+
+    assert len(adapter.recorded_requests) == 0
 
 
 @pytest.mark.parametrize(

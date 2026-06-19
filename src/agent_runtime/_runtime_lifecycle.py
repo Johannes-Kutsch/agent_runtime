@@ -516,7 +516,7 @@ class NewSessionRunRequest:
         normalized_request = normalize_stage_request(
             stage=stage,
             override=override,
-            role=role,
+            role=role or _DEFAULT_EPHEMERAL_ROLE,
             worktree=resolved_invocation_dir,
             tool_access=tool_access,
             tool_policy=tool_policy,

@@ -2070,10 +2070,16 @@ def _run_builtin_ephemeral(
     )
 
 
-def _require_runtime_state_dir(runtime_state_dir: Path | None, *, context: str) -> Path:
-    if runtime_state_dir is None:
-        raise TypeError(f"{context} requires a `runtime_state_dir` value.")
-    return runtime_state_dir
+def _new_session_runtime_state_dir(
+    request: NewSessionRunRequest,
+    *,
+    context: str,
+) -> tuple[Path, Callable[[], None], bool]:
+    runtime_state_dir = request.runtime_state_dir
+    if runtime_state_dir is not None:
+        return runtime_state_dir, lambda: None, True
+    temp_dir = tempfile.TemporaryDirectory(prefix=f"{context}-provider-state-")
+    return Path(temp_dir.name), temp_dir.cleanup, False
 
 
 def _require_claude_auth(auth: ProviderAuth | None) -> None:
@@ -2124,9 +2130,11 @@ def _run_builtin_new_session(
         if provider_invocation_adapter is None
         else provider_invocation_adapter
     )
-    runtime_state_dir = _require_runtime_state_dir(
-        request.runtime_state_dir,
-        context="NewSessionRunRequest",
+    runtime_state_dir, cleanup_runtime_state_dir, is_caller_managed_runtime_state = (
+        _new_session_runtime_state_dir(
+            request,
+            context="new-session",
+        )
     )
     if supported_builtin_stage(request.stage) is None:
         raise RuntimeConfigurationError(
@@ -2134,6 +2142,14 @@ def _run_builtin_new_session(
         )
     selected_stage = _select_builtin_stage(request.stage)
     _require_portable_continuation_support(selected_stage.service)
+
+    def _portable_codex_state_dir_relpath(
+        provider_state_dir_relpath: str | None,
+    ) -> str | None:
+        if is_caller_managed_runtime_state:
+            return provider_state_dir_relpath
+        return None
+
     if selected_stage.service == "codex":
         _validate_codex_stage(selected_stage)
         provider_state_dir_relpath, provider_state_dir = _codex_prepare_runtime_state(
@@ -2144,25 +2160,30 @@ def _run_builtin_new_session(
         _codex_seed_auth(provider_state_dir)
         recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
         if _codex_is_resumable(provider_state_dir) and recovered_thread_id is not None:
-            return _run_builtin_resumed_session(
-                ResumedSessionRunRequest(
-                    prompt=request.prompt,
-                    invocation_dir=cast(Any, request.invocation_dir),
-                    runtime_state_dir=runtime_state_dir,
-                    continuation=_build_codex_continuation(
-                        model=selected_stage.model,
-                        effort=selected_stage.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=recovered_thread_id,
-                        provider_state_dir_relpath=provider_state_dir_relpath,
+            try:
+                return _run_builtin_resumed_session(
+                    ResumedSessionRunRequest(
+                        prompt=request.prompt,
+                        invocation_dir=cast(Any, request.invocation_dir),
+                        runtime_state_dir=runtime_state_dir,
+                        continuation=_build_codex_continuation(
+                            model=selected_stage.model,
+                            effort=selected_stage.effort,
+                            tool_access=request.tool_access,
+                            provider_session_id=recovered_thread_id,
+                            provider_state_dir_relpath=_portable_codex_state_dir_relpath(
+                                provider_state_dir_relpath
+                            ),
+                        ),
+                        role=request.role,
+                        provider_auth=request.provider_auth,
+                        usage_limit_scope=request.usage_limit_scope,
+                        session_namespace=request.session_namespace,
                     ),
-                    role=request.role,
-                    provider_auth=request.provider_auth,
-                    usage_limit_scope=request.usage_limit_scope,
-                    session_namespace=request.session_namespace,
-                ),
-                provider_invocation_adapter=invocation_adapter,
-            )
+                    provider_invocation_adapter=invocation_adapter,
+                )
+            finally:
+                cleanup_runtime_state_dir()
         provider_session_id: str | None = None
         try:
             invocation_result = _invoke_codex_new_session_provider(
@@ -2188,14 +2209,17 @@ def _run_builtin_new_session(
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    provider_state_dir_relpath=_portable_codex_state_dir_relpath(
+                        provider_state_dir_relpath
+                    ),
                 )
                 if exc.invocation_progress is InvocationProgress.STARTED
                 and provider_session_id is not None
                 else None
             )
+            cleanup_runtime_state_dir()
             raise
-        return RuntimeOutcome.completed(
+        outcome = RuntimeOutcome.completed(
             output=result_text,
             result=SessionRunResult(
                 output=result_text,
@@ -2215,7 +2239,9 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=provider_session_id,
-                        provider_state_dir_relpath=provider_state_dir_relpath,
+                        provider_state_dir_relpath=_portable_codex_state_dir_relpath(
+                            provider_state_dir_relpath
+                        ),
                     )
                     if provider_session_id is not None
                     else None
@@ -2223,6 +2249,8 @@ def _run_builtin_new_session(
             ),
             usage=usage,
         )
+        cleanup_runtime_state_dir()
+        return outcome
     elif selected_stage.service == "claude":
         provider_state_dir_relpath, provider_state_dir = _claude_prepare_runtime_state(
             runtime_state_dir,
@@ -2230,25 +2258,28 @@ def _run_builtin_new_session(
             session_namespace=request.session_namespace,
         )
         if _claude_is_resumable(provider_state_dir):
-            return _run_builtin_resumed_session(
-                ResumedSessionRunRequest(
-                    prompt=request.prompt,
-                    invocation_dir=cast(Any, request.invocation_dir),
-                    runtime_state_dir=runtime_state_dir,
-                    continuation=_build_claude_continuation(
-                        model=selected_stage.model,
-                        effort=selected_stage.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=_new_provider_session_id(),
+            try:
+                return _run_builtin_resumed_session(
+                    ResumedSessionRunRequest(
+                        prompt=request.prompt,
+                        invocation_dir=cast(Any, request.invocation_dir),
+                        runtime_state_dir=runtime_state_dir,
+                        continuation=_build_claude_continuation(
+                            model=selected_stage.model,
+                            effort=selected_stage.effort,
+                            tool_access=request.tool_access,
+                            provider_session_id=_new_provider_session_id(),
+                        ),
+                        role=request.role,
+                        provider_auth=request.provider_auth,
+                        usage_limit_scope=request.usage_limit_scope,
+                        session_namespace=request.session_namespace,
+                        logs_dir=request.logs_dir,
                     ),
-                    role=request.role,
-                    provider_auth=request.provider_auth,
-                    usage_limit_scope=request.usage_limit_scope,
-                    session_namespace=request.session_namespace,
-                    logs_dir=request.logs_dir,
-                ),
-                provider_invocation_adapter=invocation_adapter,
-            )
+                    provider_invocation_adapter=invocation_adapter,
+                )
+            finally:
+                cleanup_runtime_state_dir()
         _validate_claude_stage(selected_stage)
         _require_claude_auth(request.provider_auth)
         provider_session_id = _new_provider_session_id()
@@ -2279,6 +2310,7 @@ def _run_builtin_new_session(
             run_kind = RunKind.FRESH
             exact_transcript_match = False
     else:
+        cleanup_runtime_state_dir()
         raise RuntimeConfigurationError(
             "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
         )
@@ -2334,6 +2366,10 @@ def _run_builtin_new_session(
                     exact_transcript_match=exact_transcript_match,
                 )
             )
+        cleanup_runtime_state_dir()
+        raise
+    except Exception:
+        cleanup_runtime_state_dir()
         raise
     if selected_stage.service == "claude":
         provider_session_id = (
@@ -2342,7 +2378,7 @@ def _run_builtin_new_session(
     assert provider_session_id is not None
     result_text = invocation_result.output
     usage = invocation_result.usage
-    return RuntimeOutcome.completed(
+    outcome = RuntimeOutcome.completed(
         output=result_text,
         result=SessionRunResult(
             output=result_text,
@@ -2376,6 +2412,8 @@ def _run_builtin_new_session(
         ),
         usage=usage,
     )
+    cleanup_runtime_state_dir()
+    return outcome
 
 
 def _run_builtin_resumed_session(

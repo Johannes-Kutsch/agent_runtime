@@ -111,19 +111,22 @@ def test_ephemeral_run_request_rejects_conflicting_stage_selection_and_override(
         )
 
 
-def test_new_session_run_request_requires_invocation_role(
+def test_new_session_run_request_defaults_to_implementer_without_caller_managed_inputs(
     stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
 ) -> None:
-    with pytest.raises(
-        TypeError,
-        match=re.escape("NewSessionRunRequest requires a `role` value."),
-    ):
-        prompt_runtime.NewSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            stage=stage_selection_factory(),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-        )
+    request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=tmp_path,
+        stage=stage_selection_factory(service="codex"),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+    )
+
+    assert request.role == InvocationRole("implementer")
+    assert request.runtime_state_dir is None
+    assert request.logs_dir is None
+    assert request.usage_limit_scope is None
+    assert request.session_namespace == ""
 
 
 def test_prompt_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
