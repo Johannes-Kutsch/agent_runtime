@@ -118,6 +118,39 @@ def test_live_smoke_model_and_effort_resolve_from_cli_and_env_without_defaults(
     )
 
 
+def test_live_smoke_planning_uses_explicit_env_mapping_for_resolution_and_config(
+    planning_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = planning_module
+
+    monkeypatch.setenv(module.LIVE_SMOKE_CLAUDE_MODEL_ENV, "outside-model")
+    monkeypatch.setenv(module.LIVE_SMOKE_CLAUDE_EFFORT_ENV, "outside-effort")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "outside-token")
+
+    selected = module.parse_provider_selection("claude")
+
+    isolated = module.plan_selected_providers(
+        selected,
+        env={},
+    )
+    assert isolated[0].model == ""
+    assert isolated[0].effort == ""
+    assert isolated[0].status is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+
+    planned = module.plan_selected_providers(
+        selected,
+        env={
+            module.LIVE_SMOKE_CLAUDE_MODEL_ENV: "env-model",
+            module.LIVE_SMOKE_CLAUDE_EFFORT_ENV: "env-effort",
+            "CLAUDE_CODE_OAUTH_TOKEN": "env-token",
+        },
+    )
+    assert planned[0].model == "env-model"
+    assert planned[0].effort == "env-effort"
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+
+
 def test_live_smoke_run_id_is_generated_when_missing_and_path_safe_when_supplied(
     planning_module: Any,
 ) -> None:

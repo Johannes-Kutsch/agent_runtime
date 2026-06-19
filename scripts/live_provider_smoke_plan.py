@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Mapping, Sequence
 from uuid import uuid4
-import re
 
 from agent_runtime.errors import RuntimeConfigurationError
 
@@ -114,7 +114,7 @@ def resolve_model_and_effort(
 ) -> tuple[str, str]:
     if provider not in SUPPORTED_PROVIDERS:
         raise RuntimeConfigurationError(f"Unsupported provider name: {provider!r}")
-    env_map = env or os.environ
+    env_map = _resolve_env_map(env)
     model = (
         cli_model
         if cli_model
@@ -131,24 +131,30 @@ def resolve_model_and_effort(
 def _provider_has_runtime_config(
     provider: str,
     *,
+    env: Mapping[str, str] | None = None,
     claude_code_oauth_token: str | None = None,
     opencode_api_key: str | None = None,
     codex_auth_present: bool | None = None,
 ) -> bool:
+    env_map = _resolve_env_map(env)
     if provider == "claude":
         return bool(
             (claude_code_oauth_token or "").strip()
-            or os.environ.get(_PROVIDER_CLAUDE_TOKEN_ENV)
+            or env_map.get(_PROVIDER_CLAUDE_TOKEN_ENV)
         )
     if provider == "opencode":
         return bool(
-            (opencode_api_key or "").strip() or os.environ.get(_PROVIDER_OPENCODE_ENV)
+            (opencode_api_key or "").strip() or env_map.get(_PROVIDER_OPENCODE_ENV)
         )
     if provider == "codex":
         if codex_auth_present is not None:
             return bool(codex_auth_present)
         return _PROVIDER_CODEX_HOME_AUTH_PATH.exists()
     raise RuntimeConfigurationError(f"Unsupported provider name: {provider!r}")
+
+
+def _resolve_env_map(env: Mapping[str, str] | None) -> Mapping[str, str]:
+    return os.environ if env is None else env
 
 
 def plan_selected_providers(
@@ -204,6 +210,7 @@ def _plan_provider(
         )
     elif not _provider_has_runtime_config(
         provider,
+        env=env,
         claude_code_oauth_token=claude_code_oauth_token,
         opencode_api_key=opencode_api_key,
         codex_auth_present=codex_auth_present,
