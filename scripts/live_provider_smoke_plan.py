@@ -115,6 +115,7 @@ def classify_live_smoke_case_result(
     artifact_error: str | None = None,
     required_output_non_empty: bool = True,
     required_continuation_text: str | None = None,
+    required_continuation: bool = False,
     required: bool = True,
 ) -> LiveSmokeCaseResult:
     if artifact_error is not None:
@@ -171,6 +172,18 @@ def classify_live_smoke_case_result(
                 policy=case.policy,
                 status=LiveSmokeCaseStatus.FAILED,
                 diagnostic="completed outcome missing required output",
+                required=required,
+            )
+        if (
+            required_continuation
+            and getattr(runtime_outcome, "continuation", None) is None
+        ):
+            return LiveSmokeCaseResult(
+                service=case.service,
+                mode=case.mode,
+                policy=case.policy,
+                status=LiveSmokeCaseStatus.FAILED,
+                diagnostic="completed outcome missing required continuation",
                 required=required,
             )
         if required_continuation_text is not None:
@@ -297,7 +310,7 @@ def _extract_completed_outcome_metadata(
             "effort": getattr(result, "selected_effort", None),
             "tool_policy": tool_policy,
         }
-    if case.mode == "new_session":
+    if case.mode in {"new_session", "resumed_session"}:
         runtime_metadata = getattr(result, "runtime_metadata", None)
         return {
             "service": getattr(runtime_metadata, "service_name", None),

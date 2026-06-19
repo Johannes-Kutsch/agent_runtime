@@ -166,6 +166,25 @@ def _build_case_prompt(run_id: str, planned_case: Any) -> str:
     return f"{run_id}:{planned_case.service}:{planned_case.mode}:{policy}"
 
 
+def _derive_session_continuation_sentinel(output: str) -> str:
+    if not output:
+        return output
+    stripped_tokens = tuple(
+        token.strip("`\"'[](){}.,:;!?").strip() for token in output.split()
+    )
+    for index, token in enumerate(stripped_tokens):
+        lower = token.lower()
+        if "token" in lower or "sentinel" in lower or "continuation" in lower:
+            if lower in {"sentinel", "continuation", "token"} and index + 1 < len(
+                stripped_tokens
+            ):
+                candidate = stripped_tokens[index + 1]
+                if candidate:
+                    return candidate
+            return token
+    return stripped_tokens[0]
+
+
 def _resolve_plan_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
     return {} if env is None else env
 
@@ -214,16 +233,12 @@ def _run_public_smoke_case(
     claude_code_oauth_token: str | None,
     opencode_api_key: str | None,
     codex_auth_present: bool | None,
+    continuation: Any | None = None,
 ) -> Any:
     del run_id, model, effort, codex_auth_present  # compatibility placeholders
     resolved_case = case if case is not None else planned_case
     if resolved_case is None:
         raise ValueError("case is required to run ephemeral smoke case")
-    if resolved_case.mode != "ephemeral":
-        raise ValueError(
-            "public smoke runner only supports ephemeral mode; "
-            f"got {resolved_case.mode!r}"
-        )
     if artifact_dir is None:
         raise ValueError("artifact_dir is required to run ephemeral smoke case")
     live_turns: list[Any] = []
@@ -238,19 +253,58 @@ def _run_public_smoke_case(
         claude_code_oauth_token=claude_code_oauth_token,
         opencode_api_key=opencode_api_key,
     )
-    request = prompt_runtime.EphemeralRunRequest(
-        prompt=prompt,
-        invocation_dir=artifact_dir,
-        stage=public_runtime.StageSelection(
-            service=resolved_case.service,
-            model=resolved_case.model,
-            effort=resolved_case.effort,
-        ),
-        auth=auth,
-        tool_policy=tool_policy,
-        on_live_output=_on_live_output,
-    )
-    runtime_outcome = prompt_runtime.RuntimeClient().run_ephemeral(request)
+
+    request: Any
+    if resolved_case.mode == "ephemeral":
+        request = prompt_runtime.EphemeralRunRequest(
+            prompt=prompt,
+            invocation_dir=artifact_dir,
+            stage=public_runtime.StageSelection(
+                service=resolved_case.service,
+                model=resolved_case.model,
+                effort=resolved_case.effort,
+            ),
+            auth=auth,
+            tool_policy=tool_policy,
+            on_live_output=_on_live_output,
+        )
+    elif resolved_case.mode == "new_session":
+        request = prompt_runtime.NewSessionRunRequest(
+            prompt=prompt,
+            invocation_dir=artifact_dir,
+            stage=public_runtime.StageSelection(
+                service=resolved_case.service,
+                model=resolved_case.model,
+                effort=resolved_case.effort,
+            ),
+            provider_auth=auth,
+            tool_policy=tool_policy,
+            on_live_output=_on_live_output,
+        )
+    elif resolved_case.mode == "resumed_session":
+        if continuation is None:
+            raise ValueError("Resume session case requires prior continuation.")
+        request = prompt_runtime.ResumedSessionRunRequest(
+            prompt=prompt,
+            invocation_dir=artifact_dir,
+            continuation=continuation,
+            provider_auth=auth,
+            on_live_output=_on_live_output,
+        )
+    else:
+        raise ValueError(
+            f"public smoke runner only supports ephemeral, new_session, "
+            f"and resumed_session modes; got {resolved_case.mode!r}"
+        )
+
+    runtime_outcome: Any
+    runtime_client = prompt_runtime.RuntimeClient()
+    if resolved_case.mode == "ephemeral":
+        runtime_outcome = runtime_client.run_ephemeral(request)
+    elif resolved_case.mode == "new_session":
+        runtime_outcome = runtime_client.run_new_session(request)
+    else:
+        runtime_outcome = runtime_client.run_resumed_session(request)
     return _as_observed_runtime_outcome(
         runtime_outcome,
         live_turns=tuple(live_turns),
@@ -439,6 +493,9 @@ def run_live_smoke(
     warnings: list[str] = []
     case_results: list[LiveSmokeRunCaseResult] = []
     case_occurrences: dict[tuple[str, str, str | None], int] = {}
+    session_continuations: dict[tuple[str, str | None], Any] = {}
+    session_turns: dict[tuple[str, str | None], str] = {}
+    session_invocation_dirs: dict[tuple[str, str | None], Path] = {}
     runner = case_runner or _run_public_smoke_case
     run_started = time.perf_counter()
     run_artifact_root = resolved_artifact_root / dry_run_plan.run_id
@@ -461,10 +518,29 @@ def run_live_smoke(
         case_started = time.perf_counter()
         case_traceback: str | None = None
 
+        case_continuation = None
+        required_continuation_text = None
+        case_state_key = (planned_case.service, planned_case.policy)
+        invocation_dir_for_run = invocation_dir
+        if planned_case.mode == "resumed_session":
+            case_continuation = session_continuations.get(case_state_key)
+            required_continuation_text = session_turns.get(case_state_key)
+            if case_continuation is None:
+                raise RuntimeError(
+                    "Resume session case requires prior successful new session "
+                    "continuation."
+                )
+            if case_state_key not in session_invocation_dirs:
+                raise RuntimeError(
+                    "Resume session case requires matching prior new session "
+                    "invocation directory."
+                )
+            invocation_dir_for_run = session_invocation_dirs[case_state_key]
+
         try:
             case_outcome = runner(
                 case=planned_case,
-                artifact_dir=invocation_dir,
+                artifact_dir=invocation_dir_for_run,
                 run_id=dry_run_plan.run_id,
                 prompt=prompt,
                 model=planned_case.model,
@@ -473,14 +549,48 @@ def run_live_smoke(
                 claude_code_oauth_token=claude_code_oauth_token,
                 opencode_api_key=opencode_api_key,
                 codex_auth_present=codex_auth_present,
+                continuation=case_continuation,
             )
+            classify_kwargs = {
+                "case": cast(Any, planned_case),
+                "runtime_outcome": case_outcome,
+            }
+            if planned_case.mode == "new_session":
+                classify_kwargs["required_continuation"] = True
             case_classification = (
                 live_provider_smoke_plan.classify_live_smoke_case_result(
-                    case=cast(Any, planned_case),
-                    runtime_outcome=case_outcome,
+                    **classify_kwargs,
                 )
             )
             provider_output = str(getattr(case_outcome, "output", ""))
+            if (
+                planned_case.mode == "resumed_session"
+                and required_continuation_text is not None
+                and case_classification.status
+                is live_provider_smoke_plan.LiveSmokeCaseStatus.PASSED
+            ):
+                if required_continuation_text not in provider_output:
+                    case_classification = live_provider_smoke_plan.LiveSmokeCaseResult(
+                        service=planned_case.service,
+                        mode=planned_case.mode,
+                        policy=planned_case.policy,
+                        status=live_provider_smoke_plan.LiveSmokeCaseStatus.FAILED,
+                        diagnostic="completed outcome missing required continuation evidence",
+                    )
+            if (
+                planned_case.mode == "new_session"
+                and case_classification.status
+                is live_provider_smoke_plan.LiveSmokeCaseStatus.PASSED
+            ):
+                continuation_value = getattr(case_outcome, "continuation", None)
+                if continuation_value is not None:
+                    session_continuations[case_state_key] = continuation_value
+                    session_turns[case_state_key] = (
+                        _derive_session_continuation_sentinel(
+                            str(getattr(case_outcome, "output", ""))
+                        )
+                    )
+                    session_invocation_dirs[case_state_key] = invocation_dir
         except Exception as exc:
             case_traceback = format_exc()
             case_classification = (

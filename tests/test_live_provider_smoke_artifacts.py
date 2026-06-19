@@ -4,10 +4,11 @@ import importlib.util
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+from types import SimpleNamespace
 
 import pytest
-from types import SimpleNamespace
+from agent_runtime.session import RunKind
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "live_provider_smoke.py"
 
@@ -534,12 +535,91 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
     module: Any = smoke_module
     from agent_runtime import runtime as prompt_runtime
 
+    captured_requests: list[Any] = []
+    new_session_continuation: list[Any] = []
+
     class _FakeRuntimeClient:
-        def run_ephemeral(
+        def run_new_session(
             self,
-            request: prompt_runtime.EphemeralRunRequest,
+            request: prompt_runtime.NewSessionRunRequest,
         ) -> object:
-            raise AssertionError(f"unexpected ephemeral request: {request!r}")
+            captured_requests.append(("new_session", request))
+            continuation = prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="sonnet",
+                selected_effort="medium",
+                tool_access=request.tool_access,
+                provider_resume_state={"provider_session_id": "thread-123"},
+            )
+            new_session_continuation.append(continuation)
+            return SimpleNamespace(
+                kind="completed",
+                output="start response with sentinel: session-token-2026.06.19",
+                continuation=continuation,
+                result=prompt_runtime.SessionRunResult(
+                    output="start response with sentinel: session-token-2026.06.19",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name="claude",
+                        provider_session_id="thread-123",
+                        run_kind=RunKind.FRESH,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model="sonnet",
+                        selected_effort="medium",
+                        tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+                    ),
+                ),
+                invocation_records=(
+                    prompt_runtime.InvocationRecord(
+                        run_kind=RunKind.FRESH,
+                        service_name="claude",
+                        provider_session_id="thread-123",
+                        prompt="start response",
+                        provider_output=b"start response bytes",
+                    ),
+                ),
+            )
+
+        def run_resumed_session(
+            self,
+            request: prompt_runtime.ResumedSessionRunRequest,
+        ) -> object:
+            captured_requests.append(("resumed_session", request))
+            continuation = new_session_continuation[0]
+            return SimpleNamespace(
+                kind="completed",
+                output="provider output: provider-session-receives session-token-2026.06.19 here",
+                continuation=continuation,
+                result=prompt_runtime.SessionRunResult(
+                    output="provider output: provider-session-receives session-token-2026.06.19 here",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name="claude",
+                        provider_session_id="thread-123",
+                        run_kind=RunKind.RESUME,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model="sonnet",
+                        selected_effort="medium",
+                        tool_policy=cast(
+                            prompt_runtime.ToolPolicy,
+                            getattr(
+                                request,
+                                "tool_policy",
+                                prompt_runtime.ToolPolicy.UNRESTRICTED,
+                            ),
+                        ),
+                    ),
+                ),
+                invocation_records=(
+                    prompt_runtime.InvocationRecord(
+                        run_kind=RunKind.RESUME,
+                        service_name="claude",
+                        provider_session_id="thread-123",
+                        prompt="resume response",
+                        provider_output=b"resume output bytes",
+                    ),
+                ),
+            )
 
     def _fake_client() -> _FakeRuntimeClient:
         return _FakeRuntimeClient()
@@ -548,14 +628,26 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
 
     run_result = module.run_live_smoke(
         provider_selection=("claude",),
-        lifecycle_modes=("new_session",),
+        lifecycle_modes=("new_session", "resumed_session"),
         model_overrides={"claude": "sonnet"},
         effort_overrides={"claude": "medium"},
         claude_code_oauth_token="token",
-        run_id="unsupported-mode-run",
-        artifact_root=tmp_path / "unsupported-mode-smoke",
+        run_id="session-lifecycle-run",
+        artifact_root=tmp_path / "session-lifecycle-smoke",
     )
 
-    assert run_result.passed is False
-    assert run_result.cases[0].status == "error"
-    assert "only supports ephemeral mode" in str(run_result.cases[0].diagnostic)
+    assert run_result.passed is True
+    assert len(run_result.cases) == 2
+    assert all(case.status == "passed" for case in run_result.cases)
+    new_session_request = captured_requests[0][1]
+    assert len(captured_requests) == 2
+    assert captured_requests[0][0] == "new_session"
+    assert captured_requests[1][0] == "resumed_session"
+    assert new_session_request.provider_auth == prompt_runtime.ProviderAuth(
+        claude_code_oauth_token="token"
+    )
+    resumed_request = captured_requests[1][1]
+    assert resumed_request.continuation == new_session_continuation[0]
+    assert resumed_request.model == "sonnet"
+    assert resumed_request.effort == "medium"
+    assert "session-token-2026.06.19" in run_result.cases[1].provider_output
