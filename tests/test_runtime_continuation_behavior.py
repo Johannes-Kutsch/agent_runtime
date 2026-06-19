@@ -120,7 +120,7 @@ class _ResidentSeamRunner:
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -217,7 +217,7 @@ class _ToolPolicyRenderingResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -344,7 +344,7 @@ class _StartedUsageLimitResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -366,7 +366,7 @@ class _ModelActivityUsageLimitResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -475,7 +475,7 @@ class _RetryableProviderFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -539,7 +539,7 @@ class _StartedRetryableProviderFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -606,7 +606,7 @@ class _TimeoutResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -660,7 +660,7 @@ class _StartedTimeoutResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -783,7 +783,7 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
         selected_effort="medium",
         tool_access=runtime.ToolAccess.workspace_backed(
             worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
         provider_resume_state={
             "run_kind": "resume",
@@ -827,7 +827,7 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
         selected_effort="medium",
         tool_access=runtime.ToolAccess.workspace_backed(
             worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
         provider_resume_state={
             "run_kind": "resume",
@@ -911,7 +911,7 @@ def test_resumed_session_runtime_passes_continuation_provider_resume_state_to_ad
             prompt: str,
             *,
             role: InvocationRole = InvocationRole("implementer"),
-            tool_policy: Any = runtime.ToolPolicy.FULL,
+            tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
             run_kind: RunKind = RunKind.FRESH,
             session_uuid: str | None = None,
             on_provider_session_id: Any = None,
@@ -986,7 +986,7 @@ def test_resumed_session_runtime_passes_continuation_provider_resume_state_to_ad
                     selected_effort="medium",
                     tool_access=runtime.ToolAccess.workspace_backed(
                         worktree,
-                        tool_policy=runtime.ToolPolicy.PARTIAL,
+                        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                     ),
                     provider_resume_state=provider_resume_state,
                 ),
@@ -1133,7 +1133,7 @@ def test_resumed_session_runtime_returns_latest_adapter_updated_provider_resume_
             prompt: str,
             *,
             role: InvocationRole = InvocationRole("implementer"),
-            tool_policy: Any = runtime.ToolPolicy.FULL,
+            tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
             run_kind: RunKind = RunKind.FRESH,
             session_uuid: str | None = None,
             on_provider_session_id: Any = None,
@@ -1298,7 +1298,7 @@ def test_resumed_session_runtime_keeps_frozen_adapter_session_seam_unchanged() -
             prompt: str,
             *,
             role: InvocationRole = InvocationRole("implementer"),
-            tool_policy: Any = runtime.ToolPolicy.FULL,
+            tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
             run_kind: RunKind = RunKind.FRESH,
             session_uuid: str | None = None,
             on_provider_session_id: Any = None,
@@ -1555,7 +1555,7 @@ def test_resumed_session_runtime_reports_started_progress_for_usage_limited_outc
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
+                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             )
         )
     )
@@ -1607,7 +1607,7 @@ def test_resumed_session_runtime_prefers_adapter_reported_model_activity_for_usa
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
+                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             )
         )
     )
@@ -1694,7 +1694,7 @@ def test_resumed_session_runtime_returns_cancelled_outcome_with_input_continuati
             prompt: str,
             *,
             role: InvocationRole = InvocationRole("implementer"),
-            tool_policy: Any = runtime.ToolPolicy.FULL,
+            tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
             run_kind: RunKind = RunKind.FRESH,
             session_uuid: str | None = None,
             on_provider_session_id: Any = None,
@@ -1991,7 +1991,7 @@ def test_runtime_client_writes_resumed_opencode_session_log_with_observed_provid
         selected_effort="medium",
         tool_access=runtime.ToolAccess.workspace_backed(
             worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
         provider_resume_state={
             "provider_session_id": "recovered-session",
@@ -2062,7 +2062,7 @@ def test_resumed_session_runtime_returns_usage_limited_outcome_with_input_contin
                     prompt: str,
                     *,
                     role: InvocationRole = InvocationRole("implementer"),
-                    tool_policy: Any = runtime.ToolPolicy.FULL,
+                    tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
                     run_kind: RunKind = RunKind.FRESH,
                     session_uuid: str | None = None,
                     on_provider_session_id: Any = None,
@@ -2293,7 +2293,7 @@ def test_resumed_session_runtime_preserves_resumed_session_behavior_through_run_
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
+                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             )
         )
     )
@@ -2342,7 +2342,7 @@ def test_resumed_session_runtime_uses_invocation_role_from_session_plan(
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
+                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             )
         )
     )
@@ -2415,7 +2415,7 @@ def test_resumed_session_runtime_preserves_planned_relative_provider_state_path(
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
+                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             )
         )
     )
@@ -2454,7 +2454,7 @@ def test_resumed_session_runtime_returns_portable_continuation_resume_data(
     )
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -2518,7 +2518,7 @@ def test_resumed_session_runtime_returns_cancelled_outcome_for_pre_start_caller_
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
+                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
                 token=cancelled_token,
             )
         )
@@ -2556,7 +2556,7 @@ def test_resumed_session_runtime_reports_started_progress_for_timed_out_outcome(
                 model="gpt-5.4",
                 effort="medium",
                 session_plan=session_plan,
-                tool_policy=runtime.ToolPolicy.FULL,
+                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             )
         )
     )
@@ -2594,7 +2594,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
         selected_effort="medium",
         tool_access=runtime.ToolAccess.workspace_backed(
             worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
         provider_resume_state={
             "provider_session_id": "persisted-session-1",
@@ -2711,7 +2711,7 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
         selected_effort="medium",
         tool_access=runtime.ToolAccess.workspace_backed(
             worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
         provider_resume_state={
             "provider_session_id": "persisted-session-1",
@@ -2818,7 +2818,7 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
         selected_effort="medium",
         tool_access=runtime.ToolAccess.workspace_backed(
             worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
         provider_resume_state={
             "provider_session_id": "persisted-session-1",

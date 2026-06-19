@@ -21,7 +21,7 @@ def test_portable_continuation_payload_round_trips_current_continuation_contents
         selected_effort="medium",
         tool_access=runtime.ToolAccess.workspace_backed(
             Path("/repo"),
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
         provider_resume_state={
             "run_kind": "resume",

@@ -104,7 +104,7 @@ class _RoleAwareEphemeralCompatWorkRunner:
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -169,7 +169,7 @@ class _RawSetupFailureEphemeralRunner:
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -228,7 +228,7 @@ class _UsageLimitThenSuccessEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner)
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -292,7 +292,7 @@ class _TimeoutEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -340,7 +340,7 @@ class _RetryableProviderFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunn
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -398,7 +398,7 @@ class _HardFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -446,7 +446,7 @@ class _TransientProviderFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunn
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -501,7 +501,7 @@ class _InterruptedEphemeralRunner(_RoleAwareEphemeralCompatWorkRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -1146,13 +1146,13 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
     [
         (
             runtime.ToolAccess.workspace_backed(
-                Path("."), tool_policy=runtime.ToolPolicy.RESTRICTED
+                Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
             ),
             "--sandbox danger-full-access",
         ),
         (
             runtime.ToolAccess.workspace_backed(
-                Path("."), tool_policy=runtime.ToolPolicy.PARTIAL
+                Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
             ),
             "--dangerously-bypass-approvals-and-sandbox",
         ),
@@ -2811,7 +2811,7 @@ def test_text_output_adapter_uses_workspace_backed_tool_access_through_public_ad
             prompt="already rendered prompt",
             tool_access=runtime.ToolAccess.workspace_backed(
                 Path("/repo"),
-                tool_policy=runtime.ToolPolicy.PARTIAL,
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
             ),
             workspace=Path("/repo"),
         ).invoke(
@@ -2824,7 +2824,7 @@ def test_text_output_adapter_uses_workspace_backed_tool_access_through_public_ad
         )
     )
 
-    assert output == _tool_policy_effect_text(runtime.ToolPolicy.PARTIAL)
+    assert output == _tool_policy_effect_text(runtime.ToolPolicy.NO_FILE_MUTATION)
 
 
 def test_text_output_adapter_prefers_tool_access_over_compatibility_tool_policy() -> (
@@ -2833,10 +2833,10 @@ def test_text_output_adapter_prefers_tool_access_over_compatibility_tool_policy(
     output = asyncio.run(
         TextOutputAdapter(
             prompt="already rendered prompt",
-            tool_policy=runtime.ToolPolicy.FULL,
+            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             tool_access=runtime.ToolAccess.workspace_backed(
                 Path("/repo"),
-                tool_policy=runtime.ToolPolicy.PARTIAL,
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
             ),
             workspace=Path("/repo"),
         ).invoke(
@@ -2849,7 +2849,7 @@ def test_text_output_adapter_prefers_tool_access_over_compatibility_tool_policy(
         )
     )
 
-    assert output == _tool_policy_effect_text(runtime.ToolPolicy.PARTIAL)
+    assert output == _tool_policy_effect_text(runtime.ToolPolicy.NO_FILE_MUTATION)
 
 
 def test_text_output_adapter_rejects_workspace_backed_tool_access_without_workspace_context() -> (

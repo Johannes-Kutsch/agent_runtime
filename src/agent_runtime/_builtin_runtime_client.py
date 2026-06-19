@@ -358,7 +358,7 @@ def _codex_command(
     if effort:
         parts.append(f"-c model_reasoning_effort={effort}")
     parts.append("-c approval_policy=never")
-    if tool_policy is ToolPolicy.PARTIAL:
+    if tool_policy is ToolPolicy.NO_FILE_MUTATION:
         parts.append("--dangerously-bypass-approvals-and-sandbox")
     else:
         parts.append("--sandbox danger-full-access")

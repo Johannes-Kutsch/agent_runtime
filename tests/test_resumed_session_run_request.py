@@ -72,7 +72,7 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_policy_overr
                 tool_access=runtime.ToolAccess.no_tools(),
                 provider_resume_state={"run_kind": "resume"},
             ),
-            tool_policy=runtime.ToolPolicy.FULL,
+            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
         )
 
 
@@ -95,11 +95,11 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_policy_overr
                 selected_effort="medium",
                 tool_access=runtime.ToolAccess.workspace_backed(
                     Path("/repo"),
-                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
                 provider_resume_state={"run_kind": "resume"},
             ),
-            tool_policy=runtime.ToolPolicy.FULL,
+            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
         )
 
 
@@ -194,7 +194,7 @@ def test_resumed_session_run_request_rejects_conflicting_continuation_and_sessio
                 provider_resume_state={"run_kind": "resume"},
             ),
             role=InvocationRole("implementer"),
-            tool_policy=runtime.ToolPolicy.FULL,
+            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
         )
 
 
@@ -223,14 +223,14 @@ def test_resumed_session_run_request_rejects_conflicting_tool_access_and_tool_po
                 auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
             ),
             tool_access=runtime.ToolAccess.no_tools(),
-            tool_policy=runtime.ToolPolicy.FULL,
+            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
         )
 
 
 def test_resumed_session_run_request_carries_workspace_backed_tool_access() -> None:
     tool_access = runtime.ToolAccess.workspace_backed(
         Path("/repo"),
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     request = prompt_runtime.ResumedSessionRunRequest(
@@ -304,7 +304,7 @@ def test_resumed_session_run_request_rejects_workspace_backed_tool_access_for_ot
             ),
             tool_access=runtime.ToolAccess.workspace_backed(
                 Path("/repo"),
-                tool_policy=runtime.ToolPolicy.FULL,
+                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             ),
         )
 
@@ -329,7 +329,7 @@ def test_resumed_session_run_request_from_continuation_rejects_workspace_backed_
                 selected_effort="medium",
                 tool_access=runtime.ToolAccess.workspace_backed(
                     Path("/repo"),
-                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
                 provider_resume_state={"run_kind": "resume"},
             ),
@@ -353,6 +353,6 @@ def test_resumed_session_run_request_rejects_request_level_invocation_role() -> 
                 provider_session_id=None,
                 auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
             ),
-            tool_policy=runtime.ToolPolicy.FULL,
+            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
             role=InvocationRole("implementer"),
         )  # type: ignore[call-arg]

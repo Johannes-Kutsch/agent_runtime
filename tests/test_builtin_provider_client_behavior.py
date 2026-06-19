@@ -1204,7 +1204,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
                 session_namespace="main",
                 tool_access=runtime.ToolAccess.workspace_backed(
                     tmp_path,
-                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
             )
         )
@@ -1230,7 +1230,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
                 selected_effort="medium",
                 tool_access=runtime.ToolAccess.workspace_backed(
                     tmp_path,
-                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
                 provider_resume_state={
                     "run_kind": "resume",
@@ -2174,7 +2174,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         selected_effort="medium",
         tool_access=runtime.ToolAccess.workspace_backed(
             worktree,
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
         provider_resume_state={
             "provider_session_id": "persisted-session-1",

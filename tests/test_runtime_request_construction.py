@@ -121,14 +121,14 @@ def test_prompt_run_request_uses_compatibility_tool_policy_for_workspace_backed_
         worktree=WorktreeMount(Path("/repo")),
         stage=stage_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     assert request.tool_access == runtime.ToolAccess.workspace_backed(
         Path("/repo"),
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
-    assert request.tool_policy is runtime.ToolPolicy.PARTIAL
+    assert request.tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION
 
 
 def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
@@ -138,11 +138,11 @@ def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_back
         prompt="already rendered prompt",
         worktree=Path("/repo"),
         stage=stage_selection_factory(service="codex"),
-        tool_policy=runtime.ToolPolicy.FULL,
+        tool_policy=runtime.ToolPolicy.UNRESTRICTED,
     )
 
     assert request.tool_access == runtime.ToolAccess.workspace_backed(Path("/repo"))
-    assert request.tool_policy is runtime.ToolPolicy.FULL
+    assert request.tool_policy is runtime.ToolPolicy.UNRESTRICTED
 
 
 def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
@@ -153,14 +153,14 @@ def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_ba
         worktree=Path("/repo"),
         stage=stage_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     assert request.tool_access == runtime.ToolAccess.workspace_backed(
         Path("/repo"),
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
-    assert request.tool_policy is runtime.ToolPolicy.PARTIAL
+    assert request.tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION
 
 
 @pytest.mark.parametrize(
@@ -215,14 +215,14 @@ def test_resumed_session_run_request_uses_compatibility_tool_policy_for_workspac
             provider_session_id=None,
             auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
         ),
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     assert request.tool_access == runtime.ToolAccess.workspace_backed(
         Path("/repo"),
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
-    assert request.tool_policy is runtime.ToolPolicy.PARTIAL
+    assert request.tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION
 
 
 def test_resumed_session_run_request_from_session_plan_keeps_namespace_from_session_plan() -> (
@@ -278,7 +278,7 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
                 stage=stage_selection_factory(service="codex"),
                 tool_access=runtime.ToolAccess.workspace_backed(
                     Path("/other"),
-                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
             ),
             "EphemeralRunRequest workspace-backed tool access requires worktree /other, got /repo.",
@@ -291,7 +291,7 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
                 role=InvocationRole("implementer"),
                 tool_access=runtime.ToolAccess.workspace_backed(
                     Path("/other"),
-                    tool_policy=runtime.ToolPolicy.PARTIAL,
+                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 ),
             ),
             "NewSessionRunRequest workspace-backed tool access requires worktree /other, got /repo.",

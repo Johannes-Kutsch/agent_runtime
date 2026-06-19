@@ -117,7 +117,7 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
 ) -> None:
     tool_access = runtime.ToolAccess.workspace_backed(
         Path("/repo"),
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -139,9 +139,9 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
     )
 
     assert result == prompt_runtime.RuntimeOutcome.completed(
-        output=_tool_policy_effect_text(runtime.ToolPolicy.PARTIAL),
+        output=_tool_policy_effect_text(runtime.ToolPolicy.NO_FILE_MUTATION),
         result=prompt_runtime.EphemeralRunResult(
-            output=_tool_policy_effect_text(runtime.ToolPolicy.PARTIAL),
+            output=_tool_policy_effect_text(runtime.ToolPolicy.NO_FILE_MUTATION),
             selected_service="claude",
             selected_model="gpt-5",
             selected_effort="medium",

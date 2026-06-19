@@ -99,15 +99,15 @@ class ToolPolicyProfile:
 
 
 class ToolPolicy(enum.Enum):
-    RESTRICTED = "restricted"
-    PARTIAL = "partial"
-    FULL = "full"
+    INSPECT_ONLY = "inspect_only"
+    NO_FILE_MUTATION = "no_file_mutation"
+    UNRESTRICTED = "unrestricted"
 
     @property
     def profile(self) -> ToolPolicyProfile:
-        if self is ToolPolicy.RESTRICTED:
+        if self is ToolPolicy.INSPECT_ONLY:
             return ToolPolicyProfile(allowed_tools=("Read", "Glob"))
-        if self is ToolPolicy.PARTIAL:
+        if self is ToolPolicy.NO_FILE_MUTATION:
             return ToolPolicyProfile(disallowed_tools=("Edit", "Write", "NotebookEdit"))
         return ToolPolicyProfile()
 
@@ -164,7 +164,7 @@ class ToolAccess:
         cls,
         workspace: Path,
         *,
-        tool_policy: ToolPolicy | ToolPolicyProfile = ToolPolicy.FULL,
+        tool_policy: ToolPolicy | ToolPolicyProfile = ToolPolicy.UNRESTRICTED,
     ) -> ToolAccess:
         return cls(
             kind="workspace_backed",

@@ -142,7 +142,7 @@ def prompt_run_request_factory(
         worktree: WorktreeMount = WorktreeMount(Path(".")),
         stage: runtime.StageSelection | None = None,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.FULL,
+        tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.UNRESTRICTED,
         token: Any = None,
     ) -> PromptRunRequest:
         return PromptRunRequest(

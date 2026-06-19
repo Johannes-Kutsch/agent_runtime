@@ -109,7 +109,7 @@ class _ResidentSeamRunner:
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -229,7 +229,7 @@ class _UsageLimitedThenFallbackNewSessionRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -310,7 +310,7 @@ class _StartedUsageLimitNewSessionRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -370,7 +370,7 @@ class _NotStartedUsageLimitNewSessionRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -434,7 +434,7 @@ class _StartedCancellationNewSessionRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -492,7 +492,7 @@ class _NotStartedCancellationNewSessionRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -554,7 +554,7 @@ class _RetryableProviderFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -618,7 +618,7 @@ class _StartedRetryableProviderFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -685,7 +685,7 @@ class _TransientProviderFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -743,7 +743,7 @@ class _TimeoutResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -797,7 +797,7 @@ class _StartedTimeoutResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -854,7 +854,7 @@ class _CredentialFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -913,7 +913,7 @@ class _HardFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -967,7 +967,7 @@ class _UnclassifiedProviderFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -1021,7 +1021,7 @@ class _UnexpectedFailureResidentRunner(_ResidentSeamRunner):
         prompt: str,
         *,
         role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: Any = runtime.ToolPolicy.FULL,
+        tool_policy: Any = runtime.ToolPolicy.UNRESTRICTED,
         run_kind: RunKind = RunKind.FRESH,
         session_uuid: str | None = None,
         on_provider_session_id: Any = None,
@@ -1077,7 +1077,7 @@ def test_new_session_runtime_selects_fallback_service_before_binding_continuatio
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1135,7 +1135,7 @@ def test_new_session_runtime_retries_fallback_before_binding_continuation(
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1204,7 +1204,7 @@ def test_new_session_runtime_keeps_started_usage_limit_outcome(
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1260,7 +1260,7 @@ def test_new_session_runtime_returns_continuation_for_started_interruption(
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1309,7 +1309,7 @@ def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
     adapter_resume_state = {
         "provider_session_id": "prepared:recovered-codex",
@@ -1421,7 +1421,7 @@ def test_new_session_runtime_reports_not_started_progress_without_continuation(
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1465,7 +1465,7 @@ def test_new_session_runtime_does_not_create_continuation_from_session_allocatio
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
     execution_adapter = _PreparedNotStartedUsageLimitNewSessionExecutionAdapter()
 
@@ -1506,7 +1506,7 @@ def test_new_session_runtime_returns_continuation_for_started_cancellation(
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1559,7 +1559,7 @@ def test_new_session_runtime_keeps_not_started_cancellation_without_continuation
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
     execution_adapter = _PreparedNotStartedCancellationNewSessionExecutionAdapter()
 
@@ -1603,7 +1603,7 @@ def test_new_session_runtime_returns_timed_out_outcome_with_continuation_after_m
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1656,7 +1656,7 @@ def test_new_session_runtime_returns_retryable_provider_failure_outcome_with_con
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1710,7 +1710,7 @@ def test_new_session_runtime_keeps_not_started_timeout_without_continuation(
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
     execution_adapter = _TimeoutResidentExecutionAdapter()
 
@@ -1753,7 +1753,7 @@ def test_new_session_runtime_keeps_not_started_retryable_provider_failure_withou
     worktree = Path("/repo")
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     result = asyncio.run(
@@ -1809,7 +1809,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
         ),
         tool_access=runtime.ToolAccess.workspace_backed(
             Path("/repo"),
-            tool_policy=runtime.ToolPolicy.PARTIAL,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         ),
     )
 
@@ -1964,7 +1964,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
     runtime_state_dir.mkdir()
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
     expected_state_relpath = session_runtime.provider_state_relpath(
         InvocationRole("implementer"),
@@ -2070,7 +2070,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
     runtime_state_dir.mkdir()
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
     provider_state_dir_relpath = session_runtime.provider_state_relpath(
         InvocationRole("implementer"),
@@ -2189,7 +2189,7 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
     runtime_state_dir.mkdir()
     tool_access = runtime.ToolAccess.workspace_backed(
         worktree,
-        tool_policy=runtime.ToolPolicy.PARTIAL,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
     class _FakePopen:

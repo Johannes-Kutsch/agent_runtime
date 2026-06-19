@@ -460,17 +460,19 @@ def test_package_surface_exposes_usage_limit_scope_value_object() -> None:
     assert usage_limit_scope.value == "quota-review"
 
 
-def test_tool_policy_restricted_resolves_to_provider_neutral_profile() -> None:
-    profile = runtime.ToolPolicy.RESTRICTED.profile
+def test_tool_policy_inspect_only_resolves_to_provider_neutral_profile() -> None:
+    profile = runtime.ToolPolicy.INSPECT_ONLY.profile
 
     assert profile.allowed_tools == ("Read", "Glob")
     assert profile.disallowed_tools == ()
     assert profile.strict_mcp_config is True
 
 
-def test_runtime_surface_exposes_tool_policy_profiles_for_partial_and_full() -> None:
-    partial = runtime.ToolPolicy.PARTIAL.profile
-    full = runtime.ToolPolicy.FULL.profile
+def test_runtime_surface_exposes_tool_policy_profiles_for_no_file_mutation_and_unrestricted() -> (
+    None
+):
+    partial = runtime.ToolPolicy.NO_FILE_MUTATION.profile
+    full = runtime.ToolPolicy.UNRESTRICTED.profile
 
     assert isinstance(partial, prompt_runtime.ToolPolicyProfile)
     assert partial.allowed_tools is None
