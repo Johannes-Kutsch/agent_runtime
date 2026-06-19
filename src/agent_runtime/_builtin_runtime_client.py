@@ -2437,6 +2437,7 @@ def _run_builtin_new_session(
                         ),
                         role=request.role,
                         provider_auth=request.provider_auth,
+                        on_live_output=request.on_live_output,
                         _session_namespace=request._session_namespace,
                     ),
                     provider_invocation_adapter=invocation_adapter,

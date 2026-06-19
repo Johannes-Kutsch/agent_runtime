@@ -1366,6 +1366,63 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
     assert observed == [("hello", "codex"), ("world", "codex")]
 
 
+def test_runtime_client_start_session_run_observes_current_codex_turns_when_reusing_deduplicated_rollout_thread(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("current invocation output"),
+                json.dumps({"type": "turn.completed"}) + "\n",
+            ),
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    _write_codex_rollout(provider_state_dir, "thread-123", "thread-123")
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
+        )
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
+    assert outcome.output == "current invocation output"
+    assert observed == [("current invocation output", "codex")]
+
+
 def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
