@@ -694,9 +694,14 @@ def _live_output_observer(
     if on_live_output is None:
         return lambda _turn: None
 
-    return lambda turn_text: on_live_output(
-        AgentMessageTurn(text=turn_text, service_name=service_name)
-    )
+    def observe(turn_text: str) -> None:
+        try:
+            on_live_output(AgentMessageTurn(text=turn_text, service_name=service_name))
+        except Exception as exc:
+            setattr(exc, "_is_live_output_exception", True)
+            raise
+
+    return observe
 
 
 class _ObservedOutputReducer:

@@ -253,6 +253,8 @@ class RuntimeClient:
                     select_builtin_stage=lambda _stage: selected_stage,
                 )
             except UsageLimitError as exc:
+                if getattr(exc, "_is_live_output_exception", False):
+                    raise
                 exhausted_now = _time_module.now_local()
                 service_name = exc.service_name or selected_stage.service
                 self._availability.mark_exhausted(

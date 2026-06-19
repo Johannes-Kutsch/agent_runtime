@@ -1240,6 +1240,54 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
     assert observed == [("hello", "codex"), ("world", "codex")]
 
 
+def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_as_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+        raise runtime.UsageLimitError(service_name="codex")
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        ),
+    )
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    with pytest.raises(runtime.UsageLimitError):
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                on_live_output=on_live_output,
+            )
+        )
+
+    assert observed == [("hello", "codex")]
+
+
 def test_runtime_client_new_session_run_calls_live_output_observer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1291,6 +1339,97 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
     assert len(adapter.recorded_requests) == 1
     assert outcome.output == "hello\nworld"
     assert observed == [("hello", "codex"), ("world", "codex")]
+
+
+def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns_before_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("temporary codex output"),
+                (
+                    json.dumps(
+                        {
+                            "type": "turn.failed",
+                            "error": {
+                                "message": (
+                                    "You've hit your usage limit."
+                                    " Try again at January 2, 5pm (UTC)."
+                                )
+                            },
+                        }
+                    )
+                    + "\n"
+                ),
+            ),
+        ),
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "sessionID": "provider-session-777",
+                        "part": {
+                            "type": "text",
+                            "time": {"end": True},
+                            "text": "hello from opencode",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+        ),
+    )
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+                fallback=runtime.StageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+            on_live_output=on_live_output,
+        )
+    )
+
+    assert outcome.output == "hello from opencode"
+    assert (
+        cast(prompt_runtime.EphemeralRunResult, outcome.result).selected_service
+        == "opencode"
+    )
+    assert cast(prompt_runtime.EphemeralRunResult, outcome.result).used_fallback is True
+    assert observed == [
+        ("temporary codex output", "codex"),
+        ("hello from opencode", "opencode"),
+    ]
 
 
 def test_runtime_client_resumed_session_run_calls_live_output_observer(
