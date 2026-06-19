@@ -124,6 +124,30 @@ def _codex_assistant_output_line(text: str) -> str:
     )
 
 
+def _claude_assistant_output_line(
+    contents: str | tuple[str, ...] | list[str],
+) -> str:
+    if isinstance(contents, str):
+        blocks = [{"type": "text", "text": contents}]
+    else:
+        blocks = [{"type": "text", "text": text} for text in contents]
+    return (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": blocks,
+                },
+            }
+        )
+        + "\n"
+    )
+
+
+def _claude_result_output_line(text: str) -> str:
+    return json.dumps({"type": "result", "result": text}) + "\n"
+
+
 def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1334,6 +1358,102 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
     assert len(adapter.recorded_requests) == 1
     assert outcome.output == "hello\nworld"
     assert observed == [("hello", "codex"), ("world", "codex")]
+
+
+def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(_claude_assistant_output_line(("  hello ", "world")),),
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=runtime.StageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            on_live_output=on_live_output,
+        )
+    )
+
+    assert outcome.output == "hello\n\nworld"
+    assert observed == [
+        ("hello\n\nworld", "claude"),
+    ]
+
+
+def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_claude(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer" / "main" / "claude"
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "session-state.json").write_text("{}", encoding="utf-8")
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _claude_assistant_output_line("intermediate"),
+                _claude_result_output_line("final output"),
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
+        )
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    assert outcome.output == "final output"
+    assert observed == [
+        ("intermediate", "claude"),
+    ]
 
 
 def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_once_per_turn(

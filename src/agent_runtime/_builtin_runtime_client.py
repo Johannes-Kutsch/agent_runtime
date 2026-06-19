@@ -2452,6 +2452,7 @@ def _run_builtin_new_session(
                         prompt=request.prompt,
                         invocation_dir=cast(Any, request.invocation_dir),
                         _runtime_state_dir=runtime_state_dir,
+                        on_live_output=request.on_live_output,
                         continuation=_build_claude_continuation(
                             model=selected_stage.model,
                             effort=selected_stage.effort,
