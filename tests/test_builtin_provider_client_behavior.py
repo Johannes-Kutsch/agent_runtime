@@ -1336,6 +1336,73 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
     assert observed == [("hello", "codex"), ("world", "codex")]
 
 
+def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_once_per_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[tuple[str, str]] = []
+
+    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+        observed.append((turn.text, turn.service_name))
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "sessionID": "provider-session-777",
+                        "part": {
+                            "type": "text",
+                            "text": " hello from opencode ",
+                            "time": {"end": True},
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "text",
+                        "sessionID": "provider-session-777",
+                        "part": {
+                            "type": "text",
+                            "text": "second turn",
+                            "time": {"end": True},
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=runtime.StageSelection(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                on_live_output=on_live_output,
+            )
+        )
+    )
+
+    assert outcome.output == "hello from opencode\n\nsecond turn"
+    assert observed == [
+        ("hello from opencode", "opencode"),
+        ("second turn", "opencode"),
+    ]
+
+
 def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_invocation_seam(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

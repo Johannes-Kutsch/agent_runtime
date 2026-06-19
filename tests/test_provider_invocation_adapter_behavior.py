@@ -195,6 +195,101 @@ def test_production_adapter_records_provider_chunks_and_session_id_when_log_cont
     assert "provider_session_id=_observed_provider_session_id()" in provider_source
 
 
+@pytest.mark.parametrize(
+    ("adapter_factory", "needs_monkeypatch"),
+    [
+        (
+            lambda: provider_invocation_runtime.ProductionProviderInvocationAdapter(),
+            True,
+        ),
+        (
+            lambda: provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+                prepared_invocations=[
+                    provider_invocation_runtime.ProviderInvocationPreparedStream(
+                        stdout_lines=("line 1\n", "line 2\n")
+                    )
+                ]
+            ),
+            False,
+        ),
+    ],
+)
+def test_provider_invocation_seam_consumes_stdout_lines_before_final_reduction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    adapter_factory: Any,
+    needs_monkeypatch: bool,
+) -> None:
+    prompt_path = tmp_path / ".pycastle_prompt"
+    observed_steps: list[str] = []
+
+    if needs_monkeypatch:
+
+        class _Process:
+            def __init__(self) -> None:
+                self.stdout = iter(["line 1\n", "line 2\n"])
+                self.stderr = iter(())
+                self.returncode = 0
+
+            def wait(self) -> int:
+                observed_steps.append("wait")
+                return 0
+
+        monkeypatch.setattr(
+            provider_invocation_runtime.subprocess,
+            "Popen",
+            lambda *args, **kwargs: _Process(),
+        )
+
+    class _ObservedReducer:
+        def __init__(self) -> None:
+            self.consumed_lines: list[str] = []
+
+        def consume_stdout_lines(self, new_lines: list[str]) -> None:
+            self.consumed_lines.extend(new_lines)
+            observed_steps.extend(f"consume:{line.rstrip()}" for line in new_lines)
+
+        def __call__(self, lines: list[str]) -> tuple[str, ProviderUsage | None]:
+            observed_steps.append("reduce")
+            assert self.consumed_lines == lines
+            return ("normalized output", ProviderUsage(output_tokens=2))
+
+    reducer = _ObservedReducer()
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={"PROVIDER_TOKEN": "secret"},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+            path=prompt_path,
+            cleanup_path=True,
+        ),
+        run_kind=RunKind.FRESH,
+        role=InvocationRole("implementer"),
+        usage_limit_scope=UsageLimitScope("implementer"),
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=reducer,
+            extract_provider_session_id=lambda _lines: None,
+        ),
+    )
+
+    result = adapter_factory().execute(request)
+
+    assert result == provider_invocation_runtime.ProviderInvocationResult(
+        output="normalized output",
+        usage=ProviderUsage(output_tokens=2),
+        stdout_lines=("line 1\n", "line 2\n"),
+        provider_session_id=None,
+    )
+    expected_steps = ["consume:line 1", "consume:line 2"]
+    if needs_monkeypatch:
+        expected_steps.append("wait")
+    expected_steps.append("reduce")
+    assert observed_steps == expected_steps
+
+
 @pytest.mark.parametrize("failure_mode", ["start_failure", "reduction_failure"])
 def test_production_adapter_cleans_up_prompt_file_on_failures(
     monkeypatch: pytest.MonkeyPatch,
