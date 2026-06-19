@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -1137,3 +1139,317 @@ def test_live_smoke_all_selection_with_no_configured_providers_does_not_pass_emp
     summary_payload = module.json.loads(run_result.summary_path.read_text("utf-8"))
     assert summary_payload["case_count"] == 0
     assert {plan["status"] for plan in summary_payload["provider_plans"]} == {"skipped"}
+
+
+def test_live_smoke_cli_help_documents_run_modes_and_sensitive_artifacts_notice(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    parser_help = module._build_live_smoke_parser().format_help()
+
+    assert "provider" in parser_help.lower()
+    assert "mode" in parser_help.lower()
+    assert "policy" in parser_help.lower()
+    assert "model" in parser_help.lower()
+    assert "effort" in parser_help.lower()
+    assert "dry-run" in parser_help
+    assert "list-providers" in parser_help
+    assert "--json" in parser_help
+    assert "--artifact-root" in parser_help
+    assert "--cleanup-artifact-root" in parser_help
+    assert "--timeout" in parser_help
+    assert "--run-id" in parser_help
+    assert "potentially sensitive" in parser_help.lower()
+
+
+def test_live_smoke_cli_default_console_output_reports_provider_mode_and_artifacts(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    result = module.LiveSmokeRunResult(
+        run_id="cli-default-run",
+        artifact_root=tmp_path / "artifacts",
+        summary_path=tmp_path / "artifacts" / "cli-default-run" / "summary.json",
+        summary_written=True,
+        passed=True,
+        cases=(
+            module.LiveSmokeRunCaseResult(
+                service="codex",
+                mode="ephemeral",
+                policy=None,
+                model="codex-mini",
+                effort="high",
+                artifact_path=str(
+                    tmp_path
+                    / "artifacts"
+                    / "cli-default-run"
+                    / "codex"
+                    / "ephemeral"
+                    / "default"
+                ),
+                status="passed",
+                required=True,
+                provider_output="provider output",
+                diagnostic=None,
+                traceback=None,
+                duration_seconds=0.2,
+            ),
+        ),
+    )
+
+    received: dict[str, Any] = {}
+
+    def _fake_runner(*args: Any, **kwargs: Any) -> module.LiveSmokeRunResult:
+        assert kwargs["provider_selection"] == ("codex",)
+        assert kwargs["lifecycle_modes"] == ("ephemeral",)
+        received["provider_selection"] = kwargs["provider_selection"]
+        received["lifecycle_modes"] = kwargs["lifecycle_modes"]
+        received["run_id"] = kwargs["run_id"]
+        received["artifact_root"] = kwargs["artifact_root"]
+        return result
+
+    monkeypatch.setattr(module, "run_live_smoke", _fake_runner)
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--provider",
+                "codex",
+                "--mode",
+                "ephemeral",
+                "--run-id",
+                "cli-default-run",
+                "--artifact-root",
+                str(tmp_path / "artifacts"),
+            ]
+        )
+
+    stdout = output.getvalue()
+
+    assert exit_code == 0
+    assert received["provider_selection"] == ("codex",)
+    assert received["lifecycle_modes"] == ("ephemeral",)
+    assert received["artifact_root"] == tmp_path / "artifacts"
+    assert str(tmp_path / "artifacts") in stdout
+    assert "codex/ephemeral" in stdout
+    assert "passed" in stdout.lower()
+    assert "final status: passed" in stdout.lower()
+
+
+def test_live_smoke_cli_verbose_output_exposes_rerun_context_without_credentials(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    result = module.LiveSmokeRunResult(
+        run_id="cli-verbose-run",
+        artifact_root=tmp_path / "artifacts",
+        summary_path=tmp_path / "artifacts" / "cli-verbose-run" / "summary.json",
+        summary_written=True,
+        passed=False,
+        cases=(
+            module.LiveSmokeRunCaseResult(
+                service="claude",
+                mode="new_session",
+                policy="NONE",
+                model="sonnet",
+                effort="medium",
+                artifact_path=str(
+                    tmp_path
+                    / "artifacts"
+                    / "cli-verbose-run"
+                    / "claude"
+                    / "new_session"
+                    / "NONE"
+                ),
+                status="failed",
+                required=True,
+                provider_output="provider stream: token=super-secret-token",
+                diagnostic="usage_limited output contained retry guidance",
+                traceback="Traceback: failure details",
+                duration_seconds=3.4,
+            ),
+        ),
+        warnings=("optional case artifact write warning",),
+    )
+
+    monkeypatch.setattr(module, "run_live_smoke", lambda **kwargs: result)
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--provider",
+                "claude",
+                "--mode",
+                "new_session",
+                "--policy",
+                "NONE",
+                "--verbose",
+                "--run-id",
+                "cli-verbose-run",
+            ]
+        )
+
+    stdout = output.getvalue()
+
+    assert exit_code == 1
+    assert "claude/new_session/NONE" in stdout
+    assert "usage_limited output contained retry guidance" in stdout
+    assert "optional case artifact write warning" in stdout
+    assert "provider stream" not in stdout
+    assert "super-secret-token" not in stdout
+    assert "to rerun failed cases" in stdout.lower()
+
+
+def test_live_smoke_cli_json_output_includes_rerun_targets_for_failed_cases(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    result = module.LiveSmokeRunResult(
+        run_id="cli-json-run",
+        artifact_root=tmp_path / "artifacts",
+        summary_path=tmp_path / "artifacts" / "cli-json-run" / "summary.json",
+        summary_written=True,
+        passed=False,
+        cases=(
+            module.LiveSmokeRunCaseResult(
+                service="opencode",
+                mode="ephemeral",
+                policy="UNRESTRICTED",
+                model="deepseek",
+                effort="medium",
+                artifact_path=str(
+                    tmp_path
+                    / "artifacts"
+                    / "cli-json-run"
+                    / "opencode"
+                    / "ephemeral"
+                    / "UNRESTRICTED"
+                ),
+                status="failed",
+                required=True,
+                provider_output="provider output",
+                diagnostic="provider runtime returned failed",
+                traceback=None,
+                duration_seconds=1.2,
+            ),
+        ),
+    )
+
+    def _fake_runner(
+        *args: Any, case_runner: Any = None, **_: Any
+    ) -> module.LiveSmokeRunResult:
+        assert not args
+        assert case_runner is None
+        return result
+
+    monkeypatch.setattr(module, "run_live_smoke", _fake_runner)
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--provider",
+                "opencode",
+                "--mode",
+                "ephemeral",
+                "--policy",
+                "UNRESTRICTED",
+                "--json",
+                "--run-id",
+                "cli-json-run",
+                "--artifact-root",
+                str(tmp_path / "artifacts"),
+            ]
+        )
+
+    stdout = output.getvalue()
+    payload = module.json.loads(stdout)
+
+    assert exit_code == 1
+    assert payload["run_id"] == "cli-json-run"
+    assert payload["artifact_root"] == str(tmp_path / "artifacts")
+    assert payload["provider_plans"][0]["status"] == "runnable"
+    assert payload["cases"][0]["service"] == "opencode"
+    assert payload["cases"][0]["status"] == "failed"
+    assert any(
+        item["provider"] == "opencode"
+        and item["mode"] == "ephemeral"
+        and item["policy"] == "UNRESTRICTED"
+        for item in payload["failed_case_runs"]
+    )
+    assert any(
+        "--provider opencode" in item["command"] for item in payload["failed_case_runs"]
+    )
+
+
+def test_live_smoke_cli_warning_output_does_not_flip_pass_status(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    result = module.LiveSmokeRunResult(
+        run_id="cli-warning-run",
+        artifact_root=tmp_path / "artifacts",
+        summary_path=tmp_path / "artifacts" / "cli-warning-run" / "summary.json",
+        summary_written=True,
+        passed=True,
+        cases=(
+            module.LiveSmokeRunCaseResult(
+                service="codex",
+                mode="ephemeral",
+                policy=None,
+                model="codex-mini",
+                effort="high",
+                artifact_path=str(
+                    tmp_path
+                    / "artifacts"
+                    / "cli-warning-run"
+                    / "codex"
+                    / "ephemeral"
+                    / "default"
+                ),
+                status="passed",
+                required=True,
+                provider_output="",
+                diagnostic=None,
+                traceback=None,
+                duration_seconds=0.1,
+            ),
+        ),
+        warnings=("optional case artifact write failed: transient fs issue",),
+    )
+
+    monkeypatch.setattr(module, "run_live_smoke", lambda **_: result)
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--provider",
+                "codex",
+                "--mode",
+                "ephemeral",
+                "--run-id",
+                "cli-warning-run",
+                "--verbose",
+            ]
+        )
+
+    stdout = output.getvalue()
+    assert exit_code == 0
+    assert "optional case artifact write failed" in stdout
+    assert "final status: passed" in stdout.lower()

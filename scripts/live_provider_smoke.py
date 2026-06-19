@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
+import os
 import json
+import shlex
 import shutil
 import sys
 import time
@@ -8,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Mapping, cast
+from typing import Any, Callable, Mapping, Sequence, cast
 from traceback import format_exc
 from importlib import util as importlib_util
 
@@ -31,6 +34,150 @@ except ModuleNotFoundError:
 
 DEFAULT_LIVE_SMOKE_ARTIFACT_ROOT = "live-smoke-artifacts"
 LIVE_SMOKE_SUMMARY_FILENAME = "summary.json"
+_DEFAULT_CASE_TIMEOUT_SECONDS = 30
+
+
+def _parse_service_map_arg(value: str, *, flag_name: str) -> tuple[str, str]:
+    provider, _, payload = value.partition("=")
+    if not provider or not payload:
+        raise argparse.ArgumentTypeError(
+            f"{flag_name} expects SERVICE=VALUE (example: claude=sonnet), got {value!r}"
+        )
+    return provider.strip(), payload.strip()
+
+
+def _safe_list(value: Sequence[str]) -> str:
+    return ", ".join(value)
+
+
+def _build_case_rerun_command(
+    case: Any,
+    *,
+    run_id: str | None = None,
+) -> str:
+    command_parts = [
+        "python",
+        __file__,
+        "--provider",
+        case.service,
+        "--mode",
+        case.mode,
+    ]
+    if case.policy is not None:
+        command_parts.extend(["--policy", str(case.policy)])
+    if case.model:
+        command_parts.extend(["--model", f"{case.service}={case.model}"])
+    if case.effort:
+        command_parts.extend(["--effort", f"{case.service}={case.effort}"])
+    if run_id:
+        command_parts.extend(["--run-id", run_id])
+    return " ".join(shlex.quote(part) for part in command_parts)
+
+
+def _build_rerun_matrix(
+    cases: Sequence[LiveSmokeRunCaseResult],
+    *,
+    run_id: str | None = None,
+) -> tuple[dict[str, str | None], ...]:
+    failed_runs = []
+    for case in cases:
+        if case.status in {"passed", "skipped"} and not (
+            case.status == "skipped" and not case.required
+        ):
+            continue
+        if case.status in {"skipped"}:
+            if case.required:
+                failed_runs.append(
+                    {"provider": case.service, "mode": case.mode, "policy": case.policy}
+                )
+            continue
+        failed_runs.append(
+            {
+                "provider": case.service,
+                "mode": case.mode,
+                "policy": case.policy,
+                "status": case.status,
+                "command": _build_case_rerun_command(case, run_id=run_id),
+            }
+        )
+    return tuple(failed_runs)
+
+
+def _build_failed_case_command_matrix(
+    cases: Sequence[LiveSmokeRunCaseResult],
+    *,
+    run_id: str | None = None,
+) -> tuple[dict[str, str | None], ...]:
+    failed = []
+    for case in cases:
+        if case.status == "passed":
+            continue
+        if case.status == "skipped" and not case.required:
+            continue
+        failed.append(
+            {
+                "provider": case.service,
+                "mode": case.mode,
+                "policy": case.policy,
+                "status": case.status,
+                "command": _build_case_rerun_command(case, run_id=run_id),
+            }
+        )
+    return tuple(failed)
+
+
+def _build_summary_payload_with_reruns(
+    run_result: LiveSmokeRunResult,
+    run_duration_seconds: float,
+    provider_plans: Any,
+    *,
+    failed_case_runs: Sequence[dict[str, str | None]],
+) -> dict[str, Any]:
+    payload = _build_summary_payload(run_result, run_duration_seconds, provider_plans)
+    payload["failed_case_runs"] = list(failed_case_runs)
+    return payload
+
+
+def _case_label(case: LiveSmokeRunCaseResult) -> str:
+    if case.policy is None:
+        return f"{case.service}/{case.mode}"
+    return f"{case.service}/{case.mode}/{case.policy}"
+
+
+def _build_cli_summary_payload(
+    run_result: LiveSmokeRunResult,
+    provider_plans: Any = (),
+    *,
+    failed_case_runs: Sequence[dict[str, str | None]] = (),
+) -> dict[str, Any]:
+    if not provider_plans:
+        provider_statuses: dict[str, dict[str, Any]] = {}
+        for case in run_result.cases:
+            provider_statuses.setdefault(
+                case.service,
+                {
+                    "service": case.service,
+                    "status": "runnable",
+                    "model": case.model,
+                    "effort": case.effort,
+                },
+            )
+        provider_plans = tuple(provider_statuses.values())
+    payload = _build_summary_payload(run_result, 0.0, provider_plans)
+    payload["failed_case_runs"] = list(failed_case_runs)
+    return payload
+
+
+def _format_rerun_block(
+    failed_case_runs: Sequence[dict[str, str | None]],
+) -> str:
+    if not failed_case_runs:
+        return ""
+    lines = ["To rerun failed cases:"]
+    for entry in failed_case_runs:
+        if entry.get("command"):
+            lines.append(f"  - {entry['command']}")
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True)
@@ -103,6 +250,343 @@ def _as_observed_runtime_outcome(
     )
 
 
+def _build_live_smoke_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run the Live Provider Smoke Test.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    supported_policies = [policy.name for policy in prompt_runtime.ToolPolicy]
+    supported_modes = ("ephemeral", "new_session", "resumed_session")
+    supported_providers = tuple(live_provider_smoke_plan.SUPPORTED_PROVIDERS) + ("all",)
+
+    parser.add_argument(
+        "--provider",
+        action="append",
+        dest="providers",
+        default=[],
+        choices=supported_providers,
+        help=(
+            "Provider selection for smoke cases. Supported values: "
+            f"{_safe_list(supported_providers)}. "
+            "Can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        action="append",
+        dest="lifecycle_modes",
+        default=[],
+        choices=supported_modes,
+        help=(
+            "Lifecycle mode to execute. "
+            "Can be repeated. "
+            f"Supported: {_safe_list(supported_modes)}."
+        ),
+    )
+    parser.add_argument(
+        "--policy",
+        action="append",
+        dest="tool_policies",
+        default=[],
+        choices=supported_policies,
+        help=(
+            "Tool-policy mode. "
+            "Supported values: "
+            f"{_safe_list(supported_policies)}. "
+            "If set, policy cases run with ephemeral mode."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        action="append",
+        metavar="SERVICE=MODEL",
+        default=[],
+        type=lambda value: _parse_service_map_arg(value, flag_name="--model"),
+        help=(
+            "Per-provider model override (for example: --model claude=sonnet). "
+            f"Defaults from ${live_provider_smoke_plan.LIVE_SMOKE_CLAUDE_MODEL_ENV}, "
+            f"${live_provider_smoke_plan.LIVE_SMOKE_CODEX_MODEL_ENV}, "
+            f"${live_provider_smoke_plan.LIVE_SMOKE_OPENCODE_MODEL_ENV}."
+        ),
+    )
+    parser.add_argument(
+        "--effort",
+        action="append",
+        metavar="SERVICE=EFFORT",
+        default=[],
+        type=lambda value: _parse_service_map_arg(value, flag_name="--effort"),
+        help=(
+            "Per-provider effort override (for example: --effort claude=high). "
+            f"Defaults from ${live_provider_smoke_plan.LIVE_SMOKE_CLAUDE_EFFORT_ENV}, "
+            f"${live_provider_smoke_plan.LIVE_SMOKE_CODEX_EFFORT_ENV}, "
+            f"${live_provider_smoke_plan.LIVE_SMOKE_OPENCODE_EFFORT_ENV}."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build the run plan and print it without executing providers.",
+    )
+    parser.add_argument(
+        "--list-providers",
+        action="store_true",
+        help="List supported providers and whether credentials appear configured.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON summary to stdout.",
+    )
+    parser.add_argument(
+        "--artifact-root",
+        type=Path,
+        default=DEFAULT_LIVE_SMOKE_ARTIFACT_ROOT,
+        help=(
+            "Artifact root for preserved diagnostics. "
+            "Artifacts may contain potentially sensitive provider output."
+        ),
+    )
+    parser.add_argument(
+        "--cleanup-artifact-root",
+        action="store_true",
+        help="Remove artifact root before execution.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=_DEFAULT_CASE_TIMEOUT_SECONDS,
+        help=(
+            "Case timeout in seconds. Useful for local smoke guardrails. "
+            "The smoke runner does not stream raw subprocess output."
+        ),
+    )
+    parser.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help="Optional run id (path-safe). Defaults to a random value.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Emit richer local diagnostics while leaving provider streams off-console.",
+    )
+    return parser
+
+
+def _parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = _build_live_smoke_parser()
+    return parser.parse_args(list(argv or []))
+
+
+def _build_service_model_map(entries: Sequence[tuple[str, str]]) -> dict[str, str]:
+    model_overrides: dict[str, str] = {}
+    for service, value in entries:
+        model_overrides[service.lower()] = value
+    return model_overrides
+
+
+def _coerce_list_provider_selection(parsed: argparse.Namespace) -> tuple[str, ...]:
+    selected = tuple(parsed.providers or ("all",))
+    if "all" in selected and len(selected) > 1:
+        raise ValueError("Cannot combine --provider all with specific providers.")
+    return selected
+
+
+def _coerce_lifecycle_modes(parsed: argparse.Namespace) -> tuple[str, ...]:
+    selected = tuple(parsed.lifecycle_modes or ("ephemeral",))
+    return tuple(dict.fromkeys(selected))
+
+
+def _print_run_result(
+    run_result: LiveSmokeRunResult,
+    *,
+    verbose: bool,
+    artifact_root: Path,
+    run_json: bool = False,
+    dry_run: bool = False,
+) -> tuple[str, int]:
+    del run_json
+    lines: list[str] = []
+    if not dry_run:
+        lines.append(f"artifact root: {artifact_root}")
+    if dry_run:
+        lines.append("Dry run requested. No providers executed.")
+    for case in run_result.cases:
+        status = case.status
+        label = _case_label(case)
+        lines.append(f"{label}: {status}")
+        if verbose:
+            if case.diagnostic:
+                lines.append(f"  diagnostic: {case.diagnostic}")
+            if case.traceback:
+                lines.append(f"  traceback: {case.traceback}")
+            lines.append(f"  artifact_path: {case.artifact_path}")
+    failed_case_runs = _build_failed_case_runs(
+        run_result.cases, run_id=run_result.run_id
+    )
+    lines.extend(_format_rerun_block(failed_case_runs).splitlines())
+    for warning in run_result.warnings:
+        lines.append(f"warning: {warning}")
+    lines.append(f"final status: {'passed' if run_result.passed else 'failed'}")
+    text = "\n".join(lines)
+    if text:
+        print(text)
+    return text, 0 if run_result.passed else 1
+
+
+def _build_failed_case_runs(
+    cases: Sequence[LiveSmokeRunCaseResult],
+    *,
+    run_id: str | None = None,
+) -> tuple[dict[str, str | None], ...]:
+    failed_runs = []
+    for case in cases:
+        if case.status == "passed":
+            continue
+        if case.status == "skipped" and not case.required:
+            continue
+        failed_runs.append(
+            {
+                "provider": case.service,
+                "mode": case.mode,
+                "policy": case.policy,
+                "status": case.status,
+                "command": _build_case_rerun_command(case, run_id=run_id),
+            }
+        )
+    return tuple(failed_runs)
+
+
+def _json_payload_for_run_result(
+    run_result: LiveSmokeRunResult,
+    provider_plans: Any,
+    *,
+    summary_path: Path,
+) -> dict[str, Any]:
+    failed_case_runs = _build_failed_case_runs(
+        run_result.cases, run_id=run_result.run_id
+    )
+    if provider_plans is not None:
+        return _build_summary_payload_with_reruns(
+            run_result,
+            0.0,
+            provider_plans,
+            failed_case_runs=failed_case_runs,
+        )
+    return _build_cli_summary_payload(
+        run_result,
+        failed_case_runs=failed_case_runs,
+    )
+
+
+def _print_provider_listing(json_output: bool = False) -> int:
+    del json_output
+    providers = live_provider_smoke_plan.list_supported_providers(
+        env=os.environ if os is not None else None
+    )
+    for provider in providers:
+        print(
+            f"{provider.service}: {'configured' if provider.configured else 'missing'}"
+        )
+    print(
+        "Preserve artifacts with care; outputs may contain potentially sensitive data."
+    )
+    return 0
+
+
+def _print_dry_run_plan(
+    dry_run_plan: Any,
+    *,
+    verbose: bool,
+    json_output: bool,
+) -> int:
+    del verbose
+    if json_output:
+        print(live_provider_smoke_plan.dry_run_plan_to_json(dry_run_plan))
+        return 0
+
+    print("Dry run plan:")
+    print(f"run_id: {dry_run_plan.run_id}")
+    print(f"artifact_root: {dry_run_plan.artifact_root}")
+    for case in dry_run_plan.cases:
+        print(_case_label(cast(Any, case)))
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_cli_args(argv)
+    model_overrides = _build_service_model_map(args.model)
+    effort_overrides = _build_service_model_map(args.effort)
+    providers = _coerce_list_provider_selection(args)
+    lifecycle_modes = _coerce_lifecycle_modes(args)
+
+    if args.list_providers:
+        return _print_provider_listing(json_output=args.json)
+
+    if args.dry_run:
+        dry_run_plan = live_provider_smoke_plan.build_dry_run_plan(
+            providers,
+            lifecycle_modes=lifecycle_modes,
+            tool_policies=tuple(args.tool_policies),
+            run_id=args.run_id,
+            model_overrides=model_overrides,
+            effort_overrides=effort_overrides,
+            artifact_root=args.artifact_root,
+        )
+        return _print_dry_run_plan(
+            dry_run_plan, verbose=args.verbose, json_output=args.json
+        )
+
+    run_result = run_live_smoke(
+        provider_selection=providers,
+        lifecycle_modes=lifecycle_modes,
+        tool_policies=tuple(args.tool_policies),
+        run_id=args.run_id,
+        model_overrides=model_overrides,
+        effort_overrides=effort_overrides,
+        artifact_root=args.artifact_root,
+        cleanup_artifact_root=args.cleanup_artifact_root,
+    )
+
+    summary_payload: dict[str, Any] | None = None
+    if run_result.summary_path.exists():
+        try:
+            summary_payload = json.loads(
+                run_result.summary_path.read_text(encoding="utf-8")
+            )
+        except Exception:
+            summary_payload = None
+
+    if args.json:
+        failed_case_runs = _build_failed_case_runs(
+            run_result.cases, run_id=run_result.run_id
+        )
+        if summary_payload is None:
+            summary_payload = _build_cli_summary_payload(
+                run_result, failed_case_runs=failed_case_runs
+            )
+        else:
+            summary_payload["failed_case_runs"] = list(failed_case_runs)
+            summary_payload["run_id"] = run_result.run_id
+            summary_payload["artifact_root"] = str(run_result.artifact_root)
+            summary_payload["passed"] = run_result.passed
+            summary_payload["warnings"] = list(run_result.warnings)
+            summary_payload["duration_seconds"] = summary_payload.get(
+                "duration_seconds", 0.0
+            )
+        print(json.dumps(summary_payload, sort_keys=True))
+        return 0 if run_result.passed else 1
+
+    _, status = _print_run_result(
+        run_result,
+        verbose=args.verbose,
+        artifact_root=run_result.artifact_root,
+        dry_run=False,
+    )
+    return status
+
+
 def _resolve_live_smoke_artifact_root(
     artifact_root: Path | str | None,
 ) -> Path:
@@ -140,10 +624,18 @@ def _build_summary_payload(
         ],
         "provider_plans": [
             {
-                "service": plan.service,
-                "status": plan.status,
-                "model": plan.model,
-                "effort": plan.effort,
+                "service": plan["service"]
+                if isinstance(plan, Mapping)
+                else getattr(plan, "service"),
+                "status": plan["status"]
+                if isinstance(plan, Mapping)
+                else getattr(plan, "status"),
+                "model": plan["model"]
+                if isinstance(plan, Mapping)
+                else getattr(plan, "model"),
+                "effort": plan["effort"]
+                if isinstance(plan, Mapping)
+                else getattr(plan, "effort"),
             }
             for plan in provider_plans
         ],
@@ -816,3 +1308,7 @@ def run_live_smoke(
 
 def _run_case_stub(*_: Any, **__: Any) -> Any:
     return _StubOutcome()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
