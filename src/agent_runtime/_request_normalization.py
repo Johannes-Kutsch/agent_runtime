@@ -88,8 +88,21 @@ def normalize_tool_access(
         )
     else:
         raise TypeError(missing_message)
-    resolved_tool_access.require_workspace(workspace, context=context)
-    return resolved_tool_access
+    return normalize_resolved_tool_access(
+        tool_access=resolved_tool_access,
+        workspace=workspace,
+        context=context,
+    )
+
+
+def normalize_resolved_tool_access(
+    *,
+    tool_access: "ToolAccess",
+    workspace: Path | None,
+    context: str,
+) -> "ToolAccess":
+    tool_access.require_workspace(workspace, context=context)
+    return tool_access
 
 
 def normalize_tool_policy(

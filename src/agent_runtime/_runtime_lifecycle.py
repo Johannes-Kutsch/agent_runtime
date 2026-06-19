@@ -13,6 +13,7 @@ from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
 from ._request_normalization import (
     normalize_session_namespace,
+    normalize_resolved_tool_access,
     normalize_stage_selection,
     normalize_tool_access,
     normalize_worktree_mount,
@@ -587,7 +588,11 @@ class ResumedSessionRunRequest:
                 )
             resolved_model = continuation.selected_model if model is None else model
             resolved_effort = continuation.selected_effort if effort is None else effort
-            resolved_tool_access = continuation.tool_access
+            resolved_tool_access = normalize_resolved_tool_access(
+                tool_access=continuation.tool_access,
+                workspace=worktree_path,
+                context="ResumedSessionRunRequest",
+            )
             resolved_role = role
             resolved_session_namespace = normalize_session_namespace(session_namespace)
         else:
@@ -616,10 +621,6 @@ class ResumedSessionRunRequest:
             resolved_role = session_plan.role
             resolved_session_namespace = session_plan.namespace
             usage_limit_scope = session_plan.usage_limit_scope
-        resolved_tool_access.require_workspace(
-            worktree_path,
-            context="ResumedSessionRunRequest",
-        )
         resolved_worktree = normalize_worktree_mount(worktree)
 
         object.__setattr__(self, "prompt", prompt)
