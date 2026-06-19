@@ -174,7 +174,6 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "session-uuid",
-                    "provider_state_dir_relpath": provider_state_dir_relpath,
                     "exact_transcript_match": False,
                 },
             ),
@@ -294,7 +293,6 @@ def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "session-uuid",
-                    "provider_state_dir_relpath": provider_state_dir_relpath,
                     "exact_transcript_match": False,
                 },
             ),
@@ -320,6 +318,109 @@ def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
         assert "--disallowedTools" not in command
     for flag in expected_flags:
         assert flag in command
+
+
+def test_runtime_client_runs_claude_new_session_and_returns_portable_continuation_for_resumption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "first output"}) + "\n",
+            ),
+        ),
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "continued output"}) + "\n",
+            ),
+        ),
+    )
+
+    first_outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                stage=runtime.StageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert first_outcome.result is not None
+    assert isinstance(first_outcome.result, prompt_runtime.SessionRunResult)
+    continuation = first_outcome.result.continuation
+    assert continuation is not None
+    assert continuation.provider_resume_state == {
+        "run_kind": "resume",
+        "provider_session_id": "session-uuid",
+        "exact_transcript_match": False,
+    }
+
+    second_outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                continuation=continuation,
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                model="opus",
+                effort="high",
+            )
+        )
+    )
+
+    assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="continued output",
+        result=prompt_runtime.SessionRunResult(
+            output="continued output",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="claude",
+                provider_session_id="session-uuid",
+                run_kind=RunKind.RESUME,
+                session_namespace="main",
+                exact_transcript_match=False,
+            ),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="opus",
+                selected_effort="high",
+                tool_access=runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "run_kind": "resume",
+                    "provider_session_id": "session-uuid",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
+        usage=None,
+    )
+    assert len(adapter.recorded_requests) == 2
+    resumed_request = adapter.recorded_requests[1]
+    assert resumed_request.environment == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
+    assert "--resume session-uuid" in resumed_request.command
+    assert "--session-id" not in resumed_request.command
 
 
 def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invocation_adapter(
@@ -393,7 +494,6 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "observed-session",
-                    "provider_state_dir_relpath": "implementer/main/claude/",
                     "exact_transcript_match": False,
                 },
             ),
@@ -891,10 +991,6 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
         lambda: adapter,
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer/main/claude"
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    (provider_state_dir / "session.jsonl").write_text("{}\n", encoding="utf-8")
     continuation = prompt_runtime.Continuation(
         selected_service="claude",
         selected_model="sonnet",
@@ -903,7 +999,6 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "claude-session-123",
-            "provider_state_dir_relpath": "implementer/main/claude/",
             "exact_transcript_match": False,
         },
     )
@@ -913,7 +1008,6 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
                 session_namespace="main",
@@ -945,7 +1039,6 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "observed-session",
-                    "provider_state_dir_relpath": "implementer/main/claude/",
                     "exact_transcript_match": False,
                 },
             ),
@@ -965,8 +1058,7 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
     assert recorded_request.role == InvocationRole("implementer")
     assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id == "claude-session-123"
-    assert recorded_request.environment["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
-    assert recorded_request.environment["CLAUDE_CONFIG_DIR"] == str(provider_state_dir)
+    assert recorded_request.environment == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
     assert "--resume claude-session-123" in recorded_request.command
     assert "--model opus" in recorded_request.command
     assert "--effort high" in recorded_request.command
@@ -1007,21 +1099,14 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "claude-session-123",
-            "provider_state_dir_relpath": "implementer/main/claude/",
             "exact_transcript_match": False,
         },
     )
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer/main/claude"
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    (provider_state_dir / "session.jsonl").write_text("{}\n", encoding="utf-8")
-
     outcome = asyncio.run(
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
                 session_namespace="main",
@@ -1053,7 +1138,6 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "claude-session-123",
-                    "provider_state_dir_relpath": "implementer/main/claude/",
                     "exact_transcript_match": False,
                 },
             ),
@@ -1074,7 +1158,6 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     assert recorded_request.provider_session_id == "claude-session-123"
     assert recorded_request.environment == {
         "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-        "CLAUDE_CONFIG_DIR": str(provider_state_dir),
     }
     assert "--resume claude-session-123" in recorded_request.command
     assert "--session-id" not in recorded_request.command
@@ -1109,10 +1192,6 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer/main/claude"
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    (provider_state_dir / "session.jsonl").write_text("{}\n", encoding="utf-8")
     tool_access = (
         runtime.ToolAccess.no_tools()
         if tool_policy is runtime.ToolPolicy.NONE
@@ -1124,7 +1203,6 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                runtime_state_dir=runtime_state_dir,
                 continuation=prompt_runtime.Continuation(
                     selected_service="claude",
                     selected_model="sonnet",
@@ -1133,7 +1211,6 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
                     provider_resume_state={
                         "run_kind": "resume",
                         "provider_session_id": "claude-session-123",
-                        "provider_state_dir_relpath": "implementer/main/claude/",
                         "exact_transcript_match": False,
                     },
                 ),
@@ -1167,7 +1244,6 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "claude-session-123",
-                    "provider_state_dir_relpath": "implementer/main/claude/",
                     "exact_transcript_match": False,
                 },
             ),
@@ -1179,7 +1255,6 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
     assert recorded_request.provider_session_id == "claude-session-123"
     assert recorded_request.environment == {
         "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-        "CLAUDE_CONFIG_DIR": str(provider_state_dir),
     }
     command = recorded_request.command
     assert "--resume claude-session-123" in command
@@ -1869,7 +1944,6 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "observed-session",
-                "provider_state_dir_relpath": "implementer/main/claude/",
                 "exact_transcript_match": False,
             },
         ),
@@ -2036,7 +2110,6 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "generated-session-id",
-                    "provider_state_dir_relpath": provider_state_dir_relpath,
                     "exact_transcript_match": False,
                 },
             ),
@@ -2124,7 +2197,6 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
                 provider_resume_state={
                     "run_kind": "resume",
                     "provider_session_id": "claude-session-123",
-                    "provider_state_dir_relpath": provider_state_dir_relpath,
                     "exact_transcript_match": False,
                 },
             ),
@@ -2230,7 +2302,6 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
             provider_resume_state={
                 "run_kind": "resume",
                 "provider_session_id": "session-uuid",
-                "provider_state_dir_relpath": "implementer/main/claude/",
                 "exact_transcript_match": False,
             },
         ),
