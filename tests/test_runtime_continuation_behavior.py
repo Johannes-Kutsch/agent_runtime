@@ -846,6 +846,64 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
     )
 
 
+def test_resumed_session_runtime_resumes_from_continuation_with_minimal_request_fields() -> (
+    None
+):
+    worktree = Path("/repo")
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    result = asyncio.run(
+        compat_runtime.ResumedSessionRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+        ).run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert result == prompt_runtime.RuntimeOutcome.completed(
+        output="resume:prepared:recovered-session:/workspace/runtime-state/",
+        result=prompt_runtime.SessionRunResult(
+            output="resume:prepared:recovered-session:/workspace/runtime-state/",
+            runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                service_name="codex",
+                provider_session_id="prepared:recovered-session",
+                run_kind=RunKind.RESUME,
+                session_namespace="",
+                exact_transcript_match=False,
+            ),
+        ),
+    )
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.continuation == prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "prepared:recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+    assert result.result.runtime_metadata.tool_policy == runtime.ToolPolicy.NONE
+
+
 def test_resumed_session_runtime_reuses_continuation_tool_policy_across_roundtrip() -> (
     None
 ):

@@ -124,6 +124,31 @@ def test_resumed_session_run_request_from_continuation_defaults_role() -> None:
     assert request.role == InvocationRole("implementer")
 
 
+def test_resumed_session_run_request_from_continuation_accepts_minimal_fields() -> None:
+    request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=WorktreeMount(Path("/repo")),
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={"run_kind": "resume"},
+        ),
+    )
+
+    assert request.model == "gpt-5.4"
+    assert request.effort == "medium"
+    assert request.role == InvocationRole("implementer")
+    assert request.runtime_state_dir is None
+    assert request.logs_dir is None
+    assert request.usage_limit_scope is None
+    assert request.session_namespace == ""
+    assert request.provider_auth is None
+    assert request.token is None
+    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
+
+
 @pytest.mark.parametrize("label", ["", "../escape"])
 def test_resumed_session_run_request_from_continuation_preserves_empty_session_namespace_and_rejects_unsafe_non_empty_values(
     label: str,
