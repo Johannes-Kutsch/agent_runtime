@@ -1444,7 +1444,6 @@ def _build_claude_continuation(
     effort: str,
     tool_access: ToolAccess,
     provider_session_id: str,
-    provider_state_dir_relpath: str,
 ) -> Continuation:
     return create_portable_continuation_payload(
         service_name="claude",
@@ -1454,7 +1453,6 @@ def _build_claude_continuation(
         provider_resume_state={
             "run_kind": RunKind.RESUME.value,
             "provider_session_id": provider_session_id,
-            "provider_state_dir_relpath": provider_state_dir_relpath,
             "exact_transcript_match": False,
         },
     ).to_continuation()
@@ -2126,7 +2124,6 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=_new_provider_session_id(),
-                        provider_state_dir_relpath=provider_state_dir_relpath,
                     ),
                     role=request.role,
                     provider_auth=request.provider_auth,
@@ -2192,7 +2189,10 @@ def _run_builtin_new_session(
                     provider_session_id=provider_session_id,
                 )
             )
-            _persist_opencode_session_id(provider_state_dir, provider_session_id)
+            _persist_opencode_session_id(
+                cast(Path, provider_state_dir),
+                provider_session_id,
+            )
     except (UsageLimitError, RetryableProviderFailureError) as exc:
         observed_failure_provider_session_id = (
             provider_invocation_failure_provider_session_id(exc)
@@ -2204,24 +2204,25 @@ def _run_builtin_new_session(
             exc.invocation_progress is InvocationProgress.STARTED
             and provider_session_id is not None
         ):
-            exc.continuation = (
-                _build_claude_continuation(
+            if selected_stage.service == "claude":
+                exc.continuation = _build_claude_continuation(
                     model=selected_stage.model,
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
                 )
-                if selected_stage.service == "claude"
-                else _build_opencode_continuation(
+            else:
+                exc.continuation = _build_opencode_continuation(
                     model=selected_stage.model,
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    provider_state_dir_relpath=cast(
+                        str,
+                        provider_state_dir_relpath,
+                    ),
                     exact_transcript_match=exact_transcript_match,
                 )
-            )
         raise
     if selected_stage.service == "claude":
         provider_session_id = (
@@ -2250,7 +2251,6 @@ def _run_builtin_new_session(
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
                 )
                 if selected_stage.service == "claude"
                 else _build_opencode_continuation(
@@ -2258,7 +2258,10 @@ def _run_builtin_new_session(
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    provider_state_dir_relpath=cast(
+                        str,
+                        provider_state_dir_relpath,
+                    ),
                     exact_transcript_match=exact_transcript_match,
                 )
             ),
@@ -2309,11 +2312,11 @@ def _run_builtin_resumed_session(
             raise RuntimeConfigurationError(
                 "Codex continuation is missing `provider_state_dir_relpath`."
             )
-        provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-        provider_state_dir.mkdir(parents=True, exist_ok=True)
-        _codex_seed_auth(provider_state_dir)
+        codex_provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+        codex_provider_state_dir.mkdir(parents=True, exist_ok=True)
+        _codex_seed_auth(codex_provider_state_dir)
         provider_session_id = _resolve_recoverable_codex_session_id(
-            provider_state_dir=provider_state_dir,
+            provider_state_dir=codex_provider_state_dir,
             provider_session_id=cast(
                 str | None,
                 provider_resume_state.get("provider_session_id"),
@@ -2326,7 +2329,7 @@ def _run_builtin_resumed_session(
                 provider_invocation_adapter=invocation_adapter,
                 provider_session_id=provider_session_id,
                 request=request,
-                provider_state_dir=provider_state_dir,
+                provider_state_dir=codex_provider_state_dir,
             )
             active_provider_session_id = _active_codex_provider_session_id_from_result(
                 invocation_result,
@@ -2392,16 +2395,14 @@ def _run_builtin_resumed_session(
         str | None,
         provider_resume_state.get("provider_state_dir_relpath"),
     )
-    if not provider_state_dir_relpath:
-        raise RuntimeConfigurationError(
-            f"{continuation_service.capitalize()} continuation is missing `provider_state_dir_relpath`."
-        )
+    provider_state_dir: Path | None = None
+    if provider_state_dir_relpath:
+        provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+        provider_state_dir.mkdir(parents=True, exist_ok=True)
     provider_session_id = cast(
         str | None,
         provider_resume_state.get("provider_session_id"),
     )
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
     state_dir_session_id = (
         _load_opencode_state_dir_session_id(provider_state_dir)
         if continuation_service == "opencode"
@@ -2425,7 +2426,18 @@ def _run_builtin_resumed_session(
         if not provider_session_id:
             provider_session_id = _new_provider_session_id()
         exact_transcript_match = False
-        run_kind = _claude_run_kind_for_state_dir(provider_state_dir)
+        run_kind = (
+            _claude_run_kind_for_state_dir(provider_state_dir)
+            if provider_state_dir is not None
+            else RunKind.RESUME
+        )
+    if continuation_service == "opencode" and provider_state_dir is None:
+        raise RuntimeConfigurationError(
+            f"{continuation_service.capitalize()} continuation is missing `provider_state_dir_relpath`."
+        )
+    if continuation_service == "opencode":
+        assert provider_state_dir is not None
+        assert provider_state_dir_relpath is not None
     prompt_path = request.invocation_dir.host_path / ".pycastle_prompt"
     invocation_log = _start_invocation_log(
         logs_dir=request.logs_dir,
@@ -2472,7 +2484,9 @@ def _run_builtin_resumed_session(
             )
             environment = _claude_env(
                 auth=request.provider_auth,
-                state_dir_container_path=str(provider_state_dir),
+                state_dir_container_path=(
+                    str(provider_state_dir) if provider_state_dir is not None else None
+                ),
             )
             reduce_output = _reduce_claude_stream
             reduce_logged_output = None
@@ -2516,7 +2530,10 @@ def _run_builtin_resumed_session(
                 provider_session_id=provider_session_id,
                 state_dir_session_id=state_dir_session_id,
             )
-            _persist_opencode_session_id(provider_state_dir, provider_session_id)
+            _persist_opencode_session_id(
+                cast(Path, provider_state_dir),
+                provider_session_id,
+            )
     except (UsageLimitError, RetryableProviderFailureError) as exc:
         observed_failure_provider_session_id = (
             provider_invocation_failure_provider_session_id(exc)
@@ -2530,17 +2547,21 @@ def _run_builtin_resumed_session(
                 provider_session_id=provider_session_id,
                 state_dir_session_id=state_dir_session_id,
             )
-        exc.continuation = (
-            (
-                _build_claude_continuation(
+        exc.continuation = None
+        if (
+            exc.invocation_progress is InvocationProgress.STARTED
+            and provider_session_id is not None
+        ):
+            if continuation_service == "claude":
+                exc.continuation = _build_claude_continuation(
                     model=request.model,
                     effort=request.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
                 )
-                if continuation_service == "claude"
-                else _build_opencode_continuation(
+            else:
+                assert provider_state_dir_relpath is not None
+                exc.continuation = _build_opencode_continuation(
                     model=request.model,
                     effort=request.effort,
                     tool_access=request.tool_access,
@@ -2548,11 +2569,6 @@ def _run_builtin_resumed_session(
                     provider_state_dir_relpath=provider_state_dir_relpath,
                     exact_transcript_match=exact_transcript_match,
                 )
-            )
-            if exc.invocation_progress is InvocationProgress.STARTED
-            and provider_session_id is not None
-            else None
-        )
         raise
     if continuation_service == "claude":
         provider_session_id = (
@@ -2581,7 +2597,6 @@ def _run_builtin_resumed_session(
                     effort=request.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
                 )
                 if continuation_service == "claude"
                 else _build_opencode_continuation(
@@ -2589,7 +2604,10 @@ def _run_builtin_resumed_session(
                     effort=request.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    provider_state_dir_relpath=cast(
+                        str,
+                        provider_state_dir_relpath,
+                    ),
                     exact_transcript_match=exact_transcript_match,
                 )
             ),
