@@ -228,3 +228,18 @@ def test_completed_runtime_outcome_rejects_ephemeral_selection_metadata_for_sess
         _ = outcome.used_fallback
     with pytest.raises(AttributeError, match="tool access"):
         _ = outcome.tool_access
+
+
+def test_no_service_available_outcome_rejects_caller_defined_usage_limit_scope() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match="got an unexpected keyword argument 'usage_limit_scope'",
+    ):
+        cast(Any, prompt_runtime.RuntimeOutcome.no_service_available)(
+            output="",
+            reset_time=None,
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+            usage_limit_scope=runtime.UsageLimitScope("review"),
+        )

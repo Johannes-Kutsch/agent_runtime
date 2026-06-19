@@ -1079,7 +1079,6 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         usage=runtime.ProviderUsage(
             input_tokens=40,
@@ -1364,7 +1363,6 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -1428,7 +1426,6 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2027, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -1530,7 +1527,6 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
     assert first_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
@@ -1661,7 +1657,6 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
     assert first_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
@@ -2051,7 +2046,6 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
     assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert observed_commands == [
@@ -2413,7 +2407,6 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
         prompt_runtime.RuntimeOutcome.no_service_available(
             output="",
             reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-            usage_limit_scope=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         )
     ]
@@ -2629,7 +2622,6 @@ def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditi
         output="",
         service_name="codex",
         reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
     )
     assert result.result is None
@@ -2663,7 +2655,6 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
     assert result == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        usage_limit_scope=None,
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert result.result is None
@@ -2775,7 +2766,6 @@ def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retrya
                 output="",
                 service_name="codex",
                 reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
-                usage_limit_scope=None,
                 invocation_progress=prompt_runtime.InvocationProgress.STARTED,
                 usage=runtime.ProviderUsage(input_tokens=10, output_tokens=4),
             ),

@@ -141,7 +141,7 @@ def test_resumed_session_run_request_from_continuation_accepts_minimal_fields() 
     assert request.effort == "medium"
     assert request.role == InvocationRole("implementer")
     assert request.runtime_state_dir is None
-    assert request.usage_limit_scope is None
+    assert not hasattr(request, "usage_limit_scope")
     assert request.session_namespace == ""
     assert request.provider_auth is None
     assert request.token is None

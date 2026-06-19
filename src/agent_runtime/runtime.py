@@ -185,7 +185,6 @@ def _run_builtin_session_outcome(
         return RuntimeOutcome.no_service_available(
             output="",
             reset_time=exc.reset_time,
-            usage_limit_scope=exc.usage_limit_scope,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -203,8 +202,8 @@ def _run_builtin_session_outcome(
         return RuntimeOutcome.usage_limited(
             output="",
             service_name=exc.service_name,
+            account_label=exc.account_label,
             reset_time=exc.reset_time,
-            usage_limit_scope=exc.usage_limit_scope,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -233,7 +232,6 @@ class RuntimeClient:
                         request.stage,
                         now=now,
                     ),
-                    usage_limit_scope=None,
                     invocation_progress=InvocationProgress.NOT_STARTED,
                 )
             try:
@@ -261,7 +259,6 @@ class RuntimeClient:
                         now=exhausted_now,
                     )
                     or exc.reset_time,
-                    usage_limit_scope=None,
                     invocation_progress=exc.invocation_progress,
                     continuation=exc.continuation,
                     usage=exc.usage,
@@ -337,7 +334,6 @@ async def _run_prompt(
                 session_namespace=request.session_namespace,
                 service=resolved_service,
                 container_workspace=dependencies.execution.container_workspace,
-                usage_limit_scope=request.usage_limit_scope,
             ),
             model=resolved_override.model,
             effort=resolved_override.effort,

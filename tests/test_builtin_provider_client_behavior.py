@@ -1980,7 +1980,6 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             output="",
             service_name="codex",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
@@ -2027,7 +2026,6 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             output="",
             service_name="codex",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
@@ -2173,7 +2171,6 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
             output="",
             service_name="claude",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="claude",
@@ -2259,7 +2256,6 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
             output="",
             service_name="codex",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
@@ -2543,7 +2539,6 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
             output="",
             service_name="claude",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="claude",
@@ -2631,7 +2626,6 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
             output="",
             service_name="claude",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -2993,7 +2987,6 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
             output="",
             service_name="codex",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
@@ -3074,7 +3067,6 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
             output="",
             service_name="codex",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
@@ -4423,7 +4415,6 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
             output="",
             service_name="codex",
             reset_time=None,
-            usage_limit_scope=None,
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
@@ -4720,7 +4711,6 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
         prompt_runtime.RuntimeOutcome.no_service_available(
             output="",
             reset_time=datetime(2026, 4, 28, 21, 4, tzinfo=timezone.utc),
-            usage_limit_scope=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -4782,7 +4772,6 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
         prompt_runtime.RuntimeOutcome.no_service_available(
             output="",
             reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
-            usage_limit_scope=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -5044,7 +5033,6 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
         prompt_runtime.RuntimeOutcome.no_service_available(
             output="",
             reset_time=datetime(2026, 1, 1, 13, 2, tzinfo=timezone.utc),
-            usage_limit_scope=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -5171,7 +5159,6 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
         prompt_runtime.RuntimeOutcome.no_service_available(
             output="",
             reset_time=datetime(2026, 1, 2, 16, 2, tzinfo=timezone.utc),
-            usage_limit_scope=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -5228,7 +5215,6 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         prompt_runtime.RuntimeOutcome.no_service_available(
             output="",
             reset_time=reset_time + timedelta(minutes=2),
-            usage_limit_scope=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -5321,7 +5307,7 @@ def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metad
     assert not hasattr(outcome.runtime_metadata, "session_namespace")
 
 
-def test_runtime_client_ephemeral_usage_limit_outcome_hides_usage_limit_scope(
+def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5362,7 +5348,8 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_usage_limit_scope(
     )
 
     assert outcome.kind == "no_service_available"
-    assert outcome.usage_limit_scope is None
+    assert outcome.reset_time is not None
+    assert not hasattr(outcome, "usage_limit_scope")
 
 
 def test_runtime_client_preserves_claude_credential_failure_observations(
