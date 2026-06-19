@@ -15,6 +15,9 @@ import agent_runtime as runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session_planning as session_planning_runtime
+from agent_runtime._portable_continuation_payload import (
+    create_portable_continuation_payload,
+)
 from agent_runtime.contracts import (
     AssistantTurn,
     ExecutionProvider,
@@ -836,6 +839,46 @@ def test_resumed_session_runtime_resumes_from_portable_continuation_data() -> No
             "exact_transcript_match": False,
         },
     )
+
+
+def test_resumed_session_runtime_resumes_from_opaque_continuation_token() -> None:
+    worktree = Path("/repo")
+    payload = create_portable_continuation_payload(
+        service_name="codex",
+        model="gpt-5.4",
+        effort="medium",
+        tool_access=runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "recovered-session",
+            "provider_state_dir_relpath": "runtime-state/",
+            "exact_transcript_match": False,
+        },
+    )
+    continuation = prompt_runtime.Continuation(serialized=payload.serialized)
+
+    result = asyncio.run(
+        compat_runtime.ResumedSessionRuntime(
+            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
+        ).run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=WorktreeMount(worktree),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert isinstance(result.result, prompt_runtime.SessionRunResult)
+    assert result.result.runtime_metadata.selected_model == "gpt-5.4"
+    assert result.result.runtime_metadata.selected_effort == "medium"
+    assert result.result.runtime_metadata.tool_policy == runtime.ToolPolicy.NONE
+    assert result.result.runtime_metadata.service_name == "codex"
+    assert not hasattr(result.result.continuation, "selected_service")
+    assert not hasattr(result.result.continuation, "selected_model")
+    assert not hasattr(result.result.continuation, "selected_effort")
 
 
 def test_resumed_session_runtime_passes_continuation_provider_resume_state_to_adapter() -> (

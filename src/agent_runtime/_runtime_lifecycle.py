@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-import json
 import math
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .execution_contracts import CancellationToken, WorktreeMount
@@ -23,6 +22,7 @@ from .roles import InvocationRole
 from .session import RunKind
 from .session_planning import ResumableSessionPlan
 from .types import StageSelection
+from .errors import RuntimeConfigurationError
 from .usage_limit_scope import UsageLimitScope
 
 __all__ = [
@@ -39,6 +39,9 @@ __all__ = [
     "SessionRunResult",
     "SessionRuntimeMetadata",
 ]
+
+if TYPE_CHECKING:
+    from ._portable_continuation_payload import PortableContinuationPayload
 
 _MISSING_TOOL_POLICY = object()
 _DEFAULT_EPHEMERAL_ROLE = InvocationRole("implementer")
@@ -116,42 +119,61 @@ def _require_json_compatible_resume_state(
 
 @dataclasses.dataclass(frozen=True, init=False)
 class Continuation:
-    selected_service: str
-    selected_model: str
-    selected_effort: str
-    tool_access: ToolAccess
-    _provider_resume_state_json: str = dataclasses.field(
-        repr=False,
-    )
+    serialized: str
 
     def __init__(
         self,
+        serialized: str | None = None,
         *,
-        selected_service: str,
-        selected_model: str,
-        selected_effort: str,
-        tool_access: ToolAccess,
-        provider_resume_state: Any,
+        selected_service: str | None = None,
+        selected_model: str | None = None,
+        selected_effort: str | None = None,
+        tool_access: ToolAccess | None = None,
+        provider_resume_state: Any = None,
     ) -> None:
-        _require_json_compatible_resume_state(provider_resume_state)
-        object.__setattr__(self, "selected_service", selected_service)
-        object.__setattr__(self, "selected_model", selected_model)
-        object.__setattr__(self, "selected_effort", selected_effort)
-        object.__setattr__(self, "tool_access", tool_access)
-        object.__setattr__(
-            self,
-            "_provider_resume_state_json",
-            json.dumps(
-                provider_resume_state,
-                allow_nan=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            ),
-        )
+        if serialized is None:
+            if (
+                selected_service is None
+                or selected_model is None
+                or selected_effort is None
+                or tool_access is None
+                or provider_resume_state is None
+            ):
+                raise TypeError(
+                    "Continuation requires either `serialized` or all legacy "
+                    "continuation fields."
+                )
+            _require_json_compatible_resume_state(provider_resume_state)
+            from ._portable_continuation_payload import (
+                create_portable_continuation_payload,
+            )
+
+            serialized = create_portable_continuation_payload(
+                service_name=selected_service,
+                model=selected_model,
+                effort=selected_effort,
+                tool_access=tool_access,
+                provider_resume_state=provider_resume_state,
+            ).serialized
+
+        object.__setattr__(self, "serialized", serialized)
 
     @property
     def provider_resume_state(self) -> Any:
-        return json.loads(self._provider_resume_state_json)
+        return self._payload().provider_resume_state
+
+    @property
+    def tool_access(self) -> ToolAccess:
+        return self._payload().tool_access
+
+    def _payload(self) -> "PortableContinuationPayload":
+        from ._portable_continuation_payload import PortableContinuationPayload
+
+        return PortableContinuationPayload.from_serialized(self.serialized)
+
+    @property
+    def serialized_payload(self) -> "PortableContinuationPayload":
+        return self._payload()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -554,6 +576,12 @@ class SessionRuntimeMetadata:
     run_kind: RunKind
     session_namespace: str
     exact_transcript_match: bool
+    selected_model: str = dataclasses.field(default="", compare=False)
+    selected_effort: str = dataclasses.field(default="", compare=False)
+    tool_policy: ToolPolicy | ToolPolicyProfile = dataclasses.field(
+        default=ToolPolicy.UNRESTRICTED,
+        compare=False,
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -639,20 +667,30 @@ class ResumedSessionRunRequest:
                 raise TypeError(
                     "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
                 )
-            normalized_request = normalize_continuation_request(
-                role=resolved_role,
-                worktree=resolved_invocation_dir,
-                tool_access=continuation.tool_access,
-                session_namespace=session_namespace,
-                context="ResumedSessionRunRequest",
-                role_message=(
-                    "ResumedSessionRunRequest requires a `role` value when "
-                    "constructed from a continuation."
-                ),
-                workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
+            from ._portable_continuation_payload import (
+                read_portable_continuation_payload,
             )
-            resolved_model = continuation.selected_model if model is None else model
-            resolved_effort = continuation.selected_effort if effort is None else effort
+
+            try:
+                continuation_payload = read_portable_continuation_payload(continuation)
+                normalized_request = normalize_continuation_request(
+                    role=resolved_role,
+                    worktree=resolved_invocation_dir,
+                    tool_access=continuation.tool_access,
+                    session_namespace=session_namespace,
+                    context="ResumedSessionRunRequest",
+                    role_message=(
+                        "ResumedSessionRunRequest requires a `role` value when "
+                        "constructed from a continuation."
+                    ),
+                    workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
+                )
+                resolved_model = continuation_payload.model if model is None else model
+                resolved_effort = (
+                    continuation_payload.effort if effort is None else effort
+                )
+            except TypeError as exc:
+                raise RuntimeConfigurationError(str(exc)) from exc
         else:
             if session_plan is None:
                 raise TypeError(

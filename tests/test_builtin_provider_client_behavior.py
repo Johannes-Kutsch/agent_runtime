@@ -2222,6 +2222,14 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         ),
         usage=None,
     )
+    assert outcome.result is not None
+    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
+    assert outcome.result.runtime_metadata.selected_model == "glm-5"
+    assert outcome.result.runtime_metadata.selected_effort == "medium"
+    assert (
+        outcome.result.runtime_metadata.tool_policy
+        == runtime.ToolPolicy.NO_FILE_MUTATION
+    )
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
         "persisted-session-2"
     )

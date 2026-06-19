@@ -476,8 +476,9 @@ async def _run_resumed_session(
     )
     if request.continuation is not None:
         continuation = request.continuation
-        service_name = continuation.selected_service
-        provider_resume_state = _continuation_resume_state(continuation)
+        continuation_payload = read_portable_continuation_payload(continuation)
+        service_name = continuation_payload.service_name
+        provider_resume_state = continuation_payload.provider_resume_state
         try:
             service = resolve_service(service_name)
         except NoServiceAvailableError as exc:
@@ -605,6 +606,9 @@ async def _run_resumed_session(
             run_kind=run_kind,
             session_namespace=request.session_namespace,
             exact_transcript_match=exact_transcript_match,
+            selected_model=request.model,
+            selected_effort=request.effort,
+            tool_policy=request.tool_access.tool_policy,
         ),
         continuation=_build_continuation(
             service_name=service_name,
