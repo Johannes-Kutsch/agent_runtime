@@ -51,7 +51,7 @@ async run_new_session(request: NewSessionRunRequest) -> RuntimeOutcome
 async run_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOutcome
 ```
 
-`RuntimeClient` holds in-process built-in provider availability and exhaustion state across calls. It does not own durable provider state, durable logs, process-global auth setup, workflow defaults, prompt rendering, issue orchestration, managed worktrees, dependency installation, or application logging policy. It is safe to reuse across concurrent runtime requests and synchronizes provider availability updates internally.
+`RuntimeClient` holds in-process built-in provider availability and exhaustion state across calls. It does not own durable provider state, durable logs, process-global auth setup, workflow defaults, prompt rendering, issue orchestration, execution-directory management, dependency installation, or application logging policy. It is safe to reuse across concurrent runtime requests and synchronizes provider availability updates internally.
 
 ### Built-In Providers
 
