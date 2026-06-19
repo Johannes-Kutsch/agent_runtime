@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Callable
+from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, cast
 
@@ -401,6 +402,29 @@ def test_lifecycle_request_construction_does_not_expose_session_namespace_field_
     assert not hasattr(request, "session_namespace")
 
 
+def test_new_session_request_keeps_runtime_managed_compatibility_fields_internal_to_dataclass_surface() -> (
+    None
+):
+    request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        stage=runtime.StageSelection(service="codex", model="gpt-5.4", effort="high"),
+        role=InvocationRole("implementer"),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        runtime_state_dir=Path("/state"),
+        session_namespace="main",
+    )
+
+    assert request._runtime_state_dir == Path("/state")
+    assert request._session_namespace == "main"
+    assert "_runtime_state_dir" not in repr(request)
+    assert "_session_namespace" not in repr(request)
+    assert "_runtime_state_dir" not in {field.name for field in fields(request)}
+    assert "_session_namespace" not in {field.name for field in fields(request)}
+    assert "_runtime_state_dir" not in asdict(request)
+    assert "_session_namespace" not in asdict(request)
+
+
 def test_resumed_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access() -> (
     None
 ):
@@ -451,6 +475,34 @@ def test_resumed_session_run_request_from_session_plan_keeps_namespace_from_sess
     )
 
     assert not hasattr(request, "session_namespace")
+
+
+def test_resumed_session_request_keeps_runtime_managed_compatibility_fields_internal_to_dataclass_surface() -> (
+    None
+):
+    request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=WorktreeMount(Path("/repo")),
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={"run_kind": "resume"},
+        ),
+        role=InvocationRole("implementer"),
+        runtime_state_dir=Path("/state"),
+        session_namespace="main",
+    )
+
+    assert request._runtime_state_dir == Path("/state")
+    assert request._session_namespace == "main"
+    assert "_runtime_state_dir" not in repr(request)
+    assert "_session_namespace" not in repr(request)
+    assert "_runtime_state_dir" not in {field.name for field in fields(request)}
+    assert "_session_namespace" not in {field.name for field in fields(request)}
+    assert "_runtime_state_dir" not in asdict(request)
+    assert "_session_namespace" not in asdict(request)
 
 
 def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_worktree(

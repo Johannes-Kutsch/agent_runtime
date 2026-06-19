@@ -496,18 +496,20 @@ class EphemeralRunRequest:
 class NewSessionRunRequest:
     prompt: str
     invocation_dir: Path
-    _runtime_state_dir: Path | None
     stage: StageSelection
     role: InvocationRole
     provider_auth: ProviderAuth | None
     session_store: Any
     provider_session_adapter: ProviderSessionAdapter
     tool_access: ToolAccess
-    _session_namespace: str
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
     token: CancellationToken | None = None
+
+    if TYPE_CHECKING:
+        _runtime_state_dir: Path | None = None
+        _session_namespace: str = ""
 
     def __init__(
         self,
@@ -640,8 +642,6 @@ class ResumedSessionRunRequest:
     model: str
     effort: str
     role: InvocationRole
-    _runtime_state_dir: Path | None
-    _session_namespace: str
     session_plan: ResumableSessionPlan | None
     continuation: Continuation | None
     provider_auth: ProviderAuth | None
@@ -650,6 +650,10 @@ class ResumedSessionRunRequest:
     status_display: Any = None
     work_body: str = ""
     token: CancellationToken | None = None
+
+    if TYPE_CHECKING:
+        _runtime_state_dir: Path | None = None
+        _session_namespace: str = ""
 
     def __init__(
         self,
