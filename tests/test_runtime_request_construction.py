@@ -37,6 +37,17 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
 
     assert request.auth == runtime.ProviderAuth(opencode_api_key="go-key")
     assert request.token is not None
+    for field_name in ("role", "logs_dir", "usage_limit_scope", "session_namespace"):
+        with pytest.raises(AttributeError, match=field_name):
+            getattr(request, field_name)
+    assert tuple(request.__dataclass_fields__) == (
+        "prompt",
+        "worktree",
+        "stage",
+        "tool_access",
+        "token",
+        "auth",
+    )
     assert tuple(inspect.signature(prompt_runtime.EphemeralRunRequest).parameters) == (
         "prompt",
         "worktree",

@@ -6,6 +6,8 @@ from typing import Any, cast
 
 from . import _time as _time_module
 from ._runtime_lifecycle import (
+    _DEFAULT_EPHEMERAL_ROLE,
+    _DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
     Continuation,
     EphemeralResultMetadata,
     EphemeralRunRequest,
@@ -302,7 +304,7 @@ async def _run_ephemeral(
             "Ephemeral runtime requires at least one configured service candidate."
         )
 
-    role = request.role
+    role = _DEFAULT_EPHEMERAL_ROLE
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     build_work_dependencies = _require_execution_adapter_method(
         runner,
@@ -322,8 +324,7 @@ async def _run_ephemeral(
             )
             raise NoServiceAvailableError(
                 reset_time=next_wake_time,
-                usage_limit_scope=request.usage_limit_scope
-                or UsageLimitScope(role.value),
+                usage_limit_scope=None,
             )
 
         resolved_override = service_registry.resolve(request.stage, now)
@@ -339,10 +340,10 @@ async def _run_ephemeral(
                 run_session=_build_run_session(
                     mount_path=request.mount_path,
                     role=role,
-                    session_namespace=request.session_namespace,
+                    session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
                     service=resolved_service,
                     container_workspace=dependencies.execution.container_workspace,
-                    usage_limit_scope=request.usage_limit_scope,
+                    usage_limit_scope=None,
                 ),
                 model=resolved_override.model,
                 effort=resolved_override.effort,
