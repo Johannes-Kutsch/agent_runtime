@@ -9,6 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 
 from ._request_normalization import (
     normalize_stage_selection,
+    normalize_tool_policy,
     normalize_tool_access,
     normalize_worktree_mount,
     require_invocation_role,
@@ -607,16 +608,14 @@ class TextOutputAdapter:
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         workspace: Path | None = None,
     ) -> None:
-        if isinstance(tool_access, ToolAccess):
-            tool_access.require_workspace(
-                workspace,
-                context="TextOutputAdapter",
-            )
-            tool_policy = tool_access.tool_policy
-        if tool_policy is _MISSING_TOOL_POLICY:
-            raise TypeError(
-                "TextOutputAdapter requires an explicit `tool_policy` value."
-            )
+        tool_policy = normalize_tool_policy(
+            tool_access=tool_access,
+            tool_policy=tool_policy,
+            missing_sentinel=_MISSING_TOOL_POLICY,
+            workspace=workspace,
+            context="TextOutputAdapter",
+            missing_message="TextOutputAdapter requires an explicit `tool_policy` value.",
+        )
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "tool_policy", tool_policy)

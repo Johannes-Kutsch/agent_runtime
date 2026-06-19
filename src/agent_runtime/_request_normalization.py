@@ -7,7 +7,7 @@ from .roles import InvocationRole
 from .types import StageSelection, validate_stage_selection
 
 if TYPE_CHECKING:
-    from .contracts import ToolAccess
+    from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
     from .execution_contracts import WorktreeMount
 
 
@@ -84,3 +84,22 @@ def normalize_tool_access(
         raise TypeError(missing_message)
     resolved_tool_access.require_workspace(workspace, context=context)
     return resolved_tool_access
+
+
+def normalize_tool_policy(
+    *,
+    tool_access: Any,
+    tool_policy: Any,
+    missing_sentinel: object,
+    workspace: Path | None,
+    context: str,
+    missing_message: str,
+) -> "ToolPolicy | ToolPolicyProfile":
+    from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
+
+    if isinstance(tool_access, ToolAccess):
+        tool_access.require_workspace(workspace, context=context)
+        return tool_access.tool_policy
+    if tool_policy is missing_sentinel:
+        raise TypeError(missing_message)
+    return cast(ToolPolicy | ToolPolicyProfile, tool_policy)
