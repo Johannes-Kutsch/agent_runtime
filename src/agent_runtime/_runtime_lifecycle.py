@@ -416,7 +416,7 @@ class EphemeralRunRequest:
             missing_sentinel=_MISSING_TOOL_POLICY,
             session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
             context="EphemeralRunRequest",
-            missing_message="EphemeralRunRequest requires an explicit `tool_access` value.",
+            missing_message="EphemeralRunRequest requires an explicit `tool_policy` value.",
             workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
         )
 
@@ -501,7 +501,7 @@ class NewSessionRunRequest:
             missing_sentinel=_MISSING_TOOL_POLICY,
             session_namespace=session_namespace,
             context="NewSessionRunRequest",
-            missing_message="NewSessionRunRequest requires an explicit `tool_access` value.",
+            missing_message="NewSessionRunRequest requires an explicit `tool_policy` value.",
             workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
         )
 

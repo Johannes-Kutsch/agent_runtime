@@ -117,15 +117,19 @@ def ephemeral_request_factory(
         worktree: Path | WorktreeMount = WorktreeMount(Path(".")),
         stage: runtime.StageSelection | None = None,
         override: runtime.StageSelection | None = None,
-        tool_access: runtime.ToolAccess = runtime.ToolAccess.no_tools(),
+        tool_access: runtime.ToolAccess | None = None,
+        tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.UNRESTRICTED,
         token: Any = None,
     ) -> prompt_runtime.EphemeralRunRequest:
+        kwargs: dict[str, Any] = {"tool_policy": tool_policy}
+        if tool_access is not None:
+            kwargs["tool_access"] = tool_access
         return prompt_runtime.EphemeralRunRequest(
             prompt=prompt,
             worktree=worktree,
             stage=stage or override or stage_selection_factory(),
             override=override,
-            tool_access=tool_access,
+            **kwargs,
             token=token,
         )
 

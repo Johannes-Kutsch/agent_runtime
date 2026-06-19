@@ -177,6 +177,24 @@ def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_ba
     assert request.tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION
 
 
+def test_new_session_request_non_none_tool_policy_uses_invocation_dir_as_tool_workspace(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
+) -> None:
+    request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=tmp_path,
+        stage=stage_selection_factory(service="codex"),
+        role=InvocationRole("implementer"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+
+    assert request.tool_access == runtime.ToolAccess.workspace_backed(
+        tmp_path,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+
+
 @pytest.mark.parametrize(
     ("request_factory", "expected_message"),
     [
@@ -330,7 +348,7 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
                 invocation_dir=Path("/repo"),
                 stage=stage_selection_factory(service="codex"),
             ),
-            "EphemeralRunRequest requires an explicit `tool_access` value.",
+            "EphemeralRunRequest requires an explicit `tool_policy` value.",
         ),
         (
             lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
@@ -339,11 +357,11 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
                 stage=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
             ),
-            "NewSessionRunRequest requires an explicit `tool_access` value.",
+            "NewSessionRunRequest requires an explicit `tool_policy` value.",
         ),
     ],
 )
-def test_lifecycle_request_construction_requires_explicit_tool_access(
+def test_lifecycle_request_construction_requires_explicit_tool_policy(
     stage_selection_factory: Callable[..., runtime.StageSelection],
     request_factory: Callable[
         [Callable[..., runtime.StageSelection]],
@@ -353,6 +371,22 @@ def test_lifecycle_request_construction_requires_explicit_tool_access(
 ) -> None:
     with pytest.raises(TypeError, match=re.escape(expected_message)):
         request_factory(stage_selection_factory)
+
+
+def test_ephemeral_request_none_tool_policy_prohibits_provider_tools_and_requires_invocation_dir(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    tmp_path: Path,
+) -> None:
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=tmp_path,
+        stage=stage_selection_factory(service="codex"),
+        tool_policy=runtime.ToolPolicy.NONE,
+    )
+
+    assert request.invocation_dir == tmp_path
+    assert request.tool_access == runtime.ToolAccess.no_tools()
+    assert request.tool_policy is runtime.ToolPolicy.NONE
 
 
 def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mount() -> (
