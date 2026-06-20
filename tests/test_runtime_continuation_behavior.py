@@ -2862,6 +2862,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
     runtime_state_dir = tmp_path / "runtime-state"
     worktree.mkdir()
     runtime_state_dir.mkdir()
+    prompt_path = worktree / ".pycastle_prompt"
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
         selected_model="glm-5",
@@ -2879,6 +2880,13 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
         },
     )
     observed: dict[str, Any] = {}
+
+    class _Stdin:
+        def write(self, data: str) -> None:
+            observed["prompt"] = data
+
+        def close(self) -> None:
+            observed["stdin_closed"] = True
 
     class _FakePopen:
         def __init__(
@@ -2899,6 +2907,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
             observed["cwd"] = cwd
             observed["env"] = env
             observed["text"] = text
+            self.stdin = _Stdin()
             self.stdout = iter(
                 [
                     json.dumps(
@@ -2944,9 +2953,13 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
     )
 
     assert "--session persisted-session-1" in observed["command"]
+    assert observed["shell"] is False
+    assert observed["prompt"] == "already rendered prompt"
+    assert observed["stdin_closed"] is True
     assert observed["env"]["OPENCODE_HOME"] == str(
         runtime_state_dir / "implementer/main/opencode"
     )
+    assert not prompt_path.exists()
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
         service_name="opencode",
@@ -2980,6 +2993,7 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     worktree = tmp_path / "worktree"
+    prompt_path = worktree / ".pycastle_prompt"
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
         selected_model="glm-5",
@@ -3000,6 +3014,13 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
     observed: dict[str, Any] = {}
     worktree.mkdir()
 
+    class _Stdin:
+        def write(self, data: str) -> None:
+            observed["prompt"] = data
+
+        def close(self) -> None:
+            observed["stdin_closed"] = True
+
     class _FakePopen:
         def __init__(
             self,
@@ -3019,6 +3040,7 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
             observed["cwd"] = cwd
             observed["env"] = env
             observed["text"] = text
+            self.stdin = _Stdin()
             self.stdout = iter(
                 [
                     json.dumps(
@@ -3059,8 +3081,12 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
     )
 
     assert "--session persisted-session-1" in observed["command"]
+    assert observed["shell"] is False
+    assert observed["prompt"] == "already rendered prompt"
+    assert observed["stdin_closed"] is True
     assert "OPENCODE_HOME" in observed["env"]
     assert "--model opencode-go/glm-5" in observed["command"]
+    assert not prompt_path.exists()
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
         service_name="opencode",

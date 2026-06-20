@@ -2227,7 +2227,15 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
         "main",
     )
     expected_state_dir = runtime_state_dir / expected_state_relpath
+    prompt_path = worktree / ".pycastle_prompt"
     observed: dict[str, Any] = {}
+
+    class _Stdin:
+        def write(self, data: str) -> None:
+            observed["prompt"] = data
+
+        def close(self) -> None:
+            observed["stdin_closed"] = True
 
     class _FakePopen:
         def __init__(
@@ -2248,6 +2256,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
             observed["cwd"] = cwd
             observed["env"] = env
             observed["text"] = text
+            self.stdin = _Stdin()
             self.stdout = iter(
                 [
                     json.dumps(
@@ -2299,8 +2308,12 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
 
     assert observed["command"].startswith("opencode run --format json")
     assert "--model opencode-go/glm-5" in observed["command"]
+    assert observed["shell"] is False
+    assert observed["prompt"] == "already rendered prompt"
+    assert observed["stdin_closed"] is True
     assert observed["env"]["OPENCODE_HOME"] == str(expected_state_dir)
     assert expected_state_dir.is_dir()
+    assert not prompt_path.exists()
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
@@ -2340,7 +2353,15 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
         "recovered-state-dir-session\n",
         encoding="utf-8",
     )
+    prompt_path = worktree / ".pycastle_prompt"
     observed: dict[str, Any] = {}
+
+    class _Stdin:
+        def write(self, data: str) -> None:
+            observed["prompt"] = data
+
+        def close(self) -> None:
+            observed["stdin_closed"] = True
 
     class _FakePopen:
         def __init__(
@@ -2361,6 +2382,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
             observed["cwd"] = cwd
             observed["env"] = env
             observed["text"] = text
+            self.stdin = _Stdin()
             self.stdout = iter(
                 [
                     json.dumps(
@@ -2411,6 +2433,10 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
     )
 
     assert "--session recovered-state-dir-session" in observed["command"]
+    assert observed["shell"] is False
+    assert observed["prompt"] == "already rendered prompt"
+    assert observed["stdin_closed"] is True
+    assert not prompt_path.exists()
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
         service_name="opencode",
