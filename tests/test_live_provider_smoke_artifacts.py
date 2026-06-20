@@ -1144,9 +1144,7 @@ def test_live_smoke_all_selection_with_no_configured_providers_does_not_pass_emp
     assert {plan["status"] for plan in summary_payload["provider_plans"]} == {"skipped"}
 
 
-def test_live_smoke_cli_help_documents_run_modes_and_sensitive_artifacts_notice(
-    smoke_module: object,
-) -> None:
+def test_live_smoke_cli_help_is_invokable(smoke_module: object) -> None:
     module: Any = smoke_module
 
     output = io.StringIO()
@@ -1159,7 +1157,7 @@ def test_live_smoke_cli_help_documents_run_modes_and_sensitive_artifacts_notice(
     assert parser_help.strip()
 
 
-def test_live_smoke_direct_help_invocation_honors_process_args_and_skips_default_artifacts(
+def test_live_smoke_direct_help_invocation_succeeds_and_skips_default_artifacts(
     tmp_path: Path,
 ) -> None:
     proc = subprocess.run(
