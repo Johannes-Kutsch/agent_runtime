@@ -234,7 +234,10 @@ def _run_builtin_session_outcome(
 
 class RuntimeClient:
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
-        if _supported_builtin_provider_selection(request.provider_selection) is None:
+        selected_provider_selection = _supported_builtin_provider_selection(
+            request.provider_selection
+        )
+        if selected_provider_selection is None:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
@@ -245,7 +248,7 @@ class RuntimeClient:
                 raise
             return RuntimeOutcome.usage_limited(
                 output="",
-                service_name=exc.service_name,
+                service_name=exc.service_name or selected_provider_selection.service,
                 account_label=exc.account_label,
                 reset_time=exc.reset_time,
                 invocation_progress=exc.invocation_progress,

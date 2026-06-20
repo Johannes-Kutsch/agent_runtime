@@ -6055,6 +6055,54 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
     assert len(adapter.recorded_requests) == 2
 
 
+def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_provider_omits_service_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationFailure(
+            error=runtime.UsageLimitError(
+                service_name=None,
+                reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+                invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+            ),
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            provider_selection=InternalStageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+    )
+
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
+    )
+
+
 def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
