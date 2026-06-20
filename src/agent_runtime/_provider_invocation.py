@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import subprocess
+import shlex
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
 from pathlib import Path
@@ -56,7 +57,6 @@ class ProviderInvocationLogContext:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationRequest:
-    command: str
     worktree: Path
     environment: Mapping[str, str]
     prompt: ProviderInvocationPrompt
@@ -66,6 +66,20 @@ class ProviderInvocationRequest:
     log_context: ProviderInvocationLogContext | None
     provider_session_id: str | None
     output_hooks: ProviderOutputReductionHooks
+    command: str = ""
+    argv: tuple[str, ...] = ()
+    prefer_argv: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.argv and not self.command:
+            raise ValueError("ProviderInvocationRequest requires command or argv")
+        if not self.command:
+            object.__setattr__(
+                self,
+                "command",
+                " ".join(shlex.quote(arg) for arg in self.argv),
+            )
+            object.__setattr__(self, "prefer_argv", True)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -127,6 +141,8 @@ class ProductionProviderInvocationAdapter:
         if prompt_path is not None:
             prompt_path.write_text(request.prompt.content, encoding="utf-8")
 
+        use_shell = not (request.prefer_argv and request.argv)
+
         work_invocation_context = (
             nullcontext()
             if request.log_context is None
@@ -141,15 +157,33 @@ class ProductionProviderInvocationAdapter:
 
         try:
             with work_invocation_context as work_invocation_log:
-                process = subprocess.Popen(
-                    request.command,
-                    shell=True,
-                    cwd=request.worktree,
-                    env=dict(request.environment),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
+                environment = dict(request.environment)
+                if use_shell:
+                    process = subprocess.Popen(
+                        request.command,
+                        shell=True,
+                        cwd=request.worktree,
+                        env=environment,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                else:
+                    process = subprocess.Popen(
+                        request.argv,
+                        shell=False,
+                        stdin=subprocess.PIPE,
+                        cwd=request.worktree,
+                        env=environment,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                if not use_shell:
+                    process_stdin = getattr(process, "stdin", None)
+                    if process_stdin is not None:
+                        process_stdin.write(request.prompt.content)
+                        process_stdin.close()
                 stdout_lines: list[str] = []
                 if process.stdout is not None:
                     for line in process.stdout:
