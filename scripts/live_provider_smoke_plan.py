@@ -590,21 +590,8 @@ def resolve_model_and_effort(
 ) -> tuple[str, str]:
     if provider not in SUPPORTED_PROVIDERS:
         raise RuntimeConfigurationError(f"Unsupported provider name: {provider!r}")
-    env_map = _resolve_env_map(env)
-    model = (
-        cli_model
-        if cli_model
-        else env_map.get(_PROVIDER_MODEL_ENV_BY_SERVICE[provider], "")
-    )
-    effort = (
-        cli_effort
-        if cli_effort
-        else env_map.get(_PROVIDER_EFFORT_ENV_BY_SERVICE[provider], "")
-    )
-    if not model and not cli_model:
-        model = LIVE_SMOKE_DEFAULTS[provider][0]
-    if not effort and not cli_effort:
-        effort = LIVE_SMOKE_DEFAULTS[provider][1]
+    model = cli_model or LIVE_SMOKE_DEFAULTS[provider][0]
+    effort = cli_effort or LIVE_SMOKE_DEFAULTS[provider][1]
     return model, effort
 
 

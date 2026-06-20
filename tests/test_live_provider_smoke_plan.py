@@ -145,6 +145,55 @@ def test_live_smoke_model_and_effort_resolve_from_cli_and_env_without_defaults(
     )
 
 
+def test_live_smoke_cli_model_and_effort_overrides_always_apply(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    cases = (
+        (
+            "claude",
+            {"model": "cli-claude-model", "effort": "low"},
+            {"claude_code_oauth_token": "token"},
+            {
+                module.LIVE_SMOKE_CLAUDE_MODEL_ENV: "env-claude-model",
+                module.LIVE_SMOKE_CLAUDE_EFFORT_ENV: "high",
+            },
+        ),
+        (
+            "codex",
+            {"model": "codex-mini", "effort": "high"},
+            {"codex_auth_present": True},
+            {
+                module.LIVE_SMOKE_CODEX_MODEL_ENV: "env-codex-model",
+                module.LIVE_SMOKE_CODEX_EFFORT_ENV: "low",
+            },
+        ),
+        (
+            "opencode",
+            {"model": "deepseek-opencode", "effort": "low"},
+            {"opencode_api_key": "api-key"},
+            {
+                module.LIVE_SMOKE_OPENCODE_MODEL_ENV: "env-opencode-model",
+                module.LIVE_SMOKE_OPENCODE_EFFORT_ENV: "medium",
+            },
+        ),
+    )
+
+    for service, overrides, auth_kwargs, env in cases:
+        parsed = module.parse_provider_selection(service)
+        planned = module.plan_selected_providers(
+            parsed,
+            model_overrides={service: overrides["model"]},
+            effort_overrides={service: overrides["effort"]},
+            env=env,
+            **auth_kwargs,
+        )
+        assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+        assert planned[0].model == overrides["model"]
+        assert planned[0].effort == overrides["effort"]
+
+
 @pytest.mark.parametrize(
     ("service", "auth_kwargs", "expected_model", "expected_effort"),
     (
@@ -334,7 +383,7 @@ def test_live_smoke_model_and_effort_fill_missing_field_from_live_smoke_defaults
     assert model_from_cli == "gpt-5.4"
     assert effort_from_default == "low"
     assert model_from_default == "deepseek-v4-flash"
-    assert effort_from_env == "high"
+    assert effort_from_env == "medium"
 
 
 def test_live_smoke_planning_uses_explicit_env_mapping_for_resolution_and_config(
@@ -365,9 +414,46 @@ def test_live_smoke_planning_uses_explicit_env_mapping_for_resolution_and_config
             "CLAUDE_CODE_OAUTH_TOKEN": "env-token",
         },
     )
-    assert planned[0].model == "env-model"
-    assert planned[0].effort == "env-effort"
+    assert planned[0].model == "haiku"
+    assert planned[0].effort == "low"
     assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+
+
+def test_live_smoke_model_and_effort_ignore_shell_environment_when_no_cli_overrides(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection(("claude", "codex", "opencode"))
+    planned = module.plan_selected_providers(
+        parsed,
+        env={
+            module.LIVE_SMOKE_CLAUDE_MODEL_ENV: "env-claude-model",
+            module.LIVE_SMOKE_CLAUDE_EFFORT_ENV: "high",
+            module.LIVE_SMOKE_CODEX_MODEL_ENV: "env-codex-model",
+            module.LIVE_SMOKE_CODEX_EFFORT_ENV: "medium",
+            module.LIVE_SMOKE_OPENCODE_MODEL_ENV: "env-opencode-model",
+            module.LIVE_SMOKE_OPENCODE_EFFORT_ENV: "high",
+            "CLAUDE_CODE_OAUTH_TOKEN": "env-claude-token",
+            module._PROVIDER_OPENCODE_ENV: "env-opencode-key",
+        },
+        claude_code_oauth_token="token",
+        opencode_api_key="api-key",
+        codex_auth_present=True,
+    )
+
+    expected_defaults = module.LIVE_SMOKE_DEFAULTS
+    assert len(planned) == 3
+    assert planned[0].model == expected_defaults["claude"][0]
+    assert planned[0].effort == expected_defaults["claude"][1]
+    assert planned[1].model == expected_defaults["codex"][0]
+    assert planned[1].effort == expected_defaults["codex"][1]
+    assert planned[2].model == expected_defaults["opencode"][0]
+    assert planned[2].effort == expected_defaults["opencode"][1]
+    assert all(
+        plan.status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+        for plan in planned
+    )
 
 
 def test_live_smoke_dry_run_defaults_propagate_to_provider_plans_and_cases(

@@ -72,10 +72,8 @@ def _live_smoke_defaults_help_text() -> str:
         for service in live_provider_smoke_plan.SUPPORTED_PROVIDERS
     )
     return (
-        "Model source precedence: CLI override, provider-specific environment "
-        "variable, then Live Smoke Default.\n"
-        "Effort source precedence: CLI override, provider-specific environment "
-        "variable, then Live Smoke Default.\n"
+        "Model source precedence: CLI override, then Live Smoke Default.\n"
+        "Effort source precedence: CLI override, then Live Smoke Default.\n"
         f"Live Smoke Defaults: {default_tuples}. "
         f"Verified {verified_on}."
     )
@@ -284,9 +282,7 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
         type=lambda value: _parse_service_map_arg(value, flag_name="--model"),
         help=(
             "Per-provider model override (for example: --model claude=sonnet). "
-            f"Defaults from ${live_provider_smoke_plan.LIVE_SMOKE_CLAUDE_MODEL_ENV}, "
-            f"${live_provider_smoke_plan.LIVE_SMOKE_CODEX_MODEL_ENV}, "
-            f"${live_provider_smoke_plan.LIVE_SMOKE_OPENCODE_MODEL_ENV}."
+            "Defaults from Live Smoke Default."
         ),
     )
     parser.add_argument(
@@ -297,9 +293,7 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
         type=lambda value: _parse_service_map_arg(value, flag_name="--effort"),
         help=(
             "Per-provider effort override (for example: --effort claude=high). "
-            f"Defaults from ${live_provider_smoke_plan.LIVE_SMOKE_CLAUDE_EFFORT_ENV}, "
-            f"${live_provider_smoke_plan.LIVE_SMOKE_CODEX_EFFORT_ENV}, "
-            f"${live_provider_smoke_plan.LIVE_SMOKE_OPENCODE_EFFORT_ENV}."
+            "Defaults from Live Smoke Default."
         ),
     )
     parser.add_argument(

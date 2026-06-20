@@ -1513,6 +1513,36 @@ def test_live_smoke_cli_help_is_invokable(smoke_module: object) -> None:
     assert parser_help.strip()
 
 
+def test_live_smoke_cli_help_no_longer_mentions_environment_sources_for_model_or_effort(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    output = io.StringIO()
+    with redirect_stdout(output), pytest.raises(SystemExit):
+        module.main(["--help"])
+
+    parser_help = output.getvalue()
+    assert "provider-specific environment variable" not in parser_help
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_CLAUDE_MODEL_ENV not in parser_help
+    )
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_CLAUDE_EFFORT_ENV not in parser_help
+    )
+    assert module.live_provider_smoke_plan.LIVE_SMOKE_CODEX_MODEL_ENV not in parser_help
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_CODEX_EFFORT_ENV not in parser_help
+    )
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_OPENCODE_MODEL_ENV not in parser_help
+    )
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_OPENCODE_EFFORT_ENV
+        not in parser_help
+    )
+
+
 def test_live_smoke_direct_help_invocation_succeeds_and_skips_default_artifacts(
     tmp_path: Path,
 ) -> None:
