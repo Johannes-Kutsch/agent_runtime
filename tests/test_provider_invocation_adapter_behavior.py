@@ -208,6 +208,131 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
     }
 
 
+def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_input(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prompt_dir = tmp_path / r"C:\Users\Test User\Prompt Dir"
+    prompt_dir.mkdir()
+    prompt_path = prompt_dir / ".pycastle_prompt"
+    legacy_command = (
+        "claude --verbose --dangerously-skip-permissions --output-format "
+        "stream-json -p - --disable-slash-commands "
+        "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+        f'--mcp-config {{"mcpServers":{{}}}} --model sonnet --effort medium < {prompt_path}'
+    )
+    captured: dict[str, Any] = {}
+
+    class _Stdin:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.closed = False
+
+        def write(self, content: str) -> None:
+            self.writes.append(content)
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdin = _Stdin()
+            self.stdout = iter(['{"type":"result","result":"hello from claude"}\n'])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    process = _Process()
+
+    def _fake_popen(
+        command: tuple[str, ...],
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+        stdin: Any,
+    ) -> _Process:
+        captured["command"] = command
+        captured["shell"] = shell
+        captured["cwd"] = cwd
+        captured["env"] = env
+        captured["stdout"] = stdout
+        captured["stderr"] = stderr
+        captured["text"] = text
+        captured["stdin"] = stdin
+        return process
+
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command=legacy_command,
+        argv=(
+            "claude",
+            "--verbose",
+            "--dangerously-skip-permissions",
+            "--output-format",
+            "stream-json",
+            "-p",
+            "-",
+            "--disable-slash-commands",
+            "--exclude-dynamic-system-prompt-sections",
+            "--strict-mcp-config",
+            "--mcp-config",
+            '{"mcpServers":{}}',
+            "--model",
+            "sonnet",
+            "--effort",
+            "medium",
+        ),
+        prefer_argv=True,
+        worktree=tmp_path,
+        environment={"CLAUDE_CODE_OAUTH_TOKEN": "secret"},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+            path=prompt_path,
+            cleanup_path=True,
+        ),
+        run_kind=RunKind.FRESH,
+        role=InvocationRole("implementer"),
+        usage_limit_scope=UsageLimitScope("implementer"),
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+    )
+
+    result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        request
+    )
+
+    assert result == provider_invocation_runtime.ProviderInvocationResult(
+        output='{"type":"result","result":"hello from claude"}\n',
+        usage=None,
+        stdout_lines=('{"type":"result","result":"hello from claude"}\n',),
+        provider_session_id=None,
+    )
+    assert request.command == legacy_command
+    assert process.stdin.writes == ["rendered prompt"]
+    assert process.stdin.closed is True
+    assert not prompt_path.exists()
+    assert captured == {
+        "command": request.argv,
+        "shell": False,
+        "cwd": tmp_path,
+        "env": {"CLAUDE_CODE_OAUTH_TOKEN": "secret"},
+        "stdout": provider_invocation_runtime.subprocess.PIPE,
+        "stderr": provider_invocation_runtime.subprocess.PIPE,
+        "text": True,
+        "stdin": provider_invocation_runtime.subprocess.PIPE,
+    }
+
+
 def test_production_adapter_records_provider_chunks_and_session_id_when_log_context_is_supplied(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

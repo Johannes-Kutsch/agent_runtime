@@ -2070,6 +2070,13 @@ def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt
         "medium",
     )
     assert recorded_request.prefer_argv is True
+    assert recorded_request.command == (
+        "claude --verbose --dangerously-skip-permissions --output-format "
+        "stream-json -p - --disable-slash-commands "
+        "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+        "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
+        f"'{recorded_request.prompt.path}'"
+    )
     assert recorded_request.prompt.path == invocation_dir / ".pycastle_prompt"
 
 
