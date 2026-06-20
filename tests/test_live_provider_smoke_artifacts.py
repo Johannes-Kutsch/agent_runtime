@@ -547,7 +547,7 @@ def test_live_smoke_ephemeral_runs_through_public_runtime_request_values(
     def _fake_client() -> _FakeRuntimeClient:
         return _FakeRuntimeClient()
 
-    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    monkeypatch.setattr(module, "RuntimeClient", _fake_client)
 
     run_result = module.run_live_smoke(
         provider_selection=("claude",),
@@ -584,6 +584,129 @@ def test_live_smoke_ephemeral_runs_through_public_runtime_request_values(
     assert live_turns == [{"text": "provider says ok", "service_name": "claude"}]
 
 
+def test_live_smoke_runner_uses_planned_provider_selection_for_lifecycle_and_policy_requests(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    planned_selection = prompt_runtime.ProviderSelection(
+        service="claude",
+        model="planned-model",
+        effort="planned-effort",
+        auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="planned-token"),
+    )
+    dry_run_plan = module.live_provider_smoke_plan.DryRunPlan(
+        run_id="planned-selection-run",
+        cases=(
+            SimpleNamespace(
+                service="claude",
+                mode="new_session",
+                policy=None,
+                model="planned-model",
+                effort="planned-effort",
+                provider_selection=planned_selection,
+            ),
+            SimpleNamespace(
+                service="claude",
+                mode="ephemeral",
+                policy="NONE",
+                model="planned-model",
+                effort="planned-effort",
+                provider_selection=planned_selection,
+            ),
+        ),
+        provider_plans=(
+            SimpleNamespace(
+                service="claude",
+                status="runnable",
+                model="planned-model",
+                effort="planned-effort",
+                provider_selection=planned_selection,
+            ),
+        ),
+        artifact_root=tmp_path / "planned-selection-artifacts",
+    )
+
+    captured_requests: list[
+        prompt_runtime.NewSessionRunRequest | prompt_runtime.EphemeralRunRequest
+    ] = []
+
+    class _FakeRuntimeClient:
+        def run_new_session(
+            self,
+            request: prompt_runtime.NewSessionRunRequest,
+        ) -> object:
+            captured_requests.append(request)
+            continuation = prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="planned-model",
+                selected_effort="planned-effort",
+                tool_access=request.tool_access,
+                provider_resume_state={"provider_session_id": "session-123"},
+            )
+            return prompt_runtime.RuntimeOutcome(
+                kind="completed",
+                output="new session output",
+                continuation=continuation,
+                result=prompt_runtime.SessionRunResult(
+                    output="new session output",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name="claude",
+                        provider_session_id="session-123",
+                        run_kind=RunKind.FRESH,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model="planned-model",
+                        selected_effort="planned-effort",
+                        tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+                    ),
+                ),
+                invocation_records=(),
+            )
+
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            captured_requests.append(request)
+            return SimpleNamespace(
+                kind="completed",
+                output="ephemeral output",
+                result=SimpleNamespace(
+                    selected_service="claude",
+                    selected_model="planned-model",
+                    selected_effort="planned-effort",
+                    tool_access=SimpleNamespace(tool_policy=request.tool_policy),
+                ),
+                invocation_records=(),
+            )
+
+    monkeypatch.setattr(
+        module.live_provider_smoke_plan,
+        "build_dry_run_plan",
+        lambda *args, **kwargs: dry_run_plan,
+    )
+    monkeypatch.setattr(module, "RuntimeClient", lambda: _FakeRuntimeClient())
+
+    run_result = module.run_live_smoke(
+        provider_selection=("claude",),
+        lifecycle_modes=("new_session",),
+        tool_policies=("NONE",),
+        claude_code_oauth_token="cli-token-that-should-not-win",
+        run_id="planned-selection-run",
+        artifact_root=tmp_path / "planned-selection-artifacts",
+    )
+
+    assert run_result.passed is True
+    assert [request.provider_selection for request in captured_requests] == [
+        planned_selection,
+        planned_selection,
+    ]
+
+
 def test_live_smoke_timeout_outcome_is_classified_as_failed_and_retained(
     smoke_module: object,
     tmp_path: Path,
@@ -605,7 +728,7 @@ def test_live_smoke_timeout_outcome_is_classified_as_failed_and_retained(
     def _fake_client() -> _FakeRuntimeClient:
         return _FakeRuntimeClient()
 
-    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    monkeypatch.setattr(module, "RuntimeClient", _fake_client)
 
     run_result = module.run_live_smoke(
         provider_selection=("claude",),
@@ -719,7 +842,7 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
     def _fake_client() -> _FakeRuntimeClient:
         return _FakeRuntimeClient()
 
-    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    monkeypatch.setattr(module, "RuntimeClient", _fake_client)
 
     run_result = module.run_live_smoke(
         provider_selection=("claude",),
@@ -743,8 +866,9 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
     )
     resumed_request = captured_requests[1][1]
     assert resumed_request.continuation == new_session_continuation[0]
-    assert resumed_request.model == "sonnet"
-    assert resumed_request.effort == "medium"
+    assert resumed_request.provider_auth == prompt_runtime.ProviderAuth(
+        claude_code_oauth_token="token"
+    )
     assert "session-token-2026.06.19" in run_result.cases[1].provider_output
 
 
@@ -814,7 +938,7 @@ def test_live_smoke_tool_policy_matrix_is_ephemeral_while_lifecycle_runs_all_mod
         return _FakeRuntimeClient()
 
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    monkeypatch.setattr(module, "RuntimeClient", _fake_client)
     try:
         run_result = module.run_live_smoke(
             provider_selection=("claude",),
@@ -965,7 +1089,7 @@ def test_live_smoke_combined_mode_continues_after_lifecycle_provider_failure(
             )
 
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(prompt_runtime, "RuntimeClient", lambda: _FakeRuntimeClient())
+    monkeypatch.setattr(module, "RuntimeClient", lambda: _FakeRuntimeClient())
     try:
         run_result = module.run_live_smoke(
             provider_selection=("claude", "codex"),
@@ -1046,7 +1170,7 @@ def test_live_smoke_single_tool_policy_request_reuses_ephemeral_only_path(
         return _FakeRuntimeClient()
 
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    monkeypatch.setattr(module, "RuntimeClient", _fake_client)
     try:
         run_result = module.run_live_smoke(
             provider_selection=("claude",),
@@ -1086,7 +1210,7 @@ def test_live_smoke_tool_policy_timeout_is_classified_as_failed_and_retained_for
                 invocation_progress=prompt_runtime.InvocationProgress.STARTED,
             )
 
-    monkeypatch.setattr(prompt_runtime, "RuntimeClient", lambda: _FakeRuntimeClient())
+    monkeypatch.setattr(module, "RuntimeClient", lambda: _FakeRuntimeClient())
 
     run_result = module.run_live_smoke(
         provider_selection=("claude",),
@@ -1148,7 +1272,7 @@ def test_live_smoke_tool_policy_exception_is_classified_and_warned(
         return _FakeRuntimeClient()
 
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(prompt_runtime, "RuntimeClient", _fake_client)
+    monkeypatch.setattr(module, "RuntimeClient", _fake_client)
     try:
         run_result = module.run_live_smoke(
             provider_selection=("claude",),

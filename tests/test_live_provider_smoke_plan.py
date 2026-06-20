@@ -28,6 +28,33 @@ def planning_module() -> Any:
     return module
 
 
+def _planned_case(
+    module: Any,
+    *,
+    service: str,
+    mode: str,
+    policy: str | None,
+    model: str,
+    effort: str,
+    auth: Any | None = None,
+) -> Any:
+    from agent_runtime import runtime as prompt_runtime
+
+    return module.PlannedCase(
+        service=service,
+        mode=mode,
+        policy=policy,
+        model=model,
+        effort=effort,
+        provider_selection=prompt_runtime.ProviderSelection(
+            service=service,
+            model=model,
+            effort=effort,
+            auth=auth or prompt_runtime.ProviderAuth(),
+        ),
+    )
+
+
 def test_live_smoke_provider_selection_accepts_supported_services_multiple_and_all(
     planning_module: Any,
 ) -> None:
@@ -378,6 +405,57 @@ def test_live_smoke_dry_run_defaults_propagate_to_provider_plans_and_cases(
         assert case.effort == provider_plan.effort
 
 
+def test_live_smoke_provider_plan_exposes_public_provider_selection_with_auth(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+    from agent_runtime import runtime as prompt_runtime
+
+    selected = module.parse_provider_selection(("claude", "opencode"))
+    planned = module.plan_selected_providers(
+        selected,
+        env={},
+        claude_code_oauth_token="claude-token",
+        opencode_api_key="opencode-key",
+    )
+
+    claude_plan = next(plan for plan in planned if plan.service == "claude")
+    opencode_plan = next(plan for plan in planned if plan.service == "opencode")
+
+    assert claude_plan.provider_selection == prompt_runtime.ProviderSelection(
+        service="claude",
+        model="haiku",
+        effort="low",
+        auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="claude-token"),
+    )
+    assert opencode_plan.provider_selection == prompt_runtime.ProviderSelection(
+        service="opencode",
+        model="deepseek-v4-flash",
+        effort="medium",
+        auth=prompt_runtime.ProviderAuth(opencode_api_key="opencode-key"),
+    )
+
+
+def test_live_smoke_dry_run_cases_reuse_planned_public_provider_selection(
+    planning_module: Any,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    summary = module.build_dry_run_plan(
+        provider_selection=("claude",),
+        lifecycle_modes=("ephemeral", "new_session"),
+        tool_policies=("NONE",),
+        run_id="planned-selection-flow",
+        claude_code_oauth_token="claude-token",
+        artifact_root=tmp_path / "live-smoke-artifacts",
+    )
+
+    planned_selection = summary.provider_plans[0].provider_selection
+
+    assert all(case.provider_selection == planned_selection for case in summary.cases)
+
+
 def test_live_smoke_defaults_are_documented_with_verification_date(
     planning_module: Any,
 ) -> None:
@@ -714,7 +792,8 @@ def test_live_smoke_case_status_classifies_completed_runtime_outcomes_as_passed(
 
     from agent_runtime import runtime as prompt_runtime
 
-    case = module.PlannedCase(
+    case = _planned_case(
+        module,
         service="claude",
         mode="ephemeral",
         policy=None,
@@ -751,7 +830,8 @@ def test_live_smoke_case_status_distinguishes_expected_outcomes_from_failures(
 
     from agent_runtime import runtime as prompt_runtime
 
-    lifecycle_case = module.PlannedCase(
+    lifecycle_case = _planned_case(
+        module,
         service="claude",
         mode="new_session",
         policy=None,
@@ -819,7 +899,8 @@ def test_live_smoke_case_status_checks_completed_result_metadata(
 
     from agent_runtime import runtime as prompt_runtime
 
-    case = module.PlannedCase(
+    case = _planned_case(
+        module,
         service="claude",
         mode="ephemeral",
         policy="UNRESTRICTED",
@@ -856,7 +937,8 @@ def test_live_smoke_config_error_and_all_mode_skips_classify_distinctly(
         model_overrides={"claude": "sonnet"},
         effort_overrides={"claude": "medium"},
     )
-    explicit_case = module.PlannedCase(
+    explicit_case = _planned_case(
+        module,
         service="claude",
         mode="ephemeral",
         policy=None,
@@ -886,12 +968,14 @@ def test_live_smoke_config_error_and_all_mode_skips_classify_distinctly(
     )
     all_results = tuple(
         module.classify_live_smoke_preflight_case_result(
-            case=module.PlannedCase(
+            case=_planned_case(
+                module,
                 service=provider_plan.service,
                 mode="ephemeral",
                 policy=None,
                 model=provider_plan.model,
                 effort=provider_plan.effort,
+                auth=provider_plan.provider_selection.auth,
             ),
             provider_plan=provider_plan,
             required=False,
@@ -912,7 +996,8 @@ def test_live_smoke_non_passing_runtime_and_artifact_failures_emit_diagnostics(
 
     from agent_runtime import runtime as prompt_runtime
 
-    case = module.PlannedCase(
+    case = _planned_case(
+        module,
         service="claude",
         mode="new_session",
         policy="NONE",
