@@ -140,7 +140,6 @@ _supported_builtin_provider_selection = (
     _builtin_runtime_client_module.supported_builtin_provider_selection
 )
 _supported_builtin_stage = _builtin_runtime_client_module.supported_builtin_stage
-_BuiltInAvailabilityState = _builtin_runtime_client_module.BuiltInAvailabilityState
 _run_builtin_new_session = _builtin_runtime_client_module._run_builtin_new_session
 _run_builtin_resumed_session = (
     _builtin_runtime_client_module._run_builtin_resumed_session
@@ -234,43 +233,19 @@ def _run_builtin_session_outcome(
 
 
 class RuntimeClient:
-    def __init__(self) -> None:
-        self._availability = _BuiltInAvailabilityState()
-
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         if _supported_builtin_provider_selection(request.provider_selection) is None:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
-        now = _time_module.now_local()
-        selected_provider_selection = self._availability.first_available_stage(
-            request.provider_selection, now=now
-        )
-        if selected_provider_selection is None:
-            return RuntimeOutcome.no_service_available(
-                output="",
-                reset_time=self._availability.next_wake_time(
-                    request.provider_selection,
-                    now=now,
-                ),
-                invocation_progress=InvocationProgress.NOT_STARTED,
-            )
         try:
-            result = _run_builtin_ephemeral(
-                request,
-                select_builtin_stage=lambda _stage: selected_provider_selection,
-            )
+            result = _run_builtin_ephemeral(request)
         except UsageLimitError as exc:
             if getattr(exc, "_is_live_output_exception", False):
                 raise
-            self._availability.mark_exhausted(
-                exc.service_name or selected_provider_selection.service,
-                reset_time=exc.reset_time,
-                now=_time_module.now_local(),
-            )
             return RuntimeOutcome.usage_limited(
                 output="",
-                service_name=exc.service_name or selected_provider_selection.service,
+                service_name=exc.service_name,
                 account_label=exc.account_label,
                 reset_time=exc.reset_time,
                 invocation_progress=exc.invocation_progress,

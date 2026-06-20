@@ -1641,7 +1641,7 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
     )
 
 
-def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
+def test_runtime_client_reuses_selected_builtin_after_usage_limited_call(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     stage_selection_factory: Callable[..., runtime.ProviderSelection],
@@ -1741,12 +1741,17 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
         reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
-    assert second_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+    assert second_outcome == prompt_runtime.RuntimeOutcome.usage_limited(
         output="",
-        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        service_name="codex",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access --json"
+        ),
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
@@ -2595,7 +2600,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
     ]
 
 
-def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_update(
+def test_runtime_client_reuses_selected_builtin_after_concurrent_usage_limit_update(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     stage_selection_factory: Callable[..., runtime.ProviderSelection],
@@ -2719,13 +2724,18 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         )
     ]
-    assert second_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+    assert second_outcome == prompt_runtime.RuntimeOutcome.usage_limited(
         output="",
-        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        service_name="codex",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
-    assert codex_calls == 1
+    assert codex_calls == 2
     assert observed_commands == [
+        (
+            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            "-c approval_policy=never --sandbox danger-full-access --json"
+        ),
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"

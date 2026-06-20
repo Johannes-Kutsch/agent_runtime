@@ -5967,6 +5967,94 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
     assert list((tmp_path / "logs").glob("*.log")) == []
 
 
+def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_selected_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._time_module,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "turn.failed",
+                        "error": {
+                            "message": (
+                                "You've hit your usage limit. "
+                                "Try again at January 2, 5pm (UTC)."
+                            )
+                        },
+                    }
+                )
+                + "\n",
+            )
+        ),
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="completed on retry",
+            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+        ),
+    )
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        worktree=tmp_path,
+        provider_selection=InternalStageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+    )
+
+    client = runtime.RuntimeClient()
+    first_outcome = client.run_ephemeral(request)
+    second_outcome = client.run_ephemeral(request)
+
+    _assert_runtime_outcome(
+        first_outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+        ),
+    )
+    _assert_runtime_outcome(
+        second_outcome,
+        prompt_runtime.RuntimeOutcome.completed(
+            output="completed on retry",
+            result=prompt_runtime.EphemeralRunResult(
+                output="completed on retry",
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                metadata=prompt_runtime.EphemeralResultMetadata(
+                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                        run_kind=RunKind.FRESH,
+                    ),
+                ),
+                usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+            ),
+            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+        ),
+    )
+    assert len(adapter.recorded_requests) == 2
+
+
 def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
