@@ -1120,10 +1120,14 @@ def _parse_codex_reset_time(retry_text: object) -> datetime | None:
 
 
 def _validate_codex_auth() -> None:
-    auth_path = Path.home() / ".codex" / "auth.json"
+    auth_path = _codex_host_auth_path()
     if auth_path.exists():
         return
     raise _missing_codex_auth_error()
+
+
+def _codex_host_auth_path() -> Path:
+    return Path.home() / ".codex" / "auth.json"
 
 
 def _missing_codex_auth_error() -> AgentCredentialFailureError:
@@ -1569,7 +1573,7 @@ def _codex_seed_auth(provider_state_dir: Path) -> None:
     provider_auth_path = provider_state_dir / "auth.json"
     if provider_auth_path.exists():
         return
-    host_auth_path = Path.home() / ".codex" / "auth.json"
+    host_auth_path = _codex_host_auth_path()
     if not host_auth_path.exists():
         raise _missing_codex_auth_error()
     shutil.copyfile(host_auth_path, provider_auth_path)

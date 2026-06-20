@@ -597,7 +597,24 @@ def _seed_codex_host_auth(monkeypatch: pytest.MonkeyPatch, home_dir: Path) -> No
     auth_dir = home_dir / ".codex"
     auth_dir.mkdir(parents=True)
     (auth_dir / "auth.json").write_text('{"access_token":"token"}')
-    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_codex_host_auth_path",
+        lambda: auth_dir / "auth.json",
+        raising=False,
+    )
+
+
+def _seed_empty_codex_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    home_dir: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_codex_host_auth_path",
+        lambda: home_dir / ".codex" / "auth.json",
+        raising=False,
+    )
 
 
 def _stub_codex_prompt_path(
@@ -1098,7 +1115,7 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
 ) -> None:
     home_dir = tmp_path / "home"
     home_dir.mkdir()
-    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_empty_codex_host_auth(monkeypatch, home_dir)
 
     def _unexpected_popen(*args: Any, **kwargs: Any) -> None:
         del args, kwargs
@@ -1137,6 +1154,176 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
             ),
             source_stream="pre-dispatch host check",
             status_code=401,
+        ),
+    )
+
+
+def test_runtime_client_reports_isolated_missing_codex_host_auth_before_subprocess_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    host_home_with_login = tmp_path / "host-home-with-login"
+    (host_home_with_login / ".codex").mkdir(parents=True, exist_ok=True)
+    (host_home_with_login / ".codex" / "auth.json").write_text(
+        '{"access_token":"token"}',
+        encoding="utf-8",
+    )
+
+    isolated_home_without_login = tmp_path / "isolated-home-without-login"
+
+    _stub_codex_prompt_path(monkeypatch)
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home_with_login,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_codex_host_auth_path",
+        lambda: isolated_home_without_login / ".codex" / "auth.json",
+        raising=False,
+    )
+
+    def _unexpected_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> None:
+        del command, shell, cwd, env, stdout, stderr, text
+        raise AssertionError(
+            "subprocess should not run when lookup path is missing auth"
+        )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _unexpected_popen,
+    )
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Codex authentication missing: run `codex login` on the host."
+    )
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.observations == (
+        ProviderErrorObservation(
+            service_name="codex",
+            raw_provider_text=(
+                "Codex authentication missing: run `codex login` on the host."
+            ),
+            source_stream="pre-dispatch host check",
+            status_code=401,
+        ),
+    )
+
+
+def test_runtime_client_runs_codex_with_isolated_present_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    host_home_without_login = tmp_path / "host-home-without-login"
+    host_home_without_login.mkdir()
+    host_auth_home = tmp_path / "isolated-home-with-login"
+    (host_auth_home / ".codex").mkdir(parents=True, exist_ok=True)
+    (host_auth_home / ".codex" / "auth.json").write_text(
+        '{"access_token":"token"}',
+        encoding="utf-8",
+    )
+
+    _stub_codex_prompt_path(monkeypatch)
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home_without_login,
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_codex_host_auth_path",
+        lambda: host_auth_home / ".codex" / "auth.json",
+        raising=False,
+    )
+
+    class _FakeProcess:
+        stdout = iter(
+            (
+                '{"type":"item.completed","item":{"type":"agent_message","text":"hello from codex"}}\n',
+                '{"type":"turn.completed"}\n',
+            )
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, cwd, env, stdout, stderr, text
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
+        )
+    )
+
+    assert outcome == prompt_runtime.RuntimeOutcome.completed(
+        output="hello from codex",
+        result=prompt_runtime.EphemeralRunResult(
+            output="hello from codex",
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
+            used_fallback=False,
+            metadata=prompt_runtime.EphemeralResultMetadata(
+                selected_service_path=("codex",),
+                runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                ),
+            ),
         ),
     )
 
@@ -2071,7 +2258,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
 ) -> None:
     home_dir = tmp_path / "home"
     home_dir.mkdir()
-    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_empty_codex_host_auth(monkeypatch, home_dir)
 
     stage = stage_selection_factory(
         service="codex",
