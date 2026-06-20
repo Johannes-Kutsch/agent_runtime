@@ -1566,6 +1566,36 @@ def test_live_smoke_cli_help_is_invokable(smoke_module: object) -> None:
     assert parser_help.strip()
 
 
+def test_live_smoke_cli_help_no_longer_mentions_environment_sources_for_model_or_effort(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    output = io.StringIO()
+    with redirect_stdout(output), pytest.raises(SystemExit):
+        module.main(["--help"])
+
+    parser_help = output.getvalue()
+    assert "provider-specific environment variable" not in parser_help
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_CLAUDE_MODEL_ENV not in parser_help
+    )
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_CLAUDE_EFFORT_ENV not in parser_help
+    )
+    assert module.live_provider_smoke_plan.LIVE_SMOKE_CODEX_MODEL_ENV not in parser_help
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_CODEX_EFFORT_ENV not in parser_help
+    )
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_OPENCODE_MODEL_ENV not in parser_help
+    )
+    assert (
+        module.live_provider_smoke_plan.LIVE_SMOKE_OPENCODE_EFFORT_ENV
+        not in parser_help
+    )
+
+
 def test_live_smoke_direct_help_invocation_succeeds_and_skips_default_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -1644,6 +1674,90 @@ def test_live_smoke_direct_dry_run_invocation_honors_process_argv_and_json_outpu
     assert payload["cases"][0]["model"] == "custom-sonnet"
     assert payload["cases"][0]["effort"] == "high"
     assert not (tmp_path / "live-smoke-artifacts").exists()
+
+
+@pytest.mark.parametrize(
+    ("service", "auth_env", "auth_setup", "expected_model", "expected_effort"),
+    (
+        (
+            "claude",
+            {"CLAUDE_CODE_OAUTH_TOKEN": "ci-token"},
+            None,
+            "haiku",
+            "low",
+        ),
+        (
+            "codex",
+            {},
+            "codex",
+            "gpt-5.4-mini",
+            "low",
+        ),
+        (
+            "opencode",
+            {"OPENCODE_GO_API_KEY": "ci-key"},
+            None,
+            "deepseek-v4-flash",
+            "medium",
+        ),
+    ),
+)
+def test_live_smoke_cli_dry_run_ignores_shell_model_and_effort_environment_without_cli_overrides(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    service: str,
+    auth_env: dict[str, str],
+    auth_setup: str | None,
+    expected_model: str,
+    expected_effort: str,
+) -> None:
+    module: Any = smoke_module
+    monkeypatch.chdir(tmp_path)
+    if auth_setup == "codex":
+        monkeypatch.setattr(
+            module.live_provider_smoke_plan,
+            "detect_codex_auth_present",
+            lambda: True,
+        )
+
+    model_env = getattr(
+        module.live_provider_smoke_plan,
+        f"LIVE_SMOKE_{service.upper()}_MODEL_ENV",
+    )
+    effort_env = getattr(
+        module.live_provider_smoke_plan,
+        f"LIVE_SMOKE_{service.upper()}_EFFORT_ENV",
+    )
+    monkeypatch.setenv(model_env, f"env-{service}-model")
+    monkeypatch.setenv(effort_env, "high")
+    for key, value in auth_env.items():
+        monkeypatch.setenv(key, value)
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--dry-run",
+                "--json",
+                "--provider",
+                service,
+                "--mode",
+                "ephemeral",
+                "--run-id",
+                f"{service}-defaults",
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert payload["providers"][0]["service"] == service
+    assert payload["providers"][0]["model"] == expected_model
+    assert payload["providers"][0]["effort"] == expected_effort
+    assert payload["cases"][0]["service"] == service
+    assert payload["cases"][0]["model"] == expected_model
+    assert payload["cases"][0]["effort"] == expected_effort
 
 
 def test_live_smoke_cli_dry_run_json_artifact_paths_use_forward_slashes_portably(
