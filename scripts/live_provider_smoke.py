@@ -772,8 +772,13 @@ def _serialize_live_turns(case_outcome: Any) -> list[dict[str, str]]:
     return live_turns
 
 
-def _serialize_case_output(case_outcome: Any) -> dict[str, Any]:
+def _serialize_case_output(planned_case: Any, case_outcome: Any) -> dict[str, Any]:
     return {
+        "service": planned_case.service,
+        "mode": planned_case.mode,
+        "policy": planned_case.policy,
+        "model": planned_case.model,
+        "effort": planned_case.effort,
         "kind": getattr(case_outcome, "kind", "unknown"),
         "output": getattr(case_outcome, "output", ""),
         "service_name": getattr(case_outcome, "service_name", None),
@@ -807,7 +812,10 @@ def _write_optional_case_artifacts(
         encoding="utf-8",
     )
     _write_json(artifact_dir / "live_turns.json", _serialize_live_turns(case_outcome))
-    _write_json(artifact_dir / "outcome.json", _serialize_case_output(case_outcome))
+    _write_json(
+        artifact_dir / "outcome.json",
+        _serialize_case_output(planned_case, case_outcome),
+    )
     _write_json(
         artifact_dir / "invocation_records.json",
         _serialize_case_invocation_records(

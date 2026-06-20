@@ -333,6 +333,94 @@ def test_live_smoke_artifacts_capture_required_diagnostics(
     assert config_summary.exists()
 
 
+def test_live_smoke_real_run_preserves_resolved_defaults_in_diagnostics_and_reruns(
+    smoke_module: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module: Any = smoke_module
+
+    default_model, default_effort = module.live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS[
+        "codex"
+    ]
+
+    def _fake_case_runner(*, artifact_dir: Path, **_: object) -> _FakeRunOutcome:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        return _FakeRunOutcome(
+            kind="retryable_provider_failure",
+            output="provider runtime returned failed",
+        )
+
+    run_result = module.run_live_smoke(
+        provider_selection=("codex",),
+        lifecycle_modes=("ephemeral",),
+        codex_auth_present=True,
+        run_id="defaults-preserved-run",
+        artifact_root=tmp_path / "defaults-preserved",
+        case_runner=_fake_case_runner,
+    )
+
+    assert run_result.passed is False
+    assert run_result.cases[0].model == default_model
+    assert run_result.cases[0].effort == default_effort
+
+    summary_payload = module.json.loads(run_result.summary_path.read_text("utf-8"))
+    assert summary_payload["cases"][0]["model"] == default_model
+    assert summary_payload["cases"][0]["effort"] == default_effort
+    assert summary_payload["provider_plans"][0]["model"] == default_model
+    assert summary_payload["provider_plans"][0]["effort"] == default_effort
+
+    case_dir = (
+        tmp_path
+        / "defaults-preserved"
+        / "defaults-preserved-run"
+        / "codex"
+        / "ephemeral"
+        / "default"
+    )
+    outcome_payload = module.json.loads(
+        (case_dir / "outcome.json").read_text(encoding="utf-8")
+    )
+    assert outcome_payload["service"] == "codex"
+    assert outcome_payload["model"] == default_model
+    assert outcome_payload["effort"] == default_effort
+    assert outcome_payload["mode"] == "ephemeral"
+    assert outcome_payload["policy"] is None
+
+    monkeypatch.setattr(module, "run_live_smoke", lambda **_: run_result)
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--provider",
+                "codex",
+                "--mode",
+                "ephemeral",
+                "--json",
+                "--run-id",
+                "defaults-preserved-run",
+                "--artifact-root",
+                str(tmp_path / "defaults-preserved"),
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+    assert exit_code == 1
+    assert payload["failed_case_runs"] == [
+        {
+            "provider": "codex",
+            "mode": "ephemeral",
+            "policy": None,
+            "status": "failed",
+            "command": (
+                "python "
+                f"{module.__file__} "
+                "--provider codex --mode ephemeral "
+                f"--model codex={default_model} --effort codex={default_effort} "
+                "--run-id defaults-preserved-run"
+            ),
+        }
+    ]
+
+
 def test_live_smoke_artifacts_do_not_capture_credentials_or_raw_env(
     smoke_module: object, tmp_path: Path
 ) -> None:
