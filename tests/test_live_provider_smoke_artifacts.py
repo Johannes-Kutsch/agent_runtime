@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 from agent_runtime.session import RunKind
+from agent_runtime.errors import RuntimeConfigurationError
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "live_provider_smoke.py"
 
@@ -661,6 +662,111 @@ def test_live_smoke_ephemeral_runs_through_public_runtime_request_values(
         (case_dir / "live_turns.json").read_text(encoding="utf-8")
     )
     assert live_turns == [{"text": "provider says ok", "service_name": "claude"}]
+
+
+def test_live_smoke_runner_prefers_bundled_env_for_provider_credentials(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    env_root = tmp_path / "scripts" / "live-smoke"
+    env_root.mkdir(parents=True)
+    (env_root / ".env").write_text(
+        "\n".join(
+            [
+                "CLAUDE_CODE_OAUTH_TOKEN=file-claude-token",
+                "OPENCODE_GO_API_KEY=file-opencode-key",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_LIVE_SMOKE_ENV_PATH", env_root / ".env")
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "shell-claude-token")
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "shell-opencode-key")
+
+    captured_requests: list[Any] = []
+
+    class _FakeRuntimeClient:
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            captured_requests.append(request)
+            return SimpleNamespace(
+                kind="completed",
+                output="ok",
+                result=SimpleNamespace(
+                    selected_service=request.provider_selection.service,
+                    selected_model=request.provider_selection.model,
+                    selected_effort=request.provider_selection.effort,
+                    tool_access=SimpleNamespace(
+                        tool_policy=request.tool_policy,
+                    ),
+                ),
+                invocation_records=(),
+                live_turns=(),
+            )
+
+    monkeypatch.setattr(module, "RuntimeClient", lambda: _FakeRuntimeClient())
+
+    run_result = module.run_live_smoke(
+        provider_selection=("claude", "opencode"),
+        lifecycle_modes=("ephemeral",),
+        model_overrides={"claude": "haiku", "opencode": "deepseek-v4-flash"},
+        effort_overrides={"claude": "low", "opencode": "medium"},
+        run_id="bundle-env-run",
+        artifact_root=tmp_path / "bundle-env-artifacts",
+    )
+
+    assert run_result.passed is True
+    assert run_result.summary_written is True
+    assert len(captured_requests) == 2
+
+    assert captured_requests[0].provider_selection.auth == prompt_runtime.ProviderAuth(
+        claude_code_oauth_token="file-claude-token"
+    )
+    assert captured_requests[1].provider_selection.auth == prompt_runtime.ProviderAuth(
+        opencode_api_key="file-opencode-key"
+    )
+
+
+def test_live_smoke_rejects_malformed_bundled_env_line_number_before_invocation(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    env_root = tmp_path / "scripts" / "live-smoke"
+    env_root.mkdir(parents=True)
+    (env_root / ".env").write_text(
+        "\n".join(["CLAUDE_CODE_OAUTH_TOKEN=file-claude", "this-is-not-key-value"]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_LIVE_SMOKE_ENV_PATH", env_root / ".env")
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "shell-claude-token")
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "shell-opencode-key")
+
+    class _FailingRuntimeClient:
+        def run_ephemeral(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("runtime should not be invoked for malformed env")
+
+    monkeypatch.setattr(module, "RuntimeClient", lambda: _FailingRuntimeClient())
+
+    with pytest.raises(RuntimeConfigurationError, match=r"at 2"):
+        module.run_live_smoke(
+            provider_selection=("claude",),
+            lifecycle_modes=("ephemeral",),
+            model_overrides={"claude": "haiku"},
+            effort_overrides={"claude": "low"},
+            run_id="malformed-env-run",
+            artifact_root=tmp_path / "malformed-env-artifacts",
+        )
 
 
 def test_live_smoke_runner_uses_planned_provider_selection_for_lifecycle_and_policy_requests(
@@ -1678,7 +1784,10 @@ def test_live_smoke_explicit_provider_config_error_reports_missing_setup_on_run(
     assert payload["run_id"] == "missing-setup-run"
     assert payload["provider_plans"][0]["status"] == "config_error"
     assert payload["cases"] == []
-    assert any("provider not configured" in warning for warning in payload["warnings"])
+    assert any(
+        "missing CLAUDE_CODE_OAUTH_TOKEN" in warning
+        for warning in payload["warnings"]
+    )
 def test_live_smoke_cli_default_console_output_reports_provider_mode_and_artifacts(
     smoke_module: object,
     tmp_path: Path,

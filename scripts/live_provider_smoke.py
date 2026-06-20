@@ -28,6 +28,7 @@ from agent_runtime.runtime import (
     RuntimeClient,
     ToolPolicy,
 )
+from agent_runtime.errors import RuntimeConfigurationError
 
 try:
     import live_provider_smoke_plan
@@ -46,6 +47,7 @@ except ModuleNotFoundError:
 DEFAULT_LIVE_SMOKE_ARTIFACT_ROOT = "live-smoke-artifacts"
 LIVE_SMOKE_SUMMARY_FILENAME = "summary.json"
 _DEFAULT_CASE_TIMEOUT_SECONDS = 180
+_LIVE_SMOKE_ENV_PATH = Path(__file__).resolve().parent / "live-smoke" / ".env"
 
 
 def _parse_service_map_arg(value: str, *, flag_name: str) -> tuple[str, str]:
@@ -63,6 +65,43 @@ def _safe_list(value: Sequence[str]) -> str:
 
 def _portable_json_path(path: Path | str) -> str:
     return str(path).replace("\\", "/")
+
+
+def _parse_live_smoke_env_lines(
+    text: str,
+    *,
+    env_path: Path,
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "=" not in line:
+            raise RuntimeConfigurationError(
+                f"Malformed line in {env_path} at {line_number}: expected KEY=value"
+            )
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise RuntimeConfigurationError(
+                f"Malformed line in {env_path} at {line_number}: expected KEY=value"
+            )
+        values[key] = value.strip()
+    return values
+
+
+def _load_live_smoke_env(env_path: Path | None = None) -> dict[str, str]:
+    path = env_path or _LIVE_SMOKE_ENV_PATH
+    if not path.exists():
+        return {}
+    return _parse_live_smoke_env_lines(path.read_text(encoding="utf-8"), env_path=path)
+
+
+def _resolve_live_smoke_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
+    if env is not None:
+        return env
+    return _load_live_smoke_env()
 
 
 def _live_smoke_defaults_help_text() -> str:
@@ -511,6 +550,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     providers = _coerce_list_provider_selection(args)
     lifecycle_modes = _coerce_lifecycle_modes(args)
     tool_policies = tuple(args.tool_policies)
+    live_smoke_env = _resolve_live_smoke_env(None)
 
     run_result = run_live_smoke(
         provider_selection=providers,
@@ -520,6 +560,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         model_overrides=model_overrides,
         effort_overrides=effort_overrides,
         artifact_root=args.artifact_root,
+        env=live_smoke_env,
         cleanup_artifact_root=args.cleanup_artifact_root,
     )
 
@@ -655,7 +696,7 @@ def _derive_session_continuation_sentinel(output: str) -> str:
 
 
 def _resolve_plan_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
-    return {} if env is None else env
+    return _resolve_live_smoke_env(env)
 
 
 def _resolve_tool_policy(case_policy: str | None) -> ToolPolicy:
@@ -973,6 +1014,7 @@ def run_live_smoke(
     codex_auth_present: bool | None = None,
 ) -> LiveSmokeRunResult:
     resolved_artifact_root = _resolve_live_smoke_artifact_root(artifact_root)
+    resolved_env = _resolve_live_smoke_env(env)
     if cleanup_artifact_root:
         shutil.rmtree(resolved_artifact_root, ignore_errors=True)
     resolved_artifact_root.mkdir(parents=True, exist_ok=True)
@@ -985,7 +1027,7 @@ def run_live_smoke(
         model_overrides=model_overrides,
         effort_overrides=effort_overrides,
         artifact_root=resolved_artifact_root,
-        env=env,
+        env=resolved_env,
         claude_code_oauth_token=claude_code_oauth_token,
         opencode_api_key=opencode_api_key,
         codex_auth_present=codex_auth_present,
@@ -1112,7 +1154,7 @@ def run_live_smoke(
                 prompt=prompt,
                 model=planned_case.model,
                 effort=planned_case.effort,
-                env=env,
+                env=resolved_env,
                 claude_code_oauth_token=claude_code_oauth_token,
                 opencode_api_key=opencode_api_key,
                 codex_auth_present=codex_auth_present,

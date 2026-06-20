@@ -603,21 +603,49 @@ def _provider_has_runtime_config(
     opencode_api_key: str | None = None,
     codex_auth_present: bool | None = None,
 ) -> bool:
+    return (
+        _provider_runtime_config_error_reason(
+            provider,
+            env=env,
+            claude_code_oauth_token=claude_code_oauth_token,
+            opencode_api_key=opencode_api_key,
+            codex_auth_present=codex_auth_present,
+        )
+        is None
+    )
+
+
+def _provider_runtime_config_error_reason(
+    provider: str,
+    *,
+    env: Mapping[str, str] | None = None,
+    claude_code_oauth_token: str | None = None,
+    opencode_api_key: str | None = None,
+    codex_auth_present: bool | None = None,
+) -> str | None:
     env_map = _resolve_env_map(env)
     if provider == "claude":
-        return bool(
-            (claude_code_oauth_token or "").strip()
-            or (env_map.get(_PROVIDER_CLAUDE_TOKEN_ENV) or "").strip()
+        token = _resolve_explicit_or_env_value(
+            explicit_value=claude_code_oauth_token,
+            env_value=env_map.get(_PROVIDER_CLAUDE_TOKEN_ENV, ""),
         )
+        if token.strip():
+            return None
+        return f"missing {_PROVIDER_CLAUDE_TOKEN_ENV}"
     if provider == "opencode":
-        return bool(
-            (opencode_api_key or "").strip()
-            or (env_map.get(_PROVIDER_OPENCODE_ENV) or "").strip()
+        api_key = _resolve_explicit_or_env_value(
+            explicit_value=opencode_api_key,
+            env_value=env_map.get(_PROVIDER_OPENCODE_ENV, ""),
         )
+        if api_key.strip():
+            return None
+        return f"missing {_PROVIDER_OPENCODE_ENV}"
     if provider == "codex":
         if codex_auth_present is not None:
-            return bool(codex_auth_present)
-        return False
+            if codex_auth_present:
+                return None
+            return "provider not configured"
+        return "provider not configured"
     raise RuntimeConfigurationError(f"Unsupported provider name: {provider!r}")
 
 
@@ -627,6 +655,14 @@ def detect_codex_auth_present() -> bool:
 
 def _resolve_env_map(env: Mapping[str, str] | None) -> Mapping[str, str]:
     return os.environ if env is None else env
+
+
+def _resolve_explicit_or_env_value(
+    *, explicit_value: str | None, env_value: str
+) -> str:
+    if explicit_value is not None:
+        return explicit_value
+    return env_value
 
 
 def plan_selected_providers(
@@ -679,6 +715,13 @@ def _plan_provider(
         claude_code_oauth_token=claude_code_oauth_token,
         opencode_api_key=opencode_api_key,
     )
+    config_error = _provider_runtime_config_error_reason(
+        provider,
+        env=env,
+        claude_code_oauth_token=claude_code_oauth_token,
+        opencode_api_key=opencode_api_key,
+        codex_auth_present=codex_auth_present,
+    )
     if not resolved_model or not resolved_effort:
         reason = "missing model or effort"
         status = (
@@ -686,14 +729,8 @@ def _plan_provider(
             if include_all
             else LiveSmokeProviderSelectionStatus.CONFIG_ERROR
         )
-    elif not _provider_has_runtime_config(
-        provider,
-        env=env,
-        claude_code_oauth_token=claude_code_oauth_token,
-        opencode_api_key=opencode_api_key,
-        codex_auth_present=codex_auth_present,
-    ):
-        reason = "provider not configured"
+    elif config_error is not None:
+        reason = config_error
         status = (
             LiveSmokeProviderSelectionStatus.SKIPPED
             if include_all
