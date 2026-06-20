@@ -544,7 +544,15 @@ def test_new_session_run_request_rejects_caller_provided_usage_limit_scope() -> 
         )
 
 
-@pytest.mark.parametrize("removed_name", ["session_store", "provider_session_adapter"])
+@pytest.mark.parametrize(
+    "removed_name",
+    [
+        "session_store",
+        "provider_session_adapter",
+        "_session_store",
+        "_provider_session_adapter",
+    ],
+)
 def test_new_session_run_request_rejects_consumer_adapter_injection_kwargs(
     removed_name: str,
 ) -> None:

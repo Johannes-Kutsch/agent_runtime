@@ -17,7 +17,6 @@ from ._request_normalization import (
     normalize_session_plan_request,
     require_invocation_role,
 )
-from ._provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .session import RunKind
 from .session_planning import ResumableSessionPlan
@@ -502,8 +501,6 @@ class NewSessionRunRequest:
     token: CancellationToken | None = None
 
     if TYPE_CHECKING:
-        _session_store: Any = None
-        _provider_session_adapter: ProviderSessionAdapter | None = None
         _runtime_state_dir: Path | None = None
         _session_namespace: str = ""
 
@@ -515,8 +512,6 @@ class NewSessionRunRequest:
         role: InvocationRole | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
-        _session_store: Any | None = None,
-        _provider_session_adapter: ProviderSessionAdapter | None = None,
         _runtime_state_dir: Path | None = None,
         _session_namespace: str = "",
         name: str = "Runtime Agent",
@@ -578,12 +573,6 @@ class NewSessionRunRequest:
             normalized_request.provider_selection,
         )
         object.__setattr__(self, "role", normalized_request.role)
-        object.__setattr__(self, "_session_store", _session_store)
-        object.__setattr__(
-            self,
-            "_provider_session_adapter",
-            _provider_session_adapter,
-        )
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(
             self, "_session_namespace", normalized_request.session_namespace

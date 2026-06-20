@@ -251,12 +251,16 @@ async def _run_new_session_outcome(
     runner: PromptRuntimeExecutionAdapter,
     service_registry: ServiceRegistry,
     request: NewSessionRunRequest,
+    session_store: Any | None = None,
+    provider_session_adapter: Any | None = None,
 ) -> RuntimeOutcome:
     return await _run_runtime_outcome(
         _run_new_session(
             runner=runner,
             service_registry=service_registry,
             request=request,
+            session_store=session_store,
+            provider_session_adapter=provider_session_adapter,
         )
     )
 
@@ -360,6 +364,8 @@ async def _run_new_session(
     runner: PromptRuntimeExecutionAdapter,
     service_registry: ServiceRegistry,
     request: NewSessionRunRequest,
+    session_store: Any | None = None,
+    provider_session_adapter: Any | None = None,
 ) -> SessionRunResult:
     selected_service_name = request.provider_selection.service
     selected_provider = service_registry[selected_service_name]
@@ -377,7 +383,7 @@ async def _run_new_session(
 
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     resolved_service = resolve_service(selected_service_name)
-    if request._session_store is None or request._provider_session_adapter is None:
+    if session_store is None or provider_session_adapter is None:
         raise RuntimeConfigurationError(
             "New-session compat runtime requires internal session planning inputs."
         )
@@ -387,8 +393,8 @@ async def _run_new_session(
             role=request.role,
             namespace=request._session_namespace,
             service=resolved_service,
-            session_store=request._session_store,
-            provider_session_adapter=request._provider_session_adapter,
+            session_store=session_store,
+            provider_session_adapter=provider_session_adapter,
         )
     )
     return await _run_resumed_session(
