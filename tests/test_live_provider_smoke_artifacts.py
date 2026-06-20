@@ -1658,6 +1658,139 @@ def test_live_smoke_all_selection_with_no_configured_providers_does_not_pass_emp
     assert {plan["status"] for plan in summary_payload["provider_plans"]} == {"skipped"}
 
 
+def test_live_smoke_all_selection_includes_codex_when_host_auth_is_detected(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+
+    host_auth = tmp_path / "home" / ".codex" / "auth.json"
+    host_auth.parent.mkdir(parents=True)
+    host_auth.write_text("{}", encoding="utf-8")
+
+    observed_services: list[str] = []
+
+    def _fake_case_runner(*, case: Any, **_: object) -> _FakeRunOutcome:
+        observed_services.append(case.service)
+        return _FakeRunOutcome(kind="completed", output="ok")
+
+    module.live_provider_smoke_plan._PROVIDER_CODEX_HOME_AUTH_PATH = host_auth
+
+    run_result = module.run_live_smoke(
+        provider_selection="all",
+        lifecycle_modes=("ephemeral",),
+        env={},
+        run_id="all-codex-run",
+        artifact_root=tmp_path / "all-with-codex",
+        case_runner=_fake_case_runner,
+    )
+
+    assert run_result.passed is True
+    assert set(observed_services) == {"codex"}
+
+
+def test_live_smoke_all_selection_includes_claude_and_opencode_from_live_smoke_env(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    env_root = tmp_path / "scripts" / "live-smoke"
+    env_root.mkdir(parents=True)
+    (env_root / ".env").write_text(
+        "\n".join(
+            [
+                "CLAUDE_CODE_OAUTH_TOKEN=claude-token",
+                "OPENCODE_GO_API_KEY=opencode-key",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_LIVE_SMOKE_ENV_PATH", env_root / ".env")
+
+    observed_services: list[str] = []
+
+    def _fake_case_runner(*, case: Any, **_: object) -> _FakeRunOutcome:
+        observed_services.append(case.service)
+        return _FakeRunOutcome(kind="completed", output="ok")
+
+    run_result = module.run_live_smoke(
+        provider_selection="all",
+        lifecycle_modes=("ephemeral",),
+        run_id="all-env-run",
+        artifact_root=tmp_path / "all-env",
+        case_runner=_fake_case_runner,
+        codex_auth_present=False,
+    )
+
+    assert run_result.passed is True
+    assert set(observed_services) == {"claude", "opencode"}
+
+
+def test_live_smoke_all_selection_skips_unconfigured_explicit_credentials(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+
+    observed_services: list[str] = []
+
+    def _fake_case_runner(*, case: Any, **_: object) -> _FakeRunOutcome:
+        observed_services.append(case.service)
+        return _FakeRunOutcome(kind="completed", output="ok")
+
+    run_result = module.run_live_smoke(
+        provider_selection="all",
+        lifecycle_modes=("ephemeral",),
+        env={
+            "CLAUDE_CODE_OAUTH_TOKEN": "claude-token",
+            "OPENCODE_GO_API_KEY": "   ",
+        },
+        run_id="all-skip-run",
+        artifact_root=tmp_path / "all-skip",
+        case_runner=_fake_case_runner,
+        codex_auth_present=False,
+    )
+
+    assert run_result.passed is True
+    assert observed_services == ["claude"]
+    assert {case.service for case in run_result.cases} == {"claude"}
+
+
+def test_live_smoke_all_selection_with_no_configured_providers_reports_clear_failure_before_invocation(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+
+    invocation_started = False
+
+    def _failing_case_runner(*_: object, **__: object) -> _FakeRunOutcome:
+        nonlocal invocation_started
+        invocation_started = True
+        return _FakeRunOutcome(kind="completed", output="ok")
+
+    run_result = module.run_live_smoke(
+        provider_selection="all",
+        lifecycle_modes=("ephemeral",),
+        env={},
+        run_id="all-no-provider-run",
+        artifact_root=tmp_path / "all-no-provider",
+        case_runner=_failing_case_runner,
+        codex_auth_present=False,
+    )
+
+    assert run_result.passed is False
+    assert run_result.summary_written is True
+    assert run_result.cases == ()
+    assert invocation_started is False
+    assert any(
+        "all selected providers are unconfigured" in warning
+        for warning in run_result.warnings
+    )
+
+
 def test_live_smoke_cli_help_is_invokable(smoke_module: object) -> None:
     module: Any = smoke_module
 
@@ -1785,9 +1918,10 @@ def test_live_smoke_explicit_provider_config_error_reports_missing_setup_on_run(
     assert payload["provider_plans"][0]["status"] == "config_error"
     assert payload["cases"] == []
     assert any(
-        "missing CLAUDE_CODE_OAUTH_TOKEN" in warning
-        for warning in payload["warnings"]
+        "missing CLAUDE_CODE_OAUTH_TOKEN" in warning for warning in payload["warnings"]
     )
+
+
 def test_live_smoke_cli_default_console_output_reports_provider_mode_and_artifacts(
     smoke_module: object,
     tmp_path: Path,

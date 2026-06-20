@@ -1015,6 +1015,8 @@ def run_live_smoke(
 ) -> LiveSmokeRunResult:
     resolved_artifact_root = _resolve_live_smoke_artifact_root(artifact_root)
     resolved_env = _resolve_live_smoke_env(env)
+    if codex_auth_present is None:
+        codex_auth_present = live_provider_smoke_plan.detect_codex_auth_present()
     if cleanup_artifact_root:
         shutil.rmtree(resolved_artifact_root, ignore_errors=True)
     resolved_artifact_root.mkdir(parents=True, exist_ok=True)
@@ -1259,6 +1261,8 @@ def run_live_smoke(
         resolved_artifact_root, dry_run_plan.run_id
     )
     if not case_results:
+        if dry_run_plan.provider_plans:
+            warnings.append("all selected providers are unconfigured")
         warnings.append("no runnable smoke cases planned")
     run_case_success = bool(case_results) and all(
         case.status == "passed" or (case.status == "skipped" and not case.required)
