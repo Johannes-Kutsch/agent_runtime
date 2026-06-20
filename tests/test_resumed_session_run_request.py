@@ -145,6 +145,27 @@ def test_resumed_session_run_request_from_continuation_accepts_minimal_fields() 
     assert not hasattr(request, "logs_dir")
 
 
+def test_resumed_session_run_request_from_continuation_rejects_model_override() -> None:
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest derives fixed model from `continuation` and does not accept a request-level `model` override."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=WorktreeMount(Path("/repo")),
+            model="gpt-5.5",
+            continuation=prompt_runtime.Continuation(
+                selected_service="codex",
+                selected_model="gpt-5.4",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={"run_kind": "resume"},
+            ),
+        )
+
+
 @pytest.mark.parametrize("label", ["", "../escape"])
 def test_resumed_session_run_request_from_continuation_preserves_empty_session_namespace_and_rejects_unsafe_non_empty_values(
     label: str,
