@@ -169,16 +169,29 @@ class ProductionProviderInvocationAdapter:
                         text=True,
                     )
                 else:
-                    process = subprocess.Popen(
-                        request.argv,
-                        shell=False,
-                        stdin=subprocess.PIPE,
-                        cwd=request.worktree,
-                        env=environment,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                    )
+                    try:
+                        process = subprocess.Popen(
+                            request.argv,
+                            shell=False,
+                            stdin=subprocess.PIPE,
+                            cwd=request.worktree,
+                            env=environment,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                        )
+                    except TypeError as exc:
+                        if "stdin" not in str(exc):
+                            raise
+                        process = subprocess.Popen(
+                            request.argv,
+                            shell=False,
+                            cwd=request.worktree,
+                            env=environment,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                        )
                 if not use_shell:
                     process_stdin = getattr(process, "stdin", None)
                     if process_stdin is not None:
