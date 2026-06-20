@@ -618,8 +618,12 @@ def _provider_has_runtime_config(
     if provider == "codex":
         if codex_auth_present is not None:
             return bool(codex_auth_present)
-        return _PROVIDER_CODEX_HOME_AUTH_PATH.exists()
+        return False
     raise RuntimeConfigurationError(f"Unsupported provider name: {provider!r}")
+
+
+def detect_codex_auth_present() -> bool:
+    return _PROVIDER_CODEX_HOME_AUTH_PATH.exists()
 
 
 def _resolve_env_map(env: Mapping[str, str] | None) -> Mapping[str, str]:
@@ -780,6 +784,7 @@ __all__ = [
     "plan_smoke_cases",
     "resolve_model_and_effort",
     "resolve_run_id",
+    "detect_codex_auth_present",
     "all_selected_provider_statuses_have_error",
     "classify_live_smoke_case_result",
     "classify_live_smoke_preflight_case_result",

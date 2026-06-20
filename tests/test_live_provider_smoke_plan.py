@@ -152,6 +152,92 @@ def test_live_smoke_credentialed_provider_without_overrides_resolves_defaults(
     assert planned[0].effort == expected_effort
 
 
+def test_live_smoke_codex_planning_requires_injected_auth_state(
+    planning_module: Any,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text("{}", encoding="utf-8")
+    selected = module.parse_provider_selection("codex")
+
+    original_auth_path = module._PROVIDER_CODEX_HOME_AUTH_PATH
+    module._PROVIDER_CODEX_HOME_AUTH_PATH = auth_file
+    try:
+        default_planned = module.plan_selected_providers(
+            selected,
+            env={},
+        )
+        injected_planned = module.plan_selected_providers(
+            selected,
+            env={},
+            codex_auth_present=True,
+        )
+        missing_planned = module.plan_selected_providers(
+            selected,
+            env={},
+            codex_auth_present=False,
+        )
+    finally:
+        module._PROVIDER_CODEX_HOME_AUTH_PATH = original_auth_path
+
+    assert (
+        default_planned[0].status
+        is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+    )
+    assert default_planned[0].reason == "provider not configured"
+    assert (
+        injected_planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+    )
+    assert (
+        missing_planned[0].status
+        is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+    )
+
+
+def test_live_smoke_provider_listing_requires_injected_codex_auth_state(
+    planning_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(module, "_PROVIDER_CODEX_HOME_AUTH_PATH", auth_file)
+
+    default_listing = module.list_supported_providers(env={})
+    injected_listing = module.list_supported_providers(
+        env={},
+        codex_auth_present=True,
+    )
+
+    default_codex = next(
+        provider for provider in default_listing if provider.service == "codex"
+    )
+    injected_codex = next(
+        provider for provider in injected_listing if provider.service == "codex"
+    )
+
+    assert default_codex.configured is False
+    assert injected_codex.configured is True
+
+
+def test_live_smoke_detect_codex_auth_present_reads_auth_path(
+    planning_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(module, "_PROVIDER_CODEX_HOME_AUTH_PATH", auth_file)
+
+    assert module.detect_codex_auth_present() is True
+
+
 def test_live_smoke_explicit_provider_missing_opencode_credentials_is_not_runnable(
     planning_module: Any,
 ) -> None:
