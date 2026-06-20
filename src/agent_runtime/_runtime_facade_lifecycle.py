@@ -184,12 +184,19 @@ async def _invoke_runtime_intent(intent: _RuntimeIntent) -> Any:
 
 async def _run_runtime_outcome(
     run_result: Any,
+    *,
+    service_name: str | None,
+    selected_model: str | None,
+    selected_effort: str | None,
 ) -> RuntimeOutcome:
     try:
         result = await run_result
     except AgentCancelledError as exc:
         return RuntimeOutcome.cancelled(
             output="",
+            service_name=service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -197,6 +204,9 @@ async def _run_runtime_outcome(
     except AgentTimeoutError as exc:
         return RuntimeOutcome.timed_out(
             output="",
+            service_name=service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -204,6 +214,9 @@ async def _run_runtime_outcome(
     except NoServiceAvailableError as exc:
         return RuntimeOutcome.no_service_available(
             output="",
+            service_name=service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             reset_time=exc.reset_time,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
@@ -213,6 +226,8 @@ async def _run_runtime_outcome(
         return RuntimeOutcome.retryable_provider_failure(
             output="",
             service_name=exc.service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -221,13 +236,21 @@ async def _run_runtime_outcome(
         return RuntimeOutcome.usage_limited(
             output="",
             service_name=exc.service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             reset_time=exc.reset_time,
             account_label=exc.account_label,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
         )
-    return RuntimeOutcome.completed(output=result.output, result=result)
+    return RuntimeOutcome.completed(
+        output=result.output,
+        service_name=service_name,
+        selected_model=selected_model,
+        selected_effort=selected_effort,
+        result=result,
+    )
 
 
 async def _run_ephemeral_outcome(
@@ -241,7 +264,10 @@ async def _run_ephemeral_outcome(
             runner=runner,
             service_registry=service_registry,
             request=request,
-        )
+        ),
+        service_name=request.provider_selection.service,
+        selected_model=request.provider_selection.model,
+        selected_effort=request.provider_selection.effort,
     )
     return outcome
 
@@ -257,7 +283,10 @@ async def _run_new_session_outcome(
             runner=runner,
             service_registry=service_registry,
             request=request,
-        )
+        ),
+        service_name=request.provider_selection.service,
+        selected_model=request.provider_selection.model,
+        selected_effort=request.provider_selection.effort,
     )
 
 
@@ -266,11 +295,20 @@ async def _run_resumed_session_outcome(
     runner: PromptRuntimeExecutionAdapter,
     request: ResumedSessionRunRequest,
 ) -> RuntimeOutcome:
+    if request.continuation is not None:
+        continuation_payload = read_portable_continuation_payload(request.continuation)
+        service_name = continuation_payload.service_name
+    else:
+        assert request.session_plan is not None
+        service_name = request.session_plan.service.name
     return await _run_runtime_outcome(
         _run_resumed_session(
             runner=runner,
             request=request,
-        )
+        ),
+        service_name=service_name,
+        selected_model=request.model,
+        selected_effort=request.effort,
     )
 
 
@@ -343,9 +381,6 @@ async def _run_ephemeral(
     )
     return EphemeralRunResult(
         output=raw_output if isinstance(raw_output, str) else str(raw_output),
-        selected_service=resolved_service.name,
-        selected_model=request.provider_selection.model,
-        selected_effort=request.provider_selection.effort,
         tool_access=request.tool_access,
         metadata=EphemeralResultMetadata(
             runtime=EphemeralRuntimeMetadata(

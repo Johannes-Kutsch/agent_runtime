@@ -2403,9 +2403,6 @@ def _run_builtin_ephemeral(
     usage = invocation_result.usage
     return EphemeralRunResult(
         output=result_text,
-        selected_service=selected_stage.service,
-        selected_model=selected_stage.model,
-        selected_effort=selected_stage.effort,
         tool_access=request.tool_access,
         metadata=EphemeralResultMetadata(
             runtime=EphemeralRuntimeMetadata(

@@ -181,12 +181,19 @@ def _reduce_opencode_stream(
 
 def _run_builtin_session_outcome(
     call: Any,
+    *,
+    service_name: str | None = None,
+    selected_model: str | None = None,
+    selected_effort: str | None = None,
 ) -> RuntimeOutcome:
     try:
         return call()
     except AgentCancelledError as exc:
         return RuntimeOutcome.cancelled(
             output="",
+            service_name=service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -194,6 +201,9 @@ def _run_builtin_session_outcome(
     except AgentTimeoutError as exc:
         return RuntimeOutcome.timed_out(
             output="",
+            service_name=service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -201,6 +211,9 @@ def _run_builtin_session_outcome(
     except NoServiceAvailableError as exc:
         return RuntimeOutcome.no_service_available(
             output="",
+            service_name=service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             reset_time=exc.reset_time,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
@@ -212,6 +225,8 @@ def _run_builtin_session_outcome(
         return RuntimeOutcome.retryable_provider_failure(
             output="",
             service_name=exc.service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             invocation_progress=exc.invocation_progress,
             continuation=exc.continuation,
             usage=exc.usage,
@@ -223,6 +238,8 @@ def _run_builtin_session_outcome(
         return RuntimeOutcome.usage_limited(
             output="",
             service_name=exc.service_name,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
             account_label=exc.account_label,
             reset_time=exc.reset_time,
             invocation_progress=exc.invocation_progress,
@@ -249,6 +266,8 @@ class RuntimeClient:
             return RuntimeOutcome.usage_limited(
                 output="",
                 service_name=exc.service_name or selected_provider_selection.service,
+                selected_model=selected_provider_selection.model,
+                selected_effort=selected_provider_selection.effort,
                 account_label=exc.account_label,
                 reset_time=exc.reset_time,
                 invocation_progress=exc.invocation_progress,
@@ -258,19 +277,42 @@ class RuntimeClient:
             )
         return RuntimeOutcome.completed(
             output=result.output,
+            service_name=selected_provider_selection.service,
+            selected_model=selected_provider_selection.model,
+            selected_effort=selected_provider_selection.effort,
             result=result,
             usage=result.usage,
         )
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
-        return _run_builtin_session_outcome(lambda: _run_builtin_new_session(request))
+        return _run_builtin_session_outcome(
+            lambda: _run_builtin_new_session(request),
+            service_name=request.provider_selection.service,
+            selected_model=request.provider_selection.model,
+            selected_effort=request.provider_selection.effort,
+        )
 
     async def run_resumed_session(
         self,
         request: ResumedSessionRunRequest,
     ) -> RuntimeOutcome:
+        if request.continuation is not None:
+            from ._portable_continuation_payload import (
+                read_portable_continuation_payload,
+            )
+
+            continuation_payload = read_portable_continuation_payload(
+                request.continuation
+            )
+            service_name = continuation_payload.service_name
+        else:
+            assert request.session_plan is not None
+            service_name = request.session_plan.service.name
         return _run_builtin_session_outcome(
-            lambda: _run_builtin_resumed_session(request)
+            lambda: _run_builtin_resumed_session(request),
+            service_name=service_name,
+            selected_model=request.model,
+            selected_effort=request.effort,
         )
 
 

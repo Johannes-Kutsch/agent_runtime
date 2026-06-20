@@ -142,11 +142,11 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
 
     assert result == prompt_runtime.RuntimeOutcome.completed(
         output=_tool_policy_effect_text(runtime.ToolPolicy.NO_FILE_MUTATION),
+        service_name="claude",
+        selected_model="gpt-5",
+        selected_effort="medium",
         result=prompt_runtime.EphemeralRunResult(
             output=_tool_policy_effect_text(runtime.ToolPolicy.NO_FILE_MUTATION),
-            selected_service="claude",
-            selected_model="gpt-5",
-            selected_effort="medium",
             tool_access=tool_access,
             metadata=prompt_runtime.EphemeralResultMetadata(
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
@@ -164,9 +164,6 @@ def test_completed_runtime_outcome_only_exposes_ephemeral_selection_metadata_for
     tool_access = contracts_runtime.ToolAccess.no_tools()
     result = prompt_runtime.EphemeralRunResult(
         output="done",
-        selected_service="claude",
-        selected_model="gpt-5",
-        selected_effort="medium",
         tool_access=tool_access,
         metadata=prompt_runtime.EphemeralResultMetadata(
             runtime=prompt_runtime.EphemeralRuntimeMetadata(
@@ -174,7 +171,13 @@ def test_completed_runtime_outcome_only_exposes_ephemeral_selection_metadata_for
             ),
         ),
     )
-    outcome = prompt_runtime.RuntimeOutcome.completed(output="done", result=result)
+    outcome = prompt_runtime.RuntimeOutcome.completed(
+        output="done",
+        service_name="claude",
+        selected_model="gpt-5",
+        selected_effort="medium",
+        result=result,
+    )
 
     assert outcome.runtime_metadata == result.runtime_metadata
     assert outcome.metadata == result.metadata
@@ -213,12 +216,43 @@ def test_completed_runtime_outcome_rejects_ephemeral_selection_metadata_for_sess
         _ = outcome.metadata
     with pytest.raises(AttributeError, match="selection metadata"):
         _ = outcome.selected_service
-    with pytest.raises(AttributeError, match="selection metadata"):
-        _ = outcome.selected_model
-    with pytest.raises(AttributeError, match="selection metadata"):
-        _ = outcome.selected_effort
+    assert outcome.service_name == "claude"
+    assert outcome.selected_model == "gpt-5"
+    assert outcome.selected_effort == "medium"
     with pytest.raises(AttributeError, match="tool access"):
         _ = outcome.tool_access
+
+
+def test_completed_runtime_outcome_exposes_selected_provider_tuple_for_session_results() -> (
+    None
+):
+    continuation = prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="gpt-5",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
+        provider_resume_state={"provider_session_id": "session-123"},
+    )
+    result = prompt_runtime.SessionRunResult(
+        output="done",
+        continuation=continuation,
+        runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+            provider_session_id="session-123",
+            run_kind=RunKind.RESUME,
+            session_namespace="review",
+            service_name="claude",
+            exact_transcript_match=False,
+            selected_model="gpt-5",
+            selected_effort="medium",
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        ),
+    )
+
+    outcome = prompt_runtime.RuntimeOutcome.completed(output="done", result=result)
+
+    assert outcome.service_name == "claude"
+    assert outcome.selected_model == "gpt-5"
+    assert outcome.selected_effort == "medium"
 
 
 def test_no_service_available_outcome_rejects_caller_defined_usage_limit_scope() -> (
@@ -234,3 +268,105 @@ def test_no_service_available_outcome_rejects_caller_defined_usage_limit_scope()
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
             usage_limit_scope=UsageLimitScope("review"),
         )
+
+
+@pytest.mark.parametrize(
+    ("builder", "expected_service_name"),
+    [
+        pytest.param(
+            lambda: prompt_runtime.RuntimeOutcome.usage_limited(
+                output="",
+                service_name="claude",
+                selected_model="gpt-5",
+                selected_effort="medium",
+                reset_time=None,
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+            ),
+            "claude",
+            id="usage-limited",
+        ),
+        pytest.param(
+            lambda: prompt_runtime.RuntimeOutcome.no_service_available(
+                output="",
+                service_name="claude",
+                selected_model="gpt-5",
+                selected_effort="medium",
+                reset_time=None,
+                invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+            ),
+            "claude",
+            id="no-service-available",
+        ),
+        pytest.param(
+            lambda: prompt_runtime.RuntimeOutcome.cancelled(
+                output="",
+                service_name="claude",
+                selected_model="gpt-5",
+                selected_effort="medium",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+            ),
+            "claude",
+            id="cancelled",
+        ),
+        pytest.param(
+            lambda: prompt_runtime.RuntimeOutcome.timed_out(
+                output="",
+                service_name="claude",
+                selected_model="gpt-5",
+                selected_effort="medium",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+            ),
+            "claude",
+            id="timed-out",
+        ),
+        pytest.param(
+            lambda: prompt_runtime.RuntimeOutcome.retryable_provider_failure(
+                output="",
+                service_name="claude",
+                selected_model="gpt-5",
+                selected_effort="medium",
+                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
+            ),
+            "claude",
+            id="retryable-provider-failure",
+        ),
+    ],
+)
+def test_interruption_runtime_outcomes_expose_selected_provider_tuple(
+    builder: Callable[[], prompt_runtime.RuntimeOutcome],
+    expected_service_name: str,
+) -> None:
+    outcome = builder()
+
+    assert outcome.service_name == expected_service_name
+    assert outcome.selected_model == "gpt-5"
+    assert outcome.selected_effort == "medium"
+
+
+def test_completed_runtime_outcome_carries_ephemeral_selection_without_result_duplication() -> (
+    None
+):
+    result = prompt_runtime.EphemeralRunResult(
+        output="done",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        metadata=prompt_runtime.EphemeralResultMetadata(
+            runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                run_kind=RunKind.FRESH,
+            ),
+        ),
+    )
+
+    outcome = prompt_runtime.RuntimeOutcome.completed(
+        output="done",
+        service_name="claude",
+        selected_model="gpt-5",
+        selected_effort="medium",
+        result=result,
+    )
+
+    assert outcome.service_name == "claude"
+    assert outcome.selected_model == "gpt-5"
+    assert outcome.selected_effort == "medium"
+    assert not hasattr(result, "selected_service")
+    assert not hasattr(result, "selected_model")
+    assert not hasattr(result, "selected_effort")
