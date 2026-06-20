@@ -10,45 +10,26 @@
 | --- | --- |
 | `agent_runtime` | Reusable runtime package and stable core public surface. |
 | `Runtime Public Surface` | Documented stability surface: runtime consumer entrypoints, runtime value objects, and built-in provider selection, not every importable symbol. |
-| `Runtime Compatibility Alias` | Transitional older runtime spelling or import path kept only for pre-release migration, not Runtime Public Surface. |
 | `Runtime Consumer Surface` | Ordinary consuming-project entrypoints for executing prepared agent work without implementing runtime or provider adapters. |
-| `Built-in Provider Adapter` | Runtime-shipped provider integration for Claude, Codex, or OpenCode that ordinary consumers select but do not import or implement. |
-| `Built-in Execution Substrate` | Runtime-owned mechanism that runs built-in provider commands without application-owned provider services. |
 | `Built-in Provider Invocation` | Internal runtime mechanism behind `RuntimeClient` that executes one prepared built-in provider command and returns observable invocation facts. |
 | `ProviderAuth` | Immutable credential data carried by `ProviderSelection` for new provider selection, or supplied to Resume Session Run because continuations must not store credentials. |
-| `ClaudeCodeOAuthToken` | Claude Code OAuth token supplied to the built-in Claude provider integration. |
 | `ProviderSelection` | Public request value selecting one service, model, effort, and provider credentials for one runtime invocation. |
 | `Consumer Fallback` | Consuming-project orchestration that chooses whether to start a separate runtime invocation after a prior invocation completes or fails. |
-| `ServiceName` | Path-safe runtime service identity used for selection, invocation records, and diagnostics. |
-| `RunKind` | Runtime mode for a service invocation, such as fresh or resumable. |
 | `ToolPolicy` | Closed public value describing allowed provider tools: `NONE`, `INSPECT_ONLY`, `NO_FILE_MUTATION`, or `UNRESTRICTED`. |
-| `Tool-less Run` | Runtime invocation whose `ToolPolicy` explicitly forbids provider tools. |
-| `ToolAccess` | Retired target vocabulary for the public API; use `ToolPolicy`. |
 | `Invocation Directory` | Host directory where runtime launches a provider command; public request field is `invocation_dir`. |
 | `Tool Workspace` | Invocation Directory when runtime exposes it through provider tools. |
-| `ProviderSessionState` | Provider-owned session state recording how a run should start or resume. |
-| `ProviderSessionId` | External provider or tool session identifier associated with a runtime service invocation. |
-| `SessionIntent` | Caller pre-run declaration that an invocation should prepare provider-session continuity or remain ephemeral. |
 | `Ephemeral Run` | Runtime invocation that does not prepare or promise provider-session continuity. |
 | `Start Session Run` | Runtime invocation that selects a service and prepares provider-session continuity. |
 | `Resume Session Run` | Runtime invocation that continues an existing provider-session continuity chain without fallback or reselection. |
 | `Session-backed Provider` | Built-in provider that can produce and consume portable continuation data. |
-| `SessionRunResult` | Completed result for session-backed execution, containing output text and meaningful continuation. |
-| `SessionRuntimeMetadata` | Runtime metadata for completed session-backed execution. |
 | `Continuation` | Opaque portable resume token callers persist and pass back to resume a continuity chain. |
-| `ProviderResumeState` | Provider-owned opaque data carried inside a continuation and interpreted only by provider adapter. |
-| `RuntimeStateDir` | Transitional caller-supplied root previously used for provider-native session state; active session-backed requests do not require it. |
-| `RuntimeLogsDir` | Transitional caller-supplied root previously used for runtime invocation logs; callers now own durable trace persistence. |
 | `InvocationRecord` | Structured runtime output describing an invocation for caller persistence or display. |
 | `Live Runtime Output` | Provider-neutral observable agent-message text and selected service identity emitted during runtime invocation. |
-| `AgentMessageTurn` | Immutable provider-neutral unit with `text` and selected `service_name` for one assistant-authored message. |
 | `RuntimeClient` | Caller-owned runtime object that executes runtime requests without durable provider session storage or cross-call provider availability policy. |
-| `InvocationProgress` | Two-state interruption metadata indicating whether model activity was observed; unknown progress means not started. |
 | `RuntimeOutcome` | Canonical result category for one runtime invocation: completion, usage limits, cancellation, timeout, selected-provider temporary unavailability, or retryable provider failure. |
 | `Live Provider Smoke Test` | Opt-in validation run outside default tests that exercises real built-in providers through Runtime Public Surface. |
 | `Live Smoke Default` | Cost-first runtime-supported provider/model/effort tuple used by Live Provider Smoke Tests when callers provide no CLI or environment override. |
 | `ProviderUsage` | Provider-reported usage metadata: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, and optional provider duration. |
-| `AgentRuntimeError` | Base error for runtime failures. |
 
 ## Boundary Rules
 
@@ -115,18 +96,6 @@
 - Live Provider Smoke Tests are opt-in maintainer tooling, not default automated tests or Runtime Public Surface additions.
 - Live Provider Smoke Tests prove real provider invocation through Runtime Public Surface; they do not judge answer quality, tool usefulness, or strict instruction following.
 - Live Smoke Defaults prefer the cheapest runtime-supported provider tuple over stronger models; smoke prompts must remain simple enough for those defaults.
-
-## Runtime Surfaces
-
-- Ephemeral prompt execution for already-rendered prompts.
-- Session-backed lifecycle execution for provider-backed continuations.
-- Caller intent through lifecycle request values and runtime outcomes.
-- Narrow package-root imports while behaviorful entrypoints live under focused modules.
-- Service selection for a single `ProviderSelection`.
-- Built-in provider execution behind runtime-owned internal adapter contracts.
-- Provider session planning and state recovery.
-- Text-output reduction from parsed provider events.
-- Invocation-record production for callers that want durable traces.
 
 ## Flagged Ambiguities
 
