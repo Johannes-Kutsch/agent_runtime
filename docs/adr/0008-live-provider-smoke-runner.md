@@ -12,7 +12,7 @@ The project needs an opt-in Live Provider Smoke Test for maintainers and credent
 - Keep live provider execution out of default pytest and installed Runtime Public Surface.
 - Allow default pytest to cover smoke-runner planning and artifact behavior only when provider auth, provider availability, paths, and invocation behavior are injected or faked.
 - Use only public runtime imports and request values: `RuntimeClient`, lifecycle request values, `ProviderSelection`, `ProviderAuth`, `Continuation`, and public `ToolPolicy`.
-- Treat `RuntimeStateDir`, `RuntimeLogsDir`, `SessionNamespace`, `ToolAccess`, and `ToolPolicyProfile` as transitional or internal vocabulary for this tooling purpose.
+- Treat `RuntimeStateDir`, `RuntimeLogsDir`, `SessionNamespace`, `ToolAccess`, and `ToolPolicyProfile` as internal vocabulary, not smoke-runner public surface.
 - Make provider selection explicit: `claude`, `codex`, `opencode`, multiple explicit providers, or `all`.
 - In explicit provider selection, missing provider config is a configuration error; in `all`, skip unconfigured providers but fail when none are configured.
 - Resolve provider model and effort with precedence `CLI override > provider-specific environment variable > hardcoded smoke default`.
@@ -25,7 +25,7 @@ The project needs an opt-in Live Provider Smoke Test for maintainers and credent
 - Lifecycle smoke proves invocation health and session continuity with non-empty outputs, meaningful continuation, and resumed output containing the prior sentinel without requiring exact provider output.
 - Capture Live Runtime Output when available, but absence of live turns must not fail the smoke run.
 - Tool-policy smoke uses Ephemeral Run only and proves successful invocation under each public `ToolPolicy`, not tool usefulness, sandbox enforcement, or mutation behavior.
-- Do not test fallback chains, cancellation, every model/effort combination, custom tool-policy profiles, or raw provider streams.
+- Do not test consumer fallback orchestration, cancellation, every model/effort combination, custom tool-policy profiles, or raw provider streams.
 - Run provider cases serially; in combined mode group by provider, run lifecycle first, and skip a provider's tool-policy matrix if lifecycle failed.
 - Provide dry-run and provider-listing modes that validate selection and credential presence without invoking providers.
 - Preserve artifacts by default under a repo-local gitignored artifact root, with override and explicit cleanup options.

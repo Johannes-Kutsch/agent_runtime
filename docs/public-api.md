@@ -27,6 +27,7 @@ The package root exposes stable shared vocabulary and common errors:
 - `HardAgentError`
 - `InvocationProgress`
 - `InvocationRecord`
+- `ProviderAuth`
 - `ProviderUsage`
 - `RuntimeConfigurationError`
 - `RuntimeOutcome`
@@ -334,21 +335,7 @@ The type is shared runtime vocabulary and is importable from both `agent_runtime
 
 ## Adapter Surface
 
-There is no supported consumer-defined provider adapter surface in the target runtime. Provider services, service registries, execution adapters, provider-session adapters, provider output DTOs, provider state capture/restore details, command builders, and provider event parsers are runtime-owned internals or maintainer-facing seams.
+There is no supported consumer-defined provider adapter surface in the target runtime. Provider services, service registries, execution adapters, provider-session adapters, provider output DTOs, provider state capture/restore details, command builders, and provider event parsers are runtime-owned internals.
 
 Public provider failure errors may expose `ProviderErrorObservation` for diagnostics. Consumers own storage, display, and redaction policy for those diagnostics.
 
-## Transition Notes
-
-The following legacy concepts are out of scope for the ordinary runtime consumer surface:
-
-- `InvocationRole`
-- `UsageLimitScope`
-- `RuntimeStateDir`
-- `RuntimeLogsDir`
-- `SessionNamespace`
-- Tool-state directory identifiers in continuation payloads
-- Runtime-owned durable invocation logs
-- `ToolPolicyProfile`
-
-For callers, the ordinary surface remains `RuntimeClient`, request values, outcome values, built-in provider selection, `ProviderUsage`, `Continuation`, `InvocationRecord`, and `ToolPolicy`.

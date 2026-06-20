@@ -12,8 +12,6 @@
 | `Runtime Public Surface` | Documented stability surface: runtime consumer entrypoints, runtime value objects, and built-in provider selection, not every importable symbol. |
 | `Runtime Compatibility Alias` | Transitional older runtime spelling or import path kept only for pre-release migration, not Runtime Public Surface. |
 | `Runtime Consumer Surface` | Ordinary consuming-project entrypoints for executing prepared agent work without implementing runtime or provider adapters. |
-| `Advanced Focused Seam` | Non-consumer seam for maintainers assembling runtime internals directly. |
-| `Runtime Adapter Seam` | Internal runtime seam implemented by built-in provider integrations, not a consumer-defined service extension point. |
 | `Built-in Provider Adapter` | Runtime-shipped provider integration for Claude, Codex, or OpenCode that ordinary consumers select but do not import or implement. |
 | `Built-in Execution Substrate` | Runtime-owned mechanism that runs built-in provider commands without application-owned provider services. |
 | `Built-in Provider Invocation` | Internal runtime mechanism behind `RuntimeClient` that executes one prepared built-in provider command and returns observable invocation facts. |
@@ -22,20 +20,14 @@
 | `ProviderSelection` | Public request value selecting one service, model, effort, and provider credentials for one runtime invocation. |
 | `Consumer Fallback` | Consuming-project orchestration that chooses whether to start a separate runtime invocation after a prior invocation completes or fails. |
 | `ServiceName` | Path-safe runtime service identity used for selection, invocation records, and diagnostics. |
-| `ExecutionProvider` | Internal execution contract implemented by runtime-shipped provider integrations. |
 | `RunKind` | Runtime mode for a service invocation, such as fresh or resumable. |
-| `ProviderInvocationRequest` | Private value carrying command, invocation directory, environment, prompt policy, `RunKind`, optional `ProviderSessionId`, and diagnostics metadata. |
 | `ToolPolicy` | Closed public value describing allowed provider tools: `NONE`, `INSPECT_ONLY`, `NO_FILE_MUTATION`, or `UNRESTRICTED`. |
-| `ToolPolicyProfile` | Internal provider-neutral adapter policy used to render provider-specific command flags. |
 | `Tool-less Run` | Runtime invocation whose `ToolPolicy` explicitly forbids provider tools. |
 | `ToolAccess` | Retired target vocabulary for the public API; use `ToolPolicy`. |
 | `Invocation Directory` | Host directory where runtime launches a provider command; public request field is `invocation_dir`. |
 | `Tool Workspace` | Invocation Directory when runtime exposes it through provider tools. |
-| `UsageLimitScope` | Transitional caller-defined grouping key; usage-limit grouping belongs outside core runtime API. |
 | `ProviderSessionState` | Provider-owned session state recording how a run should start or resume. |
 | `ProviderSessionId` | External provider or tool session identifier associated with a runtime service invocation. |
-| `ProviderInvocationResult` | Private provider invocation result containing normalized output, optional `ProviderUsage`, raw stdout when lifecycle policy needs it, and optional `ProviderSessionId`. |
-| `ProviderSessionAdapter` | Internal provider-session seam owning built-in provider session policy. |
 | `SessionIntent` | Caller pre-run declaration that an invocation should prepare provider-session continuity or remain ephemeral. |
 | `Ephemeral Run` | Runtime invocation that does not prepare or promise provider-session continuity. |
 | `Start Session Run` | Runtime invocation that selects a service and prepares provider-session continuity. |
@@ -56,9 +48,6 @@
 | `Live Provider Smoke Test` | Opt-in validation run outside default tests that exercises real built-in providers through Runtime Public Surface. |
 | `Live Smoke Default` | Cost-first runtime-supported provider/model/effort tuple used by Live Provider Smoke Tests when callers provide no CLI or environment override. |
 | `ProviderUsage` | Provider-reported usage metadata: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, and optional provider duration. |
-| `SessionNamespace` | Transitional secondary label formerly used to partition runtime-managed provider session state; active session-backed requests do not require it. |
-| `WorkInvocation` | Internal runtime-owned work lifecycle that turns caller intent plus execution dependencies into a text result. |
-| `InvocationRole` | Obsolete transitional term for caller-defined invocation label; core runtime requests should not require caller-defined labels. |
 | `AgentRuntimeError` | Base error for runtime failures. |
 
 ## Boundary Rules
@@ -70,7 +59,7 @@
 - Consumers import ToolPolicy from public runtime/root modules, not from adapter contract modules.
 - Ordinary consumers select built-in providers through runtime call arguments, not provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
 - Consumer-defined provider services are not supported runtime functionality.
-- Prompt-runtime execution adapter paths are retired with the stage/override vocabulary unless a current non-pycastle consumer requires them.
+- Prompt-runtime execution adapter paths are retired with the stage/override vocabulary.
 - `RuntimeClient` owns no cross-call provider availability policy, durable provider state, or logs.
 - Provider selection remains caller-supplied through the `provider_selection` request field; runtime validates built-in service, model, effort, and relevant credentials.
 - ProviderSelection construction validates value shape; invocation validates built-in provider support and availability.
@@ -82,6 +71,7 @@
 - Runtime does not perform provider fallback inside a single invocation; fallback is Consumer Fallback across separate invocations.
 - Runtime outcomes and exceptions describe one invocation only and do not classify Consumer Fallback eligibility.
 - `no_service_available` describes temporary unavailability of the selected provider before model work starts, not exhaustion of a provider chain.
+- Unsupported service, model, or effort selections are configuration errors, not `no_service_available` outcomes.
 - Normal RuntimeOutcome values identify the selected provider service, model, and effort for the invocation.
 - Runtime results report selected provider facts for one invocation, not Consumer Fallback attempt paths.
 - Invocation records describe one runtime invocation and do not carry Consumer Fallback group or attempt identifiers.
@@ -90,6 +80,7 @@
 - Built-in Provider Invocation is internal and must not become a consumer-defined adapter extension point or request-time injection point.
 - WorkInvocation and execution adapter seams are internal and must not be consumer-accessible.
 - Public-looking internal modules should be moved behind underscore-prefixed module names before release where practical.
+- Retiring a concept means deleting obsolete code where feasible; any internal survival requires a current built-in runtime purpose and must not reappear on documented/root/runtime surfaces.
 - Built-in Provider Invocation must use runtime-neutral internal artifact names, not pycastle-specific prompt or session naming.
 - Provider event DTOs, provider-specific session details, command rendering, stream parsing, and provider flag profiles are internal.
 - Public provider failure diagnostics may expose provider observations; consumers own storage, display, and redaction.
@@ -118,7 +109,6 @@
 - Runtime requests require explicit `ToolPolicy`; non-`NONE` policies grant Invocation Directory as Tool Workspace.
 - ToolPolicy is an invocation permission grant, not part of ProviderSelection identity.
 - Invocation Directory and Tool Workspace are distinct permission concepts, but not separate public paths in current runtime model.
-- `ToolPolicyProfile` is not ordinary consumer-facing API.
 - ProviderSelection is the canonical single-candidate selection value; StageSelection, StageOverride, and stage-chain vocabulary are retired compatibility language.
 - Runtime Compatibility Aliases are not Runtime Public Surface promises and may be removed before release without tailored migration behavior.
 - Lifecycle-specific runtime execution adapter names are canonical public spellings even when they share adapter protocols.
@@ -130,7 +120,7 @@
 
 - Ephemeral prompt execution for already-rendered prompts.
 - Session-backed lifecycle execution for provider-backed continuations.
-- Caller intent through session planning and work invocation as one vertical flow.
+- Caller intent through lifecycle request values and runtime outcomes.
 - Narrow package-root imports while behaviorful entrypoints live under focused modules.
 - Service selection for a single `ProviderSelection`.
 - Built-in provider execution behind runtime-owned internal adapter contracts.
@@ -148,4 +138,6 @@
 - "Adapter author": custom provider services are not supported runtime extension point.
 - "worktree": use **Invocation Directory** for command location and **Tool Workspace** for tool access to that directory.
 - `ToolAccess`: use **ToolPolicy**.
+- `ToolPolicyProfile`: use **ToolPolicy** in consumer-facing language; provider flag profiles are internal implementation details.
+- `InvocationRole`, `UsageLimitScope`, and `SessionNamespace`: caller labels and grouping policy belong outside the Runtime Consumer Surface.
 - `ToolPolicy.RESTRICTED`, `ToolPolicy.PARTIAL`, and `ToolPolicy.FULL`: use `ToolPolicy.INSPECT_ONLY`, `ToolPolicy.NO_FILE_MUTATION`, and `ToolPolicy.UNRESTRICTED`.
