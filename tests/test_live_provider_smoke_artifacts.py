@@ -6,7 +6,7 @@ import io
 import json
 import subprocess
 import sys
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -2688,6 +2688,30 @@ def test_live_smoke_run_provider_command_preserves_artifact_json_verbose_cleanup
     assert captured["effort_overrides"] == {"claude": "low"}
     assert payload["run_id"] == "run-preserve-options"
     assert payload["cases"][0]["service"] == "claude"
+
+
+def test_live_smoke_run_provider_command_rejects_conflicting_provider_targeting(
+    smoke_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    invocation_started = False
+
+    def _fake_runner(**_: Any) -> module.LiveSmokeRunResult:
+        nonlocal invocation_started
+        invocation_started = True
+        raise AssertionError("run_live_smoke should not run for invalid CLI input")
+
+    monkeypatch.setattr(module, "run_live_smoke", _fake_runner)
+
+    error_output = io.StringIO()
+    with redirect_stderr(error_output), pytest.raises(SystemExit) as excinfo:
+        module.main(["run", "claude", "--provider", "codex"])
+
+    assert excinfo.value.code == 2
+    assert invocation_started is False
+    assert "Cannot combine run <provider> with --provider." in error_output.getvalue()
 
 
 def test_main_with_explicit_empty_argv_ignores_process_argv_and_uses_defaults(

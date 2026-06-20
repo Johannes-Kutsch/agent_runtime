@@ -420,8 +420,12 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
 def _parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = _build_live_smoke_parser()
     if argv is None:
-        return parser.parse_args()
-    return parser.parse_args(list(argv))
+        parsed = parser.parse_args()
+    else:
+        parsed = parser.parse_args(list(argv))
+    if parsed.command == "run" and parsed.run_provider is not None and parsed.providers:
+        parser.error("Cannot combine run <provider> with --provider.")
+    return parsed
 
 
 def _build_service_model_map(entries: Sequence[tuple[str, str]]) -> dict[str, str]:
