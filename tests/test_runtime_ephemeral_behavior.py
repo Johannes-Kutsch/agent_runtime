@@ -653,7 +653,7 @@ def _stub_codex_prompt_path(
 def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -720,7 +720,7 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             invocation_dir=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="high",
@@ -759,7 +759,7 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
 def test_runtime_client_exposes_codex_usage_on_completed_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -802,7 +802,7 @@ def test_runtime_client_exposes_codex_usage_on_completed_outcome(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="high",
@@ -824,7 +824,7 @@ def test_runtime_client_exposes_codex_usage_on_completed_outcome(
 def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_supplied(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     logs_dir = tmp_path / "runtime-logs"
     _stub_codex_prompt_path(monkeypatch)
@@ -870,7 +870,7 @@ def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_su
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="opencode",
                 model="glm-5",
                 effort="medium",
@@ -886,7 +886,7 @@ def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_su
 
 def test_runtime_client_does_not_create_ephemeral_invocation_log_when_dispatch_never_starts(
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     logs_dir = tmp_path / "runtime-logs"
 
@@ -895,7 +895,7 @@ def test_runtime_client_does_not_create_ephemeral_invocation_log_when_dispatch_n
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="opencode",
                     model="glm-5",
                     effort="medium",
@@ -910,7 +910,7 @@ def test_runtime_client_does_not_create_ephemeral_invocation_log_when_dispatch_n
 def test_runtime_client_exposes_claude_usage_on_completed_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     class _FakeProcess:
         stdout = iter(
@@ -951,7 +951,7 @@ def test_runtime_client_exposes_claude_usage_on_completed_outcome(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -974,7 +974,7 @@ def test_runtime_client_exposes_claude_usage_on_completed_outcome(
 def test_runtime_client_keeps_latest_claude_usage_facts_on_completed_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     class _FakeProcess:
         stdout = iter(
@@ -1019,7 +1019,7 @@ def test_runtime_client_keeps_latest_claude_usage_facts_on_completed_outcome(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -1042,7 +1042,7 @@ def test_runtime_client_keeps_latest_claude_usage_facts_on_completed_outcome(
 def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     class _FakeProcess:
         stdout = iter(
@@ -1091,7 +1091,7 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -1119,7 +1119,7 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
 def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execution(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     home_dir.mkdir()
@@ -1140,7 +1140,7 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1169,7 +1169,7 @@ def test_runtime_client_reports_missing_codex_host_auth_before_subprocess_execut
 def test_runtime_client_reports_isolated_missing_codex_host_auth_before_subprocess_execution(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     host_home_with_login = tmp_path / "host-home-with-login"
     (host_home_with_login / ".codex").mkdir(parents=True, exist_ok=True)
@@ -1220,7 +1220,7 @@ def test_runtime_client_reports_isolated_missing_codex_host_auth_before_subproce
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1249,7 +1249,7 @@ def test_runtime_client_reports_isolated_missing_codex_host_auth_before_subproce
 def test_runtime_client_runs_codex_with_isolated_present_host_auth(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     host_home_without_login = tmp_path / "host-home-without-login"
     host_home_without_login.mkdir()
@@ -1308,7 +1308,7 @@ def test_runtime_client_runs_codex_with_isolated_present_host_auth(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -1372,7 +1372,7 @@ def test_runtime_client_runs_codex_with_isolated_present_host_auth(
 def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tool_access: contracts_runtime.ToolAccess,
     expected_flag: str,
 ) -> None:
@@ -1421,7 +1421,7 @@ def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selecti
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -1436,7 +1436,7 @@ def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selecti
 def test_runtime_client_classifies_codex_refresh_token_reuse_prose_as_credential_lineage_exhaustion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -1477,7 +1477,7 @@ def test_runtime_client_classifies_codex_refresh_token_reuse_prose_as_credential
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1503,7 +1503,7 @@ def test_runtime_client_classifies_codex_refresh_token_reuse_prose_as_credential
 def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -1547,7 +1547,7 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -1566,7 +1566,7 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
 def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_needed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -1610,7 +1610,7 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -1629,7 +1629,7 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
 def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -1706,7 +1706,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=first_stage,
+            provider_selection=first_stage,
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1715,7 +1715,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=second_stage,
+            provider_selection=second_stage,
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -1760,7 +1760,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
 def test_runtime_client_instances_keep_independent_builtin_availability_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -1823,7 +1823,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -1835,7 +1835,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -1905,7 +1905,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
 def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tool_policy: runtime.ToolPolicy,
     expected_flags: tuple[str, ...],
 ) -> None:
@@ -1951,7 +1951,7 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="claude", model="sonnet", effort="medium"
             ),
             tool_access=(
@@ -2007,7 +2007,7 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
 
 
 def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt_path(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     invocation_dir = Path(r"C:\Users\Test User\Prompt Dir")
     adapter = provider_invocation.InMemoryProviderInvocationAdapter(
@@ -2025,7 +2025,7 @@ def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=invocation_dir,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -2113,7 +2113,7 @@ def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt
 def test_run_builtin_ephemeral_non_claude_uses_runtime_neutral_temp_prompt_artifact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_name: str,
     model: str,
     stdout_lines: tuple[str, ...],
@@ -2136,7 +2136,7 @@ def test_run_builtin_ephemeral_non_claude_uses_runtime_neutral_temp_prompt_artif
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service=service_name,
                 model=model,
                 effort="medium",
@@ -2181,7 +2181,7 @@ def test_run_builtin_ephemeral_non_claude_uses_runtime_neutral_temp_prompt_artif
 def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builtin(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tool_access: contracts_runtime.ToolAccess,
     expected_flag: str,
 ) -> None:
@@ -2243,7 +2243,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -2302,7 +2302,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
 def test_runtime_client_reports_no_service_available_when_every_reachable_builtin_is_exhausted(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -2364,7 +2364,7 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -2401,7 +2401,7 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
 def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     home_dir.mkdir()
@@ -2424,7 +2424,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=stage,
+                provider_selection=stage,
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
                 auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             )
@@ -2470,7 +2470,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage,
+            provider_selection=stage,
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -2504,7 +2504,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
 def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -2552,7 +2552,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=stage,
+                provider_selection=stage,
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
                 auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             )
@@ -2596,7 +2596,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage,
+            provider_selection=stage,
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
             auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
@@ -2630,7 +2630,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
 def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_update(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -2702,7 +2702,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     worktree=tmp_path,
-                    stage=stage_selection_factory(
+                    provider_selection=stage_selection_factory(
                         service="codex",
                         model="gpt-5.4",
                         effort="medium",
@@ -2723,7 +2723,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage_selection_factory(
+            provider_selection=stage_selection_factory(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -2780,7 +2780,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
 def test_runtime_client_ignores_malformed_codex_lines_before_classifying_hard_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     home_dir = tmp_path / "home"
     _seed_codex_host_auth(monkeypatch, home_dir)
@@ -2822,7 +2822,7 @@ def test_runtime_client_ignores_malformed_codex_lines_before_classifying_hard_er
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -2845,7 +2845,7 @@ def test_runtime_client_ignores_malformed_codex_lines_before_classifying_hard_er
 
 
 def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuation_state(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     execution_adapter = _EphemeralExecutionAdapter()
@@ -2858,7 +2858,7 @@ def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuati
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("."),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="claude",
                     model="gpt-5",
                     effort="medium",
@@ -2874,7 +2874,7 @@ def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuati
 
 
 def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_outcome(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
@@ -2885,7 +2885,7 @@ def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_ou
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("."),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="missing",
                     fallback=stage_selection_factory(
                         service="claude",
@@ -2903,7 +2903,7 @@ def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_ou
 
 
 def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     with pytest.raises(AgentCredentialFailureError) as exc_info:
@@ -2915,7 +2915,7 @@ def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     worktree=Path("."),
-                    stage=stage_selection_factory(
+                    provider_selection=stage_selection_factory(
                         service="claude",
                         model="gpt-5",
                         effort="medium",
@@ -2930,7 +2930,7 @@ def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
 
 
 def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditions(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
@@ -2941,7 +2941,7 @@ def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditi
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("."),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5",
                     effort="medium",
@@ -2961,7 +2961,7 @@ def test_ephemeral_runtime_returns_usage_limited_outcome_for_usage_limit_conditi
 
 
 def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_unavailable_services(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
@@ -2975,7 +2975,7 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("."),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5",
                     effort="medium",
@@ -2994,7 +2994,7 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
 
 
 def test_ephemeral_runtime_returns_cancelled_outcome_for_caller_cancellation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     cancelled_token = CancellationToken()
@@ -3008,7 +3008,7 @@ def test_ephemeral_runtime_returns_cancelled_outcome_for_caller_cancellation(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("."),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5",
                     effort="medium",
@@ -3027,7 +3027,7 @@ def test_ephemeral_runtime_returns_cancelled_outcome_for_caller_cancellation(
 
 
 def test_ephemeral_runtime_returns_timed_out_outcome_for_timeout_conditions(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
@@ -3038,7 +3038,7 @@ def test_ephemeral_runtime_returns_timed_out_outcome_for_timeout_conditions(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("."),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5",
                     effort="medium",
@@ -3056,7 +3056,7 @@ def test_ephemeral_runtime_returns_timed_out_outcome_for_timeout_conditions(
 
 
 def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retryable_provider_failures(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     result = asyncio.run(
@@ -3067,7 +3067,7 @@ def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retrya
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("."),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5",
                     effort="medium",
@@ -3147,7 +3147,7 @@ def test_ephemeral_runtime_returns_retryable_provider_failure_outcome_for_retrya
     ],
 )
 def test_ephemeral_runtime_preserves_observed_usage_on_interrupted_outcomes(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     error: Exception,
     expected_outcome: prompt_runtime.RuntimeOutcome,
@@ -3160,7 +3160,7 @@ def test_ephemeral_runtime_preserves_observed_usage_on_interrupted_outcomes(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("."),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5",
                     effort="medium",
@@ -3174,7 +3174,7 @@ def test_ephemeral_runtime_preserves_observed_usage_on_interrupted_outcomes(
 
 
 def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     with pytest.raises(runtime.RuntimeConfigurationError):
@@ -3186,7 +3186,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     worktree=Path("."),
-                    stage=stage_selection_factory(
+                    provider_selection=stage_selection_factory(
                         service="missing",
                         fallback=stage_selection_factory(
                             service="also-missing",
@@ -3208,7 +3208,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     worktree=Path("."),
-                    stage=stage_selection_factory(
+                    provider_selection=stage_selection_factory(
                         service="codex",
                         model="gpt-5",
                         effort="medium",
@@ -3227,7 +3227,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     worktree=Path("."),
-                    stage=stage_selection_factory(
+                    provider_selection=stage_selection_factory(
                         service="codex",
                         model="gpt-5",
                         effort="medium",
@@ -3246,7 +3246,7 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     worktree=Path("."),
-                    stage=stage_selection_factory(
+                    provider_selection=stage_selection_factory(
                         service="codex",
                         model="gpt-5",
                         effort="medium",

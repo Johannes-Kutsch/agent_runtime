@@ -9,7 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 
 from ._request_normalization import (
     normalize_session_namespace,
-    normalize_provider_selection,
+    normalize_stage_selection,
     normalize_tool_policy,
     normalize_tool_access,
     normalize_worktree_mount,
@@ -87,7 +87,7 @@ class PromptRunRequest:
         *,
         override: StageSelection | None = None,
     ) -> None:
-        stage = normalize_provider_selection(
+        stage = normalize_stage_selection(
             stage,
             override=override,
             context="PromptRunRequest",

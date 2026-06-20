@@ -21,7 +21,7 @@ from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .session import RunKind
 from .session_planning import ResumableSessionPlan
-from .types import StageSelection
+from .types import ProviderSelection
 from .errors import RuntimeConfigurationError
 
 __all__ = [
@@ -438,7 +438,7 @@ class EphemeralRunResult:
 class EphemeralRunRequest:
     prompt: str
     invocation_dir: Path
-    stage: StageSelection
+    provider_selection: ProviderSelection
     tool_access: ToolAccess
     on_live_output: Callable[[AgentMessageTurn], None] | None = None
     token: CancellationToken | None = None
@@ -448,14 +448,12 @@ class EphemeralRunRequest:
         self,
         prompt: str,
         invocation_dir: Path | WorktreeMount | None = None,
-        stage: StageSelection | None = None,
+        provider_selection: ProviderSelection | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         token: CancellationToken | None = None,
         auth: ProviderAuth | None = None,
         on_live_output: Callable[[AgentMessageTurn], None] | None = None,
-        *,
-        override: StageSelection | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
         resolved_invocation_dir = _resolve_public_invocation_dir(
@@ -464,8 +462,7 @@ class EphemeralRunRequest:
             context="EphemeralRunRequest",
         )
         normalized_request = normalize_provider_selection_request(
-            stage=stage,
-            override=override,
+            provider_selection=provider_selection,
             role=_DEFAULT_EPHEMERAL_ROLE,
             worktree=resolved_invocation_dir,
             tool_access=tool_access,
@@ -483,7 +480,11 @@ class EphemeralRunRequest:
             _PUBLIC_INVOCATION_DIR_NAME,
             normalized_request.worktree.path,
         )
-        object.__setattr__(self, "stage", normalized_request.stage)
+        object.__setattr__(
+            self,
+            "provider_selection",
+            normalized_request.provider_selection,
+        )
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
@@ -494,10 +495,6 @@ class EphemeralRunRequest:
         return self.invocation_dir
 
     @property
-    def override(self) -> StageSelection:
-        return self.stage
-
-    @property
     def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
         return self.tool_access.tool_policy
 
@@ -506,7 +503,7 @@ class EphemeralRunRequest:
 class NewSessionRunRequest:
     prompt: str
     invocation_dir: Path
-    stage: StageSelection
+    provider_selection: ProviderSelection
     role: InvocationRole
     provider_auth: ProviderAuth | None
     session_store: Any
@@ -526,7 +523,7 @@ class NewSessionRunRequest:
         self,
         prompt: str,
         invocation_dir: Path | WorktreeMount | None = None,
-        stage: StageSelection | None = None,
+        provider_selection: ProviderSelection | None = None,
         role: InvocationRole | None = None,
         provider_auth: ProviderAuth | None = None,
         session_store: Any | None = None,
@@ -540,8 +537,6 @@ class NewSessionRunRequest:
         work_body: str = "",
         on_live_output: Callable[[AgentMessageTurn], None] | None = None,
         token: CancellationToken | None = None,
-        *,
-        override: StageSelection | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
         compatibility_session_namespace = compatibility_kwargs.pop(
@@ -571,8 +566,7 @@ class NewSessionRunRequest:
             context="NewSessionRunRequest",
         )
         normalized_request = normalize_provider_selection_request(
-            stage=stage,
-            override=override,
+            provider_selection=provider_selection,
             role=role or _DEFAULT_EPHEMERAL_ROLE,
             worktree=resolved_invocation_dir,
             tool_access=tool_access,
@@ -591,7 +585,11 @@ class NewSessionRunRequest:
             normalized_request.worktree.path,
         )
         object.__setattr__(self, "_runtime_state_dir", _runtime_state_dir)
-        object.__setattr__(self, "stage", normalized_request.stage)
+        object.__setattr__(
+            self,
+            "provider_selection",
+            normalized_request.provider_selection,
+        )
         object.__setattr__(self, "role", normalized_request.role)
         object.__setattr__(self, "provider_auth", provider_auth)
         object.__setattr__(self, "session_store", session_store)
@@ -613,10 +611,6 @@ class NewSessionRunRequest:
     @property
     def mount_path(self) -> Path:
         return self.invocation_dir
-
-    @property
-    def override(self) -> StageSelection:
-        return self.stage
 
     @property
     def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
@@ -830,17 +824,16 @@ class ResumedSessionRunRequest:
 cast(Any, EphemeralRunRequest).__signature__ = _public_request_signature(
     "prompt",
     "invocation_dir",
-    "stage",
+    "provider_selection",
     "tool_policy",
     "token",
     "auth",
     "on_live_output",
-    "override",
 )
 cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "prompt",
     "invocation_dir",
-    "stage",
+    "provider_selection",
     "role",
     "provider_auth",
     "session_store",
@@ -851,7 +844,6 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "work_body",
     "token",
     "on_live_output",
-    "override",
 )
 cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
     "prompt",

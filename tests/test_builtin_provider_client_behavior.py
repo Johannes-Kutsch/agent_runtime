@@ -25,6 +25,7 @@ from agent_runtime.errors import (
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
+from agent_runtime.types import StageSelection as InternalStageSelection
 
 
 def _assert_runtime_outcome(
@@ -188,7 +189,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -292,7 +293,7 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="glm-5",
                     effort="medium",
@@ -328,7 +329,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=tmp_path,
-                    stage=runtime.StageSelection(
+                    provider_selection=InternalStageSelection(
                         service="unsupported",
                         model="gpt-5.4",
                         effort="medium",
@@ -344,7 +345,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=tmp_path,
-                    stage=runtime.StageSelection(
+                    provider_selection=InternalStageSelection(
                         service="opencode",
                         model="glm-5",
                         effort="medium",
@@ -357,7 +358,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
     with pytest.raises(TypeError, match="requires an `invocation_dir` value"):
         prompt_runtime.NewSessionRunRequest(
             prompt="already rendered prompt",
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="opencode",
                 model="glm-5",
                 effort="medium",
@@ -374,7 +375,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
         prompt_runtime.NewSessionRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="opencode",
                 model="glm-5",
                 effort="medium",
@@ -413,7 +414,7 @@ def test_runtime_client_new_session_validation_failure_cleans_runtime_managed_st
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=tmp_path,
-                    stage=runtime.StageSelection(
+                    provider_selection=InternalStageSelection(
                         service="unsupported",
                         model="gpt-5.4",
                         effort="medium",
@@ -484,7 +485,7 @@ def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -579,7 +580,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -691,7 +692,7 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
         prompt="already rendered prompt",
         worktree=tmp_path,
         runtime_state_dir=runtime_state_dir,
-        stage=runtime.StageSelection(
+        provider_selection=InternalStageSelection(
             service="claude",
             model="sonnet",
             effort="medium",
@@ -790,7 +791,7 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
         prompt="already rendered prompt",
         worktree=tmp_path,
         runtime_state_dir=runtime_state_dir,
-        stage=runtime.StageSelection(
+        provider_selection=InternalStageSelection(
             service="opencode",
             model="glm-5",
             effort="medium",
@@ -891,7 +892,7 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="opencode",
                 model="kimi-k2.6",
                 effort="medium",
@@ -982,7 +983,7 @@ def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_p
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="opencode",
                 model="kimi-k2.6",
                 effort="medium",
@@ -1055,7 +1056,7 @@ def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="glm-5",
                     effort="medium",
@@ -1249,7 +1250,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -1299,7 +1300,7 @@ def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_a
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1346,7 +1347,7 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1404,7 +1405,7 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1458,7 +1459,7 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=tmp_path,
-                    stage=runtime.StageSelection(
+                    provider_selection=InternalStageSelection(
                         service="codex",
                         model="gpt-5.4",
                         effort="medium",
@@ -1539,11 +1540,11 @@ def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
-                fallback=runtime.StageSelection(
+                fallback=InternalStageSelection(
                     service="opencode",
                     model="kimi-k2.6",
                     effort="medium",
@@ -1676,7 +1677,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -1729,7 +1730,7 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -1784,7 +1785,7 @@ def test_runtime_client_new_session_run_propagates_claude_live_output_observer_f
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
-                    stage=runtime.StageSelection(
+                    provider_selection=InternalStageSelection(
                         service="claude",
                         model="sonnet",
                         effort="medium",
@@ -1851,7 +1852,7 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="glm-5",
                     effort="medium",
@@ -1952,7 +1953,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="kimi-k2.6",
                     effort="medium",
@@ -1968,7 +1969,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=tmp_path,
-                    stage=runtime.StageSelection(
+                    provider_selection=InternalStageSelection(
                         service="opencode",
                         model="kimi-k2.6",
                         effort="medium",
@@ -2074,7 +2075,7 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="kimi-k2.6",
                     effort="medium",
@@ -2149,7 +2150,7 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="kimi-k2.6",
                     effort="medium",
@@ -2706,7 +2707,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -3092,7 +3093,7 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -3153,7 +3154,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -3523,7 +3524,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -3611,7 +3612,7 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -3668,7 +3669,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -3786,7 +3787,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -3986,7 +3987,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -4151,7 +4152,7 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
                     prompt="already rendered prompt",
                     worktree=tmp_path,
                     runtime_state_dir=runtime_state_dir,
-                    stage=runtime.StageSelection(
+                    provider_selection=InternalStageSelection(
                         service="codex",
                         model="gpt-5.4",
                         effort="medium",
@@ -4421,7 +4422,7 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
                     prompt="already rendered prompt",
                     worktree=tmp_path,
                     runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                    stage=runtime.StageSelection(
+                    provider_selection=InternalStageSelection(
                         service="opencode",
                         model="deepseek-v4-flash",
                         effort="medium",
@@ -4496,7 +4497,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
                         prompt="already rendered prompt",
                         worktree=tmp_path,
                         runtime_state_dir=runtime_state_dir,
-                        stage=runtime.StageSelection(
+                        provider_selection=InternalStageSelection(
                             service="codex",
                             model="gpt-5.4",
                             effort="medium",
@@ -4579,7 +4580,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -4619,7 +4620,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
     [
         pytest.param(
             "claude",
-            runtime.StageSelection(
+            InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -4660,7 +4661,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
         ),
         pytest.param(
             "codex",
-            runtime.StageSelection(
+            InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -4705,7 +4706,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
         ),
         pytest.param(
             "opencode",
-            runtime.StageSelection(
+            InternalStageSelection(
                 service="opencode",
                 model="kimi-k2.6",
                 effort="medium",
@@ -4776,7 +4777,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     service_name: str,
-    stage: runtime.StageSelection,
+    stage: InternalStageSelection,
     auth: runtime.ProviderAuth | None,
     prepared_invocation: provider_invocation_runtime.ProviderInvocationPreparedStream,
     expected_output: str,
@@ -4804,7 +4805,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage,
+            provider_selection=stage,
             tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=auth,
         )
@@ -4868,7 +4869,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     [
         pytest.param(
             "codex",
-            runtime.StageSelection(
+            InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -4891,7 +4892,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         ),
         pytest.param(
             "opencode",
-            runtime.StageSelection(
+            InternalStageSelection(
                 service="opencode",
                 model="kimi-k2.6",
                 effort="medium",
@@ -4913,7 +4914,7 @@ def test_runtime_client_ephemeral_non_claude_invocation_prefers_argv_prompt_tran
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     service_name: str,
-    stage: runtime.StageSelection,
+    stage: InternalStageSelection,
     auth: runtime.ProviderAuth | None,
     expected_argv: tuple[str, ...],
 ) -> None:
@@ -4940,7 +4941,7 @@ def test_runtime_client_ephemeral_non_claude_invocation_prefers_argv_prompt_tran
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=stage,
+            provider_selection=stage,
             tool_access=contracts_runtime.ToolAccess.no_tools(),
             auth=auth,
         )
@@ -4974,11 +4975,11 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="missing",
                 model="placeholder",
                 effort="placeholder",
-                fallback=runtime.StageSelection(
+                fallback=InternalStageSelection(
                     service="opencode",
                     model="deepseek-v4-flash",
                     effort="medium",
@@ -5167,7 +5168,7 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -5191,15 +5192,15 @@ def test_runtime_client_reachable_opencode_stage_requires_api_key_without_fallin
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="missing",
                     model="ignored",
                     effort="low",
-                    fallback=runtime.StageSelection(
+                    fallback=InternalStageSelection(
                         service="opencode",
                         model="kimi-k2.6",
                         effort="medium",
-                        fallback=runtime.StageSelection(
+                        fallback=InternalStageSelection(
                             service="codex",
                             model="gpt-5.4",
                             effort="medium",
@@ -5243,15 +5244,15 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="missing",
                     model="ignored",
                     effort="low",
-                    fallback=runtime.StageSelection(
+                    fallback=InternalStageSelection(
                         service="codex",
                         model="gpt-5.4",
                         effort="medium",
-                        fallback=runtime.StageSelection(
+                        fallback=InternalStageSelection(
                             service="claude",
                             model="sonnet",
                             effort="medium",
@@ -5360,7 +5361,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -5504,7 +5505,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -5603,7 +5604,7 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="glm-5",
                     effort="medium",
@@ -5693,7 +5694,7 @@ def test_runtime_client_preserves_opencode_invalid_api_key_observations(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="kimi-k2.6",
                     effort="medium",
@@ -5737,7 +5738,7 @@ def test_runtime_client_validates_opencode_model_allowlist_and_medium_effort(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model=model,
                     effort=effort,
@@ -5803,7 +5804,7 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="opencode",
                 model="kimi-k2.6",
                 effort="medium",
@@ -5865,7 +5866,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="medium",
@@ -5941,7 +5942,7 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="kimi-k2.6",
                     effort="medium",
@@ -5992,7 +5993,7 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="opencode",
                     model="kimi-k2.6",
                     effort="medium",
@@ -6063,7 +6064,7 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="opencode",
                 model="kimi-k2.6",
                 effort="medium",
@@ -6125,7 +6126,7 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -6156,15 +6157,15 @@ def test_runtime_client_reachable_claude_stage_requires_token_without_falling_th
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="missing",
                     model="ignored",
                     effort="low",
-                    fallback=runtime.StageSelection(
+                    fallback=InternalStageSelection(
                         service="claude",
                         model="sonnet",
                         effort="medium",
-                        fallback=runtime.StageSelection(
+                        fallback=InternalStageSelection(
                             service="codex",
                             model="gpt-5",
                             effort="medium",
@@ -6206,7 +6207,7 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -6251,7 +6252,7 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -6307,7 +6308,7 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -6344,11 +6345,11 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="missing",
                 model="ignored",
                 effort="low",
-                fallback=runtime.StageSelection(
+                fallback=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -6398,7 +6399,7 @@ def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metad
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -6444,7 +6445,7 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            stage=runtime.StageSelection(
+            provider_selection=InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="medium",
@@ -6486,7 +6487,7 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                stage=runtime.StageSelection(
+                provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
                     effort="medium",

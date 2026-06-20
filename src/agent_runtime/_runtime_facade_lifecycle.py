@@ -50,19 +50,19 @@ from .session_planning import (
     ResumableSessionPlanRequest,
     plan_resumable_session,
 )
-from .types import StageSelection
+from .types import SelectionLike
 from .work import invoke_work
 
 _DEFAULT_RUNTIME_NAME = "Runtime Agent"
 
 
 def _selected_service_path(
-    override: StageSelection,
+    override: SelectionLike,
     *,
     selected_service: str,
 ) -> tuple[str, ...]:
     path: list[str] = []
-    current: StageSelection | None = override
+    current: SelectionLike | None = override
     while current is not None:
         if current.service:
             path.append(current.service)
@@ -297,7 +297,7 @@ async def _run_ephemeral(
     service_registry: ServiceRegistry,
     request: EphemeralRunRequest,
 ) -> EphemeralRunResult:
-    if not service_registry.has_configured_candidate(request.stage):
+    if not service_registry.has_configured_candidate(request.provider_selection):
         raise RuntimeConfigurationError(
             "Ephemeral runtime requires at least one configured service candidate."
         )
@@ -315,14 +315,14 @@ async def _run_ephemeral(
             raise AgentCancelledError(
                 invocation_progress=InvocationProgress.NOT_STARTED,
             )
-        if not service_registry.has_available_for(request.stage, now):
+        if not service_registry.has_available_for(request.provider_selection, now):
             next_wake_time = service_registry.next_wake_time_for(
-                request.stage,
+                request.provider_selection,
                 now,
             )
             raise NoServiceAvailableError(reset_time=next_wake_time)
 
-        resolved_override = service_registry.resolve(request.stage, now)
+        resolved_override = service_registry.resolve(request.provider_selection, now)
         resolved_service = resolve_service(resolved_override.service)
         dependencies = build_work_dependencies(
             name=_DEFAULT_RUNTIME_NAME,
@@ -363,7 +363,7 @@ async def _run_ephemeral(
             )
         )
         selected_service_path = _selected_service_path(
-            request.stage,
+            request.provider_selection,
             selected_service=resolved_service.name,
         )
         return EphemeralRunResult(
@@ -388,7 +388,7 @@ async def _run_new_session(
     service_registry: ServiceRegistry,
     request: NewSessionRunRequest,
 ) -> SessionRunResult:
-    if not service_registry.has_configured_candidate(request.stage):
+    if not service_registry.has_configured_candidate(request.provider_selection):
         raise RuntimeConfigurationError(
             "New-session runtime requires at least one configured service candidate."
         )
@@ -398,12 +398,14 @@ async def _run_new_session(
             raise AgentCancelledError(
                 invocation_progress=InvocationProgress.NOT_STARTED,
             )
-        if not service_registry.has_available_for(request.stage, now):
+        if not service_registry.has_available_for(request.provider_selection, now):
             raise NoServiceAvailableError(
-                reset_time=service_registry.next_wake_time_for(request.stage, now),
+                reset_time=service_registry.next_wake_time_for(
+                    request.provider_selection, now
+                ),
             )
 
-        resolved_override = service_registry.resolve(request.stage, now)
+        resolved_override = service_registry.resolve(request.provider_selection, now)
         resolve_service = _require_execution_adapter_method(runner, "resolve_service")
         resolved_service = resolve_service(resolved_override.service)
         session_plan = plan_resumable_session(
@@ -440,10 +442,12 @@ async def _run_new_session(
                 reset_time=exc.reset_time,
             )
             exhausted_now = _time_module.now_local()
-            if not service_registry.has_available_for(request.stage, exhausted_now):
+            if not service_registry.has_available_for(
+                request.provider_selection, exhausted_now
+            ):
                 raise NoServiceAvailableError(
                     reset_time=service_registry.next_wake_time_for(
-                        request.stage,
+                        request.provider_selection,
                         exhausted_now,
                     ),
                     invocation_progress=exc.invocation_progress,

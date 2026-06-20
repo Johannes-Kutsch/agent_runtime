@@ -6,25 +6,46 @@ from .identity import validate_runtime_identity_label
 
 
 @dataclasses.dataclass(frozen=True)
-class StageSelection:
-    model: str = ""
-    effort: str = ""
-    service: str = ""
+class ProviderSelection:
+    service: str
+    model: str
+    effort: str
+    fallback: ProviderSelection | None = dataclasses.field(
+        init=False,
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        validate_provider_selection(self)
+
+
+@dataclasses.dataclass(frozen=True)
+class StageSelection(ProviderSelection):
     fallback: StageSelection | None = None
 
     def __post_init__(self) -> None:
         validate_stage_selection(self)
 
 
-ProviderSelection = StageSelection
+SelectionLike = ProviderSelection | StageSelection
 
 
-def validate_provider_selection(selection: ProviderSelection) -> None:
-    validate_stage_selection(selection)
+def validate_provider_selection(selection: SelectionLike) -> None:
+    _validate_selection_chain(selection, kind="ProviderSelection")
 
 
 def validate_stage_selection(stage: StageSelection) -> None:
-    node: StageSelection | None = stage
+    _validate_selection_chain(stage, kind="StageSelection")
+
+
+def _validate_selection_chain(
+    selection: SelectionLike,
+    *,
+    kind: str,
+) -> None:
+    node: ProviderSelection | StageSelection | None = selection
     index = 0
     while node is not None:
         _require_stage_value("service", node.service, index=index)
@@ -46,4 +67,4 @@ def _require_stage_value(field_name: str, value: str, *, index: int) -> None:
     raise ValueError(f"StageSelection {node_label} requires a non-empty {field_name}.")
 
 
-__all__ = ["StageSelection"]
+__all__ = ["ProviderSelection"]

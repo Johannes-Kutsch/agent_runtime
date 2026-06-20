@@ -25,6 +25,7 @@ from agent_runtime.contracts import (
     UsageLimit,
 )
 from agent_runtime.provider_session_adapter import ProviderSessionPlanningRequest
+from agent_runtime.types import StageSelection as InternalStageSelection
 from agent_runtime.errors import (
     AgentCancelledError,
     AgentCredentialFailureError,
@@ -2865,7 +2866,7 @@ class _UnexpectedFailureResidentExecutionAdapter:
             lambda: PromptRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(Path(".")),
-                stage=runtime.StageSelection(
+                stage=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -2914,7 +2915,7 @@ def test_text_output_adapter_requires_explicit_tool_policy() -> None:
 def test_model_and_effort_values_remain_provider_execution_parameters(
     ephemeral_request_factory: Callable[..., prompt_runtime.EphemeralRunRequest],
     service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     result = asyncio.run(
         compat_runtime.EphemeralRuntime(
@@ -2950,7 +2951,7 @@ def test_prompt_run_request_accepts_explicit_no_tools_tool_access() -> None:
     request = PromptRunRequest(
         prompt="already rendered prompt",
         worktree=WorktreeMount(Path("/repo")),
-        stage=runtime.StageSelection(
+        stage=InternalStageSelection(
             service="codex",
             model="gpt-5.4",
             effort="medium",

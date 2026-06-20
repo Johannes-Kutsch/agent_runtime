@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .types import (
-    ProviderSelection,
+    SelectionLike,
     StageSelection,
     validate_provider_selection,
 )
@@ -15,37 +15,37 @@ class ChainEntry:
     service: str
     model: str
     effort: str
-    fallback: ProviderSelection | None
+    fallback: SelectionLike | None
 
 
 @dataclass(frozen=True)
 class ConfiguredCandidateSelection:
     has_configured_candidate: bool
-    selected_provider_selection: ProviderSelection | None
+    selected_provider_selection: SelectionLike | None
 
     @property
-    def selected_chain(self) -> StageSelection | None:
+    def selected_chain(self) -> SelectionLike | None:
         return self.selected_provider_selection
 
 
 @dataclass(frozen=True)
 class ConfiguredCandidateChain:
-    candidates: tuple[ProviderSelection, ...]
+    candidates: tuple[SelectionLike, ...]
 
     @property
     def has_configured_candidate(self) -> bool:
         return bool(self.candidates)
 
 
-def iter_stage_chain(override: StageSelection) -> Iterator[StageSelection]:
+def iter_stage_chain(override: StageSelection) -> Iterator[SelectionLike]:
     return iter_provider_selection_chain(override)
 
 
 def iter_provider_selection_chain(
-    provider_selection: ProviderSelection,
-) -> Iterator[ProviderSelection]:
+    provider_selection: SelectionLike,
+) -> Iterator[SelectionLike]:
     validate_provider_selection(provider_selection)
-    node: ProviderSelection | None = provider_selection
+    node: SelectionLike | None = provider_selection
     while node is not None:
         yield node
         node = node.fallback
@@ -56,7 +56,7 @@ def chain_entries(override: StageSelection) -> tuple[ChainEntry, ...]:
 
 
 def provider_selection_entries(
-    provider_selection: ProviderSelection,
+    provider_selection: SelectionLike,
 ) -> tuple[ChainEntry, ...]:
     return tuple(
         ChainEntry(
@@ -75,7 +75,7 @@ def validation_labels(stage_name: str, override: StageSelection) -> tuple[str, .
 
 def provider_selection_validation_labels(
     selection_name: str,
-    provider_selection: ProviderSelection,
+    provider_selection: SelectionLike,
 ) -> tuple[str, ...]:
     return tuple(
         selection_name if index == 0 else f"{selection_name} fallback"
@@ -88,7 +88,7 @@ def render_chain_label(override: StageSelection) -> str:
 
 
 def render_provider_selection_label(
-    provider_selection: ProviderSelection,
+    provider_selection: SelectionLike,
 ) -> str:
     return " -> ".join(
         entry.service if entry.service else "<missing>"
@@ -101,7 +101,7 @@ def referenced_service_names(override: StageSelection) -> tuple[str, ...]:
 
 
 def referenced_provider_service_names(
-    provider_selection: ProviderSelection,
+    provider_selection: SelectionLike,
 ) -> tuple[str, ...]:
     names: list[str] = []
     seen: set[str] = set()
@@ -124,7 +124,7 @@ def configured_candidate_chain(
 
 
 def configured_provider_selection_chain(
-    provider_selection: ProviderSelection,
+    provider_selection: SelectionLike,
     *,
     configured_service_names: tuple[str, ...],
 ) -> ConfiguredCandidateChain:
@@ -138,8 +138,8 @@ def configured_provider_selection_chain(
     )
 
 
-def _build_chain(nodes: tuple[ProviderSelection, ...]) -> ProviderSelection | None:
-    chain: ProviderSelection | None = None
+def _build_chain(nodes: tuple[SelectionLike, ...]) -> StageSelection | None:
+    chain: StageSelection | None = None
     for node in reversed(nodes):
         chain = StageSelection(
             service=node.service,
@@ -151,7 +151,7 @@ def _build_chain(nodes: tuple[ProviderSelection, ...]) -> ProviderSelection | No
 
 
 def _remaining_chain_is_fully_configured(
-    override: StageSelection, configured: set[str]
+    override: SelectionLike, configured: set[str]
 ) -> bool:
     return all(
         node.service in configured for node in iter_provider_selection_chain(override)
@@ -172,7 +172,7 @@ def select_configured_candidate_chain(
 
 
 def select_configured_provider_selection_chain(
-    provider_selection: ProviderSelection,
+    provider_selection: SelectionLike,
     *,
     configured_service_names: tuple[str, ...],
     available_service_names: tuple[str, ...],

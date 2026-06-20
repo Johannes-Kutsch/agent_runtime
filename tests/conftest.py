@@ -14,6 +14,7 @@ from agent_runtime.contracts import ExecutionProvider, ServiceSelectionProvider
 from agent_runtime.execution_contracts import PromptRunRequest, WorktreeMount
 from agent_runtime.roles import InvocationRole
 from agent_runtime.service_registry import ServiceRegistry
+from agent_runtime.types import StageSelection as InternalStageSelection
 
 from tests.runtime_boundary_fakes import (
     ExecutionServiceFake,
@@ -25,15 +26,15 @@ from tests.runtime_boundary_fakes import (
 
 
 @pytest.fixture
-def stage_selection_factory() -> Callable[..., runtime.StageSelection]:
+def stage_selection_factory() -> Callable[..., InternalStageSelection]:
     def _factory(
         service: str = "codex",
         *,
         model: str = "gpt-5.4",
         effort: str = "medium",
-        fallback: runtime.StageSelection | None = None,
-    ) -> runtime.StageSelection:
-        return runtime.StageSelection(
+        fallback: InternalStageSelection | None = None,
+    ) -> InternalStageSelection:
+        return InternalStageSelection(
             service=service,
             model=model,
             effort=effort,
@@ -110,14 +111,13 @@ def service_registry_factory() -> Callable[..., ServiceRegistry]:
 
 @pytest.fixture
 def ephemeral_request_factory(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> Callable[..., prompt_runtime.EphemeralRunRequest]:
     def _factory(
         *,
         prompt: str = "already rendered prompt",
         worktree: Path | WorktreeMount = WorktreeMount(Path(".")),
-        stage: runtime.StageSelection | None = None,
-        override: runtime.StageSelection | None = None,
+        stage: InternalStageSelection | None = None,
         tool_access: contracts_runtime.ToolAccess | None = None,
         tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.NONE,
         token: Any = None,
@@ -128,8 +128,7 @@ def ephemeral_request_factory(
         return prompt_runtime.EphemeralRunRequest(
             prompt=prompt,
             worktree=worktree,
-            stage=stage or override or stage_selection_factory(),
-            override=override,
+            provider_selection=stage or stage_selection_factory(),
             **kwargs,
             token=token,
         )
@@ -139,13 +138,13 @@ def ephemeral_request_factory(
 
 @pytest.fixture
 def prompt_run_request_factory(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> Callable[..., PromptRunRequest]:
     def _factory(
         *,
         prompt: str = "already rendered prompt",
         worktree: WorktreeMount = WorktreeMount(Path(".")),
-        stage: runtime.StageSelection | None = None,
+        stage: InternalStageSelection | None = None,
         role: InvocationRole = InvocationRole("implementer"),
         tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.UNRESTRICTED,
         token: Any = None,

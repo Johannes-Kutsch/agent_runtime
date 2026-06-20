@@ -563,9 +563,9 @@ def test_live_smoke_ephemeral_runs_through_public_runtime_request_values(
     assert run_result.cases[0].status == "passed"
     request = captured_request["request"]
     assert request is not None
-    assert request.stage.service == "claude"
-    assert request.stage.model == "sonnet"
-    assert request.stage.effort == "medium"
+    assert request.provider_selection.service == "claude"
+    assert request.provider_selection.model == "sonnet"
+    assert request.provider_selection.effort == "medium"
     assert request.auth == prompt_runtime.ProviderAuth(claude_code_oauth_token="token")
 
     case_dir = (
@@ -765,9 +765,9 @@ def test_live_smoke_tool_policy_matrix_is_ephemeral_while_lifecycle_runs_all_mod
                 kind="completed",
                 output="provider output value",
                 result=SimpleNamespace(
-                    selected_service=request.stage.service,
-                    selected_model=request.stage.model,
-                    selected_effort=request.stage.effort,
+                    selected_service=request.provider_selection.service,
+                    selected_model=request.provider_selection.model,
+                    selected_effort=request.provider_selection.effort,
                     tool_access=SimpleNamespace(
                         tool_policy=request.tool_policy,
                     ),
@@ -883,7 +883,7 @@ def test_live_smoke_combined_mode_continues_after_lifecycle_provider_failure(
             calls.append(
                 (
                     "ephemeral",
-                    request.stage.service,
+                    request.provider_selection.service,
                     str(request.tool_policy),
                 )
             )
@@ -891,9 +891,9 @@ def test_live_smoke_combined_mode_continues_after_lifecycle_provider_failure(
                 kind="completed",
                 output="provider output value",
                 result=SimpleNamespace(
-                    selected_service=request.stage.service,
-                    selected_model=request.stage.model,
-                    selected_effort=request.stage.effort,
+                    selected_service=request.provider_selection.service,
+                    selected_model=request.provider_selection.model,
+                    selected_effort=request.provider_selection.effort,
                     tool_access=SimpleNamespace(
                         tool_policy=request.tool_policy,
                     ),
@@ -905,8 +905,8 @@ def test_live_smoke_combined_mode_continues_after_lifecycle_provider_failure(
             self,
             request: prompt_runtime.NewSessionRunRequest,
         ) -> object:
-            calls.append(("new_session", request.stage.service, None))
-            if request.stage.service == "claude":
+            calls.append(("new_session", request.provider_selection.service, None))
+            if request.provider_selection.service == "claude":
                 return prompt_runtime.RuntimeOutcome(
                     kind="usage_limited",
                     output="claude usage limit reached",
@@ -1030,9 +1030,9 @@ def test_live_smoke_single_tool_policy_request_reuses_ephemeral_only_path(
                 kind="completed",
                 output="provider output value",
                 result=SimpleNamespace(
-                    selected_service=request.stage.service,
-                    selected_model=request.stage.model,
-                    selected_effort=request.stage.effort,
+                    selected_service=request.provider_selection.service,
+                    selected_model=request.provider_selection.model,
+                    selected_effort=request.provider_selection.effort,
                     tool_access=SimpleNamespace(
                         tool_policy=request.tool_policy,
                     ),

@@ -114,7 +114,7 @@ class _ToolPolicyRenderingEphemeralExecutionAdapter:
 
 
 def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metadata_and_tool_access(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
     tool_access = contracts_runtime.ToolAccess.workspace_backed(
@@ -130,7 +130,7 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("/repo"),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="claude",
                     model="gpt-5",
                     effort="medium",

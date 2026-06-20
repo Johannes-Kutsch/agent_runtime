@@ -702,7 +702,7 @@ def _run_public_smoke_case(
         request = prompt_runtime.EphemeralRunRequest(
             prompt=prompt,
             invocation_dir=artifact_dir,
-            stage=public_runtime.StageSelection(
+            provider_selection=public_runtime.ProviderSelection(
                 service=resolved_case.service,
                 model=resolved_case.model,
                 effort=resolved_case.effort,
@@ -715,7 +715,7 @@ def _run_public_smoke_case(
         request = prompt_runtime.NewSessionRunRequest(
             prompt=prompt,
             invocation_dir=artifact_dir,
-            stage=public_runtime.StageSelection(
+            provider_selection=public_runtime.ProviderSelection(
                 service=resolved_case.service,
                 model=resolved_case.model,
                 effort=resolved_case.effort,

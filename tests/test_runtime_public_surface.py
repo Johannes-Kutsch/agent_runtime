@@ -34,17 +34,17 @@ def test_package_exports_runtime_surface() -> None:
         "HardAgentError",
         "InvocationProgress",
         "ProviderAuth",
+        "ProviderSelection",
         "ProviderUsage",
         "RuntimeClient",
         "RuntimeConfigurationError",
         "RuntimeOutcome",
         "RunKind",
-        "StageSelection",
         "ToolPolicy",
         "TransientAgentError",
         "UsageLimitError",
     ]
-    assert runtime.StageSelection.__module__.startswith("agent_runtime")
+    assert runtime.ProviderSelection.__module__.startswith("agent_runtime")
     assert not hasattr(runtime, "StageOverride")
     assert runtime.AgentRuntimeError is AgentRuntimeError
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
@@ -389,13 +389,13 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
     ephemeral_request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/tmp/worktree"),
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     new_session_request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/tmp/worktree"),
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )

@@ -1087,7 +1087,7 @@ class _UnexpectedFailureResidentExecutionAdapter:
 
 
 def test_new_session_runtime_selects_fallback_service_before_binding_continuation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1105,7 +1105,7 @@ def test_new_session_runtime_selects_fallback_service_before_binding_continuatio
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="missing",
                     fallback=stage_selection_factory(
                         service="claude",
@@ -1145,7 +1145,7 @@ def test_new_session_runtime_selects_fallback_service_before_binding_continuatio
 
 
 def test_new_session_runtime_retries_fallback_before_binding_continuation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1163,7 +1163,7 @@ def test_new_session_runtime_retries_fallback_before_binding_continuation(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1217,7 +1217,7 @@ def test_new_session_runtime_retries_fallback_before_binding_continuation(
 
 
 def test_new_session_runtime_keeps_started_usage_limit_outcome(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1235,7 +1235,7 @@ def test_new_session_runtime_keeps_started_usage_limit_outcome(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1277,7 +1277,7 @@ def test_new_session_runtime_keeps_started_usage_limit_outcome(
 
 
 def test_new_session_runtime_returns_continuation_for_started_interruption(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1295,7 +1295,7 @@ def test_new_session_runtime_returns_continuation_for_started_interruption(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1326,7 +1326,7 @@ def test_new_session_runtime_returns_continuation_for_started_interruption(
 
 
 def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1411,7 +1411,7 @@ def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1438,7 +1438,7 @@ def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
 
 
 def test_new_session_runtime_reports_not_started_progress_without_continuation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1456,7 +1456,7 @@ def test_new_session_runtime_reports_not_started_progress_without_continuation(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1484,7 +1484,7 @@ def test_new_session_runtime_reports_not_started_progress_without_continuation(
 
 
 def test_new_session_runtime_does_not_create_continuation_from_session_allocation_alone(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1503,7 +1503,7 @@ def test_new_session_runtime_does_not_create_continuation_from_session_allocatio
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1525,7 +1525,7 @@ def test_new_session_runtime_does_not_create_continuation_from_session_allocatio
 
 
 def test_new_session_runtime_returns_continuation_for_started_cancellation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1543,7 +1543,7 @@ def test_new_session_runtime_returns_continuation_for_started_cancellation(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1581,7 +1581,7 @@ def test_new_session_runtime_returns_continuation_for_started_cancellation(
 
 
 def test_new_session_runtime_keeps_not_started_cancellation_without_continuation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1600,7 +1600,7 @@ def test_new_session_runtime_keeps_not_started_cancellation_without_continuation
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1628,7 +1628,7 @@ def test_new_session_runtime_keeps_not_started_cancellation_without_continuation
 
 
 def test_new_session_runtime_returns_timed_out_outcome_with_continuation_after_model_activity(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1646,7 +1646,7 @@ def test_new_session_runtime_returns_timed_out_outcome_with_continuation_after_m
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1684,7 +1684,7 @@ def test_new_session_runtime_returns_timed_out_outcome_with_continuation_after_m
 
 
 def test_new_session_runtime_returns_retryable_provider_failure_outcome_with_continuation_after_model_activity(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1702,7 +1702,7 @@ def test_new_session_runtime_returns_retryable_provider_failure_outcome_with_con
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1741,7 +1741,7 @@ def test_new_session_runtime_returns_retryable_provider_failure_outcome_with_con
 
 
 def test_new_session_runtime_keeps_not_started_timeout_without_continuation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1760,7 +1760,7 @@ def test_new_session_runtime_keeps_not_started_timeout_without_continuation(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1787,7 +1787,7 @@ def test_new_session_runtime_keeps_not_started_timeout_without_continuation(
 
 
 def test_new_session_runtime_keeps_not_started_retryable_provider_failure_without_continuation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
@@ -1805,7 +1805,7 @@ def test_new_session_runtime_keeps_not_started_retryable_provider_failure_withou
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=WorktreeMount(worktree),
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -1880,14 +1880,14 @@ def _stub_codex_prompt_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_new_session_runtime_keeps_exceptional_failures_exceptional(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
 ) -> None:
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         worktree=WorktreeMount(Path("/repo")),
-        stage=stage_selection_factory(
+        provider_selection=stage_selection_factory(
             service="codex",
             model="gpt-5.4",
             effort="medium",
@@ -1956,7 +1956,7 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
 def test_runtime_client_returns_claude_invocation_record_without_mixing_runtime_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     worktree = tmp_path / "worktree"
     runtime_state_dir = tmp_path / "runtime-state"
@@ -2001,7 +2001,7 @@ def test_runtime_client_returns_claude_invocation_record_without_mixing_runtime_
                 prompt="already rendered prompt",
                 worktree=worktree,
                 runtime_state_dir=runtime_state_dir,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="claude",
                     model="sonnet",
                     effort="medium",
@@ -2048,7 +2048,7 @@ def test_runtime_client_returns_claude_invocation_record_without_mixing_runtime_
 def test_runtime_client_new_codex_session_reports_isolated_missing_host_auth(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     worktree = tmp_path / "worktree"
     runtime_state_dir = tmp_path / "runtime-state"
@@ -2081,7 +2081,7 @@ def test_runtime_client_new_codex_session_reports_isolated_missing_host_auth(
                     prompt="already rendered prompt",
                     worktree=worktree,
                     runtime_state_dir=runtime_state_dir,
-                    stage=stage_selection_factory(
+                    provider_selection=stage_selection_factory(
                         service="codex",
                         model="gpt-5.4",
                         effort="medium",
@@ -2103,7 +2103,7 @@ def test_runtime_client_new_codex_session_reports_isolated_missing_host_auth(
 def test_runtime_client_new_codex_session_uses_isolated_present_host_auth(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     worktree = tmp_path / "worktree"
     runtime_state_dir = tmp_path / "runtime-state"
@@ -2162,7 +2162,7 @@ def test_runtime_client_new_codex_session_uses_isolated_present_host_auth(
                 prompt="already rendered prompt",
                 worktree=worktree,
                 runtime_state_dir=runtime_state_dir,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
@@ -2209,7 +2209,7 @@ def test_runtime_client_new_codex_session_uses_isolated_present_host_auth(
 
 
 def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative_continuation(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2293,7 +2293,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
                 prompt="already rendered prompt",
                 worktree=worktree,
                 runtime_state_dir=runtime_state_dir,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="opencode",
                     model="glm-5",
                     effort="medium",
@@ -2329,7 +2329,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
 
 
 def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session_id(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2419,7 +2419,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
                 prompt="already rendered prompt",
                 worktree=worktree,
                 runtime_state_dir=runtime_state_dir,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="opencode",
                     model="glm-5",
                     effort="medium",
@@ -2471,7 +2471,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
 
 
 def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_started_usage_limit(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2541,7 +2541,7 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
                 prompt="already rendered prompt",
                 worktree=worktree,
                 runtime_state_dir=runtime_state_dir,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="opencode",
                     model="glm-5",
                     effort="medium",
@@ -2577,7 +2577,7 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
 
 
 def test_runtime_client_returns_new_opencode_invocation_record_with_observed_provider_session_id(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2635,7 +2635,7 @@ def test_runtime_client_returns_new_opencode_invocation_record_with_observed_pro
                 prompt="already rendered prompt",
                 worktree=worktree,
                 runtime_state_dir=runtime_state_dir,
-                stage=stage_selection_factory(
+                provider_selection=stage_selection_factory(
                     service="opencode",
                     model="glm-5",
                     effort="medium",

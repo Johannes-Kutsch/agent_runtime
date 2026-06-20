@@ -7,7 +7,6 @@ from typing import Callable, cast
 
 import pytest
 
-import agent_runtime as runtime
 import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.contracts import (
     ExecutionProvider,
@@ -42,6 +41,7 @@ from agent_runtime.stage_priority_chain import (
     select_configured_candidate_chain,
     select_configured_provider_selection_chain,
 )
+from agent_runtime.types import StageSelection as InternalStageSelection
 from tests.runtime_boundary_fakes import (
     ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
     SelectionServiceFake as _Service,
@@ -52,7 +52,7 @@ from tests.runtime_boundary_fakes import (
 @pytest.mark.parametrize("label", ["", " ", "a/b", "../escape"])
 def test_runtime_service_identities_reject_unsafe_labels(label: str) -> None:
     with pytest.raises(ValueError):
-        runtime.StageSelection(
+        InternalStageSelection(
             service=label,
             model="provider model / ../ still allowed",
             effort="high effort / ../ still allowed",
@@ -238,7 +238,7 @@ def test_provider_state_path_helpers_reject_unsafe_runtime_service_labels(
 
 
 def test_stage_chain_resolution_prefers_first_available_configured_service(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     override = stage_selection_factory(
         service="missing",
@@ -275,7 +275,7 @@ def test_stage_chain_resolution_prefers_first_available_configured_service(
 
 
 def test_provider_selection_helpers_match_stage_chain_behavior(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     stage = stage_selection_factory(
         service="missing",
@@ -306,7 +306,7 @@ def test_provider_selection_helpers_match_stage_chain_behavior(
 
 
 def test_provider_selection_resolution_preserves_selected_chain_alias(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     stage = stage_selection_factory(
         service="missing",
@@ -348,32 +348,32 @@ def test_provider_selection_resolution_preserves_selected_chain_alias(
 
 def test_public_stage_selection_requires_non_empty_candidate_configuration() -> None:
     with pytest.raises(ValueError, match="service"):
-        runtime.StageSelection(
+        InternalStageSelection(
             service="",
             model="gpt-5.4",
             effort="medium",
         )
 
     with pytest.raises(ValueError, match="model"):
-        runtime.StageSelection(
+        InternalStageSelection(
             service="codex",
             model="",
             effort="medium",
         )
 
     with pytest.raises(ValueError, match="effort"):
-        runtime.StageSelection(
+        InternalStageSelection(
             service="codex",
             model="gpt-5.4",
             effort="",
         )
 
     with pytest.raises(ValueError, match="model"):
-        runtime.StageSelection(
+        InternalStageSelection(
             service="codex",
             model="gpt-5.4",
             effort="medium",
-            fallback=runtime.StageSelection(
+            fallback=InternalStageSelection(
                 service="claude",
                 model="",
                 effort="high",
@@ -383,7 +383,7 @@ def test_public_stage_selection_requires_non_empty_candidate_configuration() -> 
 
 def test_public_stage_selection_rejects_path_like_service_name() -> None:
     with pytest.raises(ValueError, match="StageSelection service"):
-        runtime.StageSelection(
+        InternalStageSelection(
             service="bad/name",
             model="gpt-5.4",
             effort="medium",
@@ -392,11 +392,11 @@ def test_public_stage_selection_rejects_path_like_service_name() -> None:
 
 def test_public_stage_selection_rejects_invalid_fallback_effort() -> None:
     with pytest.raises(ValueError, match="effort"):
-        runtime.StageSelection(
+        InternalStageSelection(
             service="codex",
             model="gpt-5.4",
             effort="medium",
-            fallback=runtime.StageSelection(
+            fallback=InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="",
@@ -406,7 +406,7 @@ def test_public_stage_selection_rejects_invalid_fallback_effort() -> None:
 
 def test_service_registry_resolve_and_wake_time(
     service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     registry = service_registry_factory(
         "codex",
@@ -482,11 +482,11 @@ def test_application_can_render_service_availability_summary_from_registry(
 
 def test_public_stage_selection_rejects_invalid_fallback_service_name() -> None:
     with pytest.raises(ValueError, match="service"):
-        runtime.StageSelection(
+        InternalStageSelection(
             service="codex",
             model="gpt-5.4",
             effort="medium",
-            fallback=runtime.StageSelection(
+            fallback=InternalStageSelection(
                 service="",
                 model="sonnet",
                 effort="high",
@@ -496,7 +496,7 @@ def test_public_stage_selection_rejects_invalid_fallback_service_name() -> None:
 
 def test_service_registry_preserves_per_candidate_configuration_on_filtered_chain(
     service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     registry = service_registry_factory(
         "codex",

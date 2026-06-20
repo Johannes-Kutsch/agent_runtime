@@ -22,17 +22,18 @@ from agent_runtime.session_planning import (
     AuthSeedingRequirement,
     ResumableSessionPlan,
 )
+from agent_runtime.types import StageSelection as InternalStageSelection
 
 from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionService
 
 
 def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         token=execution_contracts_runtime.CancellationToken(),
@@ -46,12 +47,11 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
     assert tuple(inspect.signature(prompt_runtime.EphemeralRunRequest).parameters) == (
         "prompt",
         "invocation_dir",
-        "stage",
+        "provider_selection",
         "tool_policy",
         "token",
         "auth",
         "on_live_output",
-        "override",
     )
 
 
@@ -77,6 +77,105 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
     )
 
 
+def test_public_root_and_runtime_modules_expose_provider_selection_only() -> None:
+    assert runtime.ProviderSelection is prompt_runtime.ProviderSelection
+    with pytest.raises(AttributeError):
+        runtime.StageSelection
+    with pytest.raises(AttributeError):
+        prompt_runtime.StageSelection
+
+
+def test_public_provider_selection_requires_explicit_fields_without_fallback() -> None:
+    with pytest.raises(TypeError):
+        cast(Any, runtime.ProviderSelection)()
+    with pytest.raises(TypeError, match="unexpected keyword argument 'fallback'"):
+        cast(Any, runtime.ProviderSelection)(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+            fallback=runtime.ProviderSelection(
+                service="claude",
+                model="sonnet",
+                effort="high",
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("request_factory", "request_type"),
+    [
+        (
+            lambda provider_selection: prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=Path("/repo"),
+                provider_selection=provider_selection,
+                tool_policy=runtime.ToolPolicy.NONE,
+            ),
+            prompt_runtime.EphemeralRunRequest,
+        ),
+        (
+            lambda provider_selection: prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=Path("/repo"),
+                provider_selection=provider_selection,
+                role=InvocationRole("implementer"),
+                tool_policy=runtime.ToolPolicy.NONE,
+            ),
+            prompt_runtime.NewSessionRunRequest,
+        ),
+    ],
+)
+def test_runtime_lifecycle_requests_use_provider_selection_public_field(
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    request_factory: Callable[[runtime.ProviderSelection], object],
+    request_type: type[object],
+) -> None:
+    provider_selection = stage_selection_factory(service="codex")
+
+    request = cast(Any, request_factory(provider_selection))
+
+    assert request.provider_selection == provider_selection
+    assert "provider_selection" in inspect.signature(request_type).parameters
+    assert "stage" not in inspect.signature(request_type).parameters
+    assert "override" not in inspect.signature(request_type).parameters
+
+
+@pytest.mark.parametrize(
+    "request_factory",
+    [
+        lambda provider_selection: prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=provider_selection,
+            tool_policy=runtime.ToolPolicy.NONE,
+        ),
+        lambda provider_selection: prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=provider_selection,
+            role=InvocationRole("implementer"),
+            tool_policy=runtime.ToolPolicy.NONE,
+        ),
+    ],
+)
+def test_runtime_lifecycle_requests_expose_provider_selection_without_stage_aliases(
+    request_factory: Callable[[runtime.ProviderSelection], object],
+) -> None:
+    provider_selection = runtime.ProviderSelection(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+    )
+
+    request = cast(Any, request_factory(provider_selection))
+
+    assert request.provider_selection == provider_selection
+    with pytest.raises(AttributeError):
+        request.stage
+    with pytest.raises(AttributeError):
+        request.override
+
+
 @pytest.mark.parametrize(
     ("request_factory", "request_name"),
     [
@@ -85,7 +184,7 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    stage=stage_selection_factory(service="codex"),
+                    provider_selection=stage_selection_factory(service="codex"),
                     on_live_output=on_live_output,
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
@@ -97,7 +196,7 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    stage=stage_selection_factory(service="codex"),
+                    provider_selection=stage_selection_factory(service="codex"),
                     on_live_output=on_live_output,
                     role=InvocationRole("implementer"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
@@ -127,7 +226,7 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
     ],
 )
 def test_runtime_lifecycle_request_values_accept_live_output_observer(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     request_factory: Any,
     request_name: str,
     tmp_path: Path,
@@ -172,52 +271,38 @@ def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
     )
 
 
-def test_ephemeral_run_request_uses_override_stage_selection_when_stage_missing(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-) -> None:
-    override_stage = stage_selection_factory(
-        service="claude",
-        model="sonnet",
-        effort="high",
-    )
-
-    request = prompt_runtime.EphemeralRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=Path("/repo"),
-        override=override_stage,
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-    )
-
-    assert request.stage == override_stage
-    assert request.override == override_stage
-
-
-def test_ephemeral_run_request_rejects_conflicting_stage_selection_and_override(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+@pytest.mark.parametrize("removed_name", ["stage", "override"])
+def test_ephemeral_run_request_rejects_removed_request_selection_names(
+    removed_name: str,
 ) -> None:
     with pytest.raises(
         TypeError,
-        match=re.escape(
-            "EphemeralRunRequest received conflicting `stage` and `override` values."
+        match=(
+            f"EphemeralRunRequest got an unexpected keyword argument '{removed_name}'."
         ),
     ):
-        prompt_runtime.EphemeralRunRequest(
+        cast(Any, prompt_runtime.EphemeralRunRequest)(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
-            stage=stage_selection_factory(service="codex"),
-            override=stage_selection_factory(service="claude"),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            tool_policy=runtime.ToolPolicy.NONE,
+            **{
+                removed_name: runtime.ProviderSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                )
+            },
         )
 
 
 def test_new_session_run_request_defaults_to_implementer_without_caller_managed_inputs(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
 ) -> None:
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=tmp_path,
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
 
@@ -236,7 +321,7 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    stage=stage_selection_factory(service="codex"),
+                    provider_selection=stage_selection_factory(service="codex"),
                     tool_policy=runtime.ToolPolicy.NONE,
                     **{unexpected_name: unexpected_value},
                 )
@@ -248,7 +333,7 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    stage=stage_selection_factory(service="codex"),
+                    provider_selection=stage_selection_factory(service="codex"),
                     tool_policy=runtime.ToolPolicy.NONE,
                     **{unexpected_name: unexpected_value},
                 )
@@ -282,7 +367,7 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
     ],
 )
 def test_ordinary_runtime_requests_reject_runtime_managed_log_inputs(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
     request_factory: Callable[..., object],
     request_name: str,
@@ -311,7 +396,7 @@ def test_new_session_run_request_rejects_caller_provided_usage_limit_scope() -> 
         cast(Any, prompt_runtime.NewSessionRunRequest)(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
-            stage=runtime.StageSelection(
+            provider_selection=runtime.ProviderSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="high",
@@ -329,7 +414,7 @@ def test_ephemeral_run_request_rejects_caller_provided_usage_limit_scope() -> No
         cast(Any, prompt_runtime.EphemeralRunRequest)(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
-            stage=runtime.StageSelection(
+            provider_selection=runtime.ProviderSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="high",
@@ -368,7 +453,7 @@ def test_prompt_run_request_rejects_caller_provided_usage_limit_scope() -> None:
         cast(Any, execution_contracts_runtime.PromptRunRequest)(
             prompt="already rendered prompt",
             worktree=WorktreeMount(Path("/repo")),
-            stage=runtime.StageSelection(
+            stage=InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
                 effort="high",
@@ -380,7 +465,7 @@ def test_prompt_run_request_rejects_caller_provided_usage_limit_scope() -> None:
 
 
 def test_prompt_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     request = execution_contracts_runtime.PromptRunRequest(
         prompt="already rendered prompt",
@@ -398,12 +483,12 @@ def test_prompt_run_request_uses_compatibility_tool_policy_for_workspace_backed_
 
 
 def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         tool_policy=runtime.ToolPolicy.UNRESTRICTED,
     )
 
@@ -414,12 +499,12 @@ def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_back
 
 
 def test_ephemeral_run_request_uses_none_tool_policy_for_explicit_no_tools_access(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         tool_policy=runtime.ToolPolicy.NONE,
     )
 
@@ -428,12 +513,12 @@ def test_ephemeral_run_request_uses_none_tool_policy_for_explicit_no_tools_acces
 
 
 def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -446,13 +531,13 @@ def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_ba
 
 
 def test_new_session_request_non_none_tool_policy_uses_invocation_dir_as_tool_workspace(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
 ) -> None:
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=tmp_path,
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
@@ -469,7 +554,9 @@ def test_lifecycle_request_construction_does_not_expose_session_namespace_field_
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        stage=runtime.StageSelection(service="codex", model="gpt-5.4", effort="high"),
+        provider_selection=runtime.ProviderSelection(
+            service="codex", model="gpt-5.4", effort="high"
+        ),
         role=InvocationRole("implementer"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
@@ -483,7 +570,9 @@ def test_new_session_request_keeps_runtime_managed_compatibility_fields_internal
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        stage=runtime.StageSelection(service="codex", model="gpt-5.4", effort="high"),
+        provider_selection=runtime.ProviderSelection(
+            service="codex", model="gpt-5.4", effort="high"
+        ),
         role=InvocationRole("implementer"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         runtime_state_dir=Path("/state"),
@@ -581,7 +670,7 @@ def test_resumed_session_request_keeps_runtime_managed_compatibility_fields_inte
 
 
 def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_worktree(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., InternalStageSelection],
 ) -> None:
     with pytest.raises(
         ValueError,
@@ -605,7 +694,7 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
             lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=Path("/repo"),
-                stage=stage_selection_factory(service="codex"),
+                provider_selection=stage_selection_factory(service="codex"),
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     Path("/other"),
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
@@ -617,7 +706,7 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
             lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=Path("/repo"),
-                stage=stage_selection_factory(service="codex"),
+                provider_selection=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     Path("/other"),
@@ -629,8 +718,8 @@ def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_workt
     ],
 )
 def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for_other_worktree(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-    request_factory: Callable[[Callable[..., runtime.StageSelection]], object],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    request_factory: Callable[[Callable[..., runtime.ProviderSelection]], object],
     expected_message: str,
 ) -> None:
     with pytest.raises(ValueError, match=re.escape(expected_message)):
@@ -644,7 +733,7 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
             lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=Path("/repo"),
-                stage=stage_selection_factory(service="codex"),
+                provider_selection=stage_selection_factory(service="codex"),
             ),
             "EphemeralRunRequest requires an explicit `tool_policy` value.",
         ),
@@ -652,7 +741,7 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
             lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=Path("/repo"),
-                stage=stage_selection_factory(service="codex"),
+                provider_selection=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
             ),
             "NewSessionRunRequest requires an explicit `tool_policy` value.",
@@ -660,9 +749,9 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
     ],
 )
 def test_lifecycle_request_construction_requires_explicit_tool_policy(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     request_factory: Callable[
-        [Callable[..., runtime.StageSelection]],
+        [Callable[..., runtime.ProviderSelection]],
         object,
     ],
     expected_message: str,
@@ -672,13 +761,13 @@ def test_lifecycle_request_construction_requires_explicit_tool_policy(
 
 
 def test_ephemeral_request_none_tool_policy_prohibits_provider_tools_and_requires_invocation_dir(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=tmp_path,
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         tool_policy=runtime.ToolPolicy.NONE,
     )
 
@@ -688,13 +777,13 @@ def test_ephemeral_request_none_tool_policy_prohibits_provider_tools_and_require
 
 
 def test_new_session_request_none_tool_policy_prohibits_provider_tools_and_requires_invocation_dir(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
 ) -> None:
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=tmp_path,
-        stage=stage_selection_factory(service="codex"),
+        provider_selection=stage_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.NONE,
     )
@@ -736,7 +825,7 @@ def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mou
             lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("/repo"),
-                stage=stage_selection_factory(service="codex"),
+                provider_selection=stage_selection_factory(service="codex"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             ),
             Path("/repo"),
@@ -745,7 +834,7 @@ def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mou
             lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=Path("/repo"),
-                stage=stage_selection_factory(service="codex"),
+                provider_selection=stage_selection_factory(service="codex"),
                 role=InvocationRole("implementer"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             ),
@@ -774,8 +863,8 @@ def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mou
     ],
 )
 def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_public_surface(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-    request_factory: Callable[[Callable[..., runtime.StageSelection]], object],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    request_factory: Callable[[Callable[..., runtime.ProviderSelection]], object],
     expected_invocation_dir: Path | WorktreeMount,
 ) -> None:
     request = request_factory(stage_selection_factory)
@@ -790,14 +879,14 @@ def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_publ
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
             worktree=Path("/other"),
-            stage=stage_selection_factory(service="codex"),
+            provider_selection=stage_selection_factory(service="codex"),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
         lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
             worktree=Path("/other"),
-            stage=stage_selection_factory(service="codex"),
+            provider_selection=stage_selection_factory(service="codex"),
             role=InvocationRole("implementer"),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
@@ -822,8 +911,8 @@ def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_publ
     ],
 )
 def test_lifecycle_request_construction_rejects_conflicting_invocation_dir_and_legacy_worktree(
-    stage_selection_factory: Callable[..., runtime.StageSelection],
-    request_factory: Callable[[Callable[..., runtime.StageSelection]], object],
+    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    request_factory: Callable[[Callable[..., runtime.ProviderSelection]], object],
 ) -> None:
     with pytest.raises(
         TypeError,

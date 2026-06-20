@@ -39,6 +39,7 @@ from ._runtime_lifecycle import (
     SessionRuntimeMetadata,
 )
 from .service_registry import ServiceRegistry
+from .types import ProviderSelection
 
 if TYPE_CHECKING:
     from ._provider_invocation import ProviderInvocationAdapter
@@ -54,6 +55,7 @@ __all__ = [
     "InvocationRecord",
     "AgentMessageTurn",
     "ProviderAuth",
+    "ProviderSelection",
     "ProviderUsage",
     "ResumedSessionRunRequest",
     "RuntimeClient",
@@ -113,6 +115,7 @@ for _runtime_export in (
     InvocationRecord,
     NewSessionRunRequest,
     ProviderAuth,
+    ProviderSelection,
     ProviderUsage,
     ResumedSessionRunRequest,
     RuntimeOutcome,
@@ -236,20 +239,20 @@ class RuntimeClient:
         self._availability = _BuiltInAvailabilityState()
 
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
-        if _supported_builtin_provider_selection(request.stage) is None:
+        if _supported_builtin_provider_selection(request.provider_selection) is None:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
         while True:
             now = _time_module.now_local()
             selected_provider_selection = self._availability.first_available_stage(
-                request.stage, now=now
+                request.provider_selection, now=now
             )
             if selected_provider_selection is None:
                 return RuntimeOutcome.no_service_available(
                     output="",
                     reset_time=self._availability.next_wake_time(
-                        request.stage,
+                        request.provider_selection,
                         now=now,
                     ),
                     invocation_progress=InvocationProgress.NOT_STARTED,
@@ -270,14 +273,14 @@ class RuntimeClient:
                     now=exhausted_now,
                 )
                 if self._availability.has_available_stage(
-                    request.stage,
+                    request.provider_selection,
                     now=exhausted_now,
                 ):
                     continue
                 return RuntimeOutcome.no_service_available(
                     output="",
                     reset_time=self._availability.next_wake_time(
-                        request.stage,
+                        request.provider_selection,
                         now=exhausted_now,
                     )
                     or exc.reset_time,

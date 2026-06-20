@@ -19,13 +19,13 @@ from .invocation_progress import InvocationProgress
 from .runtime import (
     AgentMessageTurn,
     Continuation,
+    ProviderSelection,
     ProviderAuth,
     ProviderUsage,
     RuntimeClient,
     RuntimeOutcome,
 )
 from .session import RunKind
-from .types import StageSelection
 
 __all__ = [
     "AgentCredentialFailureError",
@@ -37,12 +37,12 @@ __all__ = [
     "HardAgentError",
     "InvocationProgress",
     "ProviderAuth",
+    "ProviderSelection",
     "ProviderUsage",
     "RuntimeClient",
     "RuntimeConfigurationError",
     "RuntimeOutcome",
     "RunKind",
-    "StageSelection",
     "ToolPolicy",
     "TransientAgentError",
     "UsageLimitError",
