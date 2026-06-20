@@ -32,12 +32,14 @@ def stage_selection_factory() -> Callable[..., InternalStageSelection]:
         *,
         model: str = "gpt-5.4",
         effort: str = "medium",
+        auth: runtime.ProviderAuth | None = None,
         fallback: InternalStageSelection | None = None,
     ) -> InternalStageSelection:
         return InternalStageSelection(
             service=service,
             model=model,
             effort=effort,
+            auth=auth,
             fallback=fallback,
         )
 
@@ -51,11 +53,13 @@ def provider_selection_factory() -> Callable[..., runtime.ProviderSelection]:
         *,
         model: str = "gpt-5.4",
         effort: str = "medium",
+        auth: runtime.ProviderAuth | None = None,
     ) -> runtime.ProviderSelection:
         return runtime.ProviderSelection(
             service=service,
             model=model,
             effort=effort,
+            auth=auth,
         )
 
     return _factory

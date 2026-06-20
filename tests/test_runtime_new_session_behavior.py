@@ -2005,12 +2005,10 @@ def test_runtime_client_returns_claude_invocation_record_without_mixing_runtime_
                     service="claude",
                     model="sonnet",
                     effort="medium",
+                    auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
                 ),
                 role=InvocationRole("implementer"),
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
-                provider_auth=prompt_runtime.ProviderAuth(
-                    claude_code_oauth_token="token"
-                ),
             )
         )
     )
@@ -2297,10 +2295,10 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
                     service="opencode",
                     model="glm-5",
                     effort="medium",
+                    auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 tool_access=tool_access,
             )
         )
@@ -2423,10 +2421,10 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
                     service="opencode",
                     model="glm-5",
                     effort="medium",
+                    auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 tool_access=tool_access,
             )
         )
@@ -2545,10 +2543,10 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
                     service="opencode",
                     model="glm-5",
                     effort="medium",
+                    auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 tool_access=tool_access,
             )
         )
@@ -2639,10 +2637,10 @@ def test_runtime_client_returns_new_opencode_invocation_record_with_observed_pro
                     service="opencode",
                     model="glm-5",
                     effort="medium",
+                    auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )

@@ -33,13 +33,19 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        provider_selection=provider_selection_factory(service="codex"),
+        provider_selection=runtime.ProviderSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+            auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+        ),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
-        auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         token=execution_contracts_runtime.CancellationToken(),
     )
 
-    assert request.auth == runtime.ProviderAuth(opencode_api_key="go-key")
+    assert request.provider_selection.auth == runtime.ProviderAuth(
+        opencode_api_key="go-key"
+    )
     assert request.token is not None
     for field_name in ("role", "logs_dir", "usage_limit_scope", "session_namespace"):
         with pytest.raises(AttributeError, match=field_name):
@@ -50,7 +56,6 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
         "provider_selection",
         "tool_policy",
         "token",
-        "auth",
         "on_live_output",
     )
 
@@ -77,6 +82,57 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
     )
 
 
+def test_new_invocation_requests_take_provider_auth_from_provider_selection() -> None:
+    provider_auth = runtime.ProviderAuth(opencode_api_key="go-key")
+    provider_selection = runtime.ProviderSelection(
+        service="opencode",
+        model="gpt-5.4",
+        effort="medium",
+        auth=provider_auth,
+    )
+
+    ephemeral_request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        provider_selection=provider_selection,
+        tool_policy=runtime.ToolPolicy.NONE,
+    )
+    new_session_request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        provider_selection=provider_selection,
+        role=InvocationRole("implementer"),
+        tool_policy=runtime.ToolPolicy.NONE,
+    )
+
+    assert ephemeral_request.provider_selection.auth == provider_auth
+    assert new_session_request.provider_selection.auth == provider_auth
+    assert (
+        "auth" not in inspect.signature(prompt_runtime.EphemeralRunRequest).parameters
+    )
+    assert (
+        "provider_auth"
+        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+    )
+    with pytest.raises(TypeError, match="unexpected keyword argument 'auth'"):
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=provider_selection,
+            tool_policy=runtime.ToolPolicy.NONE,
+            auth=provider_auth,
+        )
+    with pytest.raises(TypeError, match="unexpected keyword argument 'provider_auth'"):
+        prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=provider_selection,
+            role=InvocationRole("implementer"),
+            tool_policy=runtime.ToolPolicy.NONE,
+            provider_auth=provider_auth,
+        )
+
+
 def test_public_root_and_runtime_modules_expose_provider_selection_only() -> None:
     assert runtime.ProviderSelection is prompt_runtime.ProviderSelection
     with pytest.raises(AttributeError):
@@ -99,6 +155,60 @@ def test_public_provider_selection_requires_explicit_fields_without_fallback() -
                 effort="high",
             ),
         )
+
+
+def test_provider_value_objects_redact_credential_values_in_textual_representation() -> (
+    None
+):
+    provider_auth = runtime.ProviderAuth(
+        claude_code_oauth_token="claude-secret",
+        opencode_api_key="opencode-secret",
+    )
+    provider_selection = runtime.ProviderSelection(
+        service="opencode",
+        model="gpt-5.4",
+        effort="medium",
+        auth=provider_auth,
+    )
+
+    for rendered in (
+        repr(provider_auth),
+        str(provider_auth),
+        repr(provider_selection),
+        str(provider_selection),
+    ):
+        assert "claude-secret" not in rendered
+        assert "opencode-secret" not in rendered
+
+
+def test_provider_value_objects_compare_using_credential_values() -> None:
+    first_auth = runtime.ProviderAuth(opencode_api_key="first-key")
+    second_auth = runtime.ProviderAuth(opencode_api_key="second-key")
+
+    assert first_auth == runtime.ProviderAuth(opencode_api_key="first-key")
+    assert first_auth != second_auth
+    assert runtime.ProviderSelection(
+        service="opencode",
+        model="gpt-5.4",
+        effort="medium",
+        auth=first_auth,
+    ) == runtime.ProviderSelection(
+        service="opencode",
+        model="gpt-5.4",
+        effort="medium",
+        auth=runtime.ProviderAuth(opencode_api_key="first-key"),
+    )
+    assert runtime.ProviderSelection(
+        service="opencode",
+        model="gpt-5.4",
+        effort="medium",
+        auth=first_auth,
+    ) != runtime.ProviderSelection(
+        service="opencode",
+        model="gpt-5.4",
+        effort="medium",
+        auth=second_auth,
+    )
 
 
 @pytest.mark.parametrize(

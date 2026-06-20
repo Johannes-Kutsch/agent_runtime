@@ -566,7 +566,9 @@ def test_live_smoke_ephemeral_runs_through_public_runtime_request_values(
     assert request.provider_selection.service == "claude"
     assert request.provider_selection.model == "sonnet"
     assert request.provider_selection.effort == "medium"
-    assert request.auth == prompt_runtime.ProviderAuth(claude_code_oauth_token="token")
+    assert request.provider_selection.auth == prompt_runtime.ProviderAuth(
+        claude_code_oauth_token="token"
+    )
 
     case_dir = (
         tmp_path
@@ -736,7 +738,7 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
     assert len(captured_requests) == 2
     assert captured_requests[0][0] == "new_session"
     assert captured_requests[1][0] == "resumed_session"
-    assert new_session_request.provider_auth == prompt_runtime.ProviderAuth(
+    assert new_session_request.provider_selection.auth == prompt_runtime.ProviderAuth(
         claude_code_oauth_token="token"
     )
     resumed_request = captured_requests[1][1]

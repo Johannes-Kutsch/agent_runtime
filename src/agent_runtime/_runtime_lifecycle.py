@@ -50,6 +50,10 @@ _DEFAULT_EPHEMERAL_SESSION_NAMESPACE = ""
 _PUBLIC_INVOCATION_DIR_NAME = "invocation_dir"
 
 
+def _redacted_credential_value(value: str | None) -> str:
+    return "None" if value is None else "'<redacted>'"
+
+
 def _resolve_public_invocation_dir(
     invocation_dir: Path | WorktreeMount | None,
     compatibility_kwargs: dict[str, Any],
@@ -181,6 +185,14 @@ class Continuation:
 class ProviderAuth:
     claude_code_oauth_token: str | None = None
     opencode_api_key: str | None = None
+
+    def __repr__(self) -> str:
+        return (
+            "ProviderAuth("
+            "claude_code_oauth_token="
+            f"{_redacted_credential_value(self.claude_code_oauth_token)}, "
+            f"opencode_api_key={_redacted_credential_value(self.opencode_api_key)})"
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -442,7 +454,6 @@ class EphemeralRunRequest:
     tool_access: ToolAccess
     on_live_output: Callable[[AgentMessageTurn], None] | None = None
     token: CancellationToken | None = None
-    auth: ProviderAuth | None = None
 
     def __init__(
         self,
@@ -452,7 +463,6 @@ class EphemeralRunRequest:
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         token: CancellationToken | None = None,
-        auth: ProviderAuth | None = None,
         on_live_output: Callable[[AgentMessageTurn], None] | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
@@ -488,7 +498,6 @@ class EphemeralRunRequest:
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
-        object.__setattr__(self, "auth", auth)
 
     @property
     def mount_path(self) -> Path:
@@ -505,7 +514,6 @@ class NewSessionRunRequest:
     invocation_dir: Path
     provider_selection: ProviderSelection
     role: InvocationRole
-    provider_auth: ProviderAuth | None
     session_store: Any
     provider_session_adapter: ProviderSessionAdapter
     tool_access: ToolAccess
@@ -525,7 +533,6 @@ class NewSessionRunRequest:
         invocation_dir: Path | WorktreeMount | None = None,
         provider_selection: ProviderSelection | None = None,
         role: InvocationRole | None = None,
-        provider_auth: ProviderAuth | None = None,
         session_store: Any | None = None,
         provider_session_adapter: ProviderSessionAdapter | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
@@ -591,7 +598,6 @@ class NewSessionRunRequest:
             normalized_request.provider_selection,
         )
         object.__setattr__(self, "role", normalized_request.role)
-        object.__setattr__(self, "provider_auth", provider_auth)
         object.__setattr__(self, "session_store", session_store)
         object.__setattr__(
             self,
@@ -827,7 +833,6 @@ cast(Any, EphemeralRunRequest).__signature__ = _public_request_signature(
     "provider_selection",
     "tool_policy",
     "token",
-    "auth",
     "on_live_output",
 )
 cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
@@ -835,7 +840,6 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "invocation_dir",
     "provider_selection",
     "role",
-    "provider_auth",
     "session_store",
     "provider_session_adapter",
     "tool_policy",

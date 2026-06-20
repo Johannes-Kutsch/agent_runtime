@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import TYPE_CHECKING
 
 from .identity import validate_runtime_identity_label
+
+if TYPE_CHECKING:
+    from ._runtime_lifecycle import ProviderAuth
 
 
 @dataclasses.dataclass(frozen=True)
@@ -10,6 +14,7 @@ class ProviderSelection:
     service: str
     model: str
     effort: str
+    auth: ProviderAuth | None = None
     fallback: ProviderSelection | None = dataclasses.field(
         init=False,
         default=None,
@@ -19,6 +24,15 @@ class ProviderSelection:
 
     def __post_init__(self) -> None:
         validate_provider_selection(self)
+
+    def __repr__(self) -> str:
+        return (
+            "ProviderSelection("
+            f"service={self.service!r}, "
+            f"model={self.model!r}, "
+            f"effort={self.effort!r}, "
+            f"auth={self.auth!r})"
+        )
 
 
 @dataclasses.dataclass(frozen=True)

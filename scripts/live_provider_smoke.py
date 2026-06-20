@@ -706,8 +706,8 @@ def _run_public_smoke_case(
                 service=resolved_case.service,
                 model=resolved_case.model,
                 effort=resolved_case.effort,
+                auth=auth,
             ),
-            auth=auth,
             tool_policy=tool_policy,
             on_live_output=_on_live_output,
         )
@@ -719,8 +719,8 @@ def _run_public_smoke_case(
                 service=resolved_case.service,
                 model=resolved_case.model,
                 effort=resolved_case.effort,
+                auth=auth,
             ),
-            provider_auth=auth,
             tool_policy=tool_policy,
             on_live_output=_on_live_output,
         )

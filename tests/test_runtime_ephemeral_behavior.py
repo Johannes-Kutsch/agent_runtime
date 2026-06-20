@@ -4,7 +4,7 @@ import asyncio
 import re
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -79,6 +79,10 @@ class _PreparedRunSession:
 class _Session:
     def __init__(self, provider_state_dir: str | None = None) -> None:
         self.provider_state_dir = provider_state_dir
+
+
+def _selection_with_auth(selection: Any, auth: Any) -> Any:
+    return replace(selection, auth=auth)
 
 
 def _observed_command_text(command: str | tuple[str, ...]) -> str:
@@ -870,13 +874,16 @@ def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_su
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="opencode",
-                model="glm-5",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="opencode",
+                    model="glm-5",
+                    effort="medium",
+                    auth=prompt_runtime.ProviderAuth(opencode_api_key="token"),
+                ),
+                prompt_runtime.ProviderAuth(opencode_api_key="token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=prompt_runtime.ProviderAuth(opencode_api_key="token"),
         )
     )
 
@@ -951,13 +958,16 @@ def test_runtime_client_exposes_claude_usage_on_completed_outcome(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                    auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+                ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -1019,13 +1029,16 @@ def test_runtime_client_keeps_latest_claude_usage_facts_on_completed_outcome(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                    auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+                ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -1091,13 +1104,16 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                    auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+                ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -1699,6 +1715,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             service="claude",
             model="sonnet",
             effort="medium",
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         ),
     )
 
@@ -1708,7 +1725,6 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             worktree=tmp_path,
             provider_selection=first_stage,
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
     second_outcome = client.run_ephemeral(
@@ -1717,7 +1733,6 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             worktree=tmp_path,
             provider_selection=second_stage,
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -1835,18 +1850,23 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-                fallback=stage_selection_factory(
-                    service="claude",
-                    model="sonnet",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
                     effort="medium",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                        auth=prompt_runtime.ProviderAuth(
+                            claude_code_oauth_token="token"
+                        ),
+                    ),
                 ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -1951,8 +1971,14 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="claude", model="sonnet", effort="medium"
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                    auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+                ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=(
                 contracts_runtime.ToolAccess.no_tools()
@@ -1962,7 +1988,6 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
                     tool_policy=tool_policy,
                 )
             ),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -2025,13 +2050,16 @@ def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=invocation_dir,
-            provider_selection=stage_selection_factory(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                    auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+                ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=contracts_runtime.ToolAccess.workspace_backed(invocation_dir),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         ),
         provider_invocation_adapter=adapter,
     )
@@ -2136,13 +2164,15 @@ def test_run_builtin_ephemeral_non_claude_uses_runtime_neutral_temp_prompt_artif
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service=service_name,
-                model=model,
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service=service_name,
+                    model=model,
+                    effort="medium",
+                ),
+                auth,
             ),
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            auth=auth,
         ),
         provider_invocation_adapter=adapter,
     )
@@ -2243,15 +2273,21 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-                fallback=stage_selection_factory(
-                    service="claude",
-                    model="sonnet",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
                     effort="medium",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                        auth=prompt_runtime.ProviderAuth(
+                            claude_code_oauth_token="token"
+                        ),
+                    ),
                 ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=(
                 tool_access
@@ -2260,7 +2296,6 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
                     tmp_path, tool_policy=tool_access.tool_policy
                 )
             ),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -2364,18 +2399,23 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-                fallback=stage_selection_factory(
-                    service="claude",
-                    model="sonnet",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
                     effort="medium",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                        auth=prompt_runtime.ProviderAuth(
+                            claude_code_oauth_token="token"
+                        ),
+                    ),
                 ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -2415,6 +2455,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
             service="claude",
             model="sonnet",
             effort="medium",
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         ),
     )
     client = prompt_runtime.RuntimeClient()
@@ -2426,7 +2467,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
                 worktree=tmp_path,
                 provider_selection=stage,
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-                auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             )
         )
 
@@ -2472,7 +2512,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
             worktree=tmp_path,
             provider_selection=stage,
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -2554,7 +2593,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
                 worktree=tmp_path,
                 provider_selection=stage,
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-                auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             )
         )
 
@@ -2598,7 +2636,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
             worktree=tmp_path,
             provider_selection=stage,
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 
@@ -2723,18 +2760,23 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage_selection_factory(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-                fallback=stage_selection_factory(
-                    service="claude",
-                    model="sonnet",
+            provider_selection=_selection_with_auth(
+                stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
                     effort="medium",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                        auth=prompt_runtime.ProviderAuth(
+                            claude_code_oauth_token="token"
+                        ),
+                    ),
                 ),
+                prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
         )
     )
 

@@ -28,6 +28,10 @@ from agent_runtime.session import RunKind
 from agent_runtime.types import StageSelection as InternalStageSelection
 
 
+def _selection_with_auth(selection: Any, auth: Any) -> Any:
+    return dataclasses.replace(selection, auth=auth)
+
+
 def _assert_runtime_outcome(
     actual: prompt_runtime.RuntimeOutcome,
     expected: prompt_runtime.RuntimeOutcome,
@@ -189,16 +193,16 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -293,13 +297,15 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="glm-5",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="glm-5",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
             )
         )
     )
@@ -485,16 +491,16 @@ def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=tool_access,
             )
         )
@@ -580,16 +586,16 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -692,14 +698,16 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
         prompt="already rendered prompt",
         worktree=tmp_path,
         runtime_state_dir=runtime_state_dir,
-        provider_selection=InternalStageSelection(
-            service="claude",
-            model="sonnet",
-            effort="medium",
+        provider_selection=_selection_with_auth(
+            InternalStageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         ),
         role=InvocationRole("implementer"),
         session_namespace="main",
-        provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     outcome = prompt_runtime._run_builtin_session_outcome(
@@ -791,14 +799,16 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
         prompt="already rendered prompt",
         worktree=tmp_path,
         runtime_state_dir=runtime_state_dir,
-        provider_selection=InternalStageSelection(
-            service="opencode",
-            model="glm-5",
-            effort="medium",
+        provider_selection=_selection_with_auth(
+            InternalStageSelection(
+                service="opencode",
+                model="glm-5",
+                effort="medium",
+            ),
+            runtime.ProviderAuth(opencode_api_key="opencode-key"),
         ),
         role=InvocationRole("implementer"),
         session_namespace="main",
-        provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     outcome = prompt_runtime._run_builtin_session_outcome(
@@ -892,13 +902,15 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="opencode",
-                model="kimi-k2.6",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(opencode_api_key="opencode-key"),
             ),
             tool_access=_opencode_tool_access(tool_policy, tmp_path),
-            auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
         )
     )
 
@@ -983,13 +995,15 @@ def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_p
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="opencode",
-                model="kimi-k2.6",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(opencode_api_key="opencode-key"),
             ),
             tool_access=_opencode_tool_access(tool_policy, tmp_path),
-            auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
         )
     )
 
@@ -1056,14 +1070,16 @@ def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="glm-5",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="glm-5",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 tool_access=_opencode_tool_access(tool_policy, tmp_path),
             )
         )
@@ -1250,13 +1266,15 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             on_live_output=on_live_output,
         )
     )
@@ -1300,13 +1318,15 @@ def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_a
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 on_live_output=on_live_output,
             )
         )
@@ -1347,15 +1367,15 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
@@ -1459,15 +1479,15 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=tmp_path,
-                    provider_selection=InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="codex",
+                            model="gpt-5.4",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
                     role=InvocationRole("implementer"),
-                    provider_auth=runtime.ProviderAuth(
-                        claude_code_oauth_token="oauth-token"
-                    ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
                 )
@@ -1540,18 +1560,20 @@ def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-                fallback=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
                     effort="medium",
+                    fallback=InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
                 ),
+                runtime.ProviderAuth(opencode_api_key="opencode-key"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
             on_live_output=on_live_output,
         )
     )
@@ -1677,13 +1699,15 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             on_live_output=on_live_output,
         )
     )
@@ -1730,16 +1754,16 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
@@ -1785,16 +1809,16 @@ def test_runtime_client_new_session_run_propagates_claude_live_output_observer_f
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
-                    provider_selection=InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="claude",
+                            model="sonnet",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
                     role=InvocationRole("implementer"),
                     session_namespace="main",
-                    provider_auth=runtime.ProviderAuth(
-                        claude_code_oauth_token="oauth-token"
-                    ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
                 )
@@ -1852,13 +1876,15 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="glm-5",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="glm-5",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 on_live_output=on_live_output,
             )
         )
@@ -1953,12 +1979,14 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 on_live_output=on_live_output,
                 tool_policy=runtime.ToolPolicy.NONE,
             )
@@ -1969,13 +1997,15 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     worktree=tmp_path,
-                    provider_selection=InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model="kimi-k2.6",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
                     role=InvocationRole("implementer"),
-                    provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
                 )
@@ -2075,12 +2105,14 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 on_live_output=on_live_output,
                 tool_policy=runtime.ToolPolicy.NONE,
             )
@@ -2150,13 +2182,15 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
                 role=InvocationRole("implementer"),
-                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
@@ -3154,16 +3188,16 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             ),
             provider_invocation_adapter=adapter,
@@ -3524,16 +3558,16 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -3612,16 +3646,16 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -4152,16 +4186,16 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
                     prompt="already rendered prompt",
                     worktree=tmp_path,
                     runtime_state_dir=runtime_state_dir,
-                    provider_selection=InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="codex",
+                            model="gpt-5.4",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
                     role=InvocationRole("implementer"),
                     session_namespace="main",
-                    provider_auth=runtime.ProviderAuth(
-                        claude_code_oauth_token="oauth-token"
-                    ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
@@ -4422,13 +4456,15 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
                     prompt="already rendered prompt",
                     worktree=tmp_path,
                     runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                    provider_selection=InternalStageSelection(
-                        service="opencode",
-                        model="deepseek-v4-flash",
-                        effort="medium",
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model="deepseek-v4-flash",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="api-key"),
                     ),
                     role=InvocationRole("implementer"),
-                    provider_auth=runtime.ProviderAuth(opencode_api_key="api-key"),
                     session_namespace="main",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
@@ -4580,16 +4616,16 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -4805,9 +4841,11 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage,
+            provider_selection=_selection_with_auth(
+                stage,
+                auth,
+            ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=auth,
         )
     )
 
@@ -4941,9 +4979,11 @@ def test_runtime_client_ephemeral_non_claude_invocation_prefers_argv_prompt_tran
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=stage,
+            provider_selection=_selection_with_auth(
+                stage,
+                auth,
+            ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=auth,
         )
     )
 
@@ -4975,17 +5015,19 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="missing",
-                model="placeholder",
-                effort="placeholder",
-                fallback=InternalStageSelection(
-                    service="opencode",
-                    model="deepseek-v4-flash",
-                    effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="missing",
+                    model="placeholder",
+                    effort="placeholder",
+                    fallback=InternalStageSelection(
+                        service="opencode",
+                        model="deepseek-v4-flash",
+                        effort="medium",
+                    ),
                 ),
+                runtime.ProviderAuth(opencode_api_key="api-key"),
             ),
-            auth=runtime.ProviderAuth(opencode_api_key="api-key"),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
     )
@@ -5168,13 +5210,15 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
 
@@ -5192,23 +5236,25 @@ def test_runtime_client_reachable_opencode_stage_requires_api_key_without_fallin
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="missing",
-                    model="ignored",
-                    effort="low",
-                    fallback=InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="missing",
+                        model="ignored",
+                        effort="low",
                         fallback=InternalStageSelection(
-                            service="codex",
-                            model="gpt-5.4",
+                            service="opencode",
+                            model="kimi-k2.6",
                             effort="medium",
+                            fallback=InternalStageSelection(
+                                service="codex",
+                                model="gpt-5.4",
+                                effort="medium",
+                            ),
                         ),
                     ),
+                    runtime.ProviderAuth(),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(),
             )
         )
 
@@ -5244,23 +5290,25 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="missing",
-                    model="ignored",
-                    effort="low",
-                    fallback=InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="missing",
+                        model="ignored",
+                        effort="low",
                         fallback=InternalStageSelection(
-                            service="claude",
-                            model="sonnet",
+                            service="codex",
+                            model="gpt-5.4",
                             effort="medium",
+                            fallback=InternalStageSelection(
+                                service="claude",
+                                model="sonnet",
+                                effort="medium",
+                            ),
                         ),
                     ),
+                    runtime.ProviderAuth(),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(),
             )
         )
 
@@ -5604,13 +5652,15 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="glm-5",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="glm-5",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
                 role=InvocationRole("implementer"),
-                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -5694,13 +5744,15 @@ def test_runtime_client_preserves_opencode_invalid_api_key_observations(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
 
@@ -5738,13 +5790,15 @@ def test_runtime_client_validates_opencode_model_allowlist_and_medium_effort(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model=model,
-                    effort=effort,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model=model,
+                        effort=effort,
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
 
@@ -5804,13 +5858,15 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="opencode",
-                model="kimi-k2.6",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(opencode_api_key="go-key"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         )
     )
 
@@ -5942,13 +5998,15 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
 
@@ -5993,13 +6051,15 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
 
@@ -6064,13 +6124,15 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="opencode",
-                model="kimi-k2.6",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(opencode_api_key="go-key"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         )
     )
 
@@ -6126,13 +6188,15 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
 
@@ -6157,23 +6221,25 @@ def test_runtime_client_reachable_claude_stage_requires_token_without_falling_th
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="missing",
-                    model="ignored",
-                    effort="low",
-                    fallback=InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="missing",
+                        model="ignored",
+                        effort="low",
                         fallback=InternalStageSelection(
-                            service="codex",
-                            model="gpt-5",
+                            service="claude",
+                            model="sonnet",
                             effort="medium",
+                            fallback=InternalStageSelection(
+                                service="codex",
+                                model="gpt-5",
+                                effort="medium",
+                            ),
                         ),
                     ),
+                    runtime.ProviderAuth(),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(),
             )
         )
 
@@ -6207,13 +6273,15 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             )
         )
 
@@ -6252,13 +6320,15 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
 
@@ -6308,13 +6378,15 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
 
@@ -6345,18 +6417,20 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="missing",
-                model="ignored",
-                effort="low",
-                fallback=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="missing",
+                    model="ignored",
+                    effort="low",
+                    fallback=InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
                 ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
 
@@ -6399,13 +6473,15 @@ def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metad
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
 
@@ -6445,13 +6521,15 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="medium",
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
     )
 
@@ -6487,13 +6565,15 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 worktree=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             )
         )
 

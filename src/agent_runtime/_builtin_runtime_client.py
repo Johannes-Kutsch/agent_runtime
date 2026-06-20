@@ -2046,7 +2046,9 @@ def _invoke_claude_new_session_provider(
         prefer_argv=True,
         worktree=request.invocation_dir,
         environment=_claude_env(
-            auth=request.provider_auth,
+            auth=_resolved_selection_auth(
+                stage, request_selection=request.provider_selection
+            ),
             state_dir_container_path=str(provider_state_dir),
         ),
         prompt_content=request.prompt,
@@ -2221,7 +2223,9 @@ def _invoke_opencode_new_session_provider(
         prefer_argv=True,
         worktree=request.invocation_dir,
         environment=_opencode_env(
-            auth=request.provider_auth,
+            auth=_resolved_selection_auth(
+                stage, request_selection=request.provider_selection
+            ),
             state_dir_container_path=str(provider_state_dir),
             tool_policy=request.tool_access.tool_policy,
         ),
@@ -2282,13 +2286,17 @@ def _run_builtin_ephemeral(
         else provider_invocation_adapter
     )
     selected_stage = select_builtin_stage(request.provider_selection)
+    selected_stage_auth = _resolved_selection_auth(
+        selected_stage,
+        request_selection=request.provider_selection,
+    )
     if selected_stage.service == "codex":
         validate_codex_stage(selected_stage)
         validate_codex_auth()
         prompt_path = _builtin_provider_temp_prompt_path()
     elif selected_stage.service == "opencode":
         validate_opencode_stage(selected_stage)
-        if request.auth is None or not request.auth.opencode_api_key:
+        if selected_stage_auth is None or not selected_stage_auth.opencode_api_key:
             message = "Missing OpenCode API key."
             raise AgentCredentialFailureError(
                 message=message,
@@ -2307,7 +2315,10 @@ def _run_builtin_ephemeral(
         prompt_path = _builtin_provider_temp_prompt_path()
     else:
         validate_claude_stage(selected_stage)
-        if request.auth is None or not request.auth.claude_code_oauth_token:
+        if (
+            selected_stage_auth is None
+            or not selected_stage_auth.claude_code_oauth_token
+        ):
             raise AgentCredentialFailureError(
                 message="Missing Claude Code OAuth token.",
                 service_name="claude",
@@ -2355,7 +2366,7 @@ def _run_builtin_ephemeral(
             prefer_argv=True,
             worktree=request.invocation_dir,
             environment=opencode_env(
-                auth=request.auth,
+                auth=selected_stage_auth,
                 state_dir_container_path=str(request.invocation_dir),
                 tool_policy=request.tool_access.tool_policy,
             ),
@@ -2390,7 +2401,7 @@ def _run_builtin_ephemeral(
             command_argv=command_argv,
             prefer_argv=True,
             worktree=request.invocation_dir,
-            environment=claude_env(auth=request.auth),
+            environment=claude_env(auth=selected_stage_auth),
             prompt_content=request.prompt,
             prompt_path=prompt_path,
             cleanup_prompt_path=True,
@@ -2470,6 +2481,18 @@ def _require_opencode_auth(auth: ProviderAuth | None) -> None:
     )
 
 
+def _selection_auth(selection: SelectionLike) -> ProviderAuth | None:
+    return selection.auth
+
+
+def _resolved_selection_auth(
+    selection: SelectionLike,
+    *,
+    request_selection: SelectionLike,
+) -> ProviderAuth | None:
+    return _selection_auth(selection) or _selection_auth(request_selection)
+
+
 def _require_portable_continuation_support(service_name: str) -> None:
     if service_name not in _PORTABLE_CONTINUATION_PROVIDERS:
         raise RuntimeConfigurationError(
@@ -2501,6 +2524,10 @@ def _run_builtin_new_session(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
         selected_stage = _select_builtin_stage(request.provider_selection)
+        selected_stage_auth = _resolved_selection_auth(
+            selected_stage,
+            request_selection=request.provider_selection,
+        )
         _require_portable_continuation_support(selected_stage.service)
 
         def _portable_codex_state_dir_relpath(
@@ -2540,7 +2567,7 @@ def _run_builtin_new_session(
                             ),
                         ),
                         role=request.role,
-                        provider_auth=request.provider_auth,
+                        provider_auth=selected_stage_auth,
                         on_live_output=request.on_live_output,
                         _session_namespace=request._session_namespace,
                     ),
@@ -2653,13 +2680,13 @@ def _run_builtin_new_session(
                             provider_session_id=_new_provider_session_id(),
                         ),
                         role=request.role,
-                        provider_auth=request.provider_auth,
+                        provider_auth=selected_stage_auth,
                         _session_namespace=request._session_namespace,
                     ),
                     provider_invocation_adapter=invocation_adapter,
                 )
             _validate_claude_stage(selected_stage)
-            _require_claude_auth(request.provider_auth)
+            _require_claude_auth(selected_stage_auth)
             provider_session_id = _new_provider_session_id()
             run_kind = RunKind.FRESH
             exact_transcript_match = False
@@ -2672,7 +2699,7 @@ def _run_builtin_new_session(
                 )
             )
             _validate_opencode_stage(selected_stage)
-            _require_opencode_auth(request.provider_auth)
+            _require_opencode_auth(selected_stage_auth)
             recovered_state_dir_session_id = _load_opencode_state_dir_session_id(
                 provider_state_dir
             )
