@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import asyncio
+from types import SimpleNamespace
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import Any, cast
+import unittest.mock
 
 import pytest
 
@@ -13,6 +16,7 @@ import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime._provider_session_adapter as internal_provider_session_adapter_runtime
+import agent_runtime._portable_continuation_payload as continuation_payload_module
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 import agent_runtime.session_planning as session_planning_runtime
@@ -470,6 +474,111 @@ def test_runtime_package_root_exports_keep_runtime_lifecycle_identity() -> None:
     assert runtime.Continuation is prompt_runtime.Continuation
     assert runtime.ProviderAuth is prompt_runtime.ProviderAuth
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
+
+
+def test_runtime_client_lifecycle_entrypoints_do_not_read_live_smoke_env(
+    tmp_path: Path,
+) -> None:
+    env_path = Path(__file__).resolve().parents[1] / "scripts" / "live-smoke" / ".env"
+    original_env = None
+    if env_path.exists():
+        original_env = env_path.read_text(encoding="utf-8")
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text("invalid", encoding="utf-8")
+
+    class _FakeOutcome:
+        kind = "completed"
+        output = "ok"
+        runtime_metadata = SimpleNamespace(
+            service_name="claude",
+            selected_model="haiku",
+            selected_effort="low",
+        )
+        continuation = None
+        usage = None
+        invocation_records: tuple[object, ...] = ()
+
+    invoked = {"ephemeral": 0, "new_session": 0, "resumed_session": 0}
+
+    try:
+
+        def _fake_ephemeral(*_args: object, **_kwargs: object) -> _FakeOutcome:
+            invoked["ephemeral"] += 1
+            return _FakeOutcome()
+
+        def _fake_new_session(*_args: object, **_kwargs: object) -> _FakeOutcome:
+            invoked["new_session"] += 1
+            return _FakeOutcome()
+
+        def _fake_resumed_session(*_args: object, **_kwargs: object) -> _FakeOutcome:
+            invoked["resumed_session"] += 1
+            return _FakeOutcome()
+
+        provider_selection = prompt_runtime.ProviderSelection(
+            service="claude",
+            model="haiku",
+            effort="low",
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        )
+        ephemeral_request = prompt_runtime.EphemeralRunRequest(
+            prompt="hello",
+            invocation_dir=tmp_path / "invocation",
+            provider_selection=provider_selection,
+            tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+        )
+        new_session_request = prompt_runtime.NewSessionRunRequest(
+            prompt="hello",
+            invocation_dir=tmp_path / "new-session",
+            provider_selection=provider_selection,
+            tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+        )
+        continuation_payload = (
+            continuation_payload_module.create_portable_continuation_payload(
+                service_name="claude",
+                model="haiku",
+                effort="low",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={},
+            ).serialized
+        )
+        resumed_request = prompt_runtime.ResumedSessionRunRequest(
+            prompt="hello",
+            invocation_dir=tmp_path / "resumed-session",
+            continuation=prompt_runtime.Continuation(serialized=continuation_payload),
+        )
+
+        client = prompt_runtime.RuntimeClient()
+
+        with (
+            unittest.mock.patch.object(
+                prompt_runtime, "_run_builtin_ephemeral", _fake_ephemeral
+            ),
+            unittest.mock.patch.object(
+                prompt_runtime, "_run_builtin_new_session", _fake_new_session
+            ),
+            unittest.mock.patch.object(
+                prompt_runtime, "_run_builtin_resumed_session", _fake_resumed_session
+            ),
+        ):
+            run_ephemeral = client.run_ephemeral(ephemeral_request)
+            run_new_session = asyncio.run(client.run_new_session(new_session_request))
+            run_resumed_session = asyncio.run(
+                client.run_resumed_session(resumed_request)
+            )
+
+        assert run_ephemeral.kind == "completed"
+        assert run_new_session.kind == "completed"
+        assert run_resumed_session.kind == "completed"
+        assert invoked == {
+            "ephemeral": 1,
+            "new_session": 1,
+            "resumed_session": 1,
+        }
+    finally:
+        if original_env is None:
+            env_path.unlink(missing_ok=True)
+        else:
+            env_path.write_text(original_env, encoding="utf-8")
 
 
 def test_internal_runtime_compatibility_module_keeps_resume_wrapper_private() -> None:

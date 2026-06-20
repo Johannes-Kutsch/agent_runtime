@@ -28,6 +28,30 @@ def planning_module() -> Any:
     return module
 
 
+def test_live_smoke_env_example_file_contains_only_placeholder_keys() -> None:
+    example = (
+        Path(__file__).resolve().parents[1] / "scripts" / "live-smoke" / ".env.example"
+    )
+
+    assert example.exists()
+
+    values = {}
+    for line in example.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        assert "=" in stripped
+        key, value = (part.strip() for part in stripped.split("=", 1))
+        values[key] = value
+
+    assert set(values) == {
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "OPENCODE_GO_API_KEY",
+    }
+    assert values["CLAUDE_CODE_OAUTH_TOKEN"] == "<replace-with-claude-code-oauth-token>"
+    assert values["OPENCODE_GO_API_KEY"] == "<replace-with-opencode-go-api-key>"
+
+
 def _planned_case(
     module: Any,
     *,
@@ -277,7 +301,31 @@ def test_live_smoke_explicit_provider_missing_opencode_credentials_is_not_runnab
     )
 
     assert planned[0].status is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
-    assert planned[0].reason == "provider not configured"
+    assert planned[0].reason == "missing OPENCODE_GO_API_KEY"
+
+
+@pytest.mark.parametrize(
+    ("provider", "env_key"),
+    (
+        ("claude", "CLAUDE_CODE_OAUTH_TOKEN"),
+        ("opencode", "OPENCODE_GO_API_KEY"),
+    ),
+)
+def test_live_smoke_missing_whitespace_credentials_name_missing_key(
+    planning_module: Any,
+    provider: str,
+    env_key: str,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection(provider)
+    planned = module.plan_selected_providers(
+        parsed,
+        env={env_key: "  \t  "},
+    )
+
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+    assert planned[0].reason == f"missing {env_key}"
 
 
 def test_live_smoke_explicit_provider_missing_claude_credentials_is_not_runnable(
@@ -292,7 +340,7 @@ def test_live_smoke_explicit_provider_missing_claude_credentials_is_not_runnable
     )
 
     assert planned[0].status is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
-    assert planned[0].reason == "provider not configured"
+    assert planned[0].reason == "missing CLAUDE_CODE_OAUTH_TOKEN"
 
 
 def test_live_smoke_all_selection_skips_whitespace_only_claude_credentials(
