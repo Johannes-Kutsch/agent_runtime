@@ -612,7 +612,8 @@ def _provider_has_runtime_config(
         )
     if provider == "opencode":
         return bool(
-            (opencode_api_key or "").strip() or env_map.get(_PROVIDER_OPENCODE_ENV)
+            (opencode_api_key or "").strip()
+            or (env_map.get(_PROVIDER_OPENCODE_ENV) or "").strip()
         )
     if provider == "codex":
         if codex_auth_present is not None:
