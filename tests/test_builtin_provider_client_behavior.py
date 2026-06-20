@@ -2641,8 +2641,14 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
     }
     assert recorded_request.command == (
         "codex exec resume selected-thread -m gpt-5.4 "
-        "-c model_reasoning_effort=medium -c approval_policy=never "
-        f"{expected_flag} --json < /tmp/.pycastle_prompt"
+        f"-c model_reasoning_effort=medium -c approval_policy=never {expected_flag} "
+        "--json"
+    )
+    assert recorded_request.prefer_argv is True
+    assert recorded_request.argv[-3:] == (
+        "--sandbox",
+        expected_flag.removeprefix("--sandbox "),
+        "--json",
     )
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
@@ -2797,7 +2803,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
     assert adapter.recorded_requests[0].command.startswith("codex exec -m gpt-5.4")
     assert adapter.recorded_requests[1].command == (
         "codex exec resume thread-123 -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox read-only --json < /tmp/.pycastle_prompt"
+        "--sandbox read-only --json"
     )
 
 
@@ -2890,7 +2896,7 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
     assert adapter.recorded_requests[0].environment == {"TZ": "UTC"}
     assert adapter.recorded_requests[0].command == (
         "codex exec resume selected-thread -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox read-only --json < /tmp/.pycastle_prompt"
+        "--sandbox read-only --json"
     )
 
 
@@ -3726,9 +3732,9 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     }
     assert recorded_request.command == (
         "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-        "-c approval_policy=never --sandbox read-only "
-        "--json < /tmp/.pycastle_prompt"
+        "-c approval_policy=never --sandbox read-only --json"
     )
+    assert recorded_request.prefer_argv is True
     assert recorded_request.argv == (
         "codex",
         "exec",
@@ -3834,8 +3840,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
     }
     assert recorded_request.command == (
         "codex exec resume thread-123 -m gpt-5.4 "
-        "-c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox read-only --json < /tmp/.pycastle_prompt"
+        "-c model_reasoning_effort=medium -c approval_policy=never --sandbox read-only --json"
     )
 
 
@@ -3944,8 +3949,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
     }
     assert recorded_request.command == (
         "codex exec resume selected-thread -m gpt-5.4 "
-        "-c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox read-only --json < /tmp/.pycastle_prompt"
+        "-c model_reasoning_effort=medium -c approval_policy=never --sandbox read-only --json"
     )
 
 
@@ -4696,7 +4700,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 "codex exec",
                 "-m gpt-5.4",
                 "-c model_reasoning_effort=medium",
-                "< /tmp/.pycastle_prompt",
             ),
             id="codex",
         ),
@@ -4764,7 +4767,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 "opencode run",
                 "--format json",
                 "--model opencode-go/kimi-k2.6",
-                '"$(cat /tmp/.pycastle_prompt)"',
             ),
             id="opencode",
         ),
@@ -4854,9 +4856,101 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         }
         assert "kimi-k2.6" in provider["models"]
         assert "deepseek-v4-flash" in provider["models"]
+    if service_name != "claude":
+        assert recorded_request.prefer_argv is True
     for command_part in expected_command_parts:
         assert command_part in recorded_request.command
     assert list((tmp_path / "logs").glob("*.log")) == []
+
+
+@pytest.mark.parametrize(
+    ("service_name", "stage", "auth", "expected_argv"),
+    [
+        pytest.param(
+            "codex",
+            runtime.StageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            None,
+            (
+                "codex",
+                "exec",
+                "-m",
+                "gpt-5.4",
+                "-c",
+                "model_reasoning_effort=medium",
+                "-c",
+                "approval_policy=never",
+                "--sandbox",
+                "read-only",
+                "--json",
+            ),
+            id="codex",
+        ),
+        pytest.param(
+            "opencode",
+            runtime.StageSelection(
+                service="opencode",
+                model="kimi-k2.6",
+                effort="medium",
+            ),
+            runtime.ProviderAuth(opencode_api_key="go-key"),
+            (
+                "opencode",
+                "run",
+                "--format",
+                "json",
+                "--model",
+                "opencode-go/kimi-k2.6",
+            ),
+            id="opencode",
+        ),
+    ],
+)
+def test_runtime_client_ephemeral_non_claude_invocation_prefers_argv_prompt_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    service_name: str,
+    stage: runtime.StageSelection,
+    auth: runtime.ProviderAuth | None,
+    expected_argv: tuple[str, ...],
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "final output"}) + "\n",
+            ),
+        ),
+    )
+    if service_name == "codex":
+        host_home = tmp_path / "host-home"
+        host_auth_path = host_home / ".codex" / "auth.json"
+        host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+        host_auth_path.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(
+            prompt_runtime._builtin_runtime_client_module.Path,
+            "home",
+            lambda: host_home,
+        )
+
+    runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage,
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            auth=auth,
+        )
+    )
+
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prefer_argv is True
+    assert recorded_request.argv == expected_argv
+    assert "< /tmp/.pycastle_prompt" not in recorded_request.command
+    assert '"$(cat /tmp/.pycastle_prompt)"' not in recorded_request.command
 
 
 def test_runtime_client_ephemeral_execution_remains_available_when_session_backed_support_disabled(

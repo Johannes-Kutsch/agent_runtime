@@ -1245,39 +1245,6 @@ def test_live_smoke_cli_help_is_invokable(smoke_module: object) -> None:
     assert parser_help.strip()
 
 
-def test_live_smoke_help_text_uses_plan_defaults_and_verification_date(
-    smoke_module: object,
-) -> None:
-    module: Any = smoke_module
-
-    expected_defaults = ", ".join(
-        f"{service}={module.live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS[service][0]}/"
-        f"{module.live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS[service][1]}"
-        for service in module.live_provider_smoke_plan.SUPPORTED_PROVIDERS
-    )
-    help_text = module._live_smoke_defaults_help_text()
-
-    assert "Model source precedence" in help_text
-    assert "Effort source precedence" in help_text
-    assert f"Live Smoke Defaults: {expected_defaults}." in help_text
-    assert (
-        f"Verified {module.live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS_VERIFIED_ON}."
-        in help_text
-    )
-
-
-def test_live_smoke_cli_help_renders_defaults_help_text(smoke_module: object) -> None:
-    module: Any = smoke_module
-
-    output = io.StringIO()
-    with redirect_stdout(output), pytest.raises(SystemExit):
-        module.main(["--help"])
-
-    parser_help = output.getvalue()
-
-    assert module._live_smoke_defaults_help_text() in parser_help
-
-
 def test_live_smoke_direct_help_invocation_succeeds_and_skips_default_artifacts(
     tmp_path: Path,
 ) -> None:

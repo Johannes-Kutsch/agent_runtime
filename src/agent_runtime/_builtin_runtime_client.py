@@ -2069,12 +2069,9 @@ def _invoke_codex_new_session_provider(
     )
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_legacy_command_text(
-            command_argv,
-            Path("/tmp/.pycastle_prompt"),
-        ),
+        command="",
         command_argv=command_argv,
-        prefer_argv=False,
+        prefer_argv=True,
         worktree=request.invocation_dir,
         environment=_codex_env(
             state_dir_container_path=str(provider_state_dir),
@@ -2112,9 +2109,9 @@ def _invoke_codex_resumed_session_provider(
     )
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_legacy_command_text(command_argv, Path("/tmp/.pycastle_prompt")),
+        command="",
         command_argv=command_argv,
-        prefer_argv=False,
+        prefer_argv=True,
         worktree=request.invocation_dir.host_path,
         environment=_codex_env(
             state_dir_container_path=(
@@ -2206,13 +2203,9 @@ def _invoke_opencode_new_session_provider(
     )
     invocation_result = _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_legacy_command_text(
-            command_argv,
-            request.invocation_dir / ".pycastle_prompt",
-            opencode_prompt_substitution=True,
-        ),
+        command="",
         command_argv=command_argv,
-        prefer_argv=False,
+        prefer_argv=True,
         worktree=request.invocation_dir,
         environment=_opencode_env(
             auth=request.provider_auth,
@@ -2318,12 +2311,9 @@ def _run_builtin_ephemeral(
         )
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
-            command=_legacy_command_text(
-                command_argv,
-                prompt_path,
-            ),
+            command="",
             command_argv=command_argv,
-            prefer_argv=False,
+            prefer_argv=True,
             worktree=request.invocation_dir,
             environment=codex_env(),
             prompt_content=request.prompt,
@@ -2349,13 +2339,9 @@ def _run_builtin_ephemeral(
         )
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
-            command=_legacy_command_text(
-                command_argv,
-                prompt_path,
-                opencode_prompt_substitution=True,
-            ),
+            command="",
             command_argv=command_argv,
-            prefer_argv=False,
+            prefer_argv=True,
             worktree=request.invocation_dir,
             environment=opencode_env(
                 auth=request.auth,
@@ -3078,9 +3064,9 @@ def _run_builtin_resumed_session(
             extract_provider_session_id = _extract_opencode_provider_session_id
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
-            command=command,
+            command="" if continuation_service == "opencode" else command,
             command_argv=command_argv,
-            prefer_argv=(continuation_service == "claude"),
+            prefer_argv=(continuation_service in {"claude", "opencode"}),
             worktree=request.invocation_dir.host_path,
             environment=environment,
             prompt_content=request.prompt,

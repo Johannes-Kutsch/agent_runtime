@@ -62,6 +62,10 @@ from tests.runtime_boundary_fakes import (
 )
 
 
+def _observed_command_text(command: str | tuple[str, ...]) -> str:
+    return command if isinstance(command, str) else " ".join(command)
+
+
 def _assert_runtime_outcome(
     actual: prompt_runtime.RuntimeOutcome,
     expected: prompt_runtime.RuntimeOutcome,
@@ -2879,7 +2883,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
     class _FakePopen:
         def __init__(
             self,
-            command: str,
+            command: str | tuple[str, ...],
             *,
             shell: bool,
             cwd: Path,
@@ -2887,9 +2891,10 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
             stdout: Any,
             stderr: Any,
             text: bool,
+            stdin: Any | None = None,
         ) -> None:
-            del stdout, stderr
-            observed["command"] = command
+            del stdout, stderr, stdin
+            observed["command"] = _observed_command_text(command)
             observed["shell"] = shell
             observed["cwd"] = cwd
             observed["env"] = env
@@ -2998,7 +3003,7 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
     class _FakePopen:
         def __init__(
             self,
-            command: str,
+            command: str | tuple[str, ...],
             *,
             shell: bool,
             cwd: Path,
@@ -3006,9 +3011,10 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
             stdout: Any,
             stderr: Any,
             text: bool,
+            stdin: Any | None = None,
         ) -> None:
-            del stdout, stderr
-            observed["command"] = command
+            del stdout, stderr, stdin
+            observed["command"] = _observed_command_text(command)
             observed["shell"] = shell
             observed["cwd"] = cwd
             observed["env"] = env
@@ -3116,7 +3122,7 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
     class _FakePopen:
         def __init__(
             self,
-            command: str,
+            command: str | tuple[str, ...],
             *,
             shell: bool,
             cwd: Path,
@@ -3124,9 +3130,10 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
             stdout: Any,
             stderr: Any,
             text: bool,
+            stdin: Any | None = None,
         ) -> None:
-            del stdout, stderr, shell, cwd, text
-            observed["command"] = command
+            del stdout, stderr, shell, cwd, text, stdin
+            observed["command"] = _observed_command_text(command)
             observed["env"] = env
             self.stdout = iter(
                 [

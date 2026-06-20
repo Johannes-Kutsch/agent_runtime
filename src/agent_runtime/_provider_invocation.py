@@ -137,11 +137,11 @@ class ProductionProviderInvocationAdapter:
         self,
         request: ProviderInvocationRequest,
     ) -> ProviderInvocationResult:
-        prompt_path = request.prompt.path
-        if prompt_path is not None:
-            prompt_path.write_text(request.prompt.content, encoding="utf-8")
-
         use_shell = not (request.prefer_argv and request.argv)
+        prompt_path = request.prompt.path
+        prompt_file_created = use_shell and prompt_path is not None
+        if prompt_file_created and prompt_path is not None:
+            prompt_path.write_text(request.prompt.content, encoding="utf-8")
 
         work_invocation_context = (
             nullcontext()
@@ -266,7 +266,11 @@ class ProductionProviderInvocationAdapter:
                     provider_session_id=_observed_provider_session_id(),
                 )
         finally:
-            if request.prompt.cleanup_path and prompt_path is not None:
+            if (
+                request.prompt.cleanup_path
+                and prompt_file_created
+                and prompt_path is not None
+            ):
                 prompt_path.unlink(missing_ok=True)
 
 

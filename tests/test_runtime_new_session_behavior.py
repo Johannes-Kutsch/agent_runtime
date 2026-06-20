@@ -48,6 +48,10 @@ from tests.runtime_boundary_fakes import (
 )
 
 
+def _observed_command_text(command: str | tuple[str, ...]) -> str:
+    return command if isinstance(command, str) else " ".join(command)
+
+
 def _assert_runtime_outcome(
     actual: prompt_runtime.RuntimeOutcome,
     expected: prompt_runtime.RuntimeOutcome,
@@ -2228,7 +2232,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
     class _FakePopen:
         def __init__(
             self,
-            command: str,
+            command: str | tuple[str, ...],
             *,
             shell: bool,
             cwd: Path,
@@ -2236,9 +2240,10 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
             stdout: Any,
             stderr: Any,
             text: bool,
+            stdin: Any | None = None,
         ) -> None:
-            del stdout, stderr
-            observed["command"] = command
+            del stdout, stderr, stdin
+            observed["command"] = _observed_command_text(command)
             observed["shell"] = shell
             observed["cwd"] = cwd
             observed["env"] = env
@@ -2340,7 +2345,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
     class _FakePopen:
         def __init__(
             self,
-            command: str,
+            command: str | tuple[str, ...],
             *,
             shell: bool,
             cwd: Path,
@@ -2348,9 +2353,10 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
             stdout: Any,
             stderr: Any,
             text: bool,
+            stdin: Any | None = None,
         ) -> None:
-            del stdout, stderr
-            observed["command"] = command
+            del stdout, stderr, stdin
+            observed["command"] = _observed_command_text(command)
             observed["shell"] = shell
             observed["cwd"] = cwd
             observed["env"] = env

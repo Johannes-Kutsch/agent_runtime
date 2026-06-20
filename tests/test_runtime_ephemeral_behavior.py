@@ -659,31 +659,34 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
     _seed_codex_host_auth(monkeypatch, home_dir)
 
     observed: dict[str, Any] = {}
-    _stub_codex_prompt_path(
-        monkeypatch,
-        on_write=lambda data: observed.__setitem__("prompt", data),
-        on_unlink=lambda: observed.__setitem__("prompt_deleted", True),
-    )
+
+    class _Stdin:
+        def write(self, data: str) -> None:
+            observed["prompt"] = data
+
+        def close(self) -> None:
+            observed["prompt_deleted"] = True
 
     class _FakeProcess:
         def __init__(
             self,
-            command: str,
+            command: str | tuple[str, ...],
             *,
             cwd: Path,
             env: dict[str, str],
             stdout: Any,
         ) -> None:
-            observed["command"] = command
+            observed["command"] = _observed_command_text(command)
             observed["cwd"] = cwd
             observed["env"] = env
+            self.stdin = _Stdin()
             self.stdout = stdout
 
         def wait(self) -> int:
             return 0
 
     def _fake_popen(
-        command: str,
+        command: str | tuple[str, ...],
         *,
         shell: bool,
         cwd: Path,
@@ -691,8 +694,9 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
         stdout: Any,
         stderr: Any,
         text: bool,
+        stdin: Any | None = None,
     ) -> _FakeProcess:
-        del shell, stderr, text
+        del shell, stderr, text, stdin
         return _FakeProcess(
             command,
             cwd=cwd,
@@ -744,8 +748,7 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
     )
     assert observed["command"] == (
         "codex exec -m gpt-5.4 -c model_reasoning_effort=high "
-        "-c approval_policy=never --sandbox danger-full-access "
-        "--json < /tmp/.pycastle_prompt"
+        "-c approval_policy=never --sandbox danger-full-access --json"
     )
     assert observed["prompt"] == "already rendered prompt"
     assert observed["prompt_deleted"] is True
@@ -1386,7 +1389,7 @@ def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selecti
             return 0
 
     def _fake_popen(
-        command: str,
+        command: str | tuple[str, ...],
         *,
         shell: bool,
         cwd: Path,
@@ -1394,9 +1397,10 @@ def test_runtime_client_preserves_pycastle_codex_sandbox_and_bypass_flag_selecti
         stdout: Any,
         stderr: Any,
         text: bool,
+        stdin: Any | None = None,
     ) -> _FakeProcess:
-        del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
+        del shell, cwd, env, stdout, stderr, text, stdin
+        observed_commands.append(_observed_command_text(command))
         return _FakeProcess()
 
     monkeypatch.setattr(
@@ -1742,8 +1746,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-            "-c approval_policy=never --sandbox danger-full-access "
-            "--json < /tmp/.pycastle_prompt"
+            "-c approval_policy=never --sandbox danger-full-access --json"
         ),
         (
             "claude --verbose --dangerously-skip-permissions --output-format "
@@ -1872,13 +1875,11 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-            "-c approval_policy=never --sandbox danger-full-access "
-            "--json < /tmp/.pycastle_prompt"
+            "-c approval_policy=never --sandbox danger-full-access --json"
         ),
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-            "-c approval_policy=never --sandbox danger-full-access "
-            "--json < /tmp/.pycastle_prompt"
+            "-c approval_policy=never --sandbox danger-full-access --json"
         ),
         (
             "claude --verbose --dangerously-skip-permissions --output-format "
@@ -2218,8 +2219,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
     )
     assert observed_commands[0] == (
         "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-        f"-c approval_policy=never {expected_flag} "
-        "--json < /tmp/.pycastle_prompt"
+        f"-c approval_policy=never {expected_flag} --json"
     )
     assert observed_commands[1].startswith(
         "claude --verbose --dangerously-skip-permissions --output-format "
@@ -2317,8 +2317,7 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-            "-c approval_policy=never --sandbox danger-full-access "
-            "--json < /tmp/.pycastle_prompt"
+            "-c approval_policy=never --sandbox danger-full-access --json"
         ),
         (
             "claude --verbose --dangerously-skip-permissions --output-format "
@@ -2377,7 +2376,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
             return 0
 
     def _fake_popen(
-        command: str,
+        command: str | tuple[str, ...],
         *,
         shell: bool,
         cwd: Path,
@@ -2385,9 +2384,10 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
         stdout: Any,
         stderr: Any,
         text: bool,
+        stdin: Any | None = None,
     ) -> _FakeProcess:
-        del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
+        del shell, cwd, env, stdout, stderr, text, stdin
+        observed_commands.append(_observed_command_text(command))
         return _FakeProcess()
 
     monkeypatch.setattr(
@@ -2426,8 +2426,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-            "-c approval_policy=never --sandbox danger-full-access "
-            "--json < /tmp/.pycastle_prompt"
+            "-c approval_policy=never --sandbox danger-full-access --json"
         )
     ]
 
@@ -2503,7 +2502,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
             return 0
 
     def _success_popen(
-        command: str,
+        command: str | tuple[str, ...],
         *,
         shell: bool,
         cwd: Path,
@@ -2511,9 +2510,10 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
         stdout: Any,
         stderr: Any,
         text: bool,
+        stdin: Any | None = None,
     ) -> _SuccessProcess:
-        del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
+        del shell, cwd, env, stdout, stderr, text, stdin
+        observed_commands.append(_observed_command_text(command))
         return _SuccessProcess()
 
     monkeypatch.setattr(
@@ -2552,8 +2552,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-            "-c approval_policy=never --sandbox danger-full-access "
-            "--json < /tmp/.pycastle_prompt"
+            "-c approval_policy=never --sandbox danger-full-access --json"
         )
     ]
 
@@ -2697,8 +2696,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
-            "-c approval_policy=never --sandbox danger-full-access "
-            "--json < /tmp/.pycastle_prompt"
+            "-c approval_policy=never --sandbox danger-full-access --json"
         ),
         (
             "claude --verbose --dangerously-skip-permissions --output-format "
