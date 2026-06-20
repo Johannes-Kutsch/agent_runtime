@@ -45,6 +45,23 @@ def stage_selection_factory() -> Callable[..., InternalStageSelection]:
 
 
 @pytest.fixture
+def provider_selection_factory() -> Callable[..., runtime.ProviderSelection]:
+    def _factory(
+        service: str = "codex",
+        *,
+        model: str = "gpt-5.4",
+        effort: str = "medium",
+    ) -> runtime.ProviderSelection:
+        return runtime.ProviderSelection(
+            service=service,
+            model=model,
+            effort=effort,
+        )
+
+    return _factory
+
+
+@pytest.fixture
 def execution_service_factory() -> Callable[[str], ExecutionProvider]:
     def _factory(service_name: str = "codex") -> ExecutionProvider:
         return cast(ExecutionProvider, ExecutionServiceFake(service_name))
@@ -111,13 +128,13 @@ def service_registry_factory() -> Callable[..., ServiceRegistry]:
 
 @pytest.fixture
 def ephemeral_request_factory(
-    stage_selection_factory: Callable[..., InternalStageSelection],
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> Callable[..., prompt_runtime.EphemeralRunRequest]:
     def _factory(
         *,
         prompt: str = "already rendered prompt",
         worktree: Path | WorktreeMount = WorktreeMount(Path(".")),
-        stage: InternalStageSelection | None = None,
+        stage: runtime.ProviderSelection | None = None,
         tool_access: contracts_runtime.ToolAccess | None = None,
         tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.NONE,
         token: Any = None,
@@ -128,7 +145,7 @@ def ephemeral_request_factory(
         return prompt_runtime.EphemeralRunRequest(
             prompt=prompt,
             worktree=worktree,
-            provider_selection=stage or stage_selection_factory(),
+            provider_selection=stage or provider_selection_factory(),
             **kwargs,
             token=token,
         )

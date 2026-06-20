@@ -28,12 +28,12 @@ from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionServi
 
 
 def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        provider_selection=stage_selection_factory(service="codex"),
+        provider_selection=provider_selection_factory(service="codex"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         token=execution_contracts_runtime.CancellationToken(),
@@ -126,11 +126,11 @@ def test_public_provider_selection_requires_explicit_fields_without_fallback() -
     ],
 )
 def test_runtime_lifecycle_requests_use_provider_selection_public_field(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
     request_factory: Callable[[runtime.ProviderSelection], object],
     request_type: type[object],
 ) -> None:
-    provider_selection = stage_selection_factory(service="codex")
+    provider_selection = provider_selection_factory(service="codex")
 
     request = cast(Any, request_factory(provider_selection))
 
@@ -226,7 +226,7 @@ def test_runtime_lifecycle_requests_expose_provider_selection_without_stage_alia
     ],
 )
 def test_runtime_lifecycle_request_values_accept_live_output_observer(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
     request_factory: Any,
     request_name: str,
     tmp_path: Path,
@@ -236,7 +236,7 @@ def test_runtime_lifecycle_request_values_accept_live_output_observer(
     def on_live_output(value: object) -> None:
         observed.append(value)
 
-    request = request_factory(on_live_output, stage_selection_factory, tmp_path)
+    request = request_factory(on_live_output, provider_selection_factory, tmp_path)
     assert request.on_live_output is on_live_output
     assert request_name in request.__class__.__name__
     assert len(observed) == 0
@@ -272,37 +272,51 @@ def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
 
 
 @pytest.mark.parametrize("removed_name", ["stage", "override"])
-def test_ephemeral_run_request_rejects_removed_request_selection_names(
+@pytest.mark.parametrize(
+    ("request_factory", "request_name"),
+    [
+        (
+            prompt_runtime.EphemeralRunRequest,
+            "EphemeralRunRequest",
+        ),
+        (
+            prompt_runtime.NewSessionRunRequest,
+            "NewSessionRunRequest",
+        ),
+    ],
+)
+def test_public_lifecycle_requests_reject_removed_request_selection_names(
+    request_factory: type[object],
+    request_name: str,
     removed_name: str,
 ) -> None:
     with pytest.raises(
         TypeError,
-        match=(
-            f"EphemeralRunRequest got an unexpected keyword argument '{removed_name}'."
-        ),
+        match=(f"{request_name} got an unexpected keyword argument '{removed_name}'."),
     ):
-        cast(Any, prompt_runtime.EphemeralRunRequest)(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            tool_policy=runtime.ToolPolicy.NONE,
-            **{
-                removed_name: runtime.ProviderSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
-                )
-            },
-        )
+        kwargs: dict[str, Any] = {
+            "prompt": "already rendered prompt",
+            "invocation_dir": Path("/repo"),
+            "tool_policy": runtime.ToolPolicy.NONE,
+            removed_name: runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+        }
+        if request_name == "NewSessionRunRequest":
+            kwargs["role"] = InvocationRole("implementer")
+        cast(Any, request_factory)(**kwargs)
 
 
 def test_new_session_run_request_defaults_to_implementer_without_caller_managed_inputs(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
     tmp_path: Path,
 ) -> None:
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=tmp_path,
-        provider_selection=stage_selection_factory(service="codex"),
+        provider_selection=provider_selection_factory(service="codex"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
 
@@ -499,12 +513,12 @@ def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_back
 
 
 def test_ephemeral_run_request_uses_none_tool_policy_for_explicit_no_tools_access(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        provider_selection=stage_selection_factory(service="codex"),
+        provider_selection=provider_selection_factory(service="codex"),
         tool_policy=runtime.ToolPolicy.NONE,
     )
 
@@ -513,12 +527,12 @@ def test_ephemeral_run_request_uses_none_tool_policy_for_explicit_no_tools_acces
 
 
 def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        provider_selection=stage_selection_factory(service="codex"),
+        provider_selection=provider_selection_factory(service="codex"),
         role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
