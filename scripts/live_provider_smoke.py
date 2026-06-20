@@ -407,8 +407,10 @@ def _build_failed_case_runs(
 
 
 def _print_provider_listing() -> int:
+    codex_auth_present = live_provider_smoke_plan.detect_codex_auth_present()
     providers = live_provider_smoke_plan.list_supported_providers(
-        env=os.environ if os is not None else None
+        env=os.environ if os is not None else None,
+        codex_auth_present=codex_auth_present,
     )
     for provider in providers:
         print(
@@ -443,6 +445,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     effort_overrides = _build_service_model_map(args.effort)
     providers = _coerce_list_provider_selection(args)
     lifecycle_modes = _coerce_lifecycle_modes(args)
+    codex_auth_present = live_provider_smoke_plan.detect_codex_auth_present()
 
     if args.list_providers:
         return _print_provider_listing()
@@ -456,6 +459,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_overrides=model_overrides,
             effort_overrides=effort_overrides,
             artifact_root=args.artifact_root,
+            codex_auth_present=codex_auth_present,
         )
         return _print_dry_run_plan(dry_run_plan, json_output=args.json)
 
