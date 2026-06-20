@@ -2862,7 +2862,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
     runtime_state_dir = tmp_path / "runtime-state"
     worktree.mkdir()
     runtime_state_dir.mkdir()
-    prompt_path = worktree / ".pycastle_prompt"
+    prompt_path = worktree / ".provider_prompt"
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
         selected_model="glm-5",
@@ -2993,7 +2993,7 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     worktree = tmp_path / "worktree"
-    prompt_path = worktree / ".pycastle_prompt"
+    prompt_path = worktree / ".provider_prompt"
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
         selected_model="glm-5",

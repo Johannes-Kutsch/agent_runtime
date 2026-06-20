@@ -1861,7 +1861,7 @@ def _seed_empty_codex_host_auth(
 
 
 def _stub_codex_prompt_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    prompt_path = Path("/tmp/.pycastle_prompt")
+    prompt_path = Path("/tmp/.provider_prompt")
     original_write_text = Path.write_text
     original_unlink = Path.unlink
 
@@ -2227,7 +2227,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
         "main",
     )
     expected_state_dir = runtime_state_dir / expected_state_relpath
-    prompt_path = worktree / ".pycastle_prompt"
+    prompt_path = worktree / ".provider_prompt"
     observed: dict[str, Any] = {}
 
     class _Stdin:
@@ -2353,7 +2353,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
         "recovered-state-dir-session\n",
         encoding="utf-8",
     )
-    prompt_path = worktree / ".pycastle_prompt"
+    prompt_path = worktree / ".provider_prompt"
     observed: dict[str, Any] = {}
 
     class _Stdin:
