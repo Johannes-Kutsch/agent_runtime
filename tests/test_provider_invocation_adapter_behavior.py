@@ -19,7 +19,7 @@ def test_production_adapter_executes_prepared_invocation_and_returns_reduced_res
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    prompt_path = tmp_path / ".pycastle_prompt"
+    prompt_path = tmp_path / ".provider_prompt"
     captured: dict[str, Any] = {}
 
     class _Process:
@@ -111,7 +111,7 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    prompt_path = tmp_path / ".pycastle_prompt"
+    prompt_path = tmp_path / ".provider_prompt"
     captured: dict[str, Any] = {}
 
     class _Stdin:
@@ -214,7 +214,7 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
 ) -> None:
     prompt_dir = tmp_path / r"C:\Users\Test User\Prompt Dir"
     prompt_dir.mkdir()
-    prompt_path = prompt_dir / ".pycastle_prompt"
+    prompt_path = prompt_dir / ".provider_prompt"
     legacy_command = (
         "claude --verbose --dangerously-skip-permissions --output-format "
         "stream-json -p - --disable-slash-commands "
@@ -337,7 +337,7 @@ def test_production_adapter_records_provider_chunks_and_session_id_when_log_cont
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    prompt_path = tmp_path / ".pycastle_prompt"
+    prompt_path = tmp_path / ".provider_prompt"
     process_lines = ['{"session":"provider-session-123"}\n', "final line\n"]
 
     class _Process:
@@ -446,7 +446,7 @@ def test_provider_invocation_seam_consumes_stdout_lines_before_final_reduction(
     adapter_factory: Any,
     needs_monkeypatch: bool,
 ) -> None:
-    prompt_path = tmp_path / ".pycastle_prompt"
+    prompt_path = tmp_path / ".provider_prompt"
     observed_steps: list[str] = []
 
     if needs_monkeypatch:
@@ -522,7 +522,7 @@ def test_production_adapter_cleans_up_prompt_file_on_failures(
     tmp_path: Path,
     failure_mode: str,
 ) -> None:
-    prompt_path = tmp_path / ".pycastle_prompt"
+    prompt_path = tmp_path / ".provider_prompt"
 
     if failure_mode == "start_failure":
 

@@ -2260,7 +2260,7 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == tmp_path / ".pycastle_prompt"
+    assert recorded_request.prompt.path == tmp_path / ".provider_prompt"
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
@@ -2628,7 +2628,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
@@ -3281,7 +3281,7 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
-    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.provider_session_id == "selected-thread"
 
@@ -3721,7 +3721,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
@@ -3829,7 +3829,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
-    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
@@ -3938,7 +3938,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
-    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
@@ -4653,7 +4653,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 cost_usd=None,
                 duration_seconds=None,
             ),
-            lambda worktree: worktree / ".pycastle_prompt",
+            lambda worktree: worktree / ".provider_prompt",
             {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"},
             ("claude", "--output-format stream-json", "--model sonnet"),
             id="claude",
@@ -4694,7 +4694,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 output_tokens=2,
                 cache_read_input_tokens=1,
             ),
-            lambda _worktree: Path("/tmp/.pycastle_prompt"),
+            lambda _worktree: Path("/tmp/.provider_prompt"),
             {"TZ": "UTC"},
             (
                 "codex exec",
@@ -4758,7 +4758,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
             ),
             "first assistant turn\n\nsecond assistant turn",
             None,
-            lambda _worktree: Path("/tmp/.pycastle_prompt"),
+            lambda _worktree: Path("/tmp/.provider_prompt"),
             {
                 "TZ": "UTC",
                 "OPENCODE_GO_API_KEY": "go-key",
@@ -4949,8 +4949,8 @@ def test_runtime_client_ephemeral_non_claude_invocation_prefers_argv_prompt_tran
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prefer_argv is True
     assert recorded_request.argv == expected_argv
-    assert "< /tmp/.pycastle_prompt" not in recorded_request.command
-    assert '"$(cat /tmp/.pycastle_prompt)"' not in recorded_request.command
+    assert "< /tmp/.provider_prompt" not in recorded_request.command
+    assert '"$(cat /tmp/.provider_prompt)"' not in recorded_request.command
 
 
 def test_runtime_client_ephemeral_execution_remains_available_when_session_backed_support_disabled(
@@ -5117,7 +5117,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == worktree / ".pycastle_prompt"
+    assert recorded_request.prompt.path == worktree / ".provider_prompt"
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == worktree
     assert recorded_request.run_kind is RunKind.RESUME
@@ -5423,7 +5423,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
@@ -5885,7 +5885,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == Path("/tmp/.pycastle_prompt")
+    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.environment["TZ"] == "UTC"
     assert "codex exec" in recorded_request.command

@@ -88,6 +88,7 @@ _CODEX_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 _OPENCODE_GO_PROVIDER_ID = "opencode-go"
 _OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
 _OPENCODE_SESSION_ID_FILENAME = "session_id"
+_BUILTIN_PROVIDER_PROMPT_FILENAME = ".provider_prompt"
 _OPENCODE_GO_MODELS = frozenset(
     {
         "deepseek-v4-flash",
@@ -168,6 +169,10 @@ _CLAUDE_MONTHS = {
 _SUPPORTED_BUILTIN_SERVICES = frozenset({"claude", "codex", "opencode"})
 _PORTABLE_CONTINUATION_PROVIDERS = frozenset({"claude", "codex", "opencode"})
 _WAKE_TIME_BUFFER = timedelta(minutes=2)
+
+
+def _builtin_provider_prompt_path(invocation_dir: Path) -> Path:
+    return invocation_dir / _BUILTIN_PROVIDER_PROMPT_FILENAME
 
 
 def compute_wake_time(
@@ -2019,7 +2024,7 @@ def _invoke_claude_new_session_provider(
             model=stage.model,
             effort=stage.effort,
             tool_access=request.tool_access,
-            prompt_path=request.invocation_dir / ".pycastle_prompt",
+            prompt_path=_builtin_provider_prompt_path(request.invocation_dir),
             run_kind=run_kind,
             session_uuid=provider_session_id,
         ),
@@ -2037,7 +2042,7 @@ def _invoke_claude_new_session_provider(
             state_dir_container_path=str(provider_state_dir),
         ),
         prompt_content=request.prompt,
-        prompt_path=request.invocation_dir / ".pycastle_prompt",
+        prompt_path=_builtin_provider_prompt_path(request.invocation_dir),
         cleanup_prompt_path=True,
         run_kind=run_kind,
         role=request.role,
@@ -2077,7 +2082,7 @@ def _invoke_codex_new_session_provider(
             state_dir_container_path=str(provider_state_dir),
         ),
         prompt_content=request.prompt,
-        prompt_path=Path("/tmp/.pycastle_prompt"),
+        prompt_path=Path("/tmp") / _BUILTIN_PROVIDER_PROMPT_FILENAME,
         cleanup_prompt_path=True,
         run_kind=RunKind.FRESH,
         role=request.role,
@@ -2119,7 +2124,7 @@ def _invoke_codex_resumed_session_provider(
             ),
         ),
         prompt_content=request.prompt,
-        prompt_path=Path("/tmp/.pycastle_prompt"),
+        prompt_path=Path("/tmp") / _BUILTIN_PROVIDER_PROMPT_FILENAME,
         cleanup_prompt_path=True,
         run_kind=RunKind.RESUME,
         role=request.role,
@@ -2213,7 +2218,7 @@ def _invoke_opencode_new_session_provider(
             tool_policy=request.tool_access.tool_policy,
         ),
         prompt_content=request.prompt,
-        prompt_path=request.invocation_dir / ".pycastle_prompt",
+        prompt_path=_builtin_provider_prompt_path(request.invocation_dir),
         cleanup_prompt_path=True,
         run_kind=run_kind,
         role=request.role,
@@ -2274,7 +2279,7 @@ def _run_builtin_ephemeral(
     if selected_stage.service == "codex":
         validate_codex_stage(selected_stage)
         validate_codex_auth()
-        prompt_path = Path("/tmp/.pycastle_prompt")
+        prompt_path = Path("/tmp") / _BUILTIN_PROVIDER_PROMPT_FILENAME
     elif selected_stage.service == "opencode":
         validate_opencode_stage(selected_stage)
         if request.auth is None or not request.auth.opencode_api_key:
@@ -2293,7 +2298,7 @@ def _run_builtin_ephemeral(
                 ),
                 status_code=401,
             )
-        prompt_path = Path("/tmp/.pycastle_prompt")
+        prompt_path = Path("/tmp") / _BUILTIN_PROVIDER_PROMPT_FILENAME
     else:
         validate_claude_stage(selected_stage)
         if request.auth is None or not request.auth.claude_code_oauth_token:
@@ -2302,7 +2307,7 @@ def _run_builtin_ephemeral(
                 service_name="claude",
                 observations=(),
             )
-        prompt_path = request.invocation_dir / ".pycastle_prompt"
+        prompt_path = _builtin_provider_prompt_path(request.invocation_dir)
     if selected_stage.service == "codex":
         command_argv = codex_command(
             model=selected_stage.model,
@@ -2994,7 +2999,7 @@ def _run_builtin_resumed_session(
             state_dir_session_id=state_dir_session_id,
         )
         run_kind = RunKind.RESUME
-    prompt_path = request.invocation_dir.host_path / ".pycastle_prompt"
+    prompt_path = _builtin_provider_prompt_path(request.invocation_dir.host_path)
 
     def _reduce_opencode_session_output(
         lines: list[str],

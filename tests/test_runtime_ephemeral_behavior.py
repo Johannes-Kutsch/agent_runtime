@@ -628,7 +628,7 @@ def _stub_codex_prompt_path(
     on_write: Callable[[str], None] | None = None,
     on_unlink: Callable[[], None] | None = None,
 ) -> None:
-    prompt_path = Path("/tmp/.pycastle_prompt")
+    prompt_path = Path("/tmp/.provider_prompt")
     original_write_text = Path.write_text
     original_unlink = Path.unlink
 
@@ -2078,7 +2078,7 @@ def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt
         "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
         f"'{recorded_request.prompt.path}'"
     )
-    assert recorded_request.prompt.path == invocation_dir / ".pycastle_prompt"
+    assert recorded_request.prompt.path == invocation_dir / ".provider_prompt"
 
 
 @pytest.mark.parametrize(
