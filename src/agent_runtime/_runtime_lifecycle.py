@@ -742,6 +742,14 @@ class ResumedSessionRunRequest:
                 raise TypeError(
                     "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
                 )
+            if model is not None:
+                raise TypeError(
+                    "ResumedSessionRunRequest derives fixed model from `continuation` and does not accept a request-level `model` override."
+                )
+            if effort is not None:
+                raise TypeError(
+                    "ResumedSessionRunRequest derives fixed effort from `continuation` and does not accept a request-level `effort` override."
+                )
             from ._portable_continuation_payload import (
                 read_portable_continuation_payload,
             )
@@ -760,10 +768,8 @@ class ResumedSessionRunRequest:
                     ),
                     workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
                 )
-                resolved_model = continuation_payload.model if model is None else model
-                resolved_effort = (
-                    continuation_payload.effort if effort is None else effort
-                )
+                resolved_model = continuation_payload.model
+                resolved_effort = continuation_payload.effort
             except TypeError as exc:
                 raise RuntimeConfigurationError(str(exc)) from exc
         else:
@@ -854,8 +860,6 @@ cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
     "invocation_dir",
     "continuation",
     "provider_auth",
-    "model",
-    "effort",
     "on_live_output",
     "token",
 )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -73,6 +74,40 @@ def test_portable_continuation_payload_create_keeps_current_continuation_schema(
             "exact_transcript_match": False,
         },
     )
+
+
+def test_portable_continuation_payload_serialization_omits_provider_selection_and_credentials() -> (
+    None
+):
+    payload = create_portable_continuation_payload(
+        service_name="opencode",
+        model="glm-5",
+        effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "session-123",
+            "auth": "provider-owned token marker",
+        },
+    )
+
+    serialized_payload = json.loads(payload.serialized)
+
+    assert serialized_payload == {
+        "service_name": "opencode",
+        "model": "glm-5",
+        "effort": "medium",
+        "tool_access": {
+            "kind": "none",
+            "workspace": None,
+            "tool_policy": {"kind": "tool_policy", "value": "none"},
+        },
+        "provider_resume_state": {
+            "provider_session_id": "session-123",
+            "auth": "provider-owned token marker",
+        },
+    }
+    assert "provider_selection" not in serialized_payload
+    assert "provider_auth" not in serialized_payload
 
 
 def test_portable_continuation_payload_rejects_non_object_provider_resume_state() -> (

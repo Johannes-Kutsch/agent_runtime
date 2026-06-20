@@ -1573,7 +1573,7 @@ def test_resumed_session_runtime_keeps_frozen_adapter_session_seam_unchanged() -
     )
 
 
-def test_resumed_session_runtime_from_continuation_defaults_and_overrides_model_and_effort() -> (
+def test_resumed_session_runtime_from_continuation_keeps_model_and_effort_fixed() -> (
     None
 ):
     worktree = Path("/repo")
@@ -1603,40 +1603,14 @@ def test_resumed_session_runtime_from_continuation_defaults_and_overrides_model_
             )
         )
     )
-    overridden_result = asyncio.run(
-        compat_runtime.ResumedSessionRuntime(
-            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter()
-        ).run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(worktree),
-                role=InvocationRole("implementer"),
-                session_namespace="main",
-                continuation=continuation,
-                model="gpt-5.5",
-                effort="high",
-            )
-        )
-    )
 
     assert isinstance(defaulted_result.result, prompt_runtime.SessionRunResult)
+    assert defaulted_result.result.runtime_metadata.selected_model == "gpt-5.4"
+    assert defaulted_result.result.runtime_metadata.selected_effort == "medium"
     assert defaulted_result.result.continuation == prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "prepared:recovered-session",
-            "provider_state_dir_relpath": "runtime-state/",
-            "exact_transcript_match": False,
-        },
-    )
-    assert isinstance(overridden_result.result, prompt_runtime.SessionRunResult)
-    assert overridden_result.result.continuation == prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.5",
-        selected_effort="high",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
         provider_resume_state={
             "run_kind": "resume",

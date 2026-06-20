@@ -650,8 +650,6 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                model="opus",
-                effort="high",
             )
         )
     )
@@ -671,8 +669,8 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
                 ),
                 continuation=prompt_runtime.Continuation(
                     selected_service="claude",
-                    selected_model="opus",
-                    selected_effort="high",
+                    selected_model="sonnet",
+                    selected_effort="medium",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     provider_resume_state={
                         "run_kind": "resume",
@@ -2281,8 +2279,6 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                model="opus",
-                effort="high",
             )
         )
     )
@@ -2302,8 +2298,8 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
                 ),
                 continuation=prompt_runtime.Continuation(
                     selected_service="claude",
-                    selected_model="opus",
-                    selected_effort="high",
+                    selected_model="sonnet",
+                    selected_effort="medium",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     provider_resume_state={
                         "run_kind": "resume",
@@ -2330,8 +2326,8 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
     assert recorded_request.provider_session_id == "claude-session-123"
     assert recorded_request.environment == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
     assert "--resume claude-session-123" in recorded_request.command
-    assert "--model opus" in recorded_request.command
-    assert "--effort high" in recorded_request.command
+    assert "--model sonnet" in recorded_request.command
+    assert "--effort medium" in recorded_request.command
 
 
 def test_runtime_client_runs_claude_resumed_session_from_continuation(
@@ -2383,8 +2379,6 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                model="opus",
-                effort="high",
             )
         )
     )
@@ -2404,8 +2398,8 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
                 ),
                 continuation=prompt_runtime.Continuation(
                     selected_service="claude",
-                    selected_model="opus",
-                    selected_effort="high",
+                    selected_model="sonnet",
+                    selected_effort="medium",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     provider_resume_state={
                         "run_kind": "resume",
@@ -2434,8 +2428,8 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     }
     assert "--resume claude-session-123" in recorded_request.command
     assert "--session-id" not in recorded_request.command
-    assert "--model opus" in recorded_request.command
-    assert "--effort high" in recorded_request.command
+    assert "--model sonnet" in recorded_request.command
+    assert "--effort medium" in recorded_request.command
 
 
 @pytest.mark.parametrize(
@@ -2494,8 +2488,6 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
-                model="opus",
-                effort="high",
             )
         )
     )
@@ -2515,8 +2507,8 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
                 ),
                 continuation=prompt_runtime.Continuation(
                     selected_service="claude",
-                    selected_model="opus",
-                    selected_effort="high",
+                    selected_model="sonnet",
+                    selected_effort="medium",
                     tool_access=tool_access,
                     provider_resume_state={
                         "run_kind": "resume",

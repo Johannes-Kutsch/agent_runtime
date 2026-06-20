@@ -68,8 +68,6 @@ def test_resumed_session_run_request_has_minimal_public_signature() -> None:
         "invocation_dir",
         "continuation",
         "provider_auth",
-        "model",
-        "effort",
         "on_live_output",
         "token",
     )
