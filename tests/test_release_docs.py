@@ -83,19 +83,43 @@ def test_public_api_documents_live_runtime_output_consumer_surface() -> None:
 
 def test_context_and_adrs_keep_legacy_runtime_storage_historical_only() -> None:
     context = _read_repo_doc("CONTEXT.md")
-    adr_0005 = _read_repo_doc("docs/adr/0005-runtime-public-surface-narrowing.md")
-    adr_0010 = _read_repo_doc("docs/adr/0010-portable-continuations.md")
+    adr_0004 = _read_repo_doc("docs/adr/0004-runtime-public-surface-narrowing.md")
+    adr_0005 = _read_repo_doc("docs/adr/0005-runtime-session-lifecycle-entrypoints.md")
 
     assert "| `ToolAccess` | Retired target vocabulary for the public API;" in context
     assert (
-        "| `RuntimeStateDir` | Transitional caller-supplied directory root" in context
-    )
-    assert "| `RuntimeLogsDir` | Transitional caller-supplied directory root" in context
+        "| `RuntimeStateDir` | Transitional caller-supplied root previously used for"
+        " provider-native session state; active session-backed requests do not"
+        " require it."
+    ) in context
     assert (
-        "| `SessionNamespace` | Transitional secondary label previously used" in context
-    )
+        "| `RuntimeLogsDir` | Transitional caller-supplied root previously used for"
+        " runtime invocation logs; callers now own durable trace persistence."
+    ) in context
+    assert (
+        "| `SessionNamespace` | Transitional secondary label formerly used to"
+        " partition runtime-managed provider session state; active session-backed"
+        " requests do not require it."
+    ) in context
     assert "managed worktrees" not in context
-    assert "execution-directory management" in context
-    assert "This ADR is historical" in adr_0005
-    assert "This supersedes ADR 0009's requirement" in adr_0010
-    assert "and `ToolPolicy` belong in result metadata" in adr_0010
+    assert "Invocation Directory" in context
+    assert (
+        "Current glossary and public API docs own exact `Invocation Directory`,"
+        " `ToolPolicy`, and transitional vocabulary."
+    ) in adr_0004
+    assert (
+        "Session-backed execution returns opaque portable continuation tokens."
+        in adr_0005
+    )
+    assert (
+        "Callers persist and pass them back; they must not depend on provider resume"
+        " payload schema or runtime-managed state directories."
+    ) in adr_0005
+    assert (
+        "Keep runtime stateless between calls; consumers store or discard continuations."
+        in adr_0005
+    )
+    assert (
+        "runtime may return structured records, callers own persistence and layout."
+        in adr_0005
+    )
