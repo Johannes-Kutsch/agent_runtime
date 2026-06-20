@@ -2046,9 +2046,7 @@ def _invoke_claude_new_session_provider(
         prefer_argv=True,
         worktree=request.invocation_dir,
         environment=_claude_env(
-            auth=_resolved_selection_auth(
-                stage, request_selection=request.provider_selection
-            ),
+            auth=_selection_auth(stage),
             state_dir_container_path=str(provider_state_dir),
         ),
         prompt_content=request.prompt,
@@ -2223,9 +2221,7 @@ def _invoke_opencode_new_session_provider(
         prefer_argv=True,
         worktree=request.invocation_dir,
         environment=_opencode_env(
-            auth=_resolved_selection_auth(
-                stage, request_selection=request.provider_selection
-            ),
+            auth=_selection_auth(stage),
             state_dir_container_path=str(provider_state_dir),
             tool_policy=request.tool_access.tool_policy,
         ),
@@ -2286,10 +2282,7 @@ def _run_builtin_ephemeral(
         else provider_invocation_adapter
     )
     selected_stage = select_builtin_stage(request.provider_selection)
-    selected_stage_auth = _resolved_selection_auth(
-        selected_stage,
-        request_selection=request.provider_selection,
-    )
+    selected_stage_auth = _selection_auth(selected_stage)
     if selected_stage.service == "codex":
         validate_codex_stage(selected_stage)
         validate_codex_auth()
@@ -2485,14 +2478,6 @@ def _selection_auth(selection: SelectionLike) -> ProviderAuth | None:
     return selection.auth
 
 
-def _resolved_selection_auth(
-    selection: SelectionLike,
-    *,
-    request_selection: SelectionLike,
-) -> ProviderAuth | None:
-    return _selection_auth(selection) or _selection_auth(request_selection)
-
-
 def _require_portable_continuation_support(service_name: str) -> None:
     if service_name not in _PORTABLE_CONTINUATION_PROVIDERS:
         raise RuntimeConfigurationError(
@@ -2524,10 +2509,7 @@ def _run_builtin_new_session(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
         selected_stage = _select_builtin_stage(request.provider_selection)
-        selected_stage_auth = _resolved_selection_auth(
-            selected_stage,
-            request_selection=request.provider_selection,
-        )
+        selected_stage_auth = _selection_auth(selected_stage)
         _require_portable_continuation_support(selected_stage.service)
 
         def _portable_codex_state_dir_relpath(

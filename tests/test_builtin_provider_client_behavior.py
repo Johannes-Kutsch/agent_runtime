@@ -361,6 +361,34 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             )
         )
 
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="missing",
+                            model="ignored",
+                            effort="low",
+                            fallback=InternalStageSelection(
+                                service="opencode",
+                                model="glm-5",
+                                effort="medium",
+                            ),
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="root-only-key"),
+                    ),
+                    role=InvocationRole("implementer"),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    assert str(exc_info.value) == "Missing OpenCode API key."
+    assert exc_info.value.service_name == "opencode"
+
     with pytest.raises(TypeError, match="requires an `invocation_dir` value"):
         prompt_runtime.NewSessionRunRequest(
             prompt="already rendered prompt",
@@ -1560,18 +1588,16 @@ def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="codex",
-                    model="gpt-5.4",
+            provider_selection=InternalStageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+                fallback=InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
                     effort="medium",
-                    fallback=InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
-                    ),
+                    auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="opencode-key"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
             on_live_output=on_live_output,
@@ -5015,18 +5041,16 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="missing",
-                    model="placeholder",
-                    effort="placeholder",
-                    fallback=InternalStageSelection(
-                        service="opencode",
-                        model="deepseek-v4-flash",
-                        effort="medium",
-                    ),
+            provider_selection=InternalStageSelection(
+                service="missing",
+                model="placeholder",
+                effort="placeholder",
+                fallback=InternalStageSelection(
+                    service="opencode",
+                    model="deepseek-v4-flash",
+                    effort="medium",
+                    auth=runtime.ProviderAuth(opencode_api_key="api-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="api-key"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
@@ -5055,6 +5079,39 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
         ),
     )
     assert len(adapter.recorded_requests) == 1
+
+
+def test_runtime_client_reachable_fallback_opencode_stage_requires_its_own_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="missing",
+                        model="ignored",
+                        effort="low",
+                        fallback=InternalStageSelection(
+                            service="opencode",
+                            model="kimi-k2.6",
+                            effort="medium",
+                        ),
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="root-only-key"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+
+    assert str(exc_info.value) == "Missing OpenCode API key."
+    assert exc_info.value.service_name == "opencode"
+    assert adapter.recorded_requests == []
 
 
 def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_invocation_seam(
@@ -6417,18 +6474,16 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
             worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="missing",
-                    model="ignored",
-                    effort="low",
-                    fallback=InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
+            provider_selection=InternalStageSelection(
+                service="missing",
+                model="ignored",
+                effort="low",
+                fallback=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                    auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
