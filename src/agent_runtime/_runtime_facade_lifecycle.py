@@ -50,26 +50,9 @@ from .session_planning import (
     ResumableSessionPlanRequest,
     plan_resumable_session,
 )
-from .types import SelectionLike
 from .work import invoke_work
 
 _DEFAULT_RUNTIME_NAME = "Runtime Agent"
-
-
-def _selected_service_path(
-    override: SelectionLike,
-    *,
-    selected_service: str,
-) -> tuple[str, ...]:
-    path: list[str] = []
-    current: SelectionLike | None = override
-    while current is not None:
-        if current.service:
-            path.append(current.service)
-            if current.service == selected_service:
-                return tuple(path)
-        current = current.fallback
-    return (selected_service,)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -297,9 +280,11 @@ async def _run_ephemeral(
     service_registry: ServiceRegistry,
     request: EphemeralRunRequest,
 ) -> EphemeralRunResult:
-    if not service_registry.has_configured_candidate(request.provider_selection):
+    selected_service_name = request.provider_selection.service
+    selected_provider = service_registry[selected_service_name]
+    if selected_provider is None:
         raise RuntimeConfigurationError(
-            "Ephemeral runtime requires at least one configured service candidate."
+            "Ephemeral runtime requires the selected service to be configured."
         )
 
     role = _DEFAULT_EPHEMERAL_ROLE
@@ -309,71 +294,65 @@ async def _run_ephemeral(
         "build_work_dependencies",
     )
 
-    while True:
-        now = _time_module.now_local()
-        if request.token is not None and request.token.is_cancelled:
-            raise AgentCancelledError(
-                invocation_progress=InvocationProgress.NOT_STARTED,
-            )
-        if not service_registry.has_available_for(request.provider_selection, now):
-            next_wake_time = service_registry.next_wake_time_for(
-                request.provider_selection,
-                now,
-            )
-            raise NoServiceAvailableError(reset_time=next_wake_time)
-
-        resolved_override = service_registry.resolve(request.provider_selection, now)
-        resolved_service = resolve_service(resolved_override.service)
-        dependencies = build_work_dependencies(
-            name=_DEFAULT_RUNTIME_NAME,
-            model=resolved_override.model,
-            effort=resolved_override.effort,
-            service=resolved_service,
+    now = _time_module.now_local()
+    if request.token is not None and request.token.is_cancelled:
+        raise AgentCancelledError(
+            invocation_progress=InvocationProgress.NOT_STARTED,
         )
-        raw_output = await _invoke_runtime_intent(
-            _RuntimeIntent(
-                run_session=_build_run_session(
-                    mount_path=request.mount_path,
-                    role=role,
-                    session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
-                    service=resolved_service,
-                    container_workspace=dependencies.execution.container_workspace,
-                ),
-                model=resolved_override.model,
-                effort=resolved_override.effort,
-                output_adapter=TextOutputAdapter(
-                    prompt=request.prompt,
-                    tool_access=request.tool_access,
-                    workspace=request.invocation_dir,
-                ),
-                dependencies=dataclasses.replace(
-                    dependencies,
-                    execution=dataclasses.replace(
-                        dependencies.execution,
-                        prepare_session=lambda _run_session: cast(
-                            Any,
-                            _EphemeralPreparedRunSessionState(),
-                        ),
+    if not selected_provider.is_available(now=now):
+        raise NoServiceAvailableError(reset_time=selected_provider.next_wake_time())
+
+    resolved_service = resolve_service(selected_service_name)
+    dependencies = build_work_dependencies(
+        name=_DEFAULT_RUNTIME_NAME,
+        model=request.provider_selection.model,
+        effort=request.provider_selection.effort,
+        service=resolved_service,
+    )
+    raw_output = await _invoke_runtime_intent(
+        _RuntimeIntent(
+            run_session=_build_run_session(
+                mount_path=request.mount_path,
+                role=role,
+                session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
+                service=resolved_service,
+                container_workspace=dependencies.execution.container_workspace,
+            ),
+            model=request.provider_selection.model,
+            effort=request.provider_selection.effort,
+            output_adapter=TextOutputAdapter(
+                prompt=request.prompt,
+                tool_access=request.tool_access,
+                workspace=request.invocation_dir,
+            ),
+            dependencies=dataclasses.replace(
+                dependencies,
+                execution=dataclasses.replace(
+                    dependencies.execution,
+                    prepare_session=lambda _run_session: cast(
+                        Any,
+                        _EphemeralPreparedRunSessionState(),
                     ),
                 ),
-                presentation=WorkInvocationPresentation(
-                    name=_DEFAULT_RUNTIME_NAME,
-                ),
-                token=request.token,
-            )
-        )
-        return EphemeralRunResult(
-            output=raw_output if isinstance(raw_output, str) else str(raw_output),
-            selected_service=resolved_service.name,
-            selected_model=resolved_override.model,
-            selected_effort=resolved_override.effort,
-            tool_access=request.tool_access,
-            metadata=EphemeralResultMetadata(
-                runtime=EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
-                ),
             ),
+            presentation=WorkInvocationPresentation(
+                name=_DEFAULT_RUNTIME_NAME,
+            ),
+            token=request.token,
         )
+    )
+    return EphemeralRunResult(
+        output=raw_output if isinstance(raw_output, str) else str(raw_output),
+        selected_service=resolved_service.name,
+        selected_model=request.provider_selection.model,
+        selected_effort=request.provider_selection.effort,
+        tool_access=request.tool_access,
+        metadata=EphemeralResultMetadata(
+            runtime=EphemeralRuntimeMetadata(
+                run_kind=RunKind.FRESH,
+            ),
+        ),
+    )
 
 
 async def _run_new_session(
@@ -382,70 +361,47 @@ async def _run_new_session(
     service_registry: ServiceRegistry,
     request: NewSessionRunRequest,
 ) -> SessionRunResult:
-    if not service_registry.has_configured_candidate(request.provider_selection):
+    selected_service_name = request.provider_selection.service
+    selected_provider = service_registry[selected_service_name]
+    if selected_provider is None:
         raise RuntimeConfigurationError(
-            "New-session runtime requires at least one configured service candidate."
+            "New-session runtime requires the selected service to be configured."
         )
-    while True:
-        now = _time_module.now_local()
-        if request.token is not None and request.token.is_cancelled:
-            raise AgentCancelledError(
-                invocation_progress=InvocationProgress.NOT_STARTED,
-            )
-        if not service_registry.has_available_for(request.provider_selection, now):
-            raise NoServiceAvailableError(
-                reset_time=service_registry.next_wake_time_for(
-                    request.provider_selection, now
-                ),
-            )
+    now = _time_module.now_local()
+    if request.token is not None and request.token.is_cancelled:
+        raise AgentCancelledError(
+            invocation_progress=InvocationProgress.NOT_STARTED,
+        )
+    if not selected_provider.is_available(now=now):
+        raise NoServiceAvailableError(reset_time=selected_provider.next_wake_time())
 
-        resolved_override = service_registry.resolve(request.provider_selection, now)
-        resolve_service = _require_execution_adapter_method(runner, "resolve_service")
-        resolved_service = resolve_service(resolved_override.service)
-        session_plan = plan_resumable_session(
-            ResumableSessionPlanRequest(
-                worktree=request.invocation_dir,
-                role=request.role,
-                namespace=request._session_namespace,
-                service=resolved_service,
-                session_store=request.session_store,
-                provider_session_adapter=request.provider_session_adapter,
-            )
+    resolve_service = _require_execution_adapter_method(runner, "resolve_service")
+    resolved_service = resolve_service(selected_service_name)
+    session_plan = plan_resumable_session(
+        ResumableSessionPlanRequest(
+            worktree=request.invocation_dir,
+            role=request.role,
+            namespace=request._session_namespace,
+            service=resolved_service,
+            session_store=request.session_store,
+            provider_session_adapter=request.provider_session_adapter,
         )
-        try:
-            return await _run_resumed_session(
-                runner=runner,
-                request=ResumedSessionRunRequest(
-                    prompt=request.prompt,
-                    invocation_dir=WorktreeMount(request.invocation_dir),
-                    model=resolved_override.model,
-                    effort=resolved_override.effort,
-                    session_plan=session_plan,
-                    tool_access=request.tool_access,
-                    name=request.name,
-                    status_display=request.status_display,
-                    work_body=request.work_body,
-                    token=request.token,
-                ),
-            )
-        except UsageLimitError as exc:
-            if exc.invocation_progress is not InvocationProgress.NOT_STARTED:
-                raise
-            service_registry.mark_exhausted(
-                resolved_override.service,
-                reset_time=exc.reset_time,
-            )
-            exhausted_now = _time_module.now_local()
-            if not service_registry.has_available_for(
-                request.provider_selection, exhausted_now
-            ):
-                raise NoServiceAvailableError(
-                    reset_time=service_registry.next_wake_time_for(
-                        request.provider_selection,
-                        exhausted_now,
-                    ),
-                    invocation_progress=exc.invocation_progress,
-                ) from exc
+    )
+    return await _run_resumed_session(
+        runner=runner,
+        request=ResumedSessionRunRequest(
+            prompt=request.prompt,
+            invocation_dir=WorktreeMount(request.invocation_dir),
+            model=request.provider_selection.model,
+            effort=request.provider_selection.effort,
+            session_plan=session_plan,
+            tool_access=request.tool_access,
+            name=request.name,
+            status_display=request.status_display,
+            work_body=request.work_body,
+            token=request.token,
+        ),
+    )
 
 
 async def _run_resumed_session(

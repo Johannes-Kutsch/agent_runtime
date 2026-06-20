@@ -1086,7 +1086,7 @@ class _UnexpectedFailureResidentExecutionAdapter:
         )
 
 
-def test_new_session_runtime_selects_fallback_service_before_binding_continuation(
+def test_new_session_runtime_requires_selected_configured_service(
     stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
@@ -1097,54 +1097,36 @@ def test_new_session_runtime_selects_fallback_service_before_binding_continuatio
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
-    result = asyncio.run(
-        compat_runtime.NewSessionRuntime(
-            execution_adapter=_RuntimePlannedPathResidentExecutionAdapter(),
-            service_registry=service_registry_factory("claude"),
-        ).run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=WorktreeMount(worktree),
-                provider_selection=stage_selection_factory(
-                    service="missing",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
+    with pytest.raises(runtime.RuntimeConfigurationError):
+        asyncio.run(
+            compat_runtime.NewSessionRuntime(
+                execution_adapter=_RuntimePlannedPathResidentExecutionAdapter(),
+                service_registry=service_registry_factory("claude"),
+            ).run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=WorktreeMount(worktree),
+                    provider_selection=stage_selection_factory(
+                        service="missing",
+                        fallback=stage_selection_factory(
+                            service="claude",
+                            model="sonnet",
+                            effort="high",
+                        ),
                     ),
-                ),
-                role=InvocationRole("implementer"),
-                session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
-                    "claude"
-                ),
-                tool_access=tool_access,
+                    role=InvocationRole("implementer"),
+                    session_namespace="main",
+                    session_store=session_store_factory(),
+                    provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                        "claude"
+                    ),
+                    tool_access=tool_access,
+                )
             )
         )
-    )
-
-    assert (
-        result.output
-        == "resume:prepared:recovered-claude:/workspace/claude-runtime-state/"
-    )
-    assert isinstance(result.result, prompt_runtime.SessionRunResult)
-    assert result.result.runtime_metadata.service_name == "claude"
-    assert result.result.continuation == prompt_runtime.Continuation(
-        selected_service="claude",
-        selected_model="sonnet",
-        selected_effort="high",
-        tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "prepared:recovered-claude",
-            "provider_state_dir_relpath": "claude-runtime-state/",
-            "exact_transcript_match": False,
-        },
-    )
 
 
-def test_new_session_runtime_retries_fallback_before_binding_continuation(
+def test_new_session_runtime_reports_selected_usage_limit_without_fallback(
     stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
@@ -1186,34 +1168,14 @@ def test_new_session_runtime_retries_fallback_before_binding_continuation(
 
     _assert_runtime_outcome(
         result,
-        prompt_runtime.RuntimeOutcome.completed(
-            output="resume:prepared:recovered-claude:/workspace/claude-runtime-state/",
-            result=prompt_runtime.SessionRunResult(
-                output="resume:prepared:recovered-claude:/workspace/claude-runtime-state/",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                    service_name="claude",
-                    provider_session_id="prepared:recovered-claude",
-                    run_kind=RunKind.RESUME,
-                    session_namespace="main",
-                    exact_transcript_match=False,
-                ),
-            ),
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            invocation_progress=runtime.InvocationProgress.NOT_STARTED,
         ),
     )
-    assert result.result is not None
-    assert isinstance(result.result, prompt_runtime.SessionRunResult)
-    assert result.result.continuation == prompt_runtime.Continuation(
-        selected_service="claude",
-        selected_model="sonnet",
-        selected_effort="high",
-        tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "prepared:recovered-claude",
-            "provider_state_dir_relpath": "claude-runtime-state/",
-            "exact_transcript_match": False,
-        },
-    )
+    assert result.continuation is None
 
 
 def test_new_session_runtime_keeps_started_usage_limit_outcome(
@@ -1437,7 +1399,7 @@ def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
     )
 
 
-def test_new_session_runtime_reports_not_started_progress_without_continuation(
+def test_new_session_runtime_keeps_not_started_usage_limit_without_continuation(
     stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
     session_store_factory: Callable[..., _SessionStore],
@@ -1474,8 +1436,9 @@ def test_new_session_runtime_reports_not_started_progress_without_continuation(
 
     _assert_runtime_outcome(
         result,
-        prompt_runtime.RuntimeOutcome.no_service_available(
+        prompt_runtime.RuntimeOutcome.usage_limited(
             output="",
+            service_name="codex",
             reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
             invocation_progress=runtime.InvocationProgress.NOT_STARTED,
         ),

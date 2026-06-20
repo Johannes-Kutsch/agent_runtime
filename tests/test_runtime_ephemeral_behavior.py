@@ -2829,32 +2829,31 @@ def test_ephemeral_runtime_runs_prompt_without_preparing_or_returning_continuati
     assert not hasattr(result.result, "continuation")
 
 
-def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_outcome(
+def test_ephemeral_runtime_requires_selected_configured_service(
     stage_selection_factory: Callable[..., runtime.ProviderSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
 ) -> None:
-    result = asyncio.run(
-        compat_runtime.EphemeralRuntime(
-            execution_adapter=_EphemeralExecutionAdapter(),
-            service_registry=service_registry_factory("codex", "claude"),
-        ).run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=Path("."),
-                provider_selection=stage_selection_factory(
-                    service="missing",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
+    with pytest.raises(runtime.RuntimeConfigurationError):
+        asyncio.run(
+            compat_runtime.EphemeralRuntime(
+                execution_adapter=_EphemeralExecutionAdapter(),
+                service_registry=service_registry_factory("codex", "claude"),
+            ).run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=Path("."),
+                    provider_selection=stage_selection_factory(
+                        service="missing",
+                        fallback=stage_selection_factory(
+                            service="claude",
+                            model="sonnet",
+                            effort="high",
+                        ),
                     ),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
-    )
-
-    assert result.selected_service == "claude"
 
 
 def test_ephemeral_runtime_applies_runtime_setup_failure_translation(
@@ -2924,6 +2923,7 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
             execution_adapter=_EphemeralExecutionAdapter(),
             service_registry=service_registry_factory(
                 "codex",
+                "claude",
                 unavailable={"codex"},
             ),
         ).run_ephemeral(
@@ -2934,6 +2934,11 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
                     service="codex",
                     model="gpt-5",
                     effort="medium",
+                    fallback=stage_selection_factory(
+                        service="claude",
+                        model="sonnet",
+                        effort="high",
+                    ),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
