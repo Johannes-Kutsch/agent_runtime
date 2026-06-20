@@ -111,12 +111,62 @@ def test_live_smoke_model_and_effort_resolve_from_cli_and_env_without_defaults(
         claude_code_oauth_token="token",
         env={},
     )
-    assert without_defaults[0].model == ""
-    assert without_defaults[0].effort == ""
+    assert without_defaults[0].model == "haiku"
+    assert without_defaults[0].effort == "low"
     assert (
-        without_defaults[0].status
-        is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+        without_defaults[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
     )
+
+
+def test_live_smoke_credentialed_provider_without_overrides_resolves_claude_defaults(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection("claude")
+    planned = module.plan_selected_providers(
+        parsed,
+        env={},
+        claude_code_oauth_token="token",
+    )
+
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+    assert planned[0].model == "haiku"
+    assert planned[0].effort == "low"
+
+
+def test_live_smoke_credentialed_provider_without_overrides_resolves_codex_defaults(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection("codex")
+    planned = module.plan_selected_providers(
+        parsed,
+        env={},
+        codex_auth_present=True,
+    )
+
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+    assert planned[0].model == "gpt-5.4-mini"
+    assert planned[0].effort == "low"
+
+
+def test_live_smoke_credentialed_provider_without_overrides_resolves_opencode_defaults(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection("opencode")
+    planned = module.plan_selected_providers(
+        parsed,
+        env={},
+        opencode_api_key="opencode-key",
+    )
+
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+    assert planned[0].model == "deepseek-v4-flash"
+    assert planned[0].effort == "medium"
 
 
 def test_live_smoke_planning_uses_explicit_env_mapping_for_resolution_and_config(
@@ -135,8 +185,8 @@ def test_live_smoke_planning_uses_explicit_env_mapping_for_resolution_and_config
         selected,
         env={},
     )
-    assert isolated[0].model == ""
-    assert isolated[0].effort == ""
+    assert isolated[0].model == "haiku"
+    assert isolated[0].effort == "low"
     assert isolated[0].status is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
 
     planned = module.plan_selected_providers(
@@ -150,6 +200,71 @@ def test_live_smoke_planning_uses_explicit_env_mapping_for_resolution_and_config
     assert planned[0].model == "env-model"
     assert planned[0].effort == "env-effort"
     assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+
+
+def test_live_smoke_dry_run_defaults_propagate_to_provider_plans_and_cases(
+    planning_module: Any,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    summary = module.build_dry_run_plan(
+        provider_selection=("claude", "codex", "opencode"),
+        lifecycle_modes=("ephemeral",),
+        run_id="defaults-echo",
+        claude_code_oauth_token="token",
+        opencode_api_key="opencode-key",
+        codex_auth_present=True,
+        artifact_root=tmp_path / "live-smoke-artifacts",
+    )
+
+    expected = {
+        "claude": ("haiku", "low"),
+        "codex": ("gpt-5.4-mini", "low"),
+        "opencode": ("deepseek-v4-flash", "medium"),
+    }
+    plans_by_service = {plan.service: plan for plan in summary.provider_plans}
+    cases_by_service = {case.service: case for case in summary.cases}
+
+    assert set(plans_by_service) == set(expected)
+    for service, (model, effort) in expected.items():
+        provider_plan = plans_by_service[service]
+        assert provider_plan.status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+        assert provider_plan.model == model
+        assert provider_plan.effort == effort
+        case = cases_by_service[service]
+        assert case.model == provider_plan.model
+        assert case.effort == provider_plan.effort
+
+
+def test_live_smoke_defaults_are_documented_with_verification_date(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    from agent_runtime import _builtin_runtime_client as runtime_client
+
+    assert module.LIVE_SMOKE_DEFAULTS == {
+        "claude": ("haiku", "low"),
+        "codex": ("gpt-5.4-mini", "low"),
+        "opencode": ("deepseek-v4-flash", "medium"),
+    }
+    assert module.LIVE_SMOKE_DEFAULTS_VERIFIED_ON == "2026-06-20"
+    assert (
+        module.LIVE_SMOKE_DEFAULTS["claude"][0] in runtime_client._CLAUDE_VALID_MODELS
+    )
+    assert (
+        module.LIVE_SMOKE_DEFAULTS["claude"][1] in runtime_client._CLAUDE_VALID_EFFORTS
+    )
+    assert module.LIVE_SMOKE_DEFAULTS["codex"][0] in runtime_client._CODEX_VALID_MODELS
+    assert module.LIVE_SMOKE_DEFAULTS["codex"][1] in runtime_client._CODEX_VALID_EFFORTS
+    assert (
+        module.LIVE_SMOKE_DEFAULTS["opencode"][0] in runtime_client._OPENCODE_GO_MODELS
+    )
+    assert (
+        module.LIVE_SMOKE_DEFAULTS["opencode"][1]
+        in runtime_client._OPENCODE_VALID_EFFORTS
+    )
 
 
 def test_live_smoke_run_id_is_generated_when_missing_and_path_safe_when_supplied(

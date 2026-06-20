@@ -46,6 +46,12 @@ LIVE_SMOKE_CODEX_MODEL_ENV = "LIVE_SMOKE_CODEX_MODEL"
 LIVE_SMOKE_CODEX_EFFORT_ENV = "LIVE_SMOKE_CODEX_EFFORT"
 LIVE_SMOKE_OPENCODE_MODEL_ENV = "LIVE_SMOKE_OPENCODE_MODEL"
 LIVE_SMOKE_OPENCODE_EFFORT_ENV = "LIVE_SMOKE_OPENCODE_EFFORT"
+LIVE_SMOKE_DEFAULTS_VERIFIED_ON = "2026-06-20"
+LIVE_SMOKE_DEFAULTS: dict[str, tuple[str, str]] = {
+    "claude": ("haiku", "low"),
+    "codex": ("gpt-5.4-mini", "low"),
+    "opencode": ("deepseek-v4-flash", "medium"),
+}
 
 _PROVIDER_MODEL_ENV_BY_SERVICE = {
     "claude": LIVE_SMOKE_CLAUDE_MODEL_ENV,
@@ -583,6 +589,10 @@ def resolve_model_and_effort(
         if cli_effort
         else env_map.get(_PROVIDER_EFFORT_ENV_BY_SERVICE[provider], "")
     )
+    if not model and not cli_model:
+        model = LIVE_SMOKE_DEFAULTS[provider][0]
+    if not effort and not cli_effort:
+        effort = LIVE_SMOKE_DEFAULTS[provider][1]
     return model, effort
 
 
