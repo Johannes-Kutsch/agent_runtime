@@ -57,8 +57,6 @@ class ProviderInvocationLogContext:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationRequest:
-    command: str | None = None
-    argv: tuple[str, ...] | None = None
     worktree: Path
     environment: Mapping[str, str]
     prompt: ProviderInvocationPrompt
@@ -68,16 +66,20 @@ class ProviderInvocationRequest:
     log_context: ProviderInvocationLogContext | None
     provider_session_id: str | None
     output_hooks: ProviderOutputReductionHooks
+    command: str = ""
+    argv: tuple[str, ...] = ()
+    prefer_argv: bool = False
 
     def __post_init__(self) -> None:
-        if self.argv is None and self.command is None:
+        if not self.argv and not self.command:
             raise ValueError("ProviderInvocationRequest requires command or argv")
-        elif self.command is None:
+        if not self.command:
             object.__setattr__(
                 self,
                 "command",
                 " ".join(shlex.quote(arg) for arg in self.argv),
             )
+            object.__setattr__(self, "prefer_argv", True)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -139,13 +141,7 @@ class ProductionProviderInvocationAdapter:
         if prompt_path is not None:
             prompt_path.write_text(request.prompt.content, encoding="utf-8")
 
-        invocation_command: tuple[str, ...] | str
-        use_shell = False
-        if request.argv:
-            invocation_command = request.argv
-        else:
-            invocation_command = request.command
-            use_shell = True
+        use_shell = not (request.prefer_argv and request.argv)
 
         work_invocation_context = (
             nullcontext()
@@ -161,21 +157,33 @@ class ProductionProviderInvocationAdapter:
 
         try:
             with work_invocation_context as work_invocation_log:
-                popen_kwargs: dict[str, object] = {
-                    "shell": use_shell,
-                    "cwd": request.worktree,
-                    "env": dict(request.environment),
-                    "stdout": subprocess.PIPE,
-                    "stderr": subprocess.PIPE,
-                    "text": True,
-                }
+                environment = dict(request.environment)
+                if use_shell:
+                    process = subprocess.Popen(
+                        request.command,
+                        shell=True,
+                        cwd=request.worktree,
+                        env=environment,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                else:
+                    process = subprocess.Popen(
+                        request.argv,
+                        shell=False,
+                        stdin=subprocess.PIPE,
+                        cwd=request.worktree,
+                        env=environment,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
                 if not use_shell:
-                    popen_kwargs["stdin"] = subprocess.PIPE
-                process = subprocess.Popen(invocation_command, **popen_kwargs)
-                if not use_shell:
-                    assert process.stdin is not None
-                    process.stdin.write(request.prompt.content)
-                    process.stdin.close()
+                    process_stdin = getattr(process, "stdin", None)
+                    if process_stdin is not None:
+                        process_stdin.write(request.prompt.content)
+                        process_stdin.close()
                 stdout_lines: list[str] = []
                 if process.stdout is not None:
                     for line in process.stdout:

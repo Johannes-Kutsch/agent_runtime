@@ -3465,6 +3465,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
 ) -> None:
     class _ClaudeProcess:
         def __init__(self) -> None:
+            self.stdin = None
             self.stdout = iter(
                 [
                     json.dumps(
@@ -3567,6 +3568,7 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
 ) -> None:
     class _ClaudeProcess:
         def __init__(self) -> None:
+            self.stdin = None
             self.stdout = iter(
                 [
                     json.dumps(
@@ -3726,6 +3728,19 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
         "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
         "-c approval_policy=never --sandbox read-only "
         "--json < /tmp/.pycastle_prompt"
+    )
+    assert recorded_request.argv == (
+        "codex",
+        "exec",
+        "-m",
+        "gpt-5.4",
+        "-c",
+        "model_reasoning_effort=medium",
+        "-c",
+        "approval_policy=never",
+        "--sandbox",
+        "read-only",
+        "--json",
     )
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'

@@ -301,19 +301,7 @@ def _claude_command(
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
 ) -> tuple[str, ...]:
-    if isinstance(tool_access.tool_policy, ToolPolicy):
-        if tool_access.tool_policy is ToolPolicy.NONE:
-            profile = ToolPolicyProfile(disallowed_tools=("all",))
-        elif tool_access.tool_policy is ToolPolicy.INSPECT_ONLY:
-            profile = ToolPolicyProfile(allowed_tools=("Read", "Glob"))
-        elif tool_access.tool_policy is ToolPolicy.NO_FILE_MUTATION:
-            profile = ToolPolicyProfile(
-                disallowed_tools=("Edit", "Write", "NotebookEdit")
-            )
-        else:
-            profile = ToolPolicyProfile()
-    else:
-        profile = tool_access.tool_policy
+    profile = _claude_tool_policy_profile(tool_access)
     flags = [
         "--verbose",
         "--dangerously-skip-permissions",
@@ -329,7 +317,13 @@ def _claude_command(
     if profile.disallowed_tools:
         flags.extend(["--disallowedTools", " ".join(profile.disallowed_tools)])
     if profile.strict_mcp_config:
-        flags.extend(["--strict-mcp-config", '{"mcpServers":{}}'])
+        flags.extend(
+            [
+                "--strict-mcp-config",
+                "--mcp-config",
+                '{"mcpServers":{}}',
+            ]
+        )
     if model:
         flags.extend(["--model", model])
     if effort:
@@ -340,6 +334,50 @@ def _claude_command(
         else:
             flags.extend(["--session-id", session_uuid])
     return ("claude", *flags)
+
+
+def _claude_tool_policy_profile(tool_access: ToolAccess) -> ToolPolicyProfile:
+    if isinstance(tool_access.tool_policy, ToolPolicy):
+        if tool_access.tool_policy is ToolPolicy.NONE:
+            return ToolPolicyProfile(disallowed_tools=("all",))
+        if tool_access.tool_policy is ToolPolicy.INSPECT_ONLY:
+            return ToolPolicyProfile(allowed_tools=("Read", "Glob"))
+        if tool_access.tool_policy is ToolPolicy.NO_FILE_MUTATION:
+            return ToolPolicyProfile(disallowed_tools=("Edit", "Write", "NotebookEdit"))
+        return ToolPolicyProfile()
+    return tool_access.tool_policy
+
+
+def _claude_legacy_command_text(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    prompt_path: Path,
+    run_kind: RunKind = RunKind.FRESH,
+    session_uuid: str | None = None,
+) -> str:
+    profile = _claude_tool_policy_profile(tool_access)
+    flags = (
+        "--verbose --dangerously-skip-permissions --output-format stream-json -p -"
+        " --disable-slash-commands --exclude-dynamic-system-prompt-sections"
+    )
+    if profile.allowed_tools is not None:
+        flags += f" --tools {shlex.quote(' '.join(profile.allowed_tools))}"
+    if profile.disallowed_tools:
+        flags += f' --disallowedTools "{" ".join(profile.disallowed_tools)}"'
+    if profile.strict_mcp_config:
+        flags += " --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'"
+    if model:
+        flags += f" --model {model}"
+    if effort:
+        flags += f" --effort {effort}"
+    if session_uuid:
+        if run_kind == RunKind.RESUME:
+            flags += f" --resume {shlex.quote(session_uuid)}"
+        else:
+            flags += f" --session-id {shlex.quote(session_uuid)}"
+    return f"claude {flags} < {shlex.quote(str(prompt_path))}"
 
 
 def _claude_env(
@@ -1971,15 +2009,13 @@ def _invoke_claude_new_session_provider(
 ) -> ProviderInvocationResult:
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_legacy_command_text(
-            _claude_command(
+        command=_claude_legacy_command_text(
             model=stage.model,
             effort=stage.effort,
             tool_access=request.tool_access,
+            prompt_path=request.invocation_dir / ".pycastle_prompt",
             run_kind=run_kind,
             session_uuid=provider_session_id,
-            ),
-            request.invocation_dir / ".pycastle_prompt",
         ),
         command_argv=_claude_command(
             model=stage.model,
@@ -2335,9 +2371,12 @@ def _run_builtin_ephemeral(
         )
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
-            command=_legacy_command_text(
-                command_argv,
-                prompt_path,
+            command=_claude_legacy_command_text(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                tool_access=request.tool_access,
+                prompt_path=prompt_path,
+                run_kind=RunKind.FRESH,
             ),
             command_argv=command_argv,
             worktree=request.invocation_dir,
@@ -2979,7 +3018,14 @@ def _run_builtin_resumed_session(
                 run_kind=run_kind,
                 session_uuid=provider_session_id,
             )
-            command = _legacy_command_text(command_argv, prompt_path)
+            command = _claude_legacy_command_text(
+                model=request.model,
+                effort=request.effort,
+                tool_access=request.tool_access,
+                prompt_path=prompt_path,
+                run_kind=run_kind,
+                session_uuid=provider_session_id,
+            )
             environment = _claude_env(
                 auth=request.provider_auth,
                 state_dir_container_path=(

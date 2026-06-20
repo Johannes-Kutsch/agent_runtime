@@ -244,7 +244,6 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         "extract_provider_session_id",
     ]
     assert [field.name for field in fields(request)] == [
-        "command",
         "worktree",
         "environment",
         "prompt",
@@ -254,6 +253,9 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         "log_context",
         "provider_session_id",
         "output_hooks",
+        "command",
+        "argv",
+        "prefer_argv",
     ]
     assert [field.name for field in fields(result)] == [
         "output",
