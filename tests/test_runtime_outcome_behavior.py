@@ -11,7 +11,7 @@ import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider
-from agent_runtime.execution_contracts import (
+from agent_runtime._execution_contracts import (
     PreparedRunSessionState,
     WorkExecutionAdapter,
     WorkExecutionDependencies,
@@ -21,7 +21,7 @@ from agent_runtime.execution_contracts import (
 )
 from agent_runtime.roles import InvocationRole
 from agent_runtime.usage_limit_scope import UsageLimitScope
-from agent_runtime.service_registry import ServiceRegistry
+from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import RunKind
 
 from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionService

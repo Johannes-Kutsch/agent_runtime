@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
-from .execution_contracts import CancellationToken, WorktreeMount
+from ._execution_contracts import CancellationToken, WorktreeMount
 from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
 from ._request_normalization import (
@@ -17,7 +17,6 @@ from ._request_normalization import (
     normalize_session_plan_request,
     require_invocation_role,
 )
-from .provider_session_adapter import ProviderSessionAdapter
 from .roles import InvocationRole
 from .session import RunKind
 from .session_planning import ResumableSessionPlan
@@ -570,8 +569,6 @@ class NewSessionRunRequest:
     invocation_dir: Path
     provider_selection: ProviderSelection
     role: InvocationRole
-    session_store: Any
-    provider_session_adapter: ProviderSessionAdapter
     tool_access: ToolAccess
     name: str = "Runtime Agent"
     status_display: Any = None
@@ -589,8 +586,6 @@ class NewSessionRunRequest:
         invocation_dir: Path | WorktreeMount | None = None,
         provider_selection: ProviderSelection | None = None,
         role: InvocationRole | None = None,
-        session_store: Any | None = None,
-        provider_session_adapter: ProviderSessionAdapter | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         _runtime_state_dir: Path | None = None,
@@ -654,12 +649,6 @@ class NewSessionRunRequest:
             normalized_request.provider_selection,
         )
         object.__setattr__(self, "role", normalized_request.role)
-        object.__setattr__(self, "session_store", session_store)
-        object.__setattr__(
-            self,
-            "provider_session_adapter",
-            provider_session_adapter,
-        )
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(
             self, "_session_namespace", normalized_request.session_namespace
@@ -902,8 +891,6 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "invocation_dir",
     "provider_selection",
     "role",
-    "session_store",
-    "provider_session_adapter",
     "tool_policy",
     "name",
     "status_display",

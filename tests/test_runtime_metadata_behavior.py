@@ -15,7 +15,7 @@ from agent_runtime.errors import (
     TransientAgentError,
     UsageLimitError,
 )
-from agent_runtime.execution_contracts import PromptRunSession
+from agent_runtime._execution_contracts import PromptRunSession
 from agent_runtime.roles import InvocationRole
 from agent_runtime.usage_limit_scope import UsageLimitScope
 from agent_runtime.session import RunKind

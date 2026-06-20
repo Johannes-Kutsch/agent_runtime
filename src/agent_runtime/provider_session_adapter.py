@@ -1,61 +1,10 @@
 from __future__ import annotations
 
-import dataclasses
-from pathlib import Path
-from typing import Protocol
-
-from .contracts import ProviderStatePreparationAction
-from .identity import validate_session_namespace
-from .roles import InvocationRole
-from .session import ProviderSessionState, ProviderSessionStateRequest, SessionStore
+__all__: list[str] = []
 
 
-@dataclasses.dataclass(frozen=True)
-class ProviderSessionPlanningRequest:
-    worktree: Path
-    role: InvocationRole
-    namespace: str
-
-    def __post_init__(self) -> None:
-        validate_session_namespace(self.namespace)
-
-
-@dataclasses.dataclass(frozen=True)
-class ProviderSessionPlanningFacts:
-    state_dir_relpath: str | None
-    provider_state_dir: Path | None
-    has_resumable_provider_state: bool
-
-
-class ProviderSessionAdapter(Protocol):
-    @property
-    def service_name(self) -> str: ...
-
-    def provider_session_planning_facts(
-        self, request: ProviderSessionPlanningRequest
-    ) -> ProviderSessionPlanningFacts: ...
-
-    def provider_session_state(
-        self, request: ProviderSessionStateRequest
-    ) -> ProviderSessionState: ...
-
-    def prepare_local_provider_run_state(
-        self,
-        provider_state_dir: Path | None,
-        auth_seed_action: ProviderStatePreparationAction | None = None,
-    ) -> None: ...
-
-    def record_provider_session_id(
-        self,
-        *,
-        session_store: SessionStore,
-        provider_session_id: str,
-        service_state_dir: Path | None = None,
-    ) -> None: ...
-
-
-__all__ = [
-    "ProviderSessionAdapter",
-    "ProviderSessionPlanningFacts",
-    "ProviderSessionPlanningRequest",
-]
+def __getattr__(name: str) -> object:
+    raise AttributeError(
+        f"{name} is not part of the Runtime Consumer Surface; "
+        "provider-session adapter seams are internal runtime details."
+    )

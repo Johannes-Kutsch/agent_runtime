@@ -11,9 +11,9 @@ import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider, ServiceSelectionProvider
-from agent_runtime.execution_contracts import PromptRunRequest, WorktreeMount
+from agent_runtime._execution_contracts import PromptRunRequest, WorktreeMount
 from agent_runtime.roles import InvocationRole
-from agent_runtime.service_registry import ServiceRegistry
+from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.types import StageSelection as InternalStageSelection
 
 from tests.runtime_boundary_fakes import (

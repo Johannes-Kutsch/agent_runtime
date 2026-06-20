@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from .contracts import ExecutionProvider
-from .execution_contracts import (
+from ._execution_contracts import (
     CancellationToken,
     PreparedProviderRunSession,
     PreparedRunSessionState,

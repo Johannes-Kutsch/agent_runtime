@@ -13,7 +13,7 @@ from agent_runtime._portable_continuation_payload import (
     create_portable_continuation_payload,
 )
 from agent_runtime.contracts import ExecutionProvider
-from agent_runtime.execution_contracts import WorktreeMount
+from agent_runtime._execution_contracts import WorktreeMount
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
 from agent_runtime.session_planning import (

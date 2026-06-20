@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from . import _time as _time_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from .contracts import ToolPolicy
-from .execution_contracts import (
+from ._execution_contracts import (
     PromptRunRequest as _PromptRunRequest,
     PromptRuntimeExecutionAdapter as _PromptRuntimeExecutionAdapter,
     TextOutputAdapter,
@@ -38,7 +38,7 @@ from ._runtime_lifecycle import (
     SessionRunResult,
     SessionRuntimeMetadata,
 )
-from .service_registry import ServiceRegistry
+from ._service_registry import ServiceRegistry
 from .types import ProviderSelection
 
 if TYPE_CHECKING:

@@ -11,10 +11,10 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
-import agent_runtime.execution_contracts as execution_contracts_runtime
+import agent_runtime._execution_contracts as execution_contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider
-from agent_runtime.execution_contracts import WorktreeMount
+from agent_runtime._execution_contracts import WorktreeMount
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
 from agent_runtime.usage_limit_scope import UsageLimitScope
@@ -77,6 +77,14 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
     assert (
         "on_live_output"
         in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+    )
+    assert (
+        "session_store"
+        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+    )
+    assert (
+        "provider_session_adapter"
+        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
     )
 
 
@@ -377,6 +385,14 @@ def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
         "session_namespace"
         not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
     )
+    assert (
+        "session_store"
+        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+    )
+    assert (
+        "provider_session_adapter"
+        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+    )
 
 
 @pytest.mark.parametrize("removed_name", ["stage", "override"])
@@ -525,6 +541,38 @@ def test_new_session_run_request_rejects_caller_provided_usage_limit_scope() -> 
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
             usage_limit_scope=UsageLimitScope("review"),
+        )
+
+
+@pytest.mark.parametrize(
+    "removed_name",
+    [
+        "session_store",
+        "provider_session_adapter",
+        "_session_store",
+        "_provider_session_adapter",
+    ],
+)
+def test_new_session_run_request_rejects_consumer_adapter_injection_kwargs(
+    removed_name: str,
+) -> None:
+    with pytest.raises(
+        TypeError,
+        match=(
+            f"NewSessionRunRequest got an unexpected keyword argument '{removed_name}'."
+        ),
+    ):
+        cast(Any, prompt_runtime.NewSessionRunRequest)(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="high",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            **{removed_name: object()},
         )
 
 

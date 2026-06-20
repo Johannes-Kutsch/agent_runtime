@@ -14,7 +14,7 @@ from .types import (
 
 if TYPE_CHECKING:
     from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
-    from .execution_contracts import WorktreeMount
+    from ._execution_contracts import WorktreeMount
 
 
 @dataclasses.dataclass(frozen=True)
@@ -94,7 +94,7 @@ def normalize_session_namespace(session_namespace: str) -> str:
 
 
 def normalize_worktree_path(worktree: Path | WorktreeMount) -> Path:
-    from .execution_contracts import WorktreeMount
+    from ._execution_contracts import WorktreeMount
 
     if isinstance(worktree, WorktreeMount):
         return worktree.host_path
@@ -102,7 +102,7 @@ def normalize_worktree_path(worktree: Path | WorktreeMount) -> Path:
 
 
 def normalize_worktree_mount(worktree: Path | WorktreeMount) -> WorktreeMount:
-    from .execution_contracts import WorktreeMount
+    from ._execution_contracts import WorktreeMount
 
     if isinstance(worktree, WorktreeMount):
         return worktree
