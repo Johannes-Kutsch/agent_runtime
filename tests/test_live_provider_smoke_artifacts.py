@@ -5,7 +5,6 @@ import asyncio
 import io
 import json
 import subprocess
-import os
 import sys
 from contextlib import redirect_stdout
 from dataclasses import dataclass
@@ -1511,6 +1510,8 @@ def test_live_smoke_cli_help_is_invokable(smoke_module: object) -> None:
 
     assert excinfo.value.code == 0
     assert parser_help.strip()
+    assert "--dry-run" not in parser_help
+    assert "--list-providers" not in parser_help
 
 
 def test_live_smoke_direct_help_invocation_succeeds_and_skips_default_artifacts(
@@ -1528,7 +1529,7 @@ def test_live_smoke_direct_help_invocation_succeeds_and_skips_default_artifacts(
     assert not (tmp_path / "live-smoke-artifacts").exists()
 
 
-def test_live_smoke_direct_list_providers_invocation_uses_process_args_and_skips_runs(
+def test_live_smoke_direct_list_providers_invocation_is_rejected(
     tmp_path: Path,
 ) -> None:
     proc = subprocess.run(
@@ -1538,104 +1539,63 @@ def test_live_smoke_direct_list_providers_invocation_uses_process_args_and_skips
         text=True,
     )
 
-    output_lines = proc.stdout.splitlines()
-    assert proc.returncode == 0
-    assert any(line.startswith("claude: ") for line in output_lines)
-    assert any(line.startswith("codex: ") for line in output_lines)
-    assert any(line.startswith("opencode: ") for line in output_lines)
-    assert "Preserve artifacts with care" in proc.stdout
+    assert proc.returncode != 0
+    assert "unrecognized arguments: --list-providers" in proc.stderr
     assert not (tmp_path / "live-smoke-artifacts").exists()
 
 
-def test_live_smoke_direct_dry_run_invocation_honors_process_argv_and_json_output(
+def test_live_smoke_direct_dry_run_invocation_is_rejected(
     tmp_path: Path,
 ) -> None:
-    env = dict(os.environ)
-    env.update(
-        {
-            "CLAUDE_CODE_OAUTH_TOKEN": "ci-token",
-            "LIVE_SMOKE_CLAUDE_MODEL": "sonnet",
-            "LIVE_SMOKE_CLAUDE_EFFORT": "low",
-        }
-    )
     proc = subprocess.run(
         [
             sys.executable,
             str(SCRIPT_PATH),
             "--dry-run",
-            "--json",
             "--provider",
             "claude",
             "--mode",
             "new_session",
-            "--model",
-            "claude=custom-sonnet",
-            "--effort",
-            "claude=high",
-            "--run-id",
-            "direct-dry-run",
         ],
         cwd=tmp_path,
-        env=env,
         capture_output=True,
         text=True,
     )
 
-    assert proc.returncode == 0
-    payload = json.loads(proc.stdout)
-    assert payload["run_id"] == "direct-dry-run"
-    assert payload["providers"][0]["service"] == "claude"
-    assert payload["providers"][0]["model"] == "custom-sonnet"
-    assert payload["providers"][0]["effort"] == "high"
-    assert payload["cases"][0]["mode"] == "new_session"
-    assert payload["cases"][0]["model"] == "custom-sonnet"
-    assert payload["cases"][0]["effort"] == "high"
+    assert proc.returncode != 0
+    assert "unrecognized arguments: --dry-run" in proc.stderr
     assert not (tmp_path / "live-smoke-artifacts").exists()
 
 
-def test_live_smoke_cli_dry_run_json_artifact_paths_use_forward_slashes_portably(
-    smoke_module: object,
+def test_live_smoke_explicit_provider_config_error_reports_missing_setup_on_run(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    module: Any = smoke_module
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        module.live_provider_smoke_plan,
-        "detect_codex_auth_present",
-        lambda: True,
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--provider",
+            "claude",
+            "--mode",
+            "ephemeral",
+            "--json",
+            "--run-id",
+            "missing-setup-run",
+            "--artifact-root",
+            str(tmp_path / "missing-setup-artifacts"),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
     )
 
-    output = io.StringIO()
-    with redirect_stdout(output):
-        exit_code = module.main(
-            [
-                "--dry-run",
-                "--json",
-                "--provider",
-                "codex",
-                "--mode",
-                "ephemeral",
-                "--run-id",
-                "portable-dry-run",
-                "--model",
-                "codex=codex-mini",
-                "--effort",
-                "codex=high",
-                "--artifact-root",
-                r"portable\artifacts",
-            ]
-        )
+    payload = json.loads(proc.stdout)
 
-    payload = module.json.loads(output.getvalue())
-
-    assert exit_code == 0
-    assert payload["artifact_root"] == "portable/artifacts"
-    assert (
-        payload["cases"][0]["artifact_path"]
-        == "portable/artifacts/portable-dry-run/codex/ephemeral/default"
-    )
-    assert not (tmp_path / r"portable\artifacts").exists()
+    assert proc.returncode == 1
+    assert payload["run_id"] == "missing-setup-run"
+    assert payload["provider_plans"][0]["status"] == "config_error"
+    assert payload["cases"] == []
+    assert any("provider not configured" in warning for warning in payload["warnings"])
 
 
 def test_live_smoke_cli_default_console_output_reports_provider_mode_and_artifacts(
