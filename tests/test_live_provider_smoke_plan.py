@@ -328,6 +328,40 @@ def test_live_smoke_missing_whitespace_credentials_name_missing_key(
     assert planned[0].reason == f"missing {env_key}"
 
 
+@pytest.mark.parametrize(
+    ("provider", "env_key", "auth_kwargs"),
+    (
+        (
+            "claude",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            {"claude_code_oauth_token": "   "},
+        ),
+        (
+            "opencode",
+            "OPENCODE_GO_API_KEY",
+            {"opencode_api_key": ""},
+        ),
+    ),
+)
+def test_live_smoke_explicit_blank_credential_does_not_fall_back_to_env(
+    planning_module: Any,
+    provider: str,
+    env_key: str,
+    auth_kwargs: dict[str, str],
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection(provider)
+    planned = module.plan_selected_providers(
+        parsed,
+        env={env_key: "credential-from-env"},
+        **auth_kwargs,
+    )
+
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+    assert planned[0].reason == f"missing {env_key}"
+
+
 def test_live_smoke_explicit_provider_missing_claude_credentials_is_not_runnable(
     planning_module: Any,
 ) -> None:

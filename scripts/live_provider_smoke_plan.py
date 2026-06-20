@@ -638,13 +638,19 @@ def _provider_runtime_config_error_reason(
 ) -> str | None:
     env_map = _resolve_env_map(env)
     if provider == "claude":
-        if (
-            claude_code_oauth_token or env_map.get(_PROVIDER_CLAUDE_TOKEN_ENV, "")
-        ).strip():
+        token = _resolve_explicit_or_env_value(
+            explicit_value=claude_code_oauth_token,
+            env_value=env_map.get(_PROVIDER_CLAUDE_TOKEN_ENV, ""),
+        )
+        if token.strip():
             return None
         return f"missing {_PROVIDER_CLAUDE_TOKEN_ENV}"
     if provider == "opencode":
-        if (opencode_api_key or env_map.get(_PROVIDER_OPENCODE_ENV, "")).strip():
+        api_key = _resolve_explicit_or_env_value(
+            explicit_value=opencode_api_key,
+            env_value=env_map.get(_PROVIDER_OPENCODE_ENV, ""),
+        )
+        if api_key.strip():
             return None
         return f"missing {_PROVIDER_OPENCODE_ENV}"
     if provider == "codex":
@@ -662,6 +668,14 @@ def detect_codex_auth_present() -> bool:
 
 def _resolve_env_map(env: Mapping[str, str] | None) -> Mapping[str, str]:
     return os.environ if env is None else env
+
+
+def _resolve_explicit_or_env_value(
+    *, explicit_value: str | None, env_value: str
+) -> str:
+    if explicit_value is not None:
+        return explicit_value
+    return env_value
 
 
 def plan_selected_providers(
@@ -730,19 +744,6 @@ def _plan_provider(
         )
     elif config_error is not None:
         reason = config_error
-        status = (
-            LiveSmokeProviderSelectionStatus.SKIPPED
-            if include_all
-            else LiveSmokeProviderSelectionStatus.CONFIG_ERROR
-        )
-    elif not _provider_has_runtime_config(
-        provider,
-        env=env,
-        claude_code_oauth_token=claude_code_oauth_token,
-        opencode_api_key=opencode_api_key,
-        codex_auth_present=codex_auth_present,
-    ):
-        reason = "provider not configured"
         status = (
             LiveSmokeProviderSelectionStatus.SKIPPED
             if include_all
