@@ -98,6 +98,7 @@ class PlannedCase:
     policy: str | None
     model: str
     effort: str
+    provider_selection: RuntimeProviderSelection
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,7 @@ class DryRunPlannedCase:
     policy: str | None
     model: str
     effort: str
+    provider_selection: RuntimeProviderSelection
     artifact_path: Path
 
 
@@ -481,6 +483,7 @@ def _build_dry_run_case(
         policy=planned_case.policy,
         model=planned_case.model,
         effort=planned_case.effort,
+        provider_selection=planned_case.provider_selection,
         artifact_path=artifact_path,
     )
 
@@ -780,6 +783,7 @@ def plan_smoke_cases(
                             policy=policy,
                             model=provider.model,
                             effort=provider.effort,
+                            provider_selection=provider.provider_selection,
                         )
                     )
             else:
@@ -790,6 +794,7 @@ def plan_smoke_cases(
                         policy=None,
                         model=provider.model,
                         effort=provider.effort,
+                        provider_selection=provider.provider_selection,
                     )
                 )
     return tuple(cases)

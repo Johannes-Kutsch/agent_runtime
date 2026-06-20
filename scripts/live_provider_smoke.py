@@ -9,7 +9,6 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import agent_runtime.runtime as _runtime_public
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Mapping, Sequence, cast
@@ -764,7 +763,7 @@ def _run_public_smoke_case(
         )
 
     runtime_outcome: Any
-    runtime_client: RuntimeClient = _runtime_public.RuntimeClient()
+    runtime_client = RuntimeClient()
     if resolved_case.mode == "ephemeral":
         runtime_outcome = runtime_client.run_ephemeral(request)
     elif resolved_case.mode == "new_session":
