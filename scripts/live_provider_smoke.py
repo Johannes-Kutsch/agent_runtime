@@ -324,7 +324,9 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
 
 def _parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = _build_live_smoke_parser()
-    return parser.parse_args(list(argv or []))
+    if argv is None:
+        return parser.parse_args()
+    return parser.parse_args(list(argv))
 
 
 def _build_service_model_map(entries: Sequence[tuple[str, str]]) -> dict[str, str]:
