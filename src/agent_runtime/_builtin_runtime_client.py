@@ -175,6 +175,10 @@ def _builtin_provider_prompt_path(invocation_dir: Path) -> Path:
     return invocation_dir / _BUILTIN_PROVIDER_PROMPT_FILENAME
 
 
+def _builtin_provider_temp_prompt_path() -> Path:
+    return _builtin_provider_prompt_path(Path("/tmp"))
+
+
 def compute_wake_time(
     reset_time: datetime | None,
     now: datetime,
@@ -2082,7 +2086,7 @@ def _invoke_codex_new_session_provider(
             state_dir_container_path=str(provider_state_dir),
         ),
         prompt_content=request.prompt,
-        prompt_path=Path("/tmp") / _BUILTIN_PROVIDER_PROMPT_FILENAME,
+        prompt_path=_builtin_provider_temp_prompt_path(),
         cleanup_prompt_path=True,
         run_kind=RunKind.FRESH,
         role=request.role,
@@ -2124,7 +2128,7 @@ def _invoke_codex_resumed_session_provider(
             ),
         ),
         prompt_content=request.prompt,
-        prompt_path=Path("/tmp") / _BUILTIN_PROVIDER_PROMPT_FILENAME,
+        prompt_path=_builtin_provider_temp_prompt_path(),
         cleanup_prompt_path=True,
         run_kind=RunKind.RESUME,
         role=request.role,
@@ -2279,7 +2283,7 @@ def _run_builtin_ephemeral(
     if selected_stage.service == "codex":
         validate_codex_stage(selected_stage)
         validate_codex_auth()
-        prompt_path = Path("/tmp") / _BUILTIN_PROVIDER_PROMPT_FILENAME
+        prompt_path = _builtin_provider_temp_prompt_path()
     elif selected_stage.service == "opencode":
         validate_opencode_stage(selected_stage)
         if request.auth is None or not request.auth.opencode_api_key:
@@ -2298,7 +2302,7 @@ def _run_builtin_ephemeral(
                 ),
                 status_code=401,
             )
-        prompt_path = Path("/tmp") / _BUILTIN_PROVIDER_PROMPT_FILENAME
+        prompt_path = _builtin_provider_temp_prompt_path()
     else:
         validate_claude_stage(selected_stage)
         if request.auth is None or not request.auth.claude_code_oauth_token:

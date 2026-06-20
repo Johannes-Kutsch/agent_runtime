@@ -2082,6 +2082,76 @@ def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt
 
 
 @pytest.mark.parametrize(
+    ("service_name", "model", "stdout_lines"),
+    [
+        (
+            "codex",
+            "gpt-5.4",
+            (
+                '{"type":"thread.started","thread_id":"thread-123"}\n',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"hello from codex"}}\n',
+                '{"type":"turn.completed"}\n',
+            ),
+        ),
+        (
+            "opencode",
+            "glm-5",
+            (
+                (
+                    '{"type":"text","sessionID":"observed-session","part":'
+                    '{"type":"text","time":{"end":"2026-01-01T00:00:00Z"},'
+                    '"text":"hello from opencode"}}\n'
+                ),
+                (
+                    '{"type":"session.status","sessionID":"observed-session",'
+                    '"status":{"type":"idle"}}\n'
+                ),
+            ),
+        ),
+    ],
+)
+def test_run_builtin_ephemeral_non_claude_uses_runtime_neutral_temp_prompt_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+    service_name: str,
+    model: str,
+    stdout_lines: tuple[str, ...],
+) -> None:
+    if service_name == "codex":
+        _seed_codex_host_auth(monkeypatch, tmp_path / "home")
+        auth = None
+    else:
+        auth = prompt_runtime.ProviderAuth(opencode_api_key="token")
+
+    adapter = provider_invocation.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation.ProviderInvocationPreparedStream(
+                stdout_lines=stdout_lines
+            )
+        ]
+    )
+
+    prompt_runtime._run_builtin_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            stage=stage_selection_factory(
+                service=service_name,
+                model=model,
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
+            auth=auth,
+        ),
+        provider_invocation_adapter=adapter,
+    )
+
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
+
+
+@pytest.mark.parametrize(
     ("tool_access", "expected_flag"),
     [
         (
