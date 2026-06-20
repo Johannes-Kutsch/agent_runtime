@@ -4910,6 +4910,49 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     assert list((tmp_path / "logs").glob("*.log")) == []
 
 
+def test_opencode_command_uses_cmd_shim_on_windows() -> None:
+    assert prompt_runtime._opencode_command(
+        model="kimi-k2.6",
+        effort="medium",
+        os_name="nt",
+    ) == (
+        "opencode.cmd",
+        "run",
+        "--format",
+        "json",
+        "--model",
+        "opencode-go/kimi-k2.6",
+    )
+
+
+def test_opencode_env_includes_only_windows_process_launch_allowlist() -> None:
+    env = prompt_runtime._opencode_env(
+        auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+        state_dir_container_path="state-dir",
+        tool_policy=runtime.ToolPolicy.NONE,
+        os_name="nt",
+        environ={
+            "PATH": "path-value",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+            "SystemRoot": "C:\\Windows",
+            "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+            "WINDIR": "C:\\Windows",
+            "SHOULD_NOT_LEAK": "host-value",
+        },
+    )
+
+    assert env["PATH"] == "path-value"
+    assert env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
+    assert env["SystemRoot"] == "C:\\Windows"
+    assert env["ComSpec"] == "C:\\Windows\\System32\\cmd.exe"
+    assert env["WINDIR"] == "C:\\Windows"
+    assert env["TZ"] == "UTC"
+    assert env["OPENCODE_HOME"] == "state-dir"
+    assert env["OPENCODE_GO_API_KEY"] == "go-key"
+    assert "OPENCODE_CONFIG_CONTENT" in env
+    assert "SHOULD_NOT_LEAK" not in env
+
+
 @pytest.mark.parametrize(
     ("service_name", "stage", "auth", "expected_argv"),
     [
@@ -4944,14 +4987,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
                 effort="medium",
             ),
             runtime.ProviderAuth(opencode_api_key="go-key"),
-            (
-                "opencode",
-                "run",
-                "--format",
-                "json",
-                "--model",
-                "opencode-go/kimi-k2.6",
-            ),
+            prompt_runtime._opencode_command(model="kimi-k2.6", effort="medium"),
             id="opencode",
         ),
     ],

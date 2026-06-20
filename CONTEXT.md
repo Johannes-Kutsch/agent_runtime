@@ -28,6 +28,7 @@
 | `RuntimeClient` | Caller-owned runtime object that executes runtime requests without durable provider session storage or cross-call provider availability policy. |
 | `RuntimeOutcome` | Canonical result category for one runtime invocation: completion, usage limits, cancellation, timeout, selected-provider temporary unavailability, or retryable provider failure. |
 | `Live Provider Smoke Test` | Opt-in validation run outside default tests that exercises real built-in providers through Runtime Public Surface. |
+| `Full Live Smoke Matrix` | Maintainer confidence scope for Live Provider Smoke Tests: all lifecycle modes plus every public `ToolPolicy` for each selected configured provider. |
 | `Live Smoke Default` | Cost-first runtime-supported provider/model/effort tuple used by Live Provider Smoke Tests when callers provide no CLI or environment override. |
 | `ProviderUsage` | Provider-reported usage metadata: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, and optional provider duration. |
 

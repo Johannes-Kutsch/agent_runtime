@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import asyncio
 import io
 import json
 import subprocess
@@ -108,6 +109,40 @@ def test_live_smoke_default_artifact_root_is_repo_local_with_override_and_cleanu
     )
     assert not (stale_root / "old.txt").exists()
     assert cleaned_result.summary_path.parent == stale_root / "cleaned-run"
+
+
+def test_live_smoke_creates_case_artifact_dir_before_running_case(
+    smoke_module: object,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+    observed_dirs: list[Path] = []
+
+    def _fake_case_runner(*, artifact_dir: Path, **_: object) -> _FakeRunOutcome:
+        assert artifact_dir.is_dir()
+        observed_dirs.append(artifact_dir)
+        return _FakeRunOutcome(kind="completed", output="ok")
+
+    result = module.run_live_smoke(
+        provider_selection=("opencode",),
+        lifecycle_modes=("ephemeral",),
+        model_overrides={"opencode": "deepseek-v4-flash"},
+        effort_overrides={"opencode": "medium"},
+        opencode_api_key="api-key",
+        run_id="precreated-case-dir",
+        artifact_root=tmp_path / "smoke-artifacts",
+        case_runner=_fake_case_runner,
+    )
+
+    assert result.passed is True
+    assert observed_dirs == [
+        tmp_path
+        / "smoke-artifacts"
+        / "precreated-case-dir"
+        / "opencode"
+        / "ephemeral"
+        / "default"
+    ]
 
 
 def test_live_smoke_required_summary_write_failure_marks_run_non_passing(
@@ -1135,6 +1170,113 @@ def test_live_smoke_combined_mode_continues_after_lifecycle_provider_failure(
     assert any(call == ("new_session", "claude", None) for call in calls)
     assert any(call[0] == "new_session" and call[1] == "codex" for call in calls)
     assert any(call[0] == "resumed_session" and call[1] == "codex" for call in calls)
+
+
+def test_public_smoke_case_resolves_async_session_runtime_methods(
+    smoke_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+    from agent_runtime.contracts import ToolAccess
+    from agent_runtime.session import RunKind
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="deepseek-v4-flash",
+        selected_effort="medium",
+        tool_access=ToolAccess.no_tools(),
+        provider_resume_state={"provider_session_id": "opencode-session"},
+    )
+
+    class _FakeRuntimeClient:
+        async def run_new_session(
+            self,
+            request: prompt_runtime.NewSessionRunRequest,
+        ) -> object:
+            await asyncio.sleep(0)
+            return prompt_runtime.RuntimeOutcome.completed(
+                output="new session output",
+                result=prompt_runtime.SessionRunResult(
+                    output="new session output",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name=request.provider_selection.service,
+                        provider_session_id="opencode-session",
+                        run_kind=RunKind.FRESH,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model=request.provider_selection.model,
+                        selected_effort=request.provider_selection.effort,
+                        tool_policy=request.tool_policy,
+                    ),
+                    continuation=continuation,
+                ),
+            )
+
+        async def run_resumed_session(
+            self,
+            request: prompt_runtime.ResumedSessionRunRequest,
+        ) -> object:
+            await asyncio.sleep(0)
+            return prompt_runtime.RuntimeOutcome.completed(
+                output="resumed output",
+                result=prompt_runtime.SessionRunResult(
+                    output="resumed output",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name="opencode",
+                        provider_session_id="opencode-session",
+                        run_kind=RunKind.RESUME,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model="deepseek-v4-flash",
+                        selected_effort="medium",
+                        tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+                    ),
+                    continuation=continuation,
+                ),
+            )
+
+    monkeypatch.setattr(module, "RuntimeClient", lambda: _FakeRuntimeClient())
+    selection = prompt_runtime.ProviderSelection(
+        service="opencode",
+        model="deepseek-v4-flash",
+        effort="medium",
+        auth=prompt_runtime.ProviderAuth(opencode_api_key="api-key"),
+    )
+
+    new_session_outcome = module._run_public_smoke_case(
+        case=SimpleNamespace(
+            service="opencode",
+            mode="new_session",
+            policy=None,
+            provider_selection=selection,
+        ),
+        artifact_dir=tmp_path / "new-session",
+        prompt="prompt",
+        env={},
+        claude_code_oauth_token=None,
+        opencode_api_key="api-key",
+        codex_auth_present=False,
+    )
+    resumed_outcome = module._run_public_smoke_case(
+        case=SimpleNamespace(
+            service="opencode",
+            mode="resumed_session",
+            policy=None,
+            provider_selection=selection,
+        ),
+        artifact_dir=tmp_path / "resumed-session",
+        prompt="prompt",
+        env={},
+        claude_code_oauth_token=None,
+        opencode_api_key="api-key",
+        codex_auth_present=False,
+        continuation=continuation,
+    )
+
+    assert new_session_outcome.kind == "completed"
+    assert resumed_outcome.kind == "completed"
 
 
 def test_live_smoke_single_tool_policy_request_reuses_ephemeral_only_path(

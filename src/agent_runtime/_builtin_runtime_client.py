@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shlex
 import shutil
@@ -494,14 +495,31 @@ def _opencode_command(
     effort: str,
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
+    os_name: str | None = None,
 ) -> tuple[str, ...]:
     del effort
-    parts = ["opencode", "run", "--format", "json"]
+    executable = "opencode.cmd" if (os_name or os.name) == "nt" else "opencode"
+    parts = [executable, "run", "--format", "json"]
     if run_kind == RunKind.RESUME and session_uuid:
         parts.extend(["--session", session_uuid])
     if model:
         parts.extend(["--model", _opencode_go_model_ref(model)])
     return tuple(parts)
+
+
+def _windows_process_base_env(
+    *,
+    os_name: str | None = None,
+    environ: dict[str, str] | None = None,
+) -> dict[str, str]:
+    if (os_name or os.name) != "nt":
+        return {}
+    source_env = os.environ if environ is None else environ
+    return {
+        key: source_env[key]
+        for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
+        if key in source_env and source_env[key]
+    }
 
 
 def _legacy_command_text(
@@ -521,8 +539,13 @@ def _opencode_env(
     auth: ProviderAuth | None,
     state_dir_container_path: str | None = None,
     tool_policy: ToolPolicy | ToolPolicyProfile | None = None,
+    os_name: str | None = None,
+    environ: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    env: dict[str, str] = {"TZ": "UTC"}
+    env: dict[str, str] = {
+        **_windows_process_base_env(os_name=os_name, environ=environ),
+        "TZ": "UTC",
+    }
     if state_dir_container_path:
         env["OPENCODE_HOME"] = state_dir_container_path
     api_key = None if auth is None else auth.opencode_api_key

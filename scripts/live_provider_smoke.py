@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import inspect
 import os
 import json
 import shlex
@@ -767,13 +769,23 @@ def _run_public_smoke_case(
     if resolved_case.mode == "ephemeral":
         runtime_outcome = runtime_client.run_ephemeral(request)
     elif resolved_case.mode == "new_session":
-        runtime_outcome = runtime_client.run_new_session(request)
+        runtime_outcome = _resolve_runtime_outcome(
+            runtime_client.run_new_session(request)
+        )
     else:
-        runtime_outcome = runtime_client.run_resumed_session(request)
+        runtime_outcome = _resolve_runtime_outcome(
+            runtime_client.run_resumed_session(request)
+        )
     return _as_observed_runtime_outcome(
         runtime_outcome,
         live_turns=tuple(live_turns),
     )
+
+
+def _resolve_runtime_outcome(runtime_outcome: Any) -> Any:
+    if inspect.isawaitable(runtime_outcome):
+        return asyncio.run(runtime_outcome)
+    return runtime_outcome
 
 
 def _serialize_case_invocation_records(invocation_records: Any) -> list[dict[str, Any]]:
@@ -1109,6 +1121,7 @@ def run_live_smoke(
                     )
                 invocation_dir_for_run = session_invocation_dirs[case_state_key]
 
+            invocation_dir_for_run.mkdir(parents=True, exist_ok=True)
             case_outcome = runner(
                 case=planned_case,
                 artifact_dir=invocation_dir_for_run,
