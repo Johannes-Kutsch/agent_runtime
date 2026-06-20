@@ -50,6 +50,22 @@ def _safe_list(value: Sequence[str]) -> str:
     return ", ".join(value)
 
 
+def _live_smoke_defaults_help_text() -> str:
+    defaults = live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS
+    verified_on = live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS_VERIFIED_ON
+    return (
+        "Model source precedence: CLI override, provider-specific environment "
+        "variable, then Live Smoke Default.\n"
+        "Effort source precedence: CLI override, provider-specific environment "
+        "variable, then Live Smoke Default.\n"
+        "Live Smoke Defaults: "
+        f"claude={defaults['claude'][0]}/{defaults['claude'][1]}, "
+        f"codex={defaults['codex'][0]}/{defaults['codex'][1]}, "
+        f"opencode={defaults['opencode'][0]}/{defaults['opencode'][1]}. "
+        f"Verified {verified_on}."
+    )
+
+
 def _build_case_rerun_command(
     case: Any,
     *,
@@ -201,6 +217,7 @@ def _as_observed_runtime_outcome(
 def _build_live_smoke_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the Live Provider Smoke Test.",
+        epilog=_live_smoke_defaults_help_text(),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     supported_policies = [policy.name for policy in prompt_runtime.ToolPolicy]

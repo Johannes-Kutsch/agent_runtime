@@ -1157,6 +1157,29 @@ def test_live_smoke_cli_help_is_invokable(smoke_module: object) -> None:
     assert parser_help.strip()
 
 
+def test_live_smoke_cli_help_documents_precedence_and_verified_defaults(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    output = io.StringIO()
+    with redirect_stdout(output), pytest.raises(SystemExit):
+        module.main(["--help"])
+
+    parser_help = output.getvalue()
+
+    assert (
+        "CLI override, provider-specific environment variable, then Live Smoke Default"
+        in parser_help
+    )
+    assert "Model source precedence" in parser_help
+    assert "Effort source precedence" in parser_help
+    assert "claude=haiku/low" in parser_help
+    assert "codex=gpt-5.4-mini/low" in parser_help
+    assert "opencode=deepseek-v4-flash/medium" in parser_help
+    assert "Verified 2026-06-20" in parser_help
+
+
 def test_live_smoke_direct_help_invocation_succeeds_and_skips_default_artifacts(
     tmp_path: Path,
 ) -> None:
