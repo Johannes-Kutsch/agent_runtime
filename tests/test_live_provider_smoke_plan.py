@@ -405,6 +405,52 @@ def test_live_smoke_dry_run_defaults_propagate_to_provider_plans_and_cases(
         assert case.effort == provider_plan.effort
 
 
+def test_live_smoke_full_matrix_for_single_provider_matches_all_provider_subset(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+    from agent_runtime import runtime as prompt_runtime
+
+    full_tool_policies = tuple(policy.name for policy in prompt_runtime.ToolPolicy)
+    lifecycle_modes = ("ephemeral", "new_session", "resumed_session")
+
+    explicit = module.build_dry_run_plan(
+        provider_selection="claude",
+        lifecycle_modes=lifecycle_modes,
+        tool_policies=full_tool_policies,
+        run_id="claude-full",
+        claude_code_oauth_token="token",
+        opencode_api_key="opencode-key",
+        codex_auth_present=True,
+    )
+
+    all_configured = module.build_dry_run_plan(
+        provider_selection="all",
+        lifecycle_modes=lifecycle_modes,
+        tool_policies=full_tool_policies,
+        run_id="all-full",
+        claude_code_oauth_token="token",
+        opencode_api_key="opencode-key",
+        codex_auth_present=True,
+    )
+
+    explicit_cases = explicit.cases
+    all_claude_cases = tuple(
+        case for case in all_configured.cases if case.service == "claude"
+    )
+    assert len(explicit_cases) == len(all_claude_cases)
+    assert explicit.provider_plans == all_configured.provider_plans[:1]
+    assert all(
+        explicit_case.service == "claude"
+        and all_case.service == "claude"
+        and explicit_case.mode == all_case.mode
+        and explicit_case.policy == all_case.policy
+        and explicit_case.model == all_case.model
+        and explicit_case.effort == all_case.effort
+        for explicit_case, all_case in zip(explicit_cases, all_claude_cases)
+    )
+
+
 def test_live_smoke_provider_plan_exposes_public_provider_selection_with_auth(
     planning_module: Any,
 ) -> None:

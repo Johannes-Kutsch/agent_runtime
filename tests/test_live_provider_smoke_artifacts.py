@@ -1194,6 +1194,14 @@ def test_live_smoke_combined_mode_continues_after_lifecycle_provider_failure(
     assert run_result.cases[1].mode == "resumed_session"
     assert run_result.cases[1].status == "error"
     assert any(
+        case.service == "claude"
+        and case.mode == "ephemeral"
+        and case.policy == "UNRESTRICTED"
+        and case.status == "skipped"
+        and case.required is False
+        for case in run_result.cases
+    )
+    assert any(
         case.service == "codex"
         and case.mode == "new_session"
         and case.status == "passed"
@@ -1683,6 +1691,54 @@ def test_live_smoke_cli_dry_run_json_artifact_paths_use_forward_slashes_portably
     assert not (tmp_path / r"portable\artifacts").exists()
 
 
+def test_live_smoke_cli_dry_run_untargeted_provider_uses_full_matrix_defaults(
+    smoke_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    monkeypatch.setattr(
+        module.live_provider_smoke_plan,
+        "detect_codex_auth_present",
+        lambda: True,
+    )
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--dry-run",
+                "--json",
+                "--provider",
+                "codex",
+                "--run-id",
+                "codex-full-matrix",
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+    cases = payload["cases"]
+
+    assert exit_code == 0
+    assert [case for case in cases if case["policy"] is None] == [
+        case
+        for case in cases
+        if case["mode"] in ("ephemeral", "new_session", "resumed_session")
+        and case["policy"] is None
+    ]
+    assert [case["mode"] for case in cases[:3]] == [
+        "ephemeral",
+        "new_session",
+        "resumed_session",
+    ]
+    assert {case["policy"] for case in cases[:3]} == {None}
+    assert [case["mode"] for case in cases[3:]] == ["ephemeral"] * len(
+        module.ToolPolicy
+    )
+    assert [case["policy"] for case in cases[3:]] == [
+        policy.name for policy in module.ToolPolicy
+    ]
+
+
 def test_live_smoke_cli_default_console_output_reports_provider_mode_and_artifacts(
     smoke_module: object,
     tmp_path: Path,
@@ -2098,4 +2154,19 @@ def test_main_with_explicit_empty_argv_ignores_process_argv_and_uses_defaults(
 
     assert exit_code == 0
     assert captured["provider_selection"] == ("all",)
-    assert captured["lifecycle_modes"] == ("ephemeral",)
+    assert captured["lifecycle_modes"] == (
+        "ephemeral",
+        "new_session",
+        "resumed_session",
+    )
+    assert captured["tool_policies"] == tuple(
+        policy.name for policy in module.ToolPolicy
+    )
+
+
+def test_live_smoke_default_case_timeout_is_full_matrix_friendly(
+    smoke_module: Any,
+) -> None:
+    module = smoke_module
+
+    assert module._DEFAULT_CASE_TIMEOUT_SECONDS >= 180
