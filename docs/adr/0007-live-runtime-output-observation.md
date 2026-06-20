@@ -11,7 +11,7 @@ Status: Accepted.
 - `AgentMessageTurn` is shared public runtime vocabulary and may be exported from both package root and `agent_runtime.runtime`.
 - Observers receive `AgentMessageTurn` values directly, not raw strings, speculative event wrappers, raw provider lines, or provider-specific event DTOs.
 - Values include selected service identity, not model or effort metadata unless a separate live-display need appears.
-- Observed turns may come from provider attempts later abandoned by fallback; consumers correlate with service identity and authoritative final output.
+- Observed turns come from one selected provider invocation; consumers that perform fallback across separate runtime calls own cross-invocation correlation.
 - Observers should see each runtime-observed `AgentMessageTurn` at most once per provider attempt.
 - Observation is per request through Live Runtime Output vocabulary such as `on_live_output`, not `RuntimeClient` display state or alternate streaming entrypoints.
 - Observers are synchronous, notification-only, and do not steer runtime control flow; consumers bridge async queues, own backpressure, and cancel to stop invocation.

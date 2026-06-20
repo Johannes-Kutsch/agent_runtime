@@ -11,7 +11,7 @@ The project needs an opt-in Live Provider Smoke Test for maintainers and credent
 - Add an opt-in standalone live smoke runner as maintainer tooling under `scripts/`.
 - Keep live provider execution out of default pytest and installed Runtime Public Surface.
 - Allow default pytest to cover smoke-runner planning and artifact behavior only when provider auth, provider availability, paths, and invocation behavior are injected or faked.
-- Use only public runtime imports and request values: `RuntimeClient`, lifecycle request values, `StageSelection`, `ProviderAuth`, `Continuation`, and public `ToolPolicy`.
+- Use only public runtime imports and request values: `RuntimeClient`, lifecycle request values, `ProviderSelection`, `ProviderAuth`, `Continuation`, and public `ToolPolicy`.
 - Treat `RuntimeStateDir`, `RuntimeLogsDir`, `SessionNamespace`, `ToolAccess`, and `ToolPolicyProfile` as transitional or internal vocabulary for this tooling purpose.
 - Make provider selection explicit: `claude`, `codex`, `opencode`, multiple explicit providers, or `all`.
 - In explicit provider selection, missing provider config is a configuration error; in `all`, skip unconfigured providers but fail when none are configured.

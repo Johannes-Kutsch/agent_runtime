@@ -10,3 +10,4 @@
 - [0008 - Live provider smoke runner](0008-live-provider-smoke-runner.md): Add opt-in maintainer tooling that exercises real built-in providers through Runtime Public Surface without joining default test suite.
 - [0009 - Provider invocation argv and stdin boundary](0009-provider-invocation-argv-stdin-boundary.md): Model built-in provider invocation as executable arguments plus explicit prompt input rather than host shell command strings.
 - [0010 - No documentation regression tests](0010-no-documentation-regression-tests.md): Keep default tests focused on executable behavior instead of documentation or help prose wording.
+- [0011 - Single-candidate provider selection](0011-single-candidate-provider-selection.md): Replace stage chains with one provider selection per invocation and leave fallback orchestration to consuming projects.

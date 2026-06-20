@@ -8,7 +8,7 @@ The runtime implementation may be split across internal modules. That internal m
 
 ## Consumer Surface
 
-Ordinary consumers execute already-rendered prompts through a caller-owned `RuntimeClient`. They provide provider selection, credentials, tool policy, invocation directory, and session lifecycle data as call arguments. They do not construct provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
+Ordinary consumers execute already-rendered prompts through a caller-owned `RuntimeClient`. They provide provider selection with credentials, tool policy, invocation directory, and session lifecycle data as call arguments. They do not construct provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
 
 The runtime executes provider work and returns data. Callers own persistence for continuations, invocation records, workflow correlation, durable logs, and usage-limit grouping policy.
 
@@ -27,12 +27,11 @@ The package root exposes stable shared vocabulary and common errors:
 - `HardAgentError`
 - `InvocationProgress`
 - `InvocationRecord`
-- `ProviderAuth`
 - `ProviderUsage`
 - `RuntimeConfigurationError`
 - `RuntimeOutcome`
 - `RunKind`
-- `StageSelection`
+- `ProviderSelection`
 - `ToolPolicy`
 - `TransientAgentError`
 - `UsageLimitError`
@@ -57,25 +56,25 @@ async run_resumed_session(request: ResumedSessionRunRequest) -> RuntimeOutcome
 
 `run_new_session` implements Start Session Run in public terminology.
 
-`RuntimeClient` holds in-process built-in provider availability and exhaustion state across calls. It does not own durable provider state, durable logs, process-global auth setup, workflow defaults, prompt rendering, issue orchestration, execution-directory management, dependency installation, or application logging policy. It is safe to reuse across concurrent runtime requests and synchronizes provider availability updates internally.
+`RuntimeClient` does not hold cross-call provider availability or exhaustion policy. It does not own durable provider state, durable logs, process-global auth setup, workflow defaults, prompt rendering, issue orchestration, execution-directory management, dependency installation, or application logging policy. It is safe to reuse across concurrent runtime requests.
 
 ### Built-In Providers
 
-Provider selection uses `StageSelection` nodes. Every selected node must reference a built-in service and a model/effort value supported by that built-in integration.
+Provider selection uses one `ProviderSelection` per runtime invocation. Each selection must reference a built-in service and a model/effort value supported by that built-in integration.
 
 | Service | Auth | Session-backed support | Notes |
 | --- | --- | --- | --- |
-| `claude` | `ProviderAuth(claude_code_oauth_token=ClaudeCodeOAuthToken(...))` | Only when the built-in adapter can produce and consume portable continuation data | Providers that cannot satisfy portable continuation requirements are limited to ephemeral execution. |
+| `claude` | `ProviderAuth(claude_code_oauth_token=ClaudeCodeOAuthToken(...))` on `ProviderSelection` | Only when the built-in adapter can produce and consume portable continuation data | Providers that cannot satisfy portable continuation requirements are limited to ephemeral execution. |
 | `codex` | Host Codex auth files | Only when the built-in adapter can produce and consume portable continuation data | The runtime uses host auth files rather than API-key arguments. |
-| `opencode` | `ProviderAuth(opencode_api_key=...)` | Only when the built-in adapter can produce and consume portable continuation data | Providers that cannot satisfy portable continuation requirements are limited to ephemeral execution. |
+| `opencode` | `ProviderAuth(opencode_api_key=...)` on `ProviderSelection` | Only when the built-in adapter can produce and consume portable continuation data | Providers that cannot satisfy portable continuation requirements are limited to ephemeral execution. |
 
-The runtime validates built-in service, model, and effort values before provider execution. Invalid service/model/effort references are runtime configuration errors. Missing or invalid explicit credentials are credential failures and stop execution rather than triggering fallback.
+The runtime validates built-in service, model, and effort values before provider execution. Invalid service/model/effort references are runtime configuration errors. Missing or invalid explicit credentials are credential failures for that invocation. Runtime does not perform provider fallback inside a call; consuming projects that want fallback start a separate runtime invocation.
 
-Known migrated pycastle allowlists:
+Supported built-in provider allowlists:
 
 - Claude models: `haiku`, `sonnet`, `opus`; efforts: `low`, `medium`, `high`, `xhigh`, `max`.
 - Codex models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`; efforts: `low`, `medium`, `high`, `xhigh`.
-- OpenCode models and command mappings come from pycastle's OpenCode service; effort is currently `medium`.
+- OpenCode effort is currently `medium`.
 
 ### Request Values
 
@@ -88,8 +87,7 @@ EphemeralRunRequest(
     *,
     prompt: str,
     invocation_dir: Path,
-    stage: StageSelection,
-    provider_auth: ProviderAuth,
+    provider_selection: ProviderSelection,
     tool_policy: ToolPolicy,
     on_live_output: Callable[[AgentMessageTurn], None] | None = None,
     token: CancellationToken | None = None,
@@ -106,8 +104,7 @@ NewSessionRunRequest(
     *,
     prompt: str,
     invocation_dir: Path,
-    stage: StageSelection,
-    provider_auth: ProviderAuth,
+    provider_selection: ProviderSelection,
     tool_policy: ToolPolicy,
     on_live_output: Callable[[AgentMessageTurn], None] | None = None,
     token: CancellationToken | None = None,
@@ -125,15 +122,13 @@ ResumedSessionRunRequest(
     prompt: str,
     invocation_dir: Path,
     continuation: Continuation,
-    provider_auth: ProviderAuth,
-    model: str | None = None,
-    effort: str | None = None,
+    auth: ProviderAuth | None = None,
     on_live_output: Callable[[AgentMessageTurn], None] | None = None,
     token: CancellationToken | None = None,
 ) -> None
 ```
 
-Resumed-session execution continues an existing provider-session continuity chain. The continuation fixes service and tool policy. Resumed execution does not perform fallback and rejects tool-policy replacement; omitted model or effort values default from result metadata associated with the continuation when available.
+Resumed-session execution continues an existing provider-session continuity chain. The continuation fixes service, model, effort, and tool policy. Resumed execution accepts request-time credentials because continuations do not store provider secrets, but it does not perform fallback, reselection, or tool-policy replacement.
 `on_live_output` is also available for Resume Session Run.
 
 ### Live Runtime Output
@@ -147,13 +142,6 @@ Resumed-session execution continues an existing provider-session continuity chai
 - `on_live_output` callbacks are synchronous and notification-only. Callback exceptions are propagated to the caller as consumer failures.
 - Consumers own backpressure policy, queueing, display formatting, redaction, and persistence for observed turns.
 - Live Runtime Output observers are for display/telemetry only and do not control runtime flow.
-
-A reference consumer pattern is pycastle (conceptual, not a runtime dependency):
-
-```python
-def on_turn(turn: str) -> None:
-    self._status_display.print(self.name, turn)
-```
 
 Runtime-provided `AgentMessageTurn` data is intentionally minimal and requires consumers to apply their own protocol parsing and downstream policy.
 
@@ -169,7 +157,7 @@ ProviderAuth(
 ) -> None
 ```
 
-`ProviderAuth` is immutable per-request credential data. It only needs credentials for explicit-credential providers reachable from the request's `StageSelection` chain. Codex uses host auth files. Continuations must not store provider credentials.
+`ProviderAuth` is immutable credential data carried by `ProviderSelection` for new provider selection, or supplied directly to Resume Session Run for credentials required by the continued provider. It only needs credentials for the selected explicit-credential provider. Codex uses host auth files. Continuations and invocation records must not store provider credentials.
 
 ### Outcomes and Continuations
 
@@ -180,7 +168,9 @@ RuntimeOutcome(
     kind: str,
     output: str,
     result: EphemeralRunResult | SessionRunResult | None = None,
-    service_name: str | None = None,
+    service_name: str,
+    selected_model: str,
+    selected_effort: str,
     account_label: str | None = None,
     reset_time: datetime | None = None,
     invocation_progress: InvocationProgress | None = None,
@@ -190,20 +180,20 @@ RuntimeOutcome(
 ) -> None
 ```
 
-Lifecycle entrypoints return `RuntimeOutcome` for both completed work and expected interruption outcomes.
+Lifecycle entrypoints return `RuntimeOutcome` for both completed work and expected interruption outcomes. Every normal outcome, including `completed`, exposes the selected service, model, and effort at the top level.
 
 Outcome kinds:
 
 - `completed`: work completed and `result` is present.
 - `usage_limited`: usage limit interrupted execution.
-- `no_service_available`: configured candidates are temporarily unavailable.
+- `no_service_available`: the selected provider is temporarily unavailable before model work starts.
 - `cancelled`: caller- or user-initiated cancellation.
 - `timed_out`: runtime timeout.
 - `retryable_provider_failure`: provider failure classified as confidently retryable.
 
 Expected interruption outcomes are normal lifecycle results. Credential failures, malformed inputs, hard provider failures, adapter/protocol bugs, unclassified provider failures, and unexpected exceptions remain errors.
 
-Usage-limit outcomes expose provider and service facts such as selected service, account label, reset time, invocation progress, provider usage, and continuation state. Caller-defined usage-limit grouping is not part of the core runtime API.
+Expected interruption outcomes expose selected provider facts such as service, model, effort, account label, reset time, invocation progress, provider usage, and continuation state when relevant. Caller-defined usage-limit grouping is not part of the core runtime API.
 
 #### `EphemeralRunResult`
 
@@ -211,16 +201,12 @@ Usage-limit outcomes expose provider and service facts such as selected service,
 EphemeralRunResult(
     *,
     output: str,
-    selected_service: str,
-    selected_model: str,
-    selected_effort: str,
     tool_policy: ToolPolicy,
-    used_fallback: bool,
     usage: ProviderUsage | None = None,
 ) -> None
 ```
 
-Ephemeral results report the selected provider facts and output text. They do not carry a continuation.
+Ephemeral results report output text and ephemeral-specific metadata for one invocation. Selected provider facts live on `RuntimeOutcome`. Ephemeral results do not carry a continuation or fallback attempt path.
 
 #### `SessionRunResult`
 
@@ -297,19 +283,19 @@ Provider usage is top-level optional outcome metadata for completed and interrup
 
 ### Runtime Value Objects
 
-#### `StageSelection`
+#### `ProviderSelection`
 
 ```python
-StageSelection(
+ProviderSelection(
     *,
     service: str,
     model: str,
     effort: str,
-    fallback: StageSelection | None = None,
+    auth: ProviderAuth | None = None,
 ) -> None
 ```
 
-One node in an ordered built-in provider candidate chain. The runtime validates every service/model/effort tuple.
+One built-in provider candidate for one runtime invocation, including credentials required by that provider. Construction validates value shape; invocation validates built-in provider support, relevant credentials, and availability.
 
 #### `ToolPolicy`
 
@@ -365,4 +351,4 @@ The following legacy concepts are out of scope for the ordinary runtime consumer
 - Runtime-owned durable invocation logs
 - `ToolPolicyProfile`
 
-For callers, the ordinary surface remains `RuntimeClient`, request values, outcome values, built-in provider selection, `ProviderAuth`, `ProviderUsage`, `Continuation`, `InvocationRecord`, and `ToolPolicy`.
+For callers, the ordinary surface remains `RuntimeClient`, request values, outcome values, built-in provider selection, `ProviderUsage`, `Continuation`, `InvocationRecord`, and `ToolPolicy`.

@@ -1,6 +1,6 @@
 # Runtime public surface narrowing
 
-Status: Partially refined by [0005 - Runtime session lifecycle entrypoints](0005-runtime-session-lifecycle-entrypoints.md) and [0006 - Built-in provider-only runtime](0006-built-in-provider-only-runtime.md). Current glossary and public API docs own exact `Invocation Directory`, `ToolPolicy`, and transitional vocabulary.
+Status: Partially refined by [0005 - Runtime session lifecycle entrypoints](0005-runtime-session-lifecycle-entrypoints.md), [0006 - Built-in provider-only runtime](0006-built-in-provider-only-runtime.md), and [0011 - Single-candidate provider selection](0011-single-candidate-provider-selection.md). Current glossary and public API docs own exact `Invocation Directory`, `ToolPolicy`, provider-selection, and transitional vocabulary.
 
 The runtime boundary should expose a smaller, clearer front-facing surface: one canonical runtime entrypoint per mode, a narrow package root, and focused seams for work invocation, session planning, and provider policy.
 
