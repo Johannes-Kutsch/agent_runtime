@@ -118,55 +118,62 @@ def test_live_smoke_model_and_effort_resolve_from_cli_and_env_without_defaults(
     )
 
 
-def test_live_smoke_credentialed_provider_without_overrides_resolves_claude_defaults(
+@pytest.mark.parametrize(
+    ("service", "auth_kwargs", "expected_model", "expected_effort"),
+    (
+        ("claude", {"claude_code_oauth_token": "token"}, "haiku", "low"),
+        ("codex", {"codex_auth_present": True}, "gpt-5.4-mini", "low"),
+        (
+            "opencode",
+            {"opencode_api_key": "opencode-key"},
+            "deepseek-v4-flash",
+            "medium",
+        ),
+    ),
+)
+def test_live_smoke_credentialed_provider_without_overrides_resolves_defaults(
+    planning_module: Any,
+    service: str,
+    auth_kwargs: dict[str, object],
+    expected_model: str,
+    expected_effort: str,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection(service)
+    planned = module.plan_selected_providers(
+        parsed,
+        env={},
+        **auth_kwargs,
+    )
+
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
+    assert planned[0].model == expected_model
+    assert planned[0].effort == expected_effort
+
+
+def test_live_smoke_model_and_effort_fill_missing_field_from_live_smoke_defaults(
     planning_module: Any,
 ) -> None:
     module = planning_module
 
-    parsed = module.parse_provider_selection("claude")
-    planned = module.plan_selected_providers(
-        parsed,
+    model_from_cli, effort_from_default = module.resolve_model_and_effort(
+        "codex",
+        cli_model="gpt-5.4",
+        cli_effort=None,
         env={},
-        claude_code_oauth_token="token",
+    )
+    model_from_default, effort_from_env = module.resolve_model_and_effort(
+        "opencode",
+        cli_model=None,
+        cli_effort=None,
+        env={module.LIVE_SMOKE_OPENCODE_EFFORT_ENV: "high"},
     )
 
-    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
-    assert planned[0].model == "haiku"
-    assert planned[0].effort == "low"
-
-
-def test_live_smoke_credentialed_provider_without_overrides_resolves_codex_defaults(
-    planning_module: Any,
-) -> None:
-    module = planning_module
-
-    parsed = module.parse_provider_selection("codex")
-    planned = module.plan_selected_providers(
-        parsed,
-        env={},
-        codex_auth_present=True,
-    )
-
-    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
-    assert planned[0].model == "gpt-5.4-mini"
-    assert planned[0].effort == "low"
-
-
-def test_live_smoke_credentialed_provider_without_overrides_resolves_opencode_defaults(
-    planning_module: Any,
-) -> None:
-    module = planning_module
-
-    parsed = module.parse_provider_selection("opencode")
-    planned = module.plan_selected_providers(
-        parsed,
-        env={},
-        opencode_api_key="opencode-key",
-    )
-
-    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.RUNNABLE
-    assert planned[0].model == "deepseek-v4-flash"
-    assert planned[0].effort == "medium"
+    assert model_from_cli == "gpt-5.4"
+    assert effort_from_default == "low"
+    assert model_from_default == "deepseek-v4-flash"
+    assert effort_from_env == "high"
 
 
 def test_live_smoke_planning_uses_explicit_env_mapping_for_resolution_and_config(
@@ -440,6 +447,27 @@ def test_live_smoke_dry_run_to_json_is_machine_readable(
         "json-readability/codex/ephemeral/default"
     )
     assert payload["providers"][0]["status"] == "runnable"
+
+
+def test_live_smoke_dry_run_to_json_exposes_resolved_live_smoke_defaults(
+    planning_module: Any,
+    tmp_path: Path,
+) -> None:
+    module = planning_module
+
+    summary = module.build_dry_run_plan(
+        provider_selection=("claude",),
+        lifecycle_modes=("ephemeral",),
+        run_id="json-defaults",
+        claude_code_oauth_token="token",
+        artifact_root=tmp_path / "artifacts",
+    )
+    payload = json.loads(module.dry_run_plan_to_json(summary))
+
+    assert payload["providers"][0]["model"] == "haiku"
+    assert payload["providers"][0]["effort"] == "low"
+    assert payload["cases"][0]["model"] == "haiku"
+    assert payload["cases"][0]["effort"] == "low"
 
 
 def test_live_smoke_provider_listing_reports_configuration_without_secrets(
