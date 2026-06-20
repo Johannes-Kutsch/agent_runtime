@@ -13,8 +13,8 @@ from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
 from ._request_normalization import (
     normalize_continuation_request,
+    normalize_provider_selection_request,
     normalize_session_plan_request,
-    normalize_stage_request,
     require_invocation_role,
 )
 from .provider_session_adapter import ProviderSessionAdapter
@@ -463,7 +463,7 @@ class EphemeralRunRequest:
             compatibility_kwargs,
             context="EphemeralRunRequest",
         )
-        normalized_request = normalize_stage_request(
+        normalized_request = normalize_provider_selection_request(
             stage=stage,
             override=override,
             role=_DEFAULT_EPHEMERAL_ROLE,
@@ -570,7 +570,7 @@ class NewSessionRunRequest:
             compatibility_kwargs,
             context="NewSessionRunRequest",
         )
-        normalized_request = normalize_stage_request(
+        normalized_request = normalize_provider_selection_request(
             stage=stage,
             override=override,
             role=role or _DEFAULT_EPHEMERAL_ROLE,

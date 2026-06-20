@@ -16,6 +16,13 @@ class StageSelection:
         validate_stage_selection(self)
 
 
+ProviderSelection = StageSelection
+
+
+def validate_provider_selection(selection: ProviderSelection) -> None:
+    validate_stage_selection(selection)
+
+
 def validate_stage_selection(stage: StageSelection) -> None:
     node: StageSelection | None = stage
     index = 0

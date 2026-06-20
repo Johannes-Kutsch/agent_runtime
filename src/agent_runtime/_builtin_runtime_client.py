@@ -67,8 +67,8 @@ from .invocation_progress import InvocationProgress
 from .provider_errors import ProviderErrorObservation
 from .provider_output import reduce_text_output_events
 from .session import RunKind, provider_state_relpath
-from .stage_priority_chain import iter_stage_chain
-from .types import StageSelection
+from .stage_priority_chain import iter_provider_selection_chain
+from .types import ProviderSelection, StageSelection
 
 _log = logging.getLogger(__name__)
 subprocess = _subprocess
@@ -201,7 +201,7 @@ class BuiltInAvailabilityState:
         now: datetime,
     ) -> StageSelection | None:
         with self._lock:
-            for candidate in iter_stage_chain(stage):
+            for candidate in iter_provider_selection_chain(stage):
                 if candidate.service not in _SUPPORTED_BUILTIN_SERVICES:
                     continue
                 if self._is_available_locked(candidate.service, now):
@@ -216,7 +216,7 @@ class BuiltInAvailabilityState:
     ) -> datetime | None:
         with self._lock:
             wake_times = []
-            for candidate in iter_stage_chain(stage):
+            for candidate in iter_provider_selection_chain(stage):
                 if candidate.service not in _SUPPORTED_BUILTIN_SERVICES:
                     continue
                 exhausted_until = self._exhausted_until_by_service.get(
@@ -249,7 +249,13 @@ class BuiltInAvailabilityState:
 
 
 def supported_builtin_stage(stage: StageSelection) -> StageSelection | None:
-    for candidate in iter_stage_chain(stage):
+    return supported_builtin_provider_selection(stage)
+
+
+def supported_builtin_provider_selection(
+    provider_selection: ProviderSelection,
+) -> ProviderSelection | None:
+    for candidate in iter_provider_selection_chain(provider_selection):
         if candidate.service in _SUPPORTED_BUILTIN_SERVICES:
             return candidate
     return None
@@ -261,7 +267,7 @@ def _selected_service_path(
     selected_service: str,
 ) -> tuple[str, ...]:
     path: list[str] = []
-    for node in iter_stage_chain(override):
+    for node in iter_provider_selection_chain(override):
         if not node.service:
             continue
         path.append(node.service)
@@ -1527,7 +1533,7 @@ def _reduce_opencode_stream(
 
 
 def _select_builtin_stage(stage: StageSelection) -> StageSelection:
-    candidate = supported_builtin_stage(stage)
+    candidate = supported_builtin_provider_selection(stage)
     if candidate is not None:
         return candidate
     raise RuntimeConfigurationError(

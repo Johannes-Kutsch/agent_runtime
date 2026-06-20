@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 from .identity import validate_session_namespace
 from .roles import InvocationRole
-from .types import StageSelection, validate_stage_selection
+from .types import (
+    ProviderSelection,
+    StageSelection,
+    validate_provider_selection,
+)
 
 if TYPE_CHECKING:
     from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
@@ -20,12 +24,16 @@ class NormalizedWorktree:
 
 
 @dataclasses.dataclass(frozen=True)
-class NormalizedStageRequest:
-    stage: StageSelection
+class NormalizedProviderSelectionRequest:
+    provider_selection: ProviderSelection
     role: InvocationRole
     worktree: NormalizedWorktree
     tool_access: ToolAccess
     session_namespace: str
+
+    @property
+    def stage(self) -> StageSelection:
+        return self.provider_selection
 
 
 @dataclasses.dataclass(frozen=True)
@@ -36,13 +44,16 @@ class NormalizedResumedRequest:
     session_namespace: str
 
 
-def normalize_stage_selection(
+NormalizedStageRequest = NormalizedProviderSelectionRequest
+
+
+def normalize_provider_selection(
     stage: StageSelection | None,
     *,
     override: StageSelection | None,
     context: str,
     validate: bool = True,
-) -> StageSelection:
+) -> ProviderSelection:
     if stage is None:
         stage = override
     elif override is not None and override != stage:
@@ -52,8 +63,23 @@ def normalize_stage_selection(
     if stage is None:
         raise TypeError(f"{context} requires a `stage` value.")
     if validate:
-        validate_stage_selection(stage)
+        validate_provider_selection(stage)
     return stage
+
+
+def normalize_stage_selection(
+    stage: StageSelection | None,
+    *,
+    override: StageSelection | None,
+    context: str,
+    validate: bool = True,
+) -> StageSelection:
+    return normalize_provider_selection(
+        stage,
+        override=override,
+        context=context,
+        validate=validate,
+    )
 
 
 def require_invocation_role(
@@ -147,7 +173,7 @@ def normalize_resolved_tool_access(
     return tool_access
 
 
-def normalize_stage_request(
+def normalize_provider_selection_request(
     *,
     stage: StageSelection | None,
     override: StageSelection | None,
@@ -161,10 +187,10 @@ def normalize_stage_request(
     missing_message: str,
     validate_stage: bool = True,
     workspace_name: str = "worktree",
-) -> NormalizedStageRequest:
+) -> NormalizedProviderSelectionRequest:
     normalized_worktree = normalize_worktree(worktree)
-    return NormalizedStageRequest(
-        stage=normalize_stage_selection(
+    return NormalizedProviderSelectionRequest(
+        provider_selection=normalize_provider_selection(
             stage,
             override=override,
             context=context,
@@ -182,6 +208,37 @@ def normalize_stage_request(
             workspace_name=workspace_name,
         ),
         session_namespace=normalize_session_namespace(session_namespace),
+    )
+
+
+def normalize_stage_request(
+    *,
+    stage: StageSelection | None,
+    override: StageSelection | None,
+    role: InvocationRole | None,
+    worktree: Path | WorktreeMount,
+    tool_access: Any,
+    tool_policy: Any,
+    missing_sentinel: object,
+    session_namespace: str,
+    context: str,
+    missing_message: str,
+    validate_stage: bool = True,
+    workspace_name: str = "worktree",
+) -> NormalizedStageRequest:
+    return normalize_provider_selection_request(
+        stage=stage,
+        override=override,
+        role=role,
+        worktree=worktree,
+        tool_access=tool_access,
+        tool_policy=tool_policy,
+        missing_sentinel=missing_sentinel,
+        session_namespace=session_namespace,
+        context=context,
+        missing_message=missing_message,
+        validate_stage=validate_stage,
+        workspace_name=workspace_name,
     )
 
 

@@ -134,6 +134,9 @@ _is_claude_subscription_access_denial = (
 _parse_claude_reset_time = _builtin_runtime_client_module._parse_claude_reset_time
 _parse_opencode_reset_time = _builtin_runtime_client_module._parse_opencode_reset_time
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
+_supported_builtin_provider_selection = (
+    _builtin_runtime_client_module.supported_builtin_provider_selection
+)
 _supported_builtin_stage = _builtin_runtime_client_module.supported_builtin_stage
 _BuiltInAvailabilityState = _builtin_runtime_client_module.BuiltInAvailabilityState
 _run_builtin_new_session = _builtin_runtime_client_module._run_builtin_new_session
@@ -233,16 +236,16 @@ class RuntimeClient:
         self._availability = _BuiltInAvailabilityState()
 
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
-        if _supported_builtin_stage(request.stage) is None:
+        if _supported_builtin_provider_selection(request.stage) is None:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
         while True:
             now = _time_module.now_local()
-            selected_stage = self._availability.first_available_stage(
+            selected_provider_selection = self._availability.first_available_stage(
                 request.stage, now=now
             )
-            if selected_stage is None:
+            if selected_provider_selection is None:
                 return RuntimeOutcome.no_service_available(
                     output="",
                     reset_time=self._availability.next_wake_time(
@@ -254,13 +257,13 @@ class RuntimeClient:
             try:
                 result = _run_builtin_ephemeral(
                     request,
-                    select_builtin_stage=lambda _stage: selected_stage,
+                    select_builtin_stage=lambda _stage: selected_provider_selection,
                 )
             except UsageLimitError as exc:
                 if getattr(exc, "_is_live_output_exception", False):
                     raise
                 exhausted_now = _time_module.now_local()
-                service_name = exc.service_name or selected_stage.service
+                service_name = exc.service_name or selected_provider_selection.service
                 self._availability.mark_exhausted(
                     service_name,
                     reset_time=exc.reset_time,
