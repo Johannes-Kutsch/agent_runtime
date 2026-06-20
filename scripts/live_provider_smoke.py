@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
-import os
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -300,16 +300,6 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Build the run plan and print it without executing providers.",
-    )
-    parser.add_argument(
-        "--list-providers",
-        action="store_true",
-        help="List supported providers and whether credentials appear configured.",
-    )
-    parser.add_argument(
         "--json",
         action="store_true",
         help="Emit JSON summary to stdout.",
@@ -465,13 +455,9 @@ def _print_run_result(
     *,
     verbose: bool,
     artifact_root: Path,
-    dry_run: bool = False,
 ) -> tuple[str, int]:
     lines: list[str] = []
-    if not dry_run:
-        lines.append(f"artifact root: {artifact_root}")
-    if dry_run:
-        lines.append("Dry run requested. No providers executed.")
+    lines.append(f"artifact root: {artifact_root}")
     for case in run_result.cases:
         status = case.status
         label = _case_label(case)
@@ -518,39 +504,6 @@ def _build_failed_case_runs(
     return tuple(failed_runs)
 
 
-def _print_provider_listing() -> int:
-    codex_auth_present = live_provider_smoke_plan.detect_codex_auth_present()
-    providers = live_provider_smoke_plan.list_supported_providers(
-        env=os.environ if os is not None else None,
-        codex_auth_present=codex_auth_present,
-    )
-    for provider in providers:
-        print(
-            f"{provider.service}: {'configured' if provider.configured else 'missing'}"
-        )
-    print(
-        "Preserve artifacts with care; outputs may contain potentially sensitive data."
-    )
-    return 0
-
-
-def _print_dry_run_plan(
-    dry_run_plan: Any,
-    *,
-    json_output: bool,
-) -> int:
-    if json_output:
-        print(live_provider_smoke_plan.dry_run_plan_to_json(dry_run_plan))
-        return 0
-
-    print("Dry run plan:")
-    print(f"run_id: {dry_run_plan.run_id}")
-    print(f"artifact_root: {dry_run_plan.artifact_root}")
-    for case in dry_run_plan.cases:
-        print(_case_label(cast(Any, case)))
-    return 0
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_cli_args(argv)
     model_overrides = _build_service_model_map(args.model)
@@ -558,25 +511,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     providers = _coerce_list_provider_selection(args)
     lifecycle_modes = _coerce_lifecycle_modes(args)
     tool_policies = tuple(args.tool_policies)
-    if not args.tool_policies and not args.lifecycle_modes:
-        tool_policies = tuple(policy.name for policy in ToolPolicy)
-    codex_auth_present = live_provider_smoke_plan.detect_codex_auth_present()
-
-    if args.list_providers:
-        return _print_provider_listing()
-
-    if args.dry_run:
-        dry_run_plan = _build_smoke_plan(
-            providers,
-            lifecycle_modes=lifecycle_modes,
-            tool_policies=tool_policies,
-            run_id=args.run_id,
-            model_overrides=model_overrides,
-            effort_overrides=effort_overrides,
-            artifact_root=args.artifact_root,
-            codex_auth_present=codex_auth_present,
-        )
-        return _print_dry_run_plan(dry_run_plan, json_output=args.json)
 
     run_result = run_live_smoke(
         provider_selection=providers,
@@ -624,7 +558,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_result,
         verbose=args.verbose,
         artifact_root=run_result.artifact_root,
-        dry_run=False,
     )
     return status
 
@@ -1070,6 +1003,19 @@ def run_live_smoke(
     }
     runner = case_runner or _run_public_smoke_case
     run_started = time.perf_counter()
+
+    for plan in dry_run_plan.provider_plans:
+        if (
+            plan.status
+            is not live_provider_smoke_plan.LiveSmokeProviderSelectionStatus.RUNNABLE
+        ):
+            plan_status = getattr(plan.status, "value", plan.status)
+            reason = getattr(plan, "reason", None)
+            if reason:
+                warnings.append(f"{plan.service}: {plan_status}: {reason}")
+            else:
+                warnings.append(f"{plan.service}: {plan_status}: provider not runnable")
+
     run_artifact_root = resolved_artifact_root / dry_run_plan.run_id
     run_artifact_root.mkdir(parents=True, exist_ok=True)
 
