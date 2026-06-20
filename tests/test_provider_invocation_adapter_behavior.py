@@ -212,8 +212,8 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    prompt_dir = tmp_path / r"C:\Users\Test User\Prompt Dir"
-    prompt_dir.mkdir()
+    prompt_dir = tmp_path / "Users" / "Test User" / "Prompt Dir"
+    prompt_dir.mkdir(parents=True)
     prompt_path = prompt_dir / ".provider_prompt"
     legacy_command = (
         "claude --verbose --dangerously-skip-permissions --output-format "

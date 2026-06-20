@@ -7,6 +7,7 @@ import os
 import json
 import shlex
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -102,6 +103,8 @@ def _build_case_rerun_command(
         command_parts.extend(["--effort", f"{case.service}={case.effort}"])
     if run_id:
         command_parts.extend(["--run-id", run_id])
+    if os.name == "nt":
+        return subprocess.list2cmdline(command_parts)
     return " ".join(shlex.quote(part) for part in command_parts)
 
 

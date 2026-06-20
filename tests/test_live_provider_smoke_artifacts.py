@@ -445,12 +445,9 @@ def test_live_smoke_real_run_preserves_resolved_defaults_in_diagnostics_and_reru
             "mode": "ephemeral",
             "policy": None,
             "status": "failed",
-            "command": (
-                "python "
-                f"{module.__file__} "
-                "--provider codex --mode ephemeral "
-                f"--model codex={default_model} --effort codex={default_effort} "
-                "--run-id defaults-preserved-run"
+            "command": module._build_case_rerun_command(
+                run_result.cases[0],
+                run_id="defaults-preserved-run",
             ),
         }
     ]
@@ -1854,7 +1851,9 @@ def test_live_smoke_cli_json_output_includes_rerun_targets_for_failed_cases(
 
     assert exit_code == 1
     assert payload["run_id"] == "cli-json-run"
-    assert payload["artifact_root"] == str(tmp_path / "artifacts")
+    assert payload["artifact_root"] == module._portable_json_path(
+        tmp_path / "artifacts"
+    )
     assert payload["provider_plans"][0]["status"] == "runnable"
     assert payload["cases"][0]["service"] == "opencode"
     assert payload["cases"][0]["status"] == "failed"
@@ -1911,10 +1910,10 @@ def test_live_smoke_real_run_json_artifact_paths_use_forward_slashes_portably(
     assert Path(result.cases[0].artifact_path).exists()
 
     summary_payload = module.json.loads(result.summary_path.read_text(encoding="utf-8"))
-    assert summary_payload["artifact_root"] == str(
+    assert summary_payload["artifact_root"] == module._portable_json_path(
         (tmp_path / "portable" / "artifacts").resolve()
     )
-    assert summary_payload["cases"][0]["artifact_path"] == str(
+    assert summary_payload["cases"][0]["artifact_path"] == module._portable_json_path(
         (
             tmp_path
             / "portable"
@@ -1945,10 +1944,10 @@ def test_live_smoke_real_run_json_artifact_paths_use_forward_slashes_portably(
 
     payload = module.json.loads(output.getvalue())
     assert exit_code == 0
-    assert payload["artifact_root"] == str(
+    assert payload["artifact_root"] == module._portable_json_path(
         (tmp_path / "portable" / "artifacts").resolve()
     )
-    assert payload["cases"][0]["artifact_path"] == str(
+    assert payload["cases"][0]["artifact_path"] == module._portable_json_path(
         (
             tmp_path
             / "portable"
