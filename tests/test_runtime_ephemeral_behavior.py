@@ -26,7 +26,7 @@ from agent_runtime.errors import (
     TransientAgentError,
     UsageLimitError,
 )
-from agent_runtime.execution_contracts import (
+from agent_runtime._execution_contracts import (
     CancellationToken,
     PreparedRunSessionState,
     TextOutputAdapter,
@@ -39,7 +39,7 @@ from agent_runtime.execution_contracts import (
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.provider_output import reduce_text_output_events
 from agent_runtime.roles import InvocationRole
-from agent_runtime.service_registry import ServiceRegistry
+from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import RunKind
 
 from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionService

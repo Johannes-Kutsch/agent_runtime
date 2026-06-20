@@ -32,7 +32,7 @@ from .errors import (
     RuntimeConfigurationError,
     UsageLimitError,
 )
-from .execution_contracts import (
+from ._execution_contracts import (
     CancellationToken,
     PromptRuntimeExecutionAdapter,
     RunSessionPlan,
@@ -43,7 +43,7 @@ from .execution_contracts import (
 )
 from .invocation_progress import InvocationProgress
 from .roles import InvocationRole
-from .service_registry import ServiceRegistry
+from ._service_registry import ServiceRegistry
 from .session import RunKind
 from .session_planning import (
     ResumableSessionPlan,
@@ -377,14 +377,18 @@ async def _run_new_session(
 
     resolve_service = _require_execution_adapter_method(runner, "resolve_service")
     resolved_service = resolve_service(selected_service_name)
+    if request._session_store is None or request._provider_session_adapter is None:
+        raise RuntimeConfigurationError(
+            "New-session compat runtime requires internal session planning inputs."
+        )
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=request.invocation_dir,
             role=request.role,
             namespace=request._session_namespace,
             service=resolved_service,
-            session_store=request.session_store,
-            provider_session_adapter=request.provider_session_adapter,
+            session_store=request._session_store,
+            provider_session_adapter=request._provider_session_adapter,
         )
     )
     return await _run_resumed_session(

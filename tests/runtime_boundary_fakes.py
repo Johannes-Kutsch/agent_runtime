@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import agent_runtime.session as session_runtime
-from agent_runtime.provider_session_adapter import (
+from agent_runtime._provider_session_adapter import (
     ProviderSessionPlanningFacts,
     ProviderSessionPlanningRequest,
 )

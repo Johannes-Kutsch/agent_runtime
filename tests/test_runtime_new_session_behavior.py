@@ -15,7 +15,7 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
-import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
+import agent_runtime._provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 from agent_runtime.contracts import AssistantTurn, ExecutionProvider, TransientError
@@ -28,7 +28,7 @@ from agent_runtime.errors import (
     TransientAgentError,
     UsageLimitError,
 )
-from agent_runtime.execution_contracts import (
+from agent_runtime._execution_contracts import (
     WorkExecutionAdapter,
     WorkExecutionDependencies,
     WorkFailureHandling,
@@ -37,9 +37,9 @@ from agent_runtime.execution_contracts import (
     WorktreeMount,
 )
 from agent_runtime.provider_output import reduce_text_output_events
-from agent_runtime.provider_session_adapter import ProviderSessionPlanningRequest
+from agent_runtime._provider_session_adapter import ProviderSessionPlanningRequest
 from agent_runtime.roles import InvocationRole
-from agent_runtime.service_registry import ServiceRegistry
+from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import RunKind
 
 from tests.runtime_boundary_fakes import (
@@ -1116,8 +1116,8 @@ def test_new_session_runtime_requires_selected_configured_service(
                     ),
                     role=InvocationRole("implementer"),
                     session_namespace="main",
-                    session_store=session_store_factory(),
-                    provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                    _session_store=session_store_factory(),
+                    _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                         "claude"
                     ),
                     tool_access=tool_access,
@@ -1157,8 +1157,8 @@ def test_new_session_runtime_reports_selected_usage_limit_without_fallback(
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "claude"
                 ),
                 tool_access=tool_access,
@@ -1204,8 +1204,8 @@ def test_new_session_runtime_keeps_started_usage_limit_outcome(
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1264,8 +1264,8 @@ def test_new_session_runtime_returns_continuation_for_started_interruption(
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1380,8 +1380,8 @@ def test_new_session_runtime_returns_adapter_owned_provider_resume_state(
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1425,8 +1425,8 @@ def test_new_session_runtime_keeps_not_started_usage_limit_without_continuation(
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1473,8 +1473,8 @@ def test_new_session_runtime_does_not_create_continuation_from_session_allocatio
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1513,8 +1513,8 @@ def test_new_session_runtime_returns_continuation_for_started_cancellation(
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1570,8 +1570,8 @@ def test_new_session_runtime_keeps_not_started_cancellation_without_continuation
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1616,8 +1616,8 @@ def test_new_session_runtime_returns_timed_out_outcome_with_continuation_after_m
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1672,8 +1672,8 @@ def test_new_session_runtime_returns_retryable_provider_failure_outcome_with_con
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1730,8 +1730,8 @@ def test_new_session_runtime_keeps_not_started_timeout_without_continuation(
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1775,8 +1775,8 @@ def test_new_session_runtime_keeps_not_started_retryable_provider_failure_withou
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",
-                session_store=session_store_factory(),
-                provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+                _session_store=session_store_factory(),
+                _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
                     "codex"
                 ),
                 tool_access=tool_access,
@@ -1857,8 +1857,8 @@ def test_new_session_runtime_keeps_exceptional_failures_exceptional(
         ),
         role=InvocationRole("implementer"),
         session_namespace="main",
-        session_store=session_store_factory(),
-        provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
+        _session_store=session_store_factory(),
+        _provider_session_adapter=_NamedExternalStateResidentPlanningProviderSessionAdapter(
             "codex"
         ),
         tool_access=contracts_runtime.ToolAccess.workspace_backed(

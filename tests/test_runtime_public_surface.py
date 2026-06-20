@@ -12,7 +12,7 @@ import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime._runtime_compat as compat_runtime
-import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
+import agent_runtime._provider_session_adapter as internal_provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 import agent_runtime.session_planning as session_planning_runtime
@@ -144,6 +144,21 @@ def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surfa
         exec("from agent_runtime.runtime import ProviderInvocationResult", {}, {})
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ProviderInvocationAdapter", {}, {})
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "agent_runtime.execution_contracts",
+        "agent_runtime.provider_session_adapter",
+        "agent_runtime.service_registry",
+    ],
+)
+def test_retired_public_adapter_modules_do_not_expose_runtime_seams(
+    module_name: str,
+) -> None:
+    module = importlib.import_module(module_name)
+    assert module.__all__ == []
 
 
 @pytest.mark.parametrize(
@@ -534,12 +549,23 @@ def test_provider_session_seams_consolidate_public_session_store_vocabulary() ->
 
 
 def test_provider_session_adapter_public_seam_stays_narrow() -> None:
-    assert provider_session_adapter_runtime.__all__ == [
+    public_module = importlib.import_module("agent_runtime.provider_session_adapter")
+    assert public_module.__all__ == []
+    with pytest.raises(ImportError):
+        exec(
+            "from agent_runtime.provider_session_adapter import ProviderSessionAdapter",
+            {},
+            {},
+        )
+
+    assert internal_provider_session_adapter_runtime.__all__ == [
         "ProviderSessionAdapter",
         "ProviderSessionPlanningFacts",
         "ProviderSessionPlanningRequest",
     ]
-    adapter_members = provider_session_adapter_runtime.ProviderSessionAdapter.__dict__
+    adapter_members = (
+        internal_provider_session_adapter_runtime.ProviderSessionAdapter.__dict__
+    )
 
     assert "provider_session_planning_facts" in adapter_members
     assert "provider_session_state" in adapter_members
@@ -548,7 +574,10 @@ def test_provider_session_adapter_public_seam_stays_narrow() -> None:
     assert "provider_session_preferences" not in adapter_members
     assert "recover_provider_session_id" not in adapter_members
     assert "is_exact_resumable_provider_session" not in adapter_members
-    assert not hasattr(provider_session_adapter_runtime, "ProviderSessionService")
+    assert not hasattr(
+        internal_provider_session_adapter_runtime,
+        "ProviderSessionService",
+    )
 
 
 def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> None:

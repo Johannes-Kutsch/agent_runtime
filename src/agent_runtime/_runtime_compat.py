@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import _runtime_facade_lifecycle as _runtime_facade_lifecycle_module
-from .execution_contracts import (
+from ._execution_contracts import (
     PromptRuntimeExecutionAdapter as _PromptRuntimeExecutionAdapter,
 )
 from .runtime import (
@@ -15,7 +15,7 @@ from .runtime import (
     _run_new_session_outcome,
     _run_resumed_session_outcome,
 )
-from .service_registry import ServiceRegistry
+from ._service_registry import ServiceRegistry
 
 __all__ = [
     "EphemeralRuntime",

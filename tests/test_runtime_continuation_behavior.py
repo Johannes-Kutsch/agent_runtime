@@ -35,7 +35,7 @@ from agent_runtime.errors import (
     RuntimeConfigurationError,
     UsageLimitError,
 )
-from agent_runtime.execution_contracts import (
+from agent_runtime._execution_contracts import (
     CancellationToken,
     WorkExecutionAdapter,
     WorkExecutionDependencies,

@@ -4,7 +4,7 @@ import dataclasses
 from datetime import datetime
 from typing import Callable, TypeAlias
 
-from .service_registry import ServiceRegistry
+from ._service_registry import ServiceRegistry
 from .types import StageSelection
 from .usage_limit_scope import UsageLimitScope
 

@@ -9,7 +9,7 @@ from typing import Protocol, cast
 from .contracts import ExecutionProvider, ResumabilityProvider
 from .identity import validate_session_namespace
 from .errors import AgentCredentialFailureError
-from .provider_session_adapter import (
+from ._provider_session_adapter import (
     ProviderSessionAdapter,
     ProviderSessionPlanningRequest,
 )

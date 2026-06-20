@@ -13,7 +13,7 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
-import agent_runtime.provider_session_adapter as provider_session_adapter_runtime
+import agent_runtime._provider_session_adapter as provider_session_adapter_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 from agent_runtime._import_isolation import assert_runtime_import_isolation
@@ -24,7 +24,7 @@ from agent_runtime.contracts import (
     TransientError,
     UsageLimit,
 )
-from agent_runtime.provider_session_adapter import ProviderSessionPlanningRequest
+from agent_runtime._provider_session_adapter import ProviderSessionPlanningRequest
 from agent_runtime.types import StageSelection as InternalStageSelection
 from agent_runtime.errors import (
     AgentCancelledError,
@@ -34,7 +34,7 @@ from agent_runtime.errors import (
     HardAgentError,
     UsageLimitError,
 )
-from agent_runtime.execution_contracts import (
+from agent_runtime._execution_contracts import (
     PreparedRunSessionState,
     PromptRunRequest,
     TextOutputAdapter,
@@ -48,7 +48,7 @@ from agent_runtime.execution_contracts import (
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.provider_output import reduce_text_output_events
 from agent_runtime.roles import InvocationRole
-from agent_runtime.service_registry import ServiceRegistry
+from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import RunKind
 from agent_runtime.session_planning import ResumableSessionPlan
 from agent_runtime.session_planning import (
