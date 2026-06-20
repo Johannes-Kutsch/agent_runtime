@@ -583,6 +583,36 @@ def test_live_smoke_dry_run_to_json_is_machine_readable(
     assert payload["providers"][0]["status"] == "runnable"
 
 
+def test_live_smoke_dry_run_json_artifact_paths_use_forward_slashes_portably(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    artifact_root = r"C:\temp\live-smoke-artifacts"
+    summary = module.build_dry_run_plan(
+        provider_selection=("codex",),
+        lifecycle_modes=("ephemeral",),
+        run_id="portable-json",
+        model_overrides={"codex": "codex-mini"},
+        effort_overrides={"codex": "high"},
+        codex_auth_present=True,
+        artifact_root=artifact_root,
+    )
+
+    assert summary.artifact_root == Path(artifact_root)
+    assert summary.cases[0].artifact_path == (
+        Path(artifact_root) / "portable-json" / "codex" / "ephemeral" / "default"
+    )
+
+    payload = json.loads(module.dry_run_plan_to_json(summary))
+
+    assert payload["artifact_root"] == "C:/temp/live-smoke-artifacts"
+    assert (
+        payload["cases"][0]["artifact_path"]
+        == "C:/temp/live-smoke-artifacts/portable-json/codex/ephemeral/default"
+    )
+
+
 def test_live_smoke_dry_run_to_json_exposes_resolved_live_smoke_defaults(
     planning_module: Any,
     tmp_path: Path,

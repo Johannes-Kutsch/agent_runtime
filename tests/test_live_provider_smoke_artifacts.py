@@ -1589,6 +1589,98 @@ def test_live_smoke_cli_json_output_includes_rerun_targets_for_failed_cases(
     )
 
 
+def test_live_smoke_real_run_json_artifact_paths_use_forward_slashes_portably(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_case_runner(*, artifact_dir: Path, **_: object) -> _FakeRunOutcome:
+        assert artifact_dir == (
+            tmp_path
+            / r"portable\artifacts"
+            / "portable-json-run"
+            / "codex"
+            / "ephemeral"
+            / "default"
+        )
+        return _FakeRunOutcome(kind="completed", output="ok")
+
+    result = module.run_live_smoke(
+        provider_selection=("codex",),
+        lifecycle_modes=("ephemeral",),
+        model_overrides={"codex": "codex-mini"},
+        effort_overrides={"codex": "high"},
+        codex_auth_present=True,
+        run_id="portable-json-run",
+        artifact_root=r"portable\artifacts",
+        case_runner=_fake_case_runner,
+    )
+
+    assert result.artifact_root == (tmp_path / r"portable\artifacts").resolve()
+    assert result.cases[0].artifact_path == str(
+        tmp_path
+        / r"portable\artifacts"
+        / "portable-json-run"
+        / "codex"
+        / "ephemeral"
+        / "default"
+    )
+    assert Path(result.cases[0].artifact_path).exists()
+
+    summary_payload = module.json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert summary_payload["artifact_root"] == str(
+        (tmp_path / "portable" / "artifacts").resolve()
+    )
+    assert summary_payload["cases"][0]["artifact_path"] == str(
+        (
+            tmp_path
+            / "portable"
+            / "artifacts"
+            / "portable-json-run"
+            / "codex"
+            / "ephemeral"
+            / "default"
+        ).resolve()
+    )
+
+    monkeypatch.setattr(module, "run_live_smoke", lambda **_: result)
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--provider",
+                "codex",
+                "--mode",
+                "ephemeral",
+                "--json",
+                "--run-id",
+                "portable-json-run",
+                "--artifact-root",
+                r"portable\artifacts",
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+    assert exit_code == 0
+    assert payload["artifact_root"] == str(
+        (tmp_path / "portable" / "artifacts").resolve()
+    )
+    assert payload["cases"][0]["artifact_path"] == str(
+        (
+            tmp_path
+            / "portable"
+            / "artifacts"
+            / "portable-json-run"
+            / "codex"
+            / "ephemeral"
+            / "default"
+        ).resolve()
+    )
+
+
 def test_live_smoke_cli_warning_output_does_not_flip_pass_status(
     smoke_module: object,
     tmp_path: Path,

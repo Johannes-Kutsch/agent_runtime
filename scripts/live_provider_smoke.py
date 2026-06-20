@@ -50,6 +50,10 @@ def _safe_list(value: Sequence[str]) -> str:
     return ", ".join(value)
 
 
+def _portable_json_path(path: Path | str) -> str:
+    return str(path).replace("\\", "/")
+
+
 def _live_smoke_defaults_help_text() -> str:
     defaults = live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS
     verified_on = live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS_VERIFIED_ON
@@ -512,7 +516,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             summary_payload["failed_case_runs"] = list(failed_case_runs)
             summary_payload["run_id"] = run_result.run_id
-            summary_payload["artifact_root"] = str(run_result.artifact_root)
+            summary_payload["artifact_root"] = _portable_json_path(
+                run_result.artifact_root
+            )
             summary_payload["passed"] = run_result.passed
             summary_payload["warnings"] = list(run_result.warnings)
             summary_payload["duration_seconds"] = summary_payload.get(
@@ -543,7 +549,7 @@ def _build_summary_payload(
 ) -> dict[str, Any]:
     return {
         "run_id": run_result.run_id,
-        "artifact_root": str(run_result.artifact_root),
+        "artifact_root": _portable_json_path(run_result.artifact_root),
         "summary_path": str(run_result.summary_path),
         "passed": run_result.passed,
         "duration_seconds": run_duration_seconds,
@@ -555,7 +561,7 @@ def _build_summary_payload(
                 "policy": case.policy,
                 "model": case.model,
                 "effort": case.effort,
-                "artifact_path": case.artifact_path,
+                "artifact_path": _portable_json_path(case.artifact_path),
                 "status": case.status,
                 "required": case.required,
                 "diagnostic": case.diagnostic,
@@ -862,7 +868,7 @@ def _write_optional_config_artifacts(
                 }
                 for plan in dry_run_plan.provider_plans
             ],
-            "artifact_root": str(summary_root / run_id),
+            "artifact_root": _portable_json_path(summary_root / run_id),
             "generated_at": datetime.now(timezone.utc).isoformat(),
         },
     )

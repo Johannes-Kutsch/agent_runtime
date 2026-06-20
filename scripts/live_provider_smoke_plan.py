@@ -505,7 +505,7 @@ def list_supported_providers(
 def dry_run_plan_to_json(dry_run_plan: DryRunPlan) -> str:
     payload = {
         "run_id": dry_run_plan.run_id,
-        "artifact_root": str(dry_run_plan.artifact_root),
+        "artifact_root": _portable_json_path(dry_run_plan.artifact_root),
         "providers": [
             {
                 "service": provider.service,
@@ -523,12 +523,16 @@ def dry_run_plan_to_json(dry_run_plan: DryRunPlan) -> str:
                 "policy": case.policy,
                 "model": case.model,
                 "effort": case.effort,
-                "artifact_path": str(case.artifact_path),
+                "artifact_path": _portable_json_path(case.artifact_path),
             }
             for case in dry_run_plan.cases
         ],
     }
     return json.dumps(payload, sort_keys=True)
+
+
+def _portable_json_path(path: Path | str) -> str:
+    return str(path).replace("\\", "/")
 
 
 def parse_provider_selection(selection: str | Sequence[str]) -> ProviderSelection:
