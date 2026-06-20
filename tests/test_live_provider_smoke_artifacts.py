@@ -445,9 +445,7 @@ def test_live_smoke_real_run_preserves_resolved_defaults_in_diagnostics_and_reru
             "mode": "ephemeral",
             "policy": None,
             "status": "failed",
-            "command": module._build_case_rerun_command(
-                run_result.cases[0],
-            ),
+            "command": module._build_case_rerun_command(run_result.cases[0]),
         }
     ]
 
@@ -492,13 +490,13 @@ def test_build_case_rerun_command_uses_windows_command_format(
             "codex=low",
         ]
     )
-    command = module._build_case_rerun_command(case, run_id="windows-rerun-run")
+    command = module._build_case_rerun_command(case)
 
     assert command == expected_command
     assert "'" not in expected_command
 
 
-def test_build_case_rerun_command_includes_new_session_prerequisite_for_resumed_session_case(
+def test_build_case_rerun_command_includes_start_session_run_prerequisite_for_resume_session_run_case(
     smoke_module: object,
 ) -> None:
     module: Any = smoke_module
@@ -544,7 +542,7 @@ def test_build_case_rerun_command_does_not_include_run_id_or_credentials(
         traceback=None,
         duration_seconds=0.1,
     )
-    command = module._build_case_rerun_command(case, run_id="random-run-id-123")
+    command = module._build_case_rerun_command(case)
 
     assert "random-run-id-123" not in command
     assert "super-secret-claude-token" not in command
@@ -607,6 +605,38 @@ def test_tool_policy_rerun_guidance_includes_provider_mode_and_policy_label(
 
     assert "claude/ephemeral/NO_FILE_MUTATION" in guidance
     assert "--policy NO_FILE_MUTATION" in guidance
+
+
+def test_resume_session_run_rerun_guidance_includes_start_session_run_prerequisite(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    failed_cases = module._build_failed_case_runs(
+        (
+            module.LiveSmokeRunCaseResult(
+                service="codex",
+                mode="resumed_session",
+                policy=None,
+                model="gpt-5.4-mini",
+                effort="low",
+                artifact_path="unused",
+                status="failed",
+                required=True,
+                provider_output="",
+                diagnostic="failed",
+                traceback=None,
+                duration_seconds=0.1,
+            ),
+        )
+    )
+    guidance = module._format_rerun_block(failed_cases)
+
+    assert "codex/resumed_session" in guidance
+    assert "Start Session Run prerequisite:" in guidance
+    assert "Resume Session Run:" in guidance
+    assert "--mode new_session" in guidance
+    assert "--mode resumed_session" in guidance
 
 
 def test_live_smoke_artifacts_do_not_capture_credentials_or_raw_env(

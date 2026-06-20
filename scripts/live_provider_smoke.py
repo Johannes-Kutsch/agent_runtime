@@ -121,41 +121,32 @@ def _live_smoke_defaults_help_text() -> str:
 
 def _build_case_rerun_command(
     case: Any,
-    *,
-    run_id: str | None = None,
 ) -> str:
     def _stringify_command(parts: list[str]) -> str:
         if os.name == "nt":
             return subprocess.list2cmdline(parts)
         return " ".join(shlex.quote(part) for part in parts)
 
-    command_parts = [
-        "python",
-        __file__,
-        "--provider",
-        case.service,
-        "--mode",
-        case.mode,
-    ]
-    if case.policy is not None:
-        command_parts.extend(["--policy", str(case.policy)])
-    if case.model:
-        command_parts.extend(["--model", f"{case.service}={case.model}"])
-    if case.effort:
-        command_parts.extend(["--effort", f"{case.service}={case.effort}"])
-    if case.mode == "resumed_session":
-        prerequisite_parts = [
+    def _command_parts_for_mode(mode: str) -> list[str]:
+        command_parts = [
             "python",
             __file__,
             "--provider",
             case.service,
             "--mode",
-            "new_session",
-            "--model",
-            f"{case.service}={case.model}",
-            "--effort",
-            f"{case.service}={case.effort}",
+            mode,
         ]
+        if case.policy is not None and mode == case.mode:
+            command_parts.extend(["--policy", str(case.policy)])
+        if case.model:
+            command_parts.extend(["--model", f"{case.service}={case.model}"])
+        if case.effort:
+            command_parts.extend(["--effort", f"{case.service}={case.effort}"])
+        return command_parts
+
+    command_parts = _command_parts_for_mode(case.mode)
+    if case.mode == "resumed_session":
+        prerequisite_parts = _command_parts_for_mode("new_session")
         return "\n".join(
             (
                 "Start Session Run prerequisite:",
@@ -539,9 +530,7 @@ def _print_run_result(
             if case.traceback:
                 lines.append(f"  traceback: {case.traceback}")
             lines.append(f"  artifact_path: {case.artifact_path}")
-    failed_case_runs = _build_failed_case_runs(
-        run_result.cases, run_id=run_result.run_id
-    )
+    failed_case_runs = _build_failed_case_runs(run_result.cases)
     lines.extend(_format_rerun_block(failed_case_runs).splitlines())
     for warning in run_result.warnings:
         lines.append(f"warning: {warning}")
@@ -554,8 +543,6 @@ def _print_run_result(
 
 def _build_failed_case_runs(
     cases: Sequence[LiveSmokeRunCaseResult],
-    *,
-    run_id: str | None = None,
 ) -> tuple[dict[str, str | None], ...]:
     failed_runs = []
     for case in cases:
@@ -569,7 +556,7 @@ def _build_failed_case_runs(
                 "mode": case.mode,
                 "policy": case.policy,
                 "status": case.status,
-                "command": _build_case_rerun_command(case, run_id=run_id),
+                "command": _build_case_rerun_command(case),
             }
         )
     return tuple(failed_runs)
@@ -606,9 +593,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             summary_payload = None
 
     if args.json:
-        failed_case_runs = _build_failed_case_runs(
-            run_result.cases, run_id=run_result.run_id
-        )
+        failed_case_runs = _build_failed_case_runs(run_result.cases)
         if summary_payload is None:
             summary_payload = _build_cli_summary_payload(
                 run_result, failed_case_runs=failed_case_runs
