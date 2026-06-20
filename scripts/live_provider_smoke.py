@@ -44,7 +44,7 @@ except ModuleNotFoundError:
 
 DEFAULT_LIVE_SMOKE_ARTIFACT_ROOT = "live-smoke-artifacts"
 LIVE_SMOKE_SUMMARY_FILENAME = "summary.json"
-_DEFAULT_CASE_TIMEOUT_SECONDS = 30
+_DEFAULT_CASE_TIMEOUT_SECONDS = 180
 
 
 def _parse_service_map_arg(value: str, *, flag_name: str) -> tuple[str, str]:
@@ -376,7 +376,12 @@ def _coerce_list_provider_selection(parsed: argparse.Namespace) -> tuple[str, ..
 
 
 def _coerce_lifecycle_modes(parsed: argparse.Namespace) -> tuple[str, ...]:
-    selected = tuple(parsed.lifecycle_modes or ("ephemeral",))
+    if parsed.lifecycle_modes:
+        selected = tuple(parsed.lifecycle_modes)
+    elif parsed.tool_policies:
+        selected = ("ephemeral",)
+    else:
+        selected = ("ephemeral", "new_session", "resumed_session")
     return tuple(dict.fromkeys(selected))
 
 
@@ -477,6 +482,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     effort_overrides = _build_service_model_map(args.effort)
     providers = _coerce_list_provider_selection(args)
     lifecycle_modes = _coerce_lifecycle_modes(args)
+    tool_policies = tuple(args.tool_policies)
+    if not args.tool_policies and not args.lifecycle_modes:
+        tool_policies = tuple(policy.name for policy in ToolPolicy)
     codex_auth_present = live_provider_smoke_plan.detect_codex_auth_present()
 
     if args.list_providers:
@@ -486,7 +494,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         dry_run_plan = live_provider_smoke_plan.build_dry_run_plan(
             providers,
             lifecycle_modes=lifecycle_modes,
-            tool_policies=tuple(args.tool_policies),
+            tool_policies=tool_policies,
             run_id=args.run_id,
             model_overrides=model_overrides,
             effort_overrides=effort_overrides,
@@ -498,7 +506,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_result = run_live_smoke(
         provider_selection=providers,
         lifecycle_modes=lifecycle_modes,
-        tool_policies=tuple(args.tool_policies),
+        tool_policies=tool_policies,
         run_id=args.run_id,
         model_overrides=model_overrides,
         effort_overrides=effort_overrides,

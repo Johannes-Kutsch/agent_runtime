@@ -1149,6 +1149,14 @@ def test_live_smoke_combined_mode_continues_after_lifecycle_provider_failure(
     assert run_result.cases[1].mode == "resumed_session"
     assert run_result.cases[1].status == "error"
     assert any(
+        case.service == "claude"
+        and case.mode == "ephemeral"
+        and case.policy == "UNRESTRICTED"
+        and case.status == "skipped"
+        and case.required is False
+        for case in run_result.cases
+    )
+    assert any(
         case.service == "codex"
         and case.mode == "new_session"
         and case.status == "passed"
@@ -2051,4 +2059,19 @@ def test_main_with_explicit_empty_argv_ignores_process_argv_and_uses_defaults(
 
     assert exit_code == 0
     assert captured["provider_selection"] == ("all",)
-    assert captured["lifecycle_modes"] == ("ephemeral",)
+    assert captured["lifecycle_modes"] == (
+        "ephemeral",
+        "new_session",
+        "resumed_session",
+    )
+    assert captured["tool_policies"] == tuple(
+        policy.name for policy in module.ToolPolicy
+    )
+
+
+def test_live_smoke_default_case_timeout_is_full_matrix_friendly(
+    smoke_module: Any,
+) -> None:
+    module = smoke_module
+
+    assert module._DEFAULT_CASE_TIMEOUT_SECONDS >= 180
