@@ -298,10 +298,9 @@ def _claude_command(
     model: str,
     effort: str,
     tool_access: ToolAccess,
-    prompt_path: Path,
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
-) -> str:
+) -> tuple[str, ...]:
     if isinstance(tool_access.tool_policy, ToolPolicy):
         if tool_access.tool_policy is ToolPolicy.NONE:
             profile = ToolPolicyProfile(disallowed_tools=("all",))
@@ -315,26 +314,32 @@ def _claude_command(
             profile = ToolPolicyProfile()
     else:
         profile = tool_access.tool_policy
-    flags = (
-        "--verbose --dangerously-skip-permissions --output-format stream-json -p -"
-        " --disable-slash-commands --exclude-dynamic-system-prompt-sections"
-    )
+    flags = [
+        "--verbose",
+        "--dangerously-skip-permissions",
+        "--output-format",
+        "stream-json",
+        "-p",
+        "-",
+        "--disable-slash-commands",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
     if profile.allowed_tools is not None:
-        flags += f" --tools {shlex.quote(' '.join(profile.allowed_tools))}"
+        flags.extend(["--tools", " ".join(profile.allowed_tools)])
     if profile.disallowed_tools:
-        flags += f' --disallowedTools "{" ".join(profile.disallowed_tools)}"'
+        flags.extend(["--disallowedTools", " ".join(profile.disallowed_tools)])
     if profile.strict_mcp_config:
-        flags += " --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'"
+        flags.extend(["--strict-mcp-config", '{"mcpServers":{}}'])
     if model:
-        flags += f" --model {model}"
+        flags.extend(["--model", model])
     if effort:
-        flags += f" --effort {effort}"
+        flags.extend(["--effort", effort])
     if session_uuid:
         if run_kind == RunKind.RESUME:
-            flags += f" --resume {shlex.quote(session_uuid)}"
+            flags.extend(["--resume", session_uuid])
         else:
-            flags += f" --session-id {shlex.quote(session_uuid)}"
-    return f"claude {flags} < {shlex.quote(str(prompt_path))}"
+            flags.extend(["--session-id", session_uuid])
+    return ("claude", *flags)
 
 
 def _claude_env(
@@ -358,30 +363,29 @@ def _codex_command(
     tool_access: ToolAccess,
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
-) -> str:
+) -> tuple[str, ...]:
     tool_policy = tool_access.tool_policy
     if run_kind == RunKind.RESUME and session_uuid:
-        parts = ["codex exec resume", session_uuid]
+        parts = ["codex", "exec", "resume", session_uuid]
     else:
-        parts = ["codex exec"]
+        parts = ["codex", "exec"]
     if model:
-        parts.append(f"-m {model}")
+        parts.extend(["-m", model])
     if effort:
-        parts.append(f"-c model_reasoning_effort={effort}")
-    parts.append("-c approval_policy=never")
+        parts.extend(["-c", f"model_reasoning_effort={effort}"])
+    parts.extend(["-c", "approval_policy=never"])
     if tool_policy is ToolPolicy.UNRESTRICTED:
-        parts.append("--sandbox danger-full-access")
+        parts.extend(["--sandbox", "danger-full-access"])
     elif tool_policy is ToolPolicy.NONE:
-        parts.append("--sandbox read-only")
+        parts.extend(["--sandbox", "read-only"])
     elif tool_policy is ToolPolicy.INSPECT_ONLY:
-        parts.append("--sandbox read-only")
+        parts.extend(["--sandbox", "read-only"])
     elif tool_policy is ToolPolicy.NO_FILE_MUTATION:
-        parts.append("--sandbox read-only")
+        parts.extend(["--sandbox", "read-only"])
     else:
-        parts.append("--sandbox danger-full-access")
+        parts.extend(["--sandbox", "danger-full-access"])
     parts.append("--json")
-    parts.append("< /tmp/.pycastle_prompt")
-    return " ".join(parts)
+    return tuple(parts)
 
 
 def _codex_env(
@@ -448,15 +452,26 @@ def _opencode_command(
     effort: str,
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
-) -> str:
+) -> tuple[str, ...]:
     del effort
-    parts = ["opencode run", "--format json"]
+    parts = ["opencode", "run", "--format", "json"]
     if run_kind == RunKind.RESUME and session_uuid:
-        parts.append(f"--session {session_uuid}")
+        parts.extend(["--session", session_uuid])
     if model:
-        parts.append(f"--model {_opencode_go_model_ref(model)}")
-    parts.append('"$(cat /tmp/.pycastle_prompt)"')
-    return " ".join(parts)
+        parts.extend(["--model", _opencode_go_model_ref(model)])
+    return tuple(parts)
+
+
+def _legacy_command_text(
+    command_argv: tuple[str, ...],
+    prompt_path: Path,
+    *,
+    opencode_prompt_substitution: bool = False,
+) -> str:
+    command = " ".join(shlex.quote(part) for part in command_argv)
+    if opencode_prompt_substitution:
+        return f'{command} "$(cat {shlex.quote(str(prompt_path))})"'
+    return f"{command} < {shlex.quote(str(prompt_path))}"
 
 
 def _opencode_env(
@@ -1907,6 +1922,7 @@ def _invoke_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
     command: str,
+    command_argv: tuple[str, ...],
     worktree: Path,
     environment: dict[str, str],
     prompt_content: str,
@@ -1922,6 +1938,7 @@ def _invoke_provider(
     return provider_invocation_adapter.execute(
         ProviderInvocationRequest(
             command=command,
+            argv=command_argv,
             worktree=worktree,
             environment=environment,
             prompt=ProviderInvocationPrompt(
@@ -1954,11 +1971,20 @@ def _invoke_claude_new_session_provider(
 ) -> ProviderInvocationResult:
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_claude_command(
+        command=_legacy_command_text(
+            _claude_command(
             model=stage.model,
             effort=stage.effort,
             tool_access=request.tool_access,
-            prompt_path=request.invocation_dir / ".pycastle_prompt",
+            run_kind=run_kind,
+            session_uuid=provider_session_id,
+            ),
+            request.invocation_dir / ".pycastle_prompt",
+        ),
+        command_argv=_claude_command(
+            model=stage.model,
+            effort=stage.effort,
+            tool_access=request.tool_access,
             run_kind=run_kind,
             session_uuid=provider_session_id,
         ),
@@ -1991,15 +2017,20 @@ def _invoke_codex_new_session_provider(
     provider_state_dir: Path,
     on_live_output: Callable[[AgentMessageTurn], None] | None = None,
 ) -> ProviderInvocationResult:
+    command_argv = _codex_command(
+        model=stage.model,
+        effort=stage.effort,
+        tool_access=request.tool_access,
+        run_kind=RunKind.FRESH,
+        session_uuid=None,
+    )
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_codex_command(
-            model=stage.model,
-            effort=stage.effort,
-            tool_access=request.tool_access,
-            run_kind=RunKind.FRESH,
-            session_uuid=None,
+        command=_legacy_command_text(
+            command_argv,
+            Path("/tmp/.pycastle_prompt"),
         ),
+        command_argv=command_argv,
         worktree=request.invocation_dir,
         environment=_codex_env(
             state_dir_container_path=str(provider_state_dir),
@@ -2028,15 +2059,17 @@ def _invoke_codex_resumed_session_provider(
     provider_session_id: str,
     on_live_output: Callable[[AgentMessageTurn], None] | None = None,
 ) -> ProviderInvocationResult:
+    command_argv = _codex_command(
+        model=request.model,
+        effort=request.effort,
+        tool_access=request.tool_access,
+        run_kind=RunKind.RESUME,
+        session_uuid=provider_session_id,
+    )
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_codex_command(
-            model=request.model,
-            effort=request.effort,
-            tool_access=request.tool_access,
-            run_kind=RunKind.RESUME,
-            session_uuid=provider_session_id,
-        ),
+        command=_legacy_command_text(command_argv, Path("/tmp/.pycastle_prompt")),
+        command_argv=command_argv,
         worktree=request.invocation_dir.host_path,
         environment=_codex_env(
             state_dir_container_path=(
@@ -2120,14 +2153,20 @@ def _invoke_opencode_new_session_provider(
             None,
         )
 
+    command_argv = _opencode_command(
+        model=stage.model,
+        effort=stage.effort,
+        run_kind=run_kind,
+        session_uuid=provider_session_id,
+    )
     invocation_result = _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_opencode_command(
-            model=stage.model,
-            effort=stage.effort,
-            run_kind=run_kind,
-            session_uuid=provider_session_id,
+        command=_legacy_command_text(
+            command_argv,
+            request.invocation_dir / ".pycastle_prompt",
+            opencode_prompt_substitution=True,
         ),
+        command_argv=command_argv,
         worktree=request.invocation_dir,
         environment=_opencode_env(
             auth=request.provider_auth,
@@ -2166,19 +2205,19 @@ def _run_builtin_ephemeral(
     validate_opencode_stage: Callable[
         [StageSelection], None
     ] = _validate_opencode_stage,
-    claude_command: Callable[..., str] = _claude_command,
+    claude_command: Callable[..., tuple[str, ...]] = _claude_command,
     claude_env: Callable[..., dict[str, str]] = _claude_env,
     reduce_claude_stream: Callable[
         [list[str], Callable[[AgentMessageTurn], None] | None],
         tuple[str, ProviderUsage | None],
     ] = _reduce_claude_stream,
-    codex_command: Callable[..., str] = _codex_command,
+    codex_command: Callable[..., tuple[str, ...]] = _codex_command,
     codex_env: Callable[..., dict[str, str]] = _codex_env,
     reduce_codex_stream: Callable[
         [list[str], Callable[[AgentMessageTurn], None] | None],
         tuple[str, ProviderUsage | None],
     ] = _reduce_codex_stream,
-    opencode_command: Callable[..., str] = _opencode_command,
+    opencode_command: Callable[..., tuple[str, ...]] = _opencode_command,
     opencode_env: Callable[..., dict[str, str]] = _opencode_env,
     reduce_opencode_stream: Callable[
         [list[str], Callable[[AgentMessageTurn], None] | None],
@@ -2226,13 +2265,18 @@ def _run_builtin_ephemeral(
             )
         prompt_path = request.invocation_dir / ".pycastle_prompt"
     if selected_stage.service == "codex":
+        command_argv = codex_command(
+            model=selected_stage.model,
+            effort=selected_stage.effort,
+            tool_access=request.tool_access,
+        )
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
-            command=codex_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
+            command=_legacy_command_text(
+                command_argv,
+                prompt_path,
             ),
+            command_argv=command_argv,
             worktree=request.invocation_dir,
             environment=codex_env(),
             prompt_content=request.prompt,
@@ -2250,14 +2294,20 @@ def _run_builtin_ephemeral(
             ),
         )
     elif selected_stage.service == "opencode":
+        command_argv = opencode_command(
+            model=selected_stage.model,
+            effort=selected_stage.effort,
+            run_kind=RunKind.FRESH,
+            session_uuid=None,
+        )
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
-            command=opencode_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                run_kind=RunKind.FRESH,
-                session_uuid=None,
+            command=_legacy_command_text(
+                command_argv,
+                prompt_path,
+                opencode_prompt_substitution=True,
             ),
+            command_argv=command_argv,
             worktree=request.invocation_dir,
             environment=opencode_env(
                 auth=request.auth,
@@ -2277,14 +2327,19 @@ def _run_builtin_ephemeral(
             ),
         )
     else:
+        command_argv = claude_command(
+            model=selected_stage.model,
+            effort=selected_stage.effort,
+            tool_access=request.tool_access,
+            run_kind=RunKind.FRESH,
+        )
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
-            command=claude_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
-                prompt_path=prompt_path,
+            command=_legacy_command_text(
+                command_argv,
+                prompt_path,
             ),
+            command_argv=command_argv,
             worktree=request.invocation_dir,
             environment=claude_env(auth=request.auth),
             prompt_content=request.prompt,
@@ -2917,14 +2972,14 @@ def _run_builtin_resumed_session(
 
     try:
         if continuation_service == "claude":
-            command = _claude_command(
+            command_argv = _claude_command(
                 model=request.model,
                 effort=request.effort,
                 tool_access=request.tool_access,
-                prompt_path=prompt_path,
                 run_kind=run_kind,
                 session_uuid=provider_session_id,
             )
+            command = _legacy_command_text(command_argv, prompt_path)
             environment = _claude_env(
                 auth=request.provider_auth,
                 state_dir_container_path=(
@@ -2941,11 +2996,16 @@ def _run_builtin_resumed_session(
 
             extract_provider_session_id = None
         else:
-            command = _opencode_command(
+            command_argv = _opencode_command(
                 model=request.model,
                 effort=request.effort,
                 run_kind=run_kind,
                 session_uuid=provider_session_id,
+            )
+            command = _legacy_command_text(
+                command_argv,
+                prompt_path,
+                opencode_prompt_substitution=True,
             )
             environment = _opencode_env(
                 auth=request.provider_auth,
@@ -2960,6 +3020,7 @@ def _run_builtin_resumed_session(
         invocation_result = _invoke_provider(
             provider_invocation_adapter=invocation_adapter,
             command=command,
+            command_argv=command_argv,
             worktree=request.invocation_dir.host_path,
             environment=environment,
             prompt_content=request.prompt,
