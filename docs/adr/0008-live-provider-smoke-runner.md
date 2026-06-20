@@ -31,6 +31,7 @@ The project needs an opt-in Live Provider Smoke Test for maintainers and credent
 - Preserve artifacts by default under a repo-local gitignored artifact root, with override and explicit cleanup options.
 - Use one run id per smoke invocation, allow path-safe user-supplied run ids, and derive per-case sentinels from the run id.
 - Write a JSON summary artifact for real runs, optionally emit JSON to stdout, and use zero/non-zero process exit only.
+- Serialize live-smoke JSON artifact paths with stable forward-slash separators while keeping runtime filesystem operations on native `Path` values.
 - Preserve runner-owned diagnostics: config summaries, prompts, final outputs, live turns, outcome summaries, invocation records when returned, timings, and tracebacks.
 - Do not preserve credentials, raw environment dumps, auth files, credential-derived values, or opaque home-directory provider state.
 - Do not automatically redact provider output; mark artifacts as potentially sensitive and keep them under the local ignored artifact root.

@@ -8,3 +8,5 @@
 - [0006 - Built-in provider-only runtime](0006-built-in-provider-only-runtime.md): Ship Claude, Codex, and OpenCode integrations inside runtime distribution and remove consumer-defined provider services as extension point.
 - [0007 - Live runtime output observation](0007-live-runtime-output-observation.md): Add provider-neutral per-request observation for live agent-message turns without exposing raw provider streams or alternate streaming lifecycle entrypoints.
 - [0008 - Live provider smoke runner](0008-live-provider-smoke-runner.md): Add opt-in maintainer tooling that exercises real built-in providers through Runtime Public Surface without joining default test suite.
+- [0009 - Provider invocation argv and stdin boundary](0009-provider-invocation-argv-stdin-boundary.md): Model built-in provider invocation as executable arguments plus explicit prompt input rather than host shell command strings.
+- [0010 - No documentation regression tests](0010-no-documentation-regression-tests.md): Keep default tests focused on executable behavior instead of documentation or help prose wording.
