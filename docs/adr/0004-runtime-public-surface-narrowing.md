@@ -1,6 +1,6 @@
 # Runtime public surface narrowing
 
-Status: Partially refined by [0005 - Runtime session lifecycle entrypoints](0005-runtime-session-lifecycle-entrypoints.md), [0006 - Built-in provider-only runtime](0006-built-in-provider-only-runtime.md), and [0011 - Single-candidate provider selection](0011-single-candidate-provider-selection.md). Current glossary and public API docs own exact `Invocation Directory`, `ToolPolicy`, provider-selection, and transitional vocabulary.
+Status: Refined by [0005 - Runtime session lifecycle entrypoints](0005-runtime-session-lifecycle-entrypoints.md), [0006 - Built-in provider-only runtime](0006-built-in-provider-only-runtime.md), and [0011 - Single-candidate provider selection](0011-single-candidate-provider-selection.md). ADR 0011 is the current provider-selection decision; current glossary and public API docs own exact `Invocation Directory`, `ToolPolicy`, and `ProviderSelection` vocabulary.
 
 The runtime boundary should expose a smaller, clearer front-facing surface: one canonical runtime entrypoint per mode, a narrow package root, and focused seams for work invocation, session planning, and provider policy.
 
@@ -9,7 +9,7 @@ The runtime boundary should expose a smaller, clearer front-facing surface: one 
 - Keep the package root as a narrow compatibility entrypoint, not a catch-all export surface.
 - Keep `ruhken-agent-runtime` as distribution name and `agent_runtime` as import package name.
 - Use package metadata for installed version lookup rather than package-root `__version__`.
-- Keep core values such as `StageSelection`, `ToolPolicy`, `ProviderAuth`, `Continuation`, and outcome/result values public without promoting implementation modules.
+- Keep core values such as `ToolPolicy`, `ProviderAuth`, `Continuation`, `ProviderSelection`, and outcome/result values public without promoting implementation modules.
 - Keep behaviorful lifecycle entrypoints in focused runtime modules.
 - Keep runtime execution entrypoints async-only until synchronous wrappers have a proven consumer need.
 - Keep runtime import-isolation checks as internal self-test infrastructure.
@@ -22,14 +22,11 @@ The runtime boundary should expose a smaller, clearer front-facing surface: one 
 - Keep public request, result, and metadata dataclasses immutable.
 - Avoid untyped extension holes on public request/session objects unless replaced by named protocols or value types.
 - Return normalized text and grouped runtime metadata from canonical results.
-- Keep fallback diagnostics explicit where consumers commonly need them.
+- Keep selected-provider diagnostics explicit where consumers commonly need them.
 - Use plain invocation directories in canonical APIs unless a richer mount abstraction is actually configurable.
 - Keep canonical requests focused on execution intent, not presentation or status UI wiring.
 - Keep container workspace paths out of canonical APIs; container projection is low-level execution plumbing.
-- Use selection vocabulary for stage/service/model/effort candidate chains instead of override vocabulary.
-- Require public stage-selection nodes to provide explicit service, model, and effort values.
-- Keep recursive fallback links as the public stage-selection chain shape.
-- Keep service, model, and effort coupled per stage selection node.
+- Provider-selection shape and fallback ownership are superseded here by [0011 - Single-candidate provider selection](0011-single-candidate-provider-selection.md): one `ProviderSelection` per invocation, with fallback owned by consuming projects across separate invocations.
 - Keep work invocation dependencies focused on runtime execution rather than presentation or orchestration concerns.
 - Keep provider event dataclasses as provider output contracts instead of untyped event envelopes.
 - Preserve raw provider diagnostic observations in adapter contracts; consumers own display, storage, and redaction.
@@ -56,7 +53,7 @@ The runtime boundary should expose a smaller, clearer front-facing surface: one 
 - Package-root imports remain small vocabulary, not a full runtime facade.
 - Boundary self-tests remain internal.
 - Consumers can import core values directly without learning implementation modules.
-- Selection and quota availability policy can evolve without widening execution contracts.
+- Provider-selection and quota availability policy can evolve without widening execution contracts.
 - Service names stay safe identity keys across selection, state layout, logs, and diagnostics.
 - Provider adapters retain provider-specific model and effort validation.
 - Service availability summaries can vary by consuming application without runtime presentation APIs.
@@ -66,10 +63,8 @@ The runtime boundary should expose a smaller, clearer front-facing surface: one 
 - Boundary values are safe to pass through async execution without accidental mutation.
 - Release surface avoids UI/status concerns even if implementation modules still contain presentation plumbing.
 - Ordinary consumers do not need container workspace mechanics.
-- Consumers can describe ordered runtime candidates without implying hidden override state.
-- Missing runtime candidate configuration fails at construction or validation boundaries.
-- Ordered fallback remains expressible without a separate list or graph abstraction.
-- Fallback services can carry provider-appropriate model and effort settings.
+- Missing provider-selection configuration fails at construction or validation boundaries.
+- Consumer-owned fallback can choose provider-appropriate model and effort settings across separate invocations.
 - Release work can prioritize canonical consumer seams without hiding every implementation module first.
 - Ordinary consumers should use runtime entrypoints and adapter seams instead of work invocation internals.
 - Provider output remains type-directed while staying behind adapter contracts.

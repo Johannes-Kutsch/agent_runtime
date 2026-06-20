@@ -8,7 +8,7 @@ The runtime implementation may be split across internal modules. That internal m
 
 ## Consumer Surface
 
-Ordinary consumers execute already-rendered prompts through a caller-owned `RuntimeClient`. They provide provider selection with credentials, tool policy, invocation directory, and session lifecycle data as call arguments. They do not construct provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
+Ordinary consumers execute already-rendered prompts through a caller-owned `RuntimeClient`. They provide one `ProviderSelection` per invocation plus tool policy, invocation directory, and session lifecycle data as call arguments. Selection-owned credentials travel on `ProviderSelection` for ephemeral and new-session runs; resumed-session runs accept request-time auth separately because continuations do not store provider secrets. They do not construct provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
 
 The runtime executes provider work and returns data. Callers own persistence for continuations, invocation records, workflow correlation, durable logs, and usage-limit grouping policy.
 
@@ -69,7 +69,7 @@ Provider selection uses one `ProviderSelection` per runtime invocation. Each sel
 | `codex` | Host Codex auth files | Only when the built-in adapter can produce and consume portable continuation data | The runtime uses host auth files rather than API-key arguments. |
 | `opencode` | `ProviderAuth(opencode_api_key=...)` on `ProviderSelection` | Only when the built-in adapter can produce and consume portable continuation data | Providers that cannot satisfy portable continuation requirements are limited to ephemeral execution. |
 
-The runtime validates built-in service, model, and effort values before provider execution. Invalid service/model/effort references are runtime configuration errors. Missing or invalid explicit credentials are credential failures for that invocation. Runtime does not perform provider fallback inside a call; consuming projects that want fallback start a separate runtime invocation.
+The runtime validates built-in service, model, and effort values before provider execution. Invalid service/model/effort references are runtime configuration errors. Missing or invalid explicit credentials are credential failures for that invocation. Runtime outcomes and invocation records describe the selected provider for one invocation only. Runtime does not perform provider fallback inside a call; consuming projects that want fallback start a separate runtime invocation and own the retry path.
 
 Supported built-in provider allowlists:
 
@@ -158,7 +158,7 @@ ProviderAuth(
 ) -> None
 ```
 
-`ProviderAuth` is immutable credential data carried by `ProviderSelection` for new provider selection, or supplied directly to Resume Session Run for credentials required by the continued provider. It only needs credentials for the selected explicit-credential provider. Codex uses host auth files. Continuations and invocation records must not store provider credentials.
+`ProviderAuth` is immutable credential data carried by `ProviderSelection` for a new provider selection, or supplied directly to Resume Session Run for credentials required by the continued provider. It only needs credentials for the selected explicit-credential provider. Codex uses host auth files. Continuations and invocation records must not store provider credentials.
 
 ### Outcomes and Continuations
 
@@ -181,7 +181,7 @@ RuntimeOutcome(
 ) -> None
 ```
 
-Lifecycle entrypoints return `RuntimeOutcome` for both completed work and expected interruption outcomes. Every normal outcome, including `completed`, exposes the selected service, model, and effort at the top level.
+Lifecycle entrypoints return `RuntimeOutcome` for both completed work and expected interruption outcomes. Every normal outcome, including `completed`, exposes the selected service, model, and effort at the top level. Each `RuntimeOutcome` describes exactly one invocation and never aggregates fallback attempts across providers.
 
 Outcome kinds:
 
@@ -296,7 +296,7 @@ ProviderSelection(
 ) -> None
 ```
 
-One built-in provider candidate for one runtime invocation, including credentials required by that provider. Construction validates value shape; invocation validates built-in provider support, relevant credentials, and availability.
+One built-in provider candidate for one runtime invocation, including credentials required by that provider. Construction validates value shape; invocation validates built-in provider support, relevant credentials, and availability. Consumer-owned fallback means callers choose a different `ProviderSelection` only by starting a later invocation.
 
 #### `ToolPolicy`
 
@@ -338,4 +338,3 @@ The type is shared runtime vocabulary and is importable from both `agent_runtime
 There is no supported consumer-defined provider adapter surface in the target runtime. Provider services, service registries, execution adapters, provider-session adapters, provider output DTOs, provider state capture/restore details, command builders, and provider event parsers are runtime-owned internals.
 
 Public provider failure errors may expose `ProviderErrorObservation` for diagnostics. Consumers own storage, display, and redaction policy for those diagnostics.
-

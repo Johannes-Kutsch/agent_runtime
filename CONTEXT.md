@@ -40,7 +40,7 @@
 - Consumers import ToolPolicy from public runtime/root modules, not from adapter contract modules.
 - Ordinary consumers select built-in providers through runtime call arguments, not provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
 - Consumer-defined provider services are not supported runtime functionality.
-- Prompt-runtime execution adapter paths are retired with the stage/override vocabulary.
+- Prompt-runtime execution adapter paths are retired.
 - `RuntimeClient` owns no cross-call provider availability policy, durable provider state, or logs.
 - Provider selection remains caller-supplied through the `provider_selection` request field; runtime validates built-in service, model, effort, and relevant credentials.
 - ProviderSelection construction validates value shape; invocation validates built-in provider support and availability.
@@ -90,7 +90,7 @@
 - Runtime requests require explicit `ToolPolicy`; non-`NONE` policies grant Invocation Directory as Tool Workspace.
 - ToolPolicy is an invocation permission grant, not part of ProviderSelection identity.
 - Invocation Directory and Tool Workspace are distinct permission concepts, but not separate public paths in current runtime model.
-- ProviderSelection is the canonical single-candidate selection value; StageSelection, StageOverride, and stage-chain vocabulary are retired compatibility language.
+- ProviderSelection is the canonical single-candidate selection value for one runtime invocation.
 - Runtime Compatibility Aliases are not Runtime Public Surface promises and may be removed before release without tailored migration behavior.
 - Lifecycle-specific runtime execution adapter names are canonical public spellings even when they share adapter protocols.
 - Live Provider Smoke Tests are opt-in maintainer tooling, not default automated tests or Runtime Public Surface additions.
