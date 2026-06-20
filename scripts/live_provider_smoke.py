@@ -53,15 +53,16 @@ def _safe_list(value: Sequence[str]) -> str:
 def _live_smoke_defaults_help_text() -> str:
     defaults = live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS
     verified_on = live_provider_smoke_plan.LIVE_SMOKE_DEFAULTS_VERIFIED_ON
+    default_tuples = ", ".join(
+        f"{service}={defaults[service][0]}/{defaults[service][1]}"
+        for service in live_provider_smoke_plan.SUPPORTED_PROVIDERS
+    )
     return (
         "Model source precedence: CLI override, provider-specific environment "
         "variable, then Live Smoke Default.\n"
         "Effort source precedence: CLI override, provider-specific environment "
         "variable, then Live Smoke Default.\n"
-        "Live Smoke Defaults: "
-        f"claude={defaults['claude'][0]}/{defaults['claude'][1]}, "
-        f"codex={defaults['codex'][0]}/{defaults['codex'][1]}, "
-        f"opencode={defaults['opencode'][0]}/{defaults['opencode'][1]}. "
+        f"Live Smoke Defaults: {default_tuples}. "
         f"Verified {verified_on}."
     )
 
