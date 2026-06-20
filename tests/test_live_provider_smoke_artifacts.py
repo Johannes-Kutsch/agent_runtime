@@ -2447,6 +2447,249 @@ def test_live_smoke_cli_warning_output_does_not_flip_pass_status(
     assert "final status: passed" in stdout.lower()
 
 
+def test_live_smoke_run_command_targets_all_configured_providers_for_full_matrix(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    captured: dict[str, Any] = {}
+
+    def _fake_runner(**kwargs: Any) -> module.LiveSmokeRunResult:
+        captured.update(kwargs)
+        artifact_root = kwargs["artifact_root"]
+        run_id = kwargs["run_id"]
+        return module.LiveSmokeRunResult(
+            run_id=run_id,
+            artifact_root=artifact_root,
+            summary_path=artifact_root / run_id / "summary.json",
+            summary_written=True,
+            passed=True,
+            cases=(),
+            warnings=(),
+        )
+
+    monkeypatch.setattr(module, "run_live_smoke", _fake_runner)
+
+    exit_code = module.main(
+        [
+            "run",
+            "--json",
+            "--run-id",
+            "full-matrix-run",
+            "--artifact-root",
+            str(tmp_path / "artifacts"),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["provider_selection"] == ("all",)
+    assert captured["lifecycle_modes"] == (
+        "ephemeral",
+        "new_session",
+        "resumed_session",
+    )
+    assert captured["tool_policies"] == ()
+    assert captured["run_id"] == "full-matrix-run"
+    assert captured["artifact_root"] == tmp_path / "artifacts"
+
+
+def test_live_smoke_run_opencode_command_fails_clearly_when_unconfigured(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    monkeypatch.setattr(module, "_resolve_live_smoke_env", lambda _: {})
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "run",
+                "opencode",
+                "--json",
+                "--run-id",
+                "missing-opencode-run",
+                "--artifact-root",
+                str(tmp_path / "missing-opencode-artifacts"),
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+
+    assert exit_code == 1
+    assert payload["run_id"] == "missing-opencode-run"
+    assert payload["provider_plans"][0]["service"] == "opencode"
+    assert payload["provider_plans"][0]["status"] == "config_error"
+    assert payload["cases"] == []
+    assert any(
+        "missing OPENCODE_GO_API_KEY" in warning for warning in payload["warnings"]
+    )
+
+
+def test_live_smoke_run_claude_command_fails_clearly_when_unconfigured(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    monkeypatch.setattr(module, "_resolve_live_smoke_env", lambda _: {})
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "run",
+                "claude",
+                "--json",
+                "--run-id",
+                "missing-claude-run",
+                "--artifact-root",
+                str(tmp_path / "missing-claude-artifacts"),
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+
+    assert exit_code == 1
+    assert payload["run_id"] == "missing-claude-run"
+    assert payload["provider_plans"][0]["service"] == "claude"
+    assert payload["provider_plans"][0]["status"] == "config_error"
+    assert payload["cases"] == []
+    assert any(
+        "missing CLAUDE_CODE_OAUTH_TOKEN" in warning for warning in payload["warnings"]
+    )
+
+
+def test_live_smoke_run_codex_command_fails_clearly_when_host_auth_missing(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    monkeypatch.setattr(module, "_resolve_live_smoke_env", lambda _: {})
+    monkeypatch.setattr(
+        module.live_provider_smoke_plan, "detect_codex_auth_present", lambda: False
+    )
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "run",
+                "codex",
+                "--json",
+                "--run-id",
+                "missing-codex-host-run",
+                "--artifact-root",
+                str(tmp_path / "missing-codex-artifacts"),
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+
+    assert exit_code == 1
+    assert payload["run_id"] == "missing-codex-host-run"
+    assert payload["provider_plans"][0]["service"] == "codex"
+    assert payload["provider_plans"][0]["status"] == "config_error"
+    assert payload["cases"] == []
+    assert any(
+        "provider not configured" in warning.lower() for warning in payload["warnings"]
+    )
+
+
+def test_live_smoke_run_provider_command_preserves_artifact_json_verbose_cleanup_and_overrides(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    captured: dict[str, Any] = {}
+
+    result = module.LiveSmokeRunResult(
+        run_id="run-preserve-options",
+        artifact_root=tmp_path / "preserve-artifacts",
+        summary_path=tmp_path
+        / "preserve-artifacts"
+        / "run-preserve-options"
+        / "summary.json",
+        summary_written=True,
+        passed=True,
+        cases=(
+            module.LiveSmokeRunCaseResult(
+                service="claude",
+                mode="ephemeral",
+                policy=None,
+                model="sonnet",
+                effort="low",
+                artifact_path=str(
+                    tmp_path
+                    / "preserve-artifacts"
+                    / "run-preserve-options"
+                    / "claude"
+                    / "ephemeral"
+                    / "default"
+                ),
+                status="passed",
+                required=True,
+                provider_output="provider output",
+                diagnostic=None,
+                traceback=None,
+                duration_seconds=0.2,
+            ),
+        ),
+    )
+
+    def _fake_runner(**kwargs: Any) -> module.LiveSmokeRunResult:
+        captured.update(kwargs)
+        return result
+
+    monkeypatch.setattr(module, "run_live_smoke", _fake_runner)
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "run",
+                "claude",
+                "--json",
+                "--verbose",
+                "--cleanup-artifact-root",
+                "--run-id",
+                "run-preserve-options",
+                "--artifact-root",
+                str(tmp_path / "preserve-artifacts"),
+                "--model",
+                "claude=sonnet",
+                "--effort",
+                "claude=low",
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert captured["provider_selection"] == ("claude",)
+    assert captured["lifecycle_modes"] == (
+        "ephemeral",
+        "new_session",
+        "resumed_session",
+    )
+    assert captured["run_id"] == "run-preserve-options"
+    assert captured["artifact_root"] == tmp_path / "preserve-artifacts"
+    assert captured["cleanup_artifact_root"] is True
+    assert captured["model_overrides"] == {"claude": "sonnet"}
+    assert captured["effort_overrides"] == {"claude": "low"}
+    assert payload["run_id"] == "run-preserve-options"
+    assert payload["cases"][0]["service"] == "claude"
+
+
 def test_main_with_explicit_empty_argv_ignores_process_argv_and_uses_defaults(
     smoke_module: object,
     tmp_path: Path,

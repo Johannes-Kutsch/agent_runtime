@@ -302,6 +302,21 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
     supported_providers = tuple(live_provider_smoke_plan.SUPPORTED_PROVIDERS) + ("all",)
 
     parser.add_argument(
+        "command",
+        nargs="?",
+        default=None,
+        choices=("run",),
+        help="Friendly run command for full-matrix execution.",
+    )
+    parser.add_argument(
+        "run_provider",
+        nargs="?",
+        default=None,
+        choices=tuple(live_provider_smoke_plan.SUPPORTED_PROVIDERS),
+        help="Optional explicit provider for run command.",
+    )
+
+    parser.add_argument(
         "--provider",
         action="append",
         dest="providers",
@@ -420,6 +435,15 @@ def _coerce_list_provider_selection(parsed: argparse.Namespace) -> tuple[str, ..
     selected = tuple(parsed.providers or ("all",))
     if "all" in selected and len(selected) > 1:
         raise ValueError("Cannot combine --provider all with specific providers.")
+    return selected
+
+
+def _coerce_run_provider_selection(parsed: argparse.Namespace) -> tuple[str, ...]:
+    if parsed.run_provider is not None:
+        return (parsed.run_provider,)
+    selected = _coerce_list_provider_selection(parsed)
+    if len(selected) > 1 and parsed.command == "run":
+        raise ValueError("run command accepts only one provider selector.")
     return selected
 
 
@@ -566,7 +590,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_cli_args(argv)
     model_overrides = _build_service_model_map(args.model)
     effort_overrides = _build_service_model_map(args.effort)
-    providers = _coerce_list_provider_selection(args)
+    providers = (
+        _coerce_run_provider_selection(args)
+        if args.command == "run"
+        else _coerce_list_provider_selection(args)
+    )
     lifecycle_modes = _coerce_lifecycle_modes(args)
     tool_policies = tuple(args.tool_policies)
     live_smoke_env = _resolve_live_smoke_env(None)
