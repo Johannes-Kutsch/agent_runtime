@@ -1358,6 +1358,51 @@ def test_live_smoke_direct_dry_run_invocation_honors_process_argv_and_json_outpu
     assert not (tmp_path / "live-smoke-artifacts").exists()
 
 
+def test_live_smoke_cli_dry_run_json_artifact_paths_use_forward_slashes_portably(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        module.live_provider_smoke_plan,
+        "detect_codex_auth_present",
+        lambda: True,
+    )
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--dry-run",
+                "--json",
+                "--provider",
+                "codex",
+                "--mode",
+                "ephemeral",
+                "--run-id",
+                "portable-dry-run",
+                "--model",
+                "codex=codex-mini",
+                "--effort",
+                "codex=high",
+                "--artifact-root",
+                r"portable\artifacts",
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert payload["artifact_root"] == "portable/artifacts"
+    assert (
+        payload["cases"][0]["artifact_path"]
+        == "portable/artifacts/portable-dry-run/codex/ephemeral/default"
+    )
+    assert not (tmp_path / r"portable\artifacts").exists()
+
+
 def test_live_smoke_cli_default_console_output_reports_provider_mode_and_artifacts(
     smoke_module: object,
     tmp_path: Path,
