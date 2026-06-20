@@ -783,7 +783,7 @@ def _run_public_smoke_case(
 
 
 def _resolve_runtime_outcome(runtime_outcome: Any) -> Any:
-    if inspect.isawaitable(runtime_outcome):
+    if inspect.iscoroutine(runtime_outcome):
         return asyncio.run(runtime_outcome)
     return runtime_outcome
 
