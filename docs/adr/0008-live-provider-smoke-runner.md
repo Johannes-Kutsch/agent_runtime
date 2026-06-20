@@ -9,12 +9,18 @@ The project needs an opt-in Live Provider Smoke Test for maintainers and credent
 ## Decision
 
 - Add an opt-in standalone live smoke runner as maintainer tooling under `scripts/`.
-- Keep the runner out of default pytest and installed Runtime Public Surface.
+- Keep live provider execution out of default pytest and installed Runtime Public Surface.
+- Allow default pytest to cover smoke-runner planning and artifact behavior only when provider auth, provider availability, paths, and invocation behavior are injected or faked.
 - Use only public runtime imports and request values: `RuntimeClient`, lifecycle request values, `StageSelection`, `ProviderAuth`, `Continuation`, and public `ToolPolicy`.
 - Treat `RuntimeStateDir`, `RuntimeLogsDir`, `SessionNamespace`, `ToolAccess`, and `ToolPolicyProfile` as transitional or internal vocabulary for this tooling purpose.
 - Make provider selection explicit: `claude`, `codex`, `opencode`, multiple explicit providers, or `all`.
 - In explicit provider selection, missing provider config is a configuration error; in `all`, skip unconfigured providers but fail when none are configured.
-- Resolve provider model and effort from provider-specific environment variables and CLI flags, with CLI flags taking precedence.
+- Resolve provider model and effort with precedence `CLI override > provider-specific environment variable > hardcoded smoke default`.
+- Choose hardcoded smoke defaults from runtime-supported provider/model/effort tuples, not provider-global model catalogs.
+- Prefer the cheapest runtime-supported model and lowest supported effort for each provider; maintainers can override when they want stronger models.
+- Use initial hardcoded defaults `claude=haiku/low`, `codex=gpt-5.4-mini/low`, and `opencode=deepseek-v4-flash/medium`, subject to verification against provider availability at implementation time.
+- Keep provider credential/configuration semantics unchanged: defaults only fill missing model and effort values.
+- Document the selected default tuples and verification date in tests or nearby maintainer help; do not preserve detailed pricing rationale as durable project text.
 - Support separate lifecycle and tool-policy smoke modes, plus a combined mode.
 - Lifecycle smoke proves invocation health and session continuity with non-empty outputs, meaningful continuation, and resumed output containing the prior sentinel without requiring exact provider output.
 - Capture Live Runtime Output when available, but absence of live turns must not fail the smoke run.

@@ -54,6 +54,7 @@
 | `InvocationProgress` | Two-state interruption metadata indicating whether model activity was observed; unknown progress means not started. |
 | `RuntimeOutcome` | Canonical result category for expected orchestration outcomes: completion, usage limits, cancellation, timeout, temporary unavailability, or retryable provider failure. |
 | `Live Provider Smoke Test` | Opt-in validation run outside default tests that exercises real built-in providers through Runtime Public Surface. |
+| `Live Smoke Default` | Cost-first runtime-supported provider/model/effort tuple used by Live Provider Smoke Tests when callers provide no CLI or environment override. |
 | `ProviderUsage` | Provider-reported usage metadata: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, and optional provider duration. |
 | `SessionNamespace` | Transitional secondary label formerly used to partition runtime-managed provider session state; active session-backed requests do not require it. |
 | `WorkInvocation` | Runtime-owned work lifecycle that turns caller intent plus execution dependencies into a text result. |
@@ -102,6 +103,7 @@
 - Lifecycle-specific runtime execution adapter names are canonical public spellings even when they share adapter protocols.
 - Live Provider Smoke Tests are opt-in maintainer tooling, not default automated tests or Runtime Public Surface additions.
 - Live Provider Smoke Tests prove real provider invocation through Runtime Public Surface; they do not judge answer quality, tool usefulness, or strict instruction following.
+- Live Smoke Defaults prefer the cheapest runtime-supported provider tuple over stronger models; smoke prompts must remain simple enough for those defaults.
 
 ## Runtime Surfaces
 
