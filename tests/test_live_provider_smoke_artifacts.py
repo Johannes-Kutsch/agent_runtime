@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
+import subprocess
+import os
 import sys
 from contextlib import redirect_stdout
 from dataclasses import dataclass
@@ -1168,6 +1171,88 @@ def test_live_smoke_cli_help_documents_run_modes_and_sensitive_artifacts_notice(
     assert "potentially sensitive" in parser_help.lower()
 
 
+def test_live_smoke_direct_help_invocation_honors_process_args_and_skips_default_artifacts(
+    tmp_path: Path,
+) -> None:
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--help"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 0
+    assert "Run the Live Provider Smoke Test." in proc.stdout
+    assert "--provider" in proc.stdout
+    assert "--list-providers" in proc.stdout
+    assert not (tmp_path / "live-smoke-artifacts").exists()
+
+
+def test_live_smoke_direct_list_providers_invocation_uses_process_args_and_skips_runs(
+    tmp_path: Path,
+) -> None:
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--list-providers"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    output_lines = proc.stdout.splitlines()
+    assert proc.returncode == 0
+    assert any(line.startswith("claude: ") for line in output_lines)
+    assert any(line.startswith("codex: ") for line in output_lines)
+    assert any(line.startswith("opencode: ") for line in output_lines)
+    assert "Preserve artifacts with care" in proc.stdout
+    assert not (tmp_path / "live-smoke-artifacts").exists()
+
+
+def test_live_smoke_direct_dry_run_invocation_honors_process_argv_and_json_output(
+    tmp_path: Path,
+) -> None:
+    env = dict(os.environ)
+    env.update(
+        {
+            "CLAUDE_CODE_OAUTH_TOKEN": "ci-token",
+            "LIVE_SMOKE_CLAUDE_MODEL": "sonnet",
+            "LIVE_SMOKE_CLAUDE_EFFORT": "low",
+        }
+    )
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--dry-run",
+            "--json",
+            "--provider",
+            "claude",
+            "--mode",
+            "new_session",
+            "--model",
+            "claude=custom-sonnet",
+            "--effort",
+            "claude=high",
+            "--run-id",
+            "direct-dry-run",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 0
+    payload = json.loads(proc.stdout)
+    assert payload["run_id"] == "direct-dry-run"
+    assert payload["providers"][0]["service"] == "claude"
+    assert payload["providers"][0]["model"] == "custom-sonnet"
+    assert payload["providers"][0]["effort"] == "high"
+    assert payload["cases"][0]["mode"] == "new_session"
+    assert payload["cases"][0]["model"] == "custom-sonnet"
+    assert payload["cases"][0]["effort"] == "high"
+    assert not (tmp_path / "live-smoke-artifacts").exists()
+
+
 def test_live_smoke_cli_default_console_output_reports_provider_mode_and_artifacts(
     smoke_module: object,
     tmp_path: Path,
@@ -1458,3 +1543,35 @@ def test_live_smoke_cli_warning_output_does_not_flip_pass_status(
     assert exit_code == 0
     assert "optional case artifact write failed" in stdout
     assert "final status: passed" in stdout.lower()
+
+
+def test_main_with_explicit_empty_argv_ignores_process_argv_and_uses_defaults(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    result = module.LiveSmokeRunResult(
+        run_id="explicit-empty-argv",
+        artifact_root=tmp_path / "artifacts",
+        summary_path=tmp_path / "artifacts" / "explicit-empty-argv" / "summary.json",
+        summary_written=True,
+        passed=True,
+        cases=(),
+    )
+
+    captured: dict[str, Any] = {}
+
+    def _fake_runner(**kwargs: Any) -> module.LiveSmokeRunResult:
+        captured.update(kwargs)
+        return result
+
+    monkeypatch.setattr(module, "run_live_smoke", _fake_runner)
+    monkeypatch.setattr(sys, "argv", ["live_provider_smoke.py", "--help"])
+
+    exit_code = module.main([])
+
+    assert exit_code == 0
+    assert captured["provider_selection"] == ("all",)
+    assert captured["lifecycle_modes"] == ("ephemeral",)
