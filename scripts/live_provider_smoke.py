@@ -1261,7 +1261,11 @@ def run_live_smoke(
         resolved_artifact_root, dry_run_plan.run_id
     )
     if not case_results:
-        if dry_run_plan.provider_plans:
+        if dry_run_plan.provider_plans and all(
+            plan.status
+            is live_provider_smoke_plan.LiveSmokeProviderSelectionStatus.SKIPPED
+            for plan in dry_run_plan.provider_plans
+        ):
             warnings.append("all selected providers are unconfigured")
         warnings.append("no runnable smoke cases planned")
     run_case_success = bool(case_results) and all(

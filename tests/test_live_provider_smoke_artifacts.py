@@ -1627,6 +1627,7 @@ def test_live_smoke_explicit_provider_config_error_does_not_pass_empty_run(
     assert run_result.summary_written is True
     assert run_result.cases == ()
     assert "no runnable smoke cases planned" in run_result.warnings
+    assert "all selected providers are unconfigured" not in run_result.warnings
 
     summary_payload = module.json.loads(run_result.summary_path.read_text("utf-8"))
     assert summary_payload["case_count"] == 0
