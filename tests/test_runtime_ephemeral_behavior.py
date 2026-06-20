@@ -741,9 +741,7 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
             selected_model="gpt-5.4",
             selected_effort="high",
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("codex",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
                 ),
@@ -1117,9 +1115,10 @@ def test_runtime_client_preserves_claude_usage_before_usage_limit_interruption(
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
         output="",
-        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        service_name="claude",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         usage=runtime.ProviderUsage(
             input_tokens=40,
@@ -1341,9 +1340,7 @@ def test_runtime_client_runs_codex_with_isolated_present_host_auth(
             selected_model="gpt-5.4",
             selected_effort="medium",
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("codex",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
                 ),
@@ -1572,9 +1569,10 @@ def test_runtime_client_returns_usage_limit_outcome_with_parsed_codex_reset_time
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
         output="",
-        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        service_name="codex",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -1635,9 +1633,10 @@ def test_runtime_client_rolls_codex_usage_limit_reset_time_into_next_year_when_n
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
         output="",
-        reset_time=datetime(2027, 1, 2, 17, 2, tzinfo=timezone.utc),
+        service_name="codex",
+        reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
 
@@ -1736,38 +1735,21 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
         )
     )
 
-    assert first_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+    assert first_outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+    )
+    assert second_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
         output="",
         reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-    )
-    assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="hello from claude",
-        result=prompt_runtime.EphemeralRunResult(
-            output="hello from claude",
-            selected_service="claude",
-            selected_model="sonnet",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            used_fallback=True,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("codex", "claude"),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
-                ),
-            ),
-        ),
     )
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
-        ),
-        (
-            "claude --verbose --dangerously-skip-permissions --output-format "
-            "stream-json -p - --disable-slash-commands "
-            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            '--mcp-config {"mcpServers":{}} --model sonnet --effort medium'
         ),
     ]
 
@@ -1870,27 +1852,17 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
         )
     )
 
-    assert first_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+    assert first_outcome == prompt_runtime.RuntimeOutcome.usage_limited(
         output="",
-        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        service_name="codex",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
-    assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="hello from claude",
-        result=prompt_runtime.EphemeralRunResult(
-            output="hello from claude",
-            selected_service="claude",
-            selected_model="sonnet",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            used_fallback=True,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("codex", "claude"),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
-                ),
-            ),
-        ),
+    assert second_outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert observed_commands == [
         (
@@ -1900,12 +1872,6 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
-        ),
-        (
-            "claude --verbose --dangerously-skip-permissions --output-format "
-            "stream-json -p - --disable-slash-commands "
-            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            '--mcp-config {"mcpServers":{}} --model sonnet --effort medium'
         ),
     ]
 
@@ -2006,9 +1972,7 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
                     tool_policy=tool_policy,
                 )
             ),
-            used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("claude",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
                 ),
@@ -2070,9 +2034,7 @@ def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt
         selected_model="sonnet",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(invocation_dir),
-        used_fallback=False,
         metadata=prompt_runtime.EphemeralResultMetadata(
-            selected_service_path=("claude",),
             runtime=prompt_runtime.EphemeralRuntimeMetadata(
                 run_kind=RunKind.FRESH,
             ),
@@ -2299,39 +2261,17 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="hello from claude",
-        result=prompt_runtime.EphemeralRunResult(
-            output="hello from claude",
-            selected_service="claude",
-            selected_model="sonnet",
-            selected_effort="medium",
-            tool_access=(
-                tool_access
-                if tool_access.kind == "none"
-                else contracts_runtime.ToolAccess.workspace_backed(
-                    tmp_path, tool_policy=tool_access.tool_policy
-                )
-            ),
-            used_fallback=True,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("codex", "claude"),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
-                ),
-            ),
-        ),
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert observed_commands[0] == (
         "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
         f"-c approval_policy=never {expected_flag} --json"
     )
-    assert observed_commands[1].startswith(
-        "claude --verbose --dangerously-skip-permissions --output-format "
-        "stream-json -p - --disable-slash-commands "
-        "--exclude-dynamic-system-prompt-sections "
-    )
-    assert "--model sonnet --effort medium" in observed_commands[1]
+    assert len(observed_commands) == 1
 
 
 def test_runtime_client_reports_no_service_available_when_every_reachable_builtin_is_exhausted(
@@ -2419,21 +2359,16 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
         )
     )
 
-    assert outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
         output="",
-        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        service_name="codex",
+        reset_time=datetime(2026, 1, 3, 17, 0, tzinfo=timezone.utc),
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
-        ),
-        (
-            "claude --verbose --dangerously-skip-permissions --output-format "
-            "stream-json -p - --disable-slash-commands "
-            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            '--mcp-config {"mcpServers":{}} --model sonnet --effort medium'
         ),
     ]
 
@@ -2523,9 +2458,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
             selected_model="gpt-5.4",
             selected_effort="medium",
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("codex",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
                 ),
@@ -2647,9 +2580,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
             selected_model="gpt-5.4",
             selected_effort="medium",
             tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("codex",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
                 ),
@@ -2781,40 +2712,23 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
     )
 
     assert first_result == [
-        prompt_runtime.RuntimeOutcome.no_service_available(
+        prompt_runtime.RuntimeOutcome.usage_limited(
             output="",
-            reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+            service_name="codex",
+            reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         )
     ]
-    assert second_outcome == prompt_runtime.RuntimeOutcome.completed(
-        output="hello from claude",
-        result=prompt_runtime.EphemeralRunResult(
-            output="hello from claude",
-            selected_service="claude",
-            selected_model="sonnet",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.workspace_backed(tmp_path),
-            used_fallback=True,
-            metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("codex", "claude"),
-                runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
-                ),
-            ),
-        ),
+    assert second_outcome == prompt_runtime.RuntimeOutcome.no_service_available(
+        output="",
+        reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+        invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert codex_calls == 1
     assert observed_commands == [
         (
             "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
-        ),
-        (
-            "claude --verbose --dangerously-skip-permissions --output-format "
-            "stream-json -p - --disable-slash-commands "
-            "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            '--mcp-config {"mcpServers":{}} --model sonnet --effort medium'
         ),
     ]
 
@@ -2940,8 +2854,7 @@ def test_ephemeral_runtime_preserves_fallback_selection_metadata_on_completed_ou
         )
     )
 
-    assert result.selected_service_path == ("missing", "claude")
-    assert result.used_fallback is True
+    assert result.selected_service == "claude"
 
 
 def test_ephemeral_runtime_applies_runtime_setup_failure_translation(

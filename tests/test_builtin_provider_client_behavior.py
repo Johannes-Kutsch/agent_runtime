@@ -4,7 +4,7 @@ import asyncio
 import json
 import subprocess
 import dataclasses
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 from typing import Any, Callable, cast
@@ -361,7 +361,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             )
         )
 
-    with pytest.raises(AgentCredentialFailureError) as exc_info:
+    with pytest.raises(RuntimeConfigurationError):
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
@@ -385,9 +385,6 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
                 )
             )
         )
-
-    assert str(exc_info.value) == "Missing OpenCode API key."
-    assert exc_info.value.service_name == "opencode"
 
     with pytest.raises(TypeError, match="requires an `invocation_dir` value"):
         prompt_runtime.NewSessionRunRequest(
@@ -950,9 +947,7 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
                 selected_model="kimi-k2.6",
                 selected_effort="medium",
                 tool_access=_opencode_tool_access(tool_policy, tmp_path),
-                used_fallback=False,
                 metadata=prompt_runtime.EphemeralResultMetadata(
-                    selected_service_path=("opencode",),
                     runtime=prompt_runtime.EphemeralRuntimeMetadata(
                         run_kind=RunKind.FRESH,
                     ),
@@ -1602,16 +1597,13 @@ def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns
         )
     )
 
-    assert outcome.output == "hello from opencode"
-    assert (
-        cast(prompt_runtime.EphemeralRunResult, outcome.result).selected_service
-        == "opencode"
+    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
+        output="",
+        service_name="codex",
+        reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
+        invocation_progress=runtime.InvocationProgress.STARTED,
     )
-    assert cast(prompt_runtime.EphemeralRunResult, outcome.result).used_fallback is True
-    assert observed == [
-        ("temporary codex output", "codex"),
-        ("hello from opencode", "opencode"),
-    ]
+    assert observed == [("temporary codex output", "codex")]
 
 
 def test_runtime_client_resumed_session_run_calls_live_output_observer(
@@ -4877,9 +4869,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
                 selected_model=stage.model,
                 selected_effort=stage.effort,
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                used_fallback=False,
                 metadata=prompt_runtime.EphemeralResultMetadata(
-                    selected_service_path=(service_name,),
                     runtime=prompt_runtime.EphemeralRuntimeMetadata(
                         run_kind=RunKind.FRESH,
                     ),
@@ -5029,48 +5019,55 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
         frozenset({"claude"}),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="missing",
-                model="placeholder",
-                effort="placeholder",
-                fallback=InternalStageSelection(
-                    service="opencode",
-                    model="deepseek-v4-flash",
-                    effort="medium",
-                    auth=runtime.ProviderAuth(opencode_api_key="api-key"),
-                ),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-        )
-    )
-
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.completed(
-            output="ephemeral output",
-            result=prompt_runtime.EphemeralRunResult(
-                output="ephemeral output",
-                selected_service="opencode",
-                selected_model="deepseek-v4-flash",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                used_fallback=True,
-                metadata=prompt_runtime.EphemeralResultMetadata(
-                    selected_service_path=("missing", "opencode"),
-                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                        run_kind=RunKind.FRESH
+    with pytest.raises(RuntimeConfigurationError):
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="missing",
+                    model="placeholder",
+                    effort="placeholder",
+                    fallback=InternalStageSelection(
+                        service="opencode",
+                        model="deepseek-v4-flash",
+                        effort="medium",
+                        auth=runtime.ProviderAuth(opencode_api_key="api-key"),
                     ),
                 ),
-                usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
-            ),
-            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
-        ),
-    )
-    assert len(adapter.recorded_requests) == 1
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    assert len(adapter.recorded_requests) == 0
+
+
+def test_runtime_client_ephemeral_rejects_unsupported_selected_provider_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+
+    with pytest.raises(RuntimeConfigurationError):
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="missing",
+                    model="placeholder",
+                    effort="placeholder",
+                    fallback=InternalStageSelection(
+                        service="opencode",
+                        model="deepseek-v4-flash",
+                        effort="medium",
+                        auth=runtime.ProviderAuth(opencode_api_key="api-key"),
+                    ),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+
+    assert len(adapter.recorded_requests) == 0
 
 
 def test_runtime_client_reachable_fallback_opencode_stage_requires_its_own_api_key(
@@ -5079,7 +5076,7 @@ def test_runtime_client_reachable_fallback_opencode_stage_requires_its_own_api_k
 ) -> None:
     adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
 
-    with pytest.raises(AgentCredentialFailureError) as exc_info:
+    with pytest.raises(RuntimeConfigurationError):
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
@@ -5101,8 +5098,6 @@ def test_runtime_client_reachable_fallback_opencode_stage_requires_its_own_api_k
             )
         )
 
-    assert str(exc_info.value) == "Missing OpenCode API key."
-    assert exc_info.value.service_name == "opencode"
     assert adapter.recorded_requests == []
 
 
@@ -5280,7 +5275,7 @@ def test_runtime_client_reachable_opencode_stage_requires_api_key_without_fallin
 ) -> None:
     adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
 
-    with pytest.raises(AgentCredentialFailureError) as exc_info:
+    with pytest.raises(RuntimeConfigurationError):
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
@@ -5307,19 +5302,6 @@ def test_runtime_client_reachable_opencode_stage_requires_api_key_without_fallin
             )
         )
 
-    assert str(exc_info.value) == "Missing OpenCode API key."
-    assert exc_info.value.service_name == "opencode"
-    assert exc_info.value.classification == (
-        "operator_actionable_agent_credential_failure"
-    )
-    assert exc_info.value.observations == (
-        ProviderErrorObservation(
-            service_name="opencode",
-            raw_provider_text="Missing OpenCode API key.",
-            source_stream="pre-dispatch auth check",
-            status_code=401,
-        ),
-    )
     assert adapter.recorded_requests == []
 
 
@@ -5334,7 +5316,7 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
         lambda: tmp_path / "missing-home",
     )
 
-    with pytest.raises(AgentCredentialFailureError) as exc_info:
+    with pytest.raises(RuntimeConfigurationError):
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
@@ -5361,21 +5343,6 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
             )
         )
 
-    assert str(exc_info.value) == (
-        "Codex authentication missing: run `codex login` on the host."
-    )
-    assert exc_info.value.service_name == "codex"
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.observations == (
-        ProviderErrorObservation(
-            service_name="codex",
-            raw_provider_text=(
-                "Codex authentication missing: run `codex login` on the host."
-            ),
-            source_stream="pre-dispatch host check",
-            status_code=401,
-        ),
-    )
     assert adapter.recorded_requests == []
 
 
@@ -5921,9 +5888,10 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.no_service_available(
+        prompt_runtime.RuntimeOutcome.usage_limited(
             output="",
-            reset_time=datetime(2026, 4, 28, 21, 4, tzinfo=timezone.utc),
+            service_name="opencode",
+            reset_time=datetime(2026, 4, 28, 21, 2, tzinfo=timezone.utc),
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -5982,9 +5950,10 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.no_service_available(
+        prompt_runtime.RuntimeOutcome.usage_limited(
             output="",
-            reset_time=datetime(2026, 1, 2, 17, 2, tzinfo=timezone.utc),
+            service_name="codex",
+            reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -6195,9 +6164,7 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
                 selected_model="kimi-k2.6",
                 selected_effort="medium",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                used_fallback=False,
                 metadata=prompt_runtime.EphemeralResultMetadata(
-                    selected_service_path=("opencode",),
                     runtime=prompt_runtime.EphemeralRuntimeMetadata(
                         run_kind=RunKind.FRESH,
                     ),
@@ -6251,9 +6218,10 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.no_service_available(
+        prompt_runtime.RuntimeOutcome.usage_limited(
             output="",
-            reset_time=datetime(2026, 1, 1, 13, 2, tzinfo=timezone.utc),
+            service_name="claude",
+            reset_time=None,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -6265,7 +6233,7 @@ def test_runtime_client_reachable_claude_stage_requires_token_without_falling_th
 ) -> None:
     adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
 
-    with pytest.raises(AgentCredentialFailureError) as exc_info:
+    with pytest.raises(RuntimeConfigurationError):
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
@@ -6292,7 +6260,6 @@ def test_runtime_client_reachable_claude_stage_requires_token_without_falling_th
             )
         )
 
-    assert exc_info.value.service_name == "claude"
     assert adapter.recorded_requests == []
 
 
@@ -6383,9 +6350,10 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.no_service_available(
+        prompt_runtime.RuntimeOutcome.usage_limited(
             output="",
-            reset_time=datetime(2026, 1, 2, 16, 2, tzinfo=timezone.utc),
+            service_name="claude",
+            reset_time=datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc),
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
@@ -6441,15 +6409,16 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.no_service_available(
+        prompt_runtime.RuntimeOutcome.usage_limited(
             output="",
-            reset_time=reset_time + timedelta(minutes=2),
+            service_name="claude",
+            reset_time=reset_time,
             invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
 
 
-def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
+def test_runtime_client_rejects_unsupported_selected_provider_for_ephemeral_result(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6462,45 +6431,27 @@ def test_runtime_client_reports_fallback_metadata_for_ephemeral_result(
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            worktree=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="missing",
-                model="ignored",
-                effort="low",
-                fallback=InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
-                    auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-                ),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-        )
-    )
-
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.completed(
-            output="final output",
-            result=prompt_runtime.EphemeralRunResult(
-                output="final output",
-                selected_service="claude",
-                selected_model="sonnet",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                used_fallback=True,
-                metadata=prompt_runtime.EphemeralResultMetadata(
-                    selected_service_path=("missing", "claude"),
-                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                        run_kind=RunKind.FRESH,
+    with pytest.raises(RuntimeConfigurationError):
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="missing",
+                    model="ignored",
+                    effort="low",
+                    fallback=InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                        auth=runtime.ProviderAuth(
+                            claude_code_oauth_token="oauth-token"
+                        ),
                     ),
                 ),
-            ),
-        ),
-    )
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
 
 
 def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metadata(
@@ -6536,6 +6487,43 @@ def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metad
         run_kind=RunKind.FRESH,
     )
     assert not hasattr(outcome.runtime_metadata, "session_namespace")
+
+
+def test_runtime_client_completed_ephemeral_result_hides_fallback_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "final output"}) + "\n",
+            )
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+    )
+
+    result = cast(prompt_runtime.EphemeralRunResult, outcome.result)
+    assert not hasattr(result, "used_fallback")
+    assert not hasattr(result, "selected_service_path")
+    assert not hasattr(result.metadata, "selected_service_path")
+    assert not hasattr(outcome, "used_fallback")
+    assert not hasattr(outcome, "selected_service_path")
 
 
 def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope(
@@ -6580,9 +6568,95 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope
         )
     )
 
-    assert outcome.kind == "no_service_available"
-    assert outcome.reset_time is not None
+    assert outcome.kind == "usage_limited"
+    assert outcome.service_name == "claude"
+    assert outcome.reset_time is None
     assert not hasattr(outcome, "usage_limit_scope")
+
+
+def test_runtime_client_ephemeral_usage_limit_does_not_fallback_to_another_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("temporary codex output"),
+                (
+                    json.dumps(
+                        {
+                            "type": "turn.failed",
+                            "error": {
+                                "message": (
+                                    "You've hit your usage limit."
+                                    " Try again at January 2, 5pm (UTC)."
+                                )
+                            },
+                        }
+                    )
+                    + "\n"
+                ),
+            ),
+        ),
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "sessionID": "provider-session-777",
+                        "part": {
+                            "type": "text",
+                            "time": {"end": True},
+                            "text": "hello from opencode",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+        ),
+    )
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            provider_selection=InternalStageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+                fallback=InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                    auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                ),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+    )
+
+    _assert_runtime_outcome(
+        outcome,
+        prompt_runtime.RuntimeOutcome.usage_limited(
+            output="",
+            service_name="codex",
+            reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
+            invocation_progress=runtime.InvocationProgress.STARTED,
+        ),
+    )
+    assert len(adapter.recorded_requests) == 1
 
 
 def test_runtime_client_preserves_claude_credential_failure_observations(

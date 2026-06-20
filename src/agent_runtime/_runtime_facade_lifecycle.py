@@ -362,19 +362,13 @@ async def _run_ephemeral(
                 token=request.token,
             )
         )
-        selected_service_path = _selected_service_path(
-            request.provider_selection,
-            selected_service=resolved_service.name,
-        )
         return EphemeralRunResult(
             output=raw_output if isinstance(raw_output, str) else str(raw_output),
             selected_service=resolved_service.name,
             selected_model=resolved_override.model,
             selected_effort=resolved_override.effort,
             tool_access=request.tool_access,
-            used_fallback=len(selected_service_path) > 1,
             metadata=EphemeralResultMetadata(
-                selected_service_path=selected_service_path,
                 runtime=EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
                 ),

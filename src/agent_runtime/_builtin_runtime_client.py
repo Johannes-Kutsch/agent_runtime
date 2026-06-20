@@ -210,11 +210,10 @@ class BuiltInAvailabilityState:
         now: datetime,
     ) -> SelectionLike | None:
         with self._lock:
-            for candidate in iter_provider_selection_chain(stage):
-                if candidate.service not in _SUPPORTED_BUILTIN_SERVICES:
-                    continue
-                if self._is_available_locked(candidate.service, now):
-                    return candidate
+            if stage.service not in _SUPPORTED_BUILTIN_SERVICES:
+                return None
+            if self._is_available_locked(stage.service, now):
+                return stage
         return None
 
     def has_available_stage(self, stage: SelectionLike, *, now: datetime) -> bool:
@@ -222,22 +221,15 @@ class BuiltInAvailabilityState:
 
     def next_wake_time(self, stage: SelectionLike, *, now: datetime) -> datetime | None:
         with self._lock:
-            wake_times = []
-            for candidate in iter_provider_selection_chain(stage):
-                if candidate.service not in _SUPPORTED_BUILTIN_SERVICES:
-                    continue
-                exhausted_until = self._exhausted_until_by_service.get(
-                    candidate.service
-                )
-                if exhausted_until is None:
-                    continue
-                if exhausted_until <= now:
-                    self._exhausted_until_by_service.pop(candidate.service, None)
-                    continue
-                wake_times.append(exhausted_until)
-            if not wake_times:
+            if stage.service not in _SUPPORTED_BUILTIN_SERVICES:
                 return None
-            return min(wake_times)
+            exhausted_until = self._exhausted_until_by_service.get(stage.service)
+            if exhausted_until is None:
+                return None
+            if exhausted_until <= now:
+                self._exhausted_until_by_service.pop(stage.service, None)
+                return None
+            return exhausted_until
 
     def mark_exhausted(
         self,
@@ -262,9 +254,8 @@ def supported_builtin_stage(stage: SelectionLike) -> SelectionLike | None:
 def supported_builtin_provider_selection(
     provider_selection: SelectionLike,
 ) -> SelectionLike | None:
-    for candidate in iter_provider_selection_chain(provider_selection):
-        if candidate.service in _SUPPORTED_BUILTIN_SERVICES:
-            return candidate
+    if provider_selection.service in _SUPPORTED_BUILTIN_SERVICES:
+        return provider_selection
     return None
 
 
@@ -2274,7 +2265,6 @@ def _run_builtin_ephemeral(
         str,
     ] = _reduce_opencode_stream,
     validate_codex_auth: Callable[[], None] = _validate_codex_auth,
-    selected_service_path: Callable[..., tuple[str, ...]] = _selected_service_path,
 ) -> EphemeralRunResult:
     invocation_adapter = (
         _default_provider_invocation_adapter()
@@ -2411,19 +2401,13 @@ def _run_builtin_ephemeral(
         )
     result_text = invocation_result.output
     usage = invocation_result.usage
-    service_path = selected_service_path(
-        request.provider_selection,
-        selected_service=selected_stage.service,
-    )
     return EphemeralRunResult(
         output=result_text,
         selected_service=selected_stage.service,
         selected_model=selected_stage.model,
         selected_effort=selected_stage.effort,
         tool_access=request.tool_access,
-        used_fallback=len(service_path) > 1,
         metadata=EphemeralResultMetadata(
-            selected_service_path=service_path,
             runtime=EphemeralRuntimeMetadata(
                 run_kind=RunKind.FRESH,
             ),

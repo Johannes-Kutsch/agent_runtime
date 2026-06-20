@@ -365,13 +365,6 @@ class RuntimeOutcome:
         return result.metadata
 
     @property
-    def selected_service_path(self) -> tuple[str, ...]:
-        result = self.result
-        if not isinstance(result, EphemeralRunResult):
-            raise AttributeError("Completed outcome does not carry selection metadata.")
-        return result.selected_service_path
-
-    @property
     def selected_service(self) -> str:
         result = self.result
         if not isinstance(result, EphemeralRunResult):
@@ -393,13 +386,6 @@ class RuntimeOutcome:
         return result.selected_effort
 
     @property
-    def used_fallback(self) -> bool:
-        result = self.result
-        if not isinstance(result, EphemeralRunResult):
-            raise AttributeError("Completed outcome does not carry selection metadata.")
-        return result.used_fallback
-
-    @property
     def tool_access(self) -> ToolAccess:
         result = self.result
         if not isinstance(result, EphemeralRunResult):
@@ -418,7 +404,6 @@ class EphemeralRuntimeMetadata:
 
 @dataclasses.dataclass(frozen=True)
 class EphemeralResultMetadata:
-    selected_service_path: tuple[str, ...]
     runtime: EphemeralRuntimeMetadata
 
 
@@ -429,13 +414,8 @@ class EphemeralRunResult:
     selected_model: str
     selected_effort: str
     tool_access: ToolAccess
-    used_fallback: bool
     metadata: EphemeralResultMetadata
     usage: ProviderUsage | None = None
-
-    @property
-    def selected_service_path(self) -> tuple[str, ...]:
-        return self.metadata.selected_service_path
 
     @property
     def runtime_metadata(self) -> EphemeralRuntimeMetadata:

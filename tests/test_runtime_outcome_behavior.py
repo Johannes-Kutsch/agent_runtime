@@ -148,9 +148,7 @@ def test_ephemeral_runtime_returns_completed_outcome_with_selected_runtime_metad
             selected_model="gpt-5",
             selected_effort="medium",
             tool_access=tool_access,
-            used_fallback=False,
             metadata=prompt_runtime.EphemeralResultMetadata(
-                selected_service_path=("claude",),
                 runtime=prompt_runtime.EphemeralRuntimeMetadata(
                     run_kind=RunKind.FRESH,
                 ),
@@ -170,9 +168,7 @@ def test_completed_runtime_outcome_only_exposes_ephemeral_selection_metadata_for
         selected_model="gpt-5",
         selected_effort="medium",
         tool_access=tool_access,
-        used_fallback=True,
         metadata=prompt_runtime.EphemeralResultMetadata(
-            selected_service_path=("codex", "claude"),
             runtime=prompt_runtime.EphemeralRuntimeMetadata(
                 run_kind=RunKind.FRESH,
             ),
@@ -182,11 +178,9 @@ def test_completed_runtime_outcome_only_exposes_ephemeral_selection_metadata_for
 
     assert outcome.runtime_metadata == result.runtime_metadata
     assert outcome.metadata == result.metadata
-    assert outcome.selected_service_path == ("codex", "claude")
     assert outcome.selected_service == "claude"
     assert outcome.selected_model == "gpt-5"
     assert outcome.selected_effort == "medium"
-    assert outcome.used_fallback is True
     assert outcome.tool_access == tool_access
 
 
@@ -218,15 +212,11 @@ def test_completed_runtime_outcome_rejects_ephemeral_selection_metadata_for_sess
     with pytest.raises(AttributeError, match="ephemeral metadata"):
         _ = outcome.metadata
     with pytest.raises(AttributeError, match="selection metadata"):
-        _ = outcome.selected_service_path
-    with pytest.raises(AttributeError, match="selection metadata"):
         _ = outcome.selected_service
     with pytest.raises(AttributeError, match="selection metadata"):
         _ = outcome.selected_model
     with pytest.raises(AttributeError, match="selection metadata"):
         _ = outcome.selected_effort
-    with pytest.raises(AttributeError, match="selection metadata"):
-        _ = outcome.used_fallback
     with pytest.raises(AttributeError, match="tool access"):
         _ = outcome.tool_access
 

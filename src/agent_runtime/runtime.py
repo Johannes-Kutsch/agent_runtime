@@ -124,7 +124,6 @@ for _runtime_export in (
 ):
     _runtime_export.__module__ = __name__
 
-_selected_service_path = _builtin_runtime_client_module._selected_service_path
 _validate_claude_stage = _builtin_runtime_client_module._validate_claude_stage
 _validate_opencode_stage = _builtin_runtime_client_module._validate_opencode_stage
 _claude_command = _builtin_runtime_client_module._claude_command
@@ -243,56 +242,47 @@ class RuntimeClient:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
-        while True:
-            now = _time_module.now_local()
-            selected_provider_selection = self._availability.first_available_stage(
-                request.provider_selection, now=now
-            )
-            if selected_provider_selection is None:
-                return RuntimeOutcome.no_service_available(
-                    output="",
-                    reset_time=self._availability.next_wake_time(
-                        request.provider_selection,
-                        now=now,
-                    ),
-                    invocation_progress=InvocationProgress.NOT_STARTED,
-                )
-            try:
-                result = _run_builtin_ephemeral(
-                    request,
-                    select_builtin_stage=lambda _stage: selected_provider_selection,
-                )
-            except UsageLimitError as exc:
-                if getattr(exc, "_is_live_output_exception", False):
-                    raise
-                exhausted_now = _time_module.now_local()
-                service_name = exc.service_name or selected_provider_selection.service
-                self._availability.mark_exhausted(
-                    service_name,
-                    reset_time=exc.reset_time,
-                    now=exhausted_now,
-                )
-                if self._availability.has_available_stage(
+        now = _time_module.now_local()
+        selected_provider_selection = self._availability.first_available_stage(
+            request.provider_selection, now=now
+        )
+        if selected_provider_selection is None:
+            return RuntimeOutcome.no_service_available(
+                output="",
+                reset_time=self._availability.next_wake_time(
                     request.provider_selection,
-                    now=exhausted_now,
-                ):
-                    continue
-                return RuntimeOutcome.no_service_available(
-                    output="",
-                    reset_time=self._availability.next_wake_time(
-                        request.provider_selection,
-                        now=exhausted_now,
-                    )
-                    or exc.reset_time,
-                    invocation_progress=exc.invocation_progress,
-                    continuation=exc.continuation,
-                    usage=exc.usage,
-                )
-            return RuntimeOutcome.completed(
-                output=result.output,
-                result=result,
-                usage=result.usage,
+                    now=now,
+                ),
+                invocation_progress=InvocationProgress.NOT_STARTED,
             )
+        try:
+            result = _run_builtin_ephemeral(
+                request,
+                select_builtin_stage=lambda _stage: selected_provider_selection,
+            )
+        except UsageLimitError as exc:
+            if getattr(exc, "_is_live_output_exception", False):
+                raise
+            self._availability.mark_exhausted(
+                exc.service_name or selected_provider_selection.service,
+                reset_time=exc.reset_time,
+                now=_time_module.now_local(),
+            )
+            return RuntimeOutcome.usage_limited(
+                output="",
+                service_name=exc.service_name or selected_provider_selection.service,
+                account_label=exc.account_label,
+                reset_time=exc.reset_time,
+                invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
+                usage=exc.usage,
+                invocation_records=_exception_invocation_records(exc),
+            )
+        return RuntimeOutcome.completed(
+            output=result.output,
+            result=result,
+            usage=result.usage,
+        )
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
         return _run_builtin_session_outcome(lambda: _run_builtin_new_session(request))
@@ -324,7 +314,6 @@ def _run_builtin_ephemeral(
         opencode_command=_opencode_command,
         opencode_env=_opencode_env,
         reduce_opencode_stream=_reduce_opencode_stream,
-        selected_service_path=_selected_service_path,
     )
 
 
