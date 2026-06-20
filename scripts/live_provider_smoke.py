@@ -895,6 +895,8 @@ def _resolve_runtime_outcome(runtime_outcome: Any) -> Any:
 
 
 def _serialize_case_invocation_records(invocation_records: Any) -> list[dict[str, Any]]:
+    if invocation_records is None:
+        return []
     serialized: list[dict[str, Any]] = []
     for record in invocation_records:
         serialized.append(

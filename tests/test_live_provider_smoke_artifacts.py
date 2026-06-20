@@ -368,6 +368,45 @@ def test_live_smoke_artifacts_capture_required_diagnostics(
     assert config_summary.exists()
 
 
+def test_live_smoke_artifacts_with_null_invocation_records_still_write_empty_invocation_summary(
+    smoke_module: object, tmp_path: Path
+) -> None:
+    module: Any = smoke_module
+
+    class _FakeCaseOutcome:
+        kind = "completed"
+        output = "provider output value"
+        live_turns: tuple[Any, ...] = ()
+        invocation_records: tuple[Any, ...] | None = None
+
+    def _fake_case_runner(*, artifact_dir: Path, **_: object) -> _FakeCaseOutcome:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        return _FakeCaseOutcome()
+
+    result = module.run_live_smoke(
+        provider_selection=("codex",),
+        lifecycle_modes=("ephemeral",),
+        model_overrides={"codex": "codex-mini"},
+        effort_overrides={"codex": "high"},
+        codex_auth_present=True,
+        run_id="null-invocation-records",
+        artifact_root=tmp_path / "null-invocation-records-artifacts",
+        case_runner=_fake_case_runner,
+    )
+
+    assert result.passed is True
+    assert not result.warnings
+    case_dir = (
+        tmp_path
+        / "null-invocation-records-artifacts"
+        / "null-invocation-records"
+        / "codex"
+        / "ephemeral"
+        / "default"
+    )
+    assert (case_dir / "invocation_records.json").read_text(encoding="utf-8") == "[]"
+
+
 def test_live_smoke_real_run_preserves_resolved_defaults_in_diagnostics_and_reruns(
     smoke_module: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
