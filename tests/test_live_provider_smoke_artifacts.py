@@ -110,6 +110,22 @@ def test_live_smoke_default_artifact_root_is_repo_local_with_override_and_cleanu
     assert cleaned_result.summary_path.parent == stale_root / "cleaned-run"
 
 
+def test_live_smoke_runner_module_imports_public_runtime_symbols_explicitly() -> None:
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "from agent_runtime.runtime import (" in source
+    assert "RuntimeClient" in source
+    assert "EphemeralRunRequest" in source
+    assert "NewSessionRunRequest" in source
+    assert "ResumedSessionRunRequest" in source
+    assert "ProviderSelection" in source
+    assert "ProviderAuth" in source
+    assert "Continuation" in source
+    assert "ToolPolicy" in source
+    assert "import agent_runtime as public_runtime" not in source
+    assert "from agent_runtime import runtime as prompt_runtime" not in source
+
+
 def test_live_smoke_required_summary_write_failure_marks_run_non_passing(
     smoke_module: object,
     tmp_path: Path,
@@ -582,6 +598,129 @@ def test_live_smoke_ephemeral_runs_through_public_runtime_request_values(
         (case_dir / "live_turns.json").read_text(encoding="utf-8")
     )
     assert live_turns == [{"text": "provider says ok", "service_name": "claude"}]
+
+
+def test_live_smoke_runner_uses_planned_provider_selection_for_lifecycle_and_policy_requests(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    from agent_runtime import runtime as prompt_runtime
+
+    planned_selection = prompt_runtime.ProviderSelection(
+        service="claude",
+        model="planned-model",
+        effort="planned-effort",
+        auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="planned-token"),
+    )
+    dry_run_plan = module.live_provider_smoke_plan.DryRunPlan(
+        run_id="planned-selection-run",
+        cases=(
+            SimpleNamespace(
+                service="claude",
+                mode="new_session",
+                policy=None,
+                model="planned-model",
+                effort="planned-effort",
+                provider_selection=planned_selection,
+            ),
+            SimpleNamespace(
+                service="claude",
+                mode="ephemeral",
+                policy="NONE",
+                model="planned-model",
+                effort="planned-effort",
+                provider_selection=planned_selection,
+            ),
+        ),
+        provider_plans=(
+            SimpleNamespace(
+                service="claude",
+                status="runnable",
+                model="planned-model",
+                effort="planned-effort",
+                provider_selection=planned_selection,
+            ),
+        ),
+        artifact_root=tmp_path / "planned-selection-artifacts",
+    )
+
+    captured_requests: list[
+        prompt_runtime.NewSessionRunRequest | prompt_runtime.EphemeralRunRequest
+    ] = []
+
+    class _FakeRuntimeClient:
+        def run_new_session(
+            self,
+            request: prompt_runtime.NewSessionRunRequest,
+        ) -> object:
+            captured_requests.append(request)
+            continuation = prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="planned-model",
+                selected_effort="planned-effort",
+                tool_access=request.tool_access,
+                provider_resume_state={"provider_session_id": "session-123"},
+            )
+            return prompt_runtime.RuntimeOutcome(
+                kind="completed",
+                output="new session output",
+                continuation=continuation,
+                result=prompt_runtime.SessionRunResult(
+                    output="new session output",
+                    runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                        service_name="claude",
+                        provider_session_id="session-123",
+                        run_kind=RunKind.FRESH,
+                        session_namespace="",
+                        exact_transcript_match=False,
+                        selected_model="planned-model",
+                        selected_effort="planned-effort",
+                        tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
+                    ),
+                ),
+                invocation_records=(),
+            )
+
+        def run_ephemeral(
+            self,
+            request: prompt_runtime.EphemeralRunRequest,
+        ) -> object:
+            captured_requests.append(request)
+            return SimpleNamespace(
+                kind="completed",
+                output="ephemeral output",
+                result=SimpleNamespace(
+                    selected_service="claude",
+                    selected_model="planned-model",
+                    selected_effort="planned-effort",
+                    tool_access=SimpleNamespace(tool_policy=request.tool_policy),
+                ),
+                invocation_records=(),
+            )
+
+    monkeypatch.setattr(
+        module.live_provider_smoke_plan,
+        "build_dry_run_plan",
+        lambda *args, **kwargs: dry_run_plan,
+    )
+    monkeypatch.setattr(prompt_runtime, "RuntimeClient", lambda: _FakeRuntimeClient())
+
+    run_result = module.run_live_smoke(
+        provider_selection=("claude",),
+        lifecycle_modes=("new_session",),
+        tool_policies=("NONE",),
+        claude_code_oauth_token="cli-token-that-should-not-win",
+        run_id="planned-selection-run",
+        artifact_root=tmp_path / "planned-selection-artifacts",
+    )
+
+    assert run_result.passed is True
+    assert [request.provider_selection for request in captured_requests] == [
+        planned_selection,
+        planned_selection,
+    ]
 
 
 def test_live_smoke_timeout_outcome_is_classified_as_failed_and_retained(

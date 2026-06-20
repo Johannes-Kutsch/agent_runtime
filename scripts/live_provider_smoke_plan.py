@@ -10,6 +10,10 @@ from typing import Mapping, Sequence, Any
 from uuid import uuid4
 
 from agent_runtime.errors import RuntimeConfigurationError
+from agent_runtime.runtime import (
+    ProviderAuth,
+    ProviderSelection as RuntimeProviderSelection,
+)
 from agent_runtime.runtime import ToolPolicy
 
 
@@ -82,6 +86,7 @@ class ProviderPlan:
     service: str
     model: str
     effort: str
+    provider_selection: RuntimeProviderSelection
     status: LiveSmokeProviderSelectionStatus
     reason: str | None = None
 
@@ -678,6 +683,12 @@ def _plan_provider(
         cli_effort=effort,
         env=env,
     )
+    auth = _resolve_provider_auth(
+        provider,
+        env=env,
+        claude_code_oauth_token=claude_code_oauth_token,
+        opencode_api_key=opencode_api_key,
+    )
     if not resolved_model or not resolved_effort:
         reason = "missing model or effort"
         status = (
@@ -705,9 +716,36 @@ def _plan_provider(
         service=provider,
         model=resolved_model,
         effort=resolved_effort,
+        provider_selection=RuntimeProviderSelection(
+            service=provider,
+            model=resolved_model,
+            effort=resolved_effort,
+            auth=auth,
+        ),
         status=status,
         reason=reason,
     )
+
+
+def _resolve_provider_auth(
+    provider: str,
+    *,
+    env: Mapping[str, str] | None,
+    claude_code_oauth_token: str | None,
+    opencode_api_key: str | None,
+) -> ProviderAuth:
+    env_map = _resolve_env_map(env)
+    if provider == "claude":
+        token = claude_code_oauth_token
+        if token is None:
+            token = env_map.get(_PROVIDER_CLAUDE_TOKEN_ENV)
+        return ProviderAuth(claude_code_oauth_token=token)
+    if provider == "opencode":
+        api_key = opencode_api_key
+        if api_key is None:
+            api_key = env_map.get(_PROVIDER_OPENCODE_ENV)
+        return ProviderAuth(opencode_api_key=api_key)
+    return ProviderAuth()
 
 
 def resolve_run_id(run_id: str | None = None) -> str:

@@ -9,14 +9,23 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import agent_runtime.runtime as _runtime_public
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Mapping, Sequence, cast
 from traceback import format_exc
 from importlib import util as importlib_util
 
-import agent_runtime as public_runtime
-from agent_runtime import runtime as prompt_runtime
+from agent_runtime.runtime import (
+    Continuation,
+    EphemeralRunRequest,
+    NewSessionRunRequest,
+    ProviderAuth,
+    ProviderSelection,
+    ResumedSessionRunRequest,
+    RuntimeClient,
+    ToolPolicy,
+)
 
 try:
     import live_provider_smoke_plan
@@ -225,7 +234,7 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
         epilog=_live_smoke_defaults_help_text(),
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    supported_policies = [policy.name for policy in prompt_runtime.ToolPolicy]
+    supported_policies = [policy.name for policy in ToolPolicy]
     supported_modes = ("ephemeral", "new_session", "resumed_session")
     supported_providers = tuple(live_provider_smoke_plan.SUPPORTED_PROVIDERS) + ("all",)
 
@@ -632,11 +641,11 @@ def _resolve_plan_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
     return {} if env is None else env
 
 
-def _resolve_tool_policy(case_policy: str | None) -> prompt_runtime.ToolPolicy:
+def _resolve_tool_policy(case_policy: str | None) -> ToolPolicy:
     if case_policy is None:
-        return prompt_runtime.ToolPolicy.UNRESTRICTED
+        return ToolPolicy.UNRESTRICTED
     try:
-        return prompt_runtime.ToolPolicy[case_policy]
+        return ToolPolicy[case_policy]
     except KeyError:
         raise ValueError(f"Unsupported tool policy: {case_policy}") from None
 
@@ -647,9 +656,9 @@ def _resolve_provider_auth(
     env: Mapping[str, str] | None,
     claude_code_oauth_token: str | None,
     opencode_api_key: str | None,
-) -> prompt_runtime.ProviderAuth:
+) -> ProviderAuth:
     env_map = _resolve_plan_env(env)
-    return prompt_runtime.ProviderAuth(
+    return ProviderAuth(
         claude_code_oauth_token=claude_code_oauth_token
         if service == "claude" and claude_code_oauth_token is not None
         else env_map.get("CLAUDE_CODE_OAUTH_TOKEN")
@@ -660,6 +669,29 @@ def _resolve_provider_auth(
         else env_map.get("OPENCODE_GO_API_KEY")
         if service == "opencode"
         else None,
+    )
+
+
+def _resolve_case_provider_selection(
+    resolved_case: Any,
+    *,
+    env: Mapping[str, str] | None,
+    claude_code_oauth_token: str | None,
+    opencode_api_key: str | None,
+) -> ProviderSelection:
+    planned_selection = getattr(resolved_case, "provider_selection", None)
+    if isinstance(planned_selection, ProviderSelection):
+        return planned_selection
+    return ProviderSelection(
+        service=resolved_case.service,
+        model=resolved_case.model,
+        effort=resolved_case.effort,
+        auth=_resolve_provider_auth(
+            service=resolved_case.service,
+            env=env,
+            claude_code_oauth_token=claude_code_oauth_token,
+            opencode_api_key=opencode_api_key,
+        ),
     )
 
 
@@ -676,7 +708,7 @@ def _run_public_smoke_case(
     claude_code_oauth_token: str | None,
     opencode_api_key: str | None,
     codex_auth_present: bool | None,
-    continuation: Any | None = None,
+    continuation: Continuation | None = None,
 ) -> Any:
     del run_id, model, effort, codex_auth_present  # compatibility placeholders
     resolved_case = case if case is not None else planned_case
@@ -690,44 +722,35 @@ def _run_public_smoke_case(
         live_turns.append(turn)
 
     tool_policy = _resolve_tool_policy(resolved_case.policy)
-    auth = _resolve_provider_auth(
-        service=resolved_case.service,
+    provider_selection = _resolve_case_provider_selection(
+        resolved_case,
         env=env,
         claude_code_oauth_token=claude_code_oauth_token,
         opencode_api_key=opencode_api_key,
     )
+    auth = provider_selection.auth or ProviderAuth()
 
     request: Any
     if resolved_case.mode == "ephemeral":
-        request = prompt_runtime.EphemeralRunRequest(
+        request = EphemeralRunRequest(
             prompt=prompt,
             invocation_dir=artifact_dir,
-            provider_selection=public_runtime.ProviderSelection(
-                service=resolved_case.service,
-                model=resolved_case.model,
-                effort=resolved_case.effort,
-                auth=auth,
-            ),
+            provider_selection=provider_selection,
             tool_policy=tool_policy,
             on_live_output=_on_live_output,
         )
     elif resolved_case.mode == "new_session":
-        request = prompt_runtime.NewSessionRunRequest(
+        request = NewSessionRunRequest(
             prompt=prompt,
             invocation_dir=artifact_dir,
-            provider_selection=public_runtime.ProviderSelection(
-                service=resolved_case.service,
-                model=resolved_case.model,
-                effort=resolved_case.effort,
-                auth=auth,
-            ),
+            provider_selection=provider_selection,
             tool_policy=tool_policy,
             on_live_output=_on_live_output,
         )
     elif resolved_case.mode == "resumed_session":
         if continuation is None:
             raise ValueError("Resume session case requires prior continuation.")
-        request = prompt_runtime.ResumedSessionRunRequest(
+        request = ResumedSessionRunRequest(
             prompt=prompt,
             invocation_dir=artifact_dir,
             continuation=continuation,
@@ -741,7 +764,7 @@ def _run_public_smoke_case(
         )
 
     runtime_outcome: Any
-    runtime_client = prompt_runtime.RuntimeClient()
+    runtime_client: RuntimeClient = _runtime_public.RuntimeClient()
     if resolved_case.mode == "ephemeral":
         runtime_outcome = runtime_client.run_ephemeral(request)
     elif resolved_case.mode == "new_session":

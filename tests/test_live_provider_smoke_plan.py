@@ -378,6 +378,37 @@ def test_live_smoke_dry_run_defaults_propagate_to_provider_plans_and_cases(
         assert case.effort == provider_plan.effort
 
 
+def test_live_smoke_provider_plan_exposes_public_provider_selection_with_auth(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+    from agent_runtime import runtime as prompt_runtime
+
+    selected = module.parse_provider_selection(("claude", "opencode"))
+    planned = module.plan_selected_providers(
+        selected,
+        env={},
+        claude_code_oauth_token="claude-token",
+        opencode_api_key="opencode-key",
+    )
+
+    claude_plan = next(plan for plan in planned if plan.service == "claude")
+    opencode_plan = next(plan for plan in planned if plan.service == "opencode")
+
+    assert claude_plan.provider_selection == prompt_runtime.ProviderSelection(
+        service="claude",
+        model="haiku",
+        effort="low",
+        auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="claude-token"),
+    )
+    assert opencode_plan.provider_selection == prompt_runtime.ProviderSelection(
+        service="opencode",
+        model="deepseek-v4-flash",
+        effort="medium",
+        auth=prompt_runtime.ProviderAuth(opencode_api_key="opencode-key"),
+    )
+
+
 def test_live_smoke_defaults_are_documented_with_verification_date(
     planning_module: Any,
 ) -> None:
