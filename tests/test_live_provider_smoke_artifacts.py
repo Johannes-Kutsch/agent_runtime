@@ -1646,6 +1646,54 @@ def test_live_smoke_cli_dry_run_json_artifact_paths_use_forward_slashes_portably
     assert not (tmp_path / r"portable\artifacts").exists()
 
 
+def test_live_smoke_cli_dry_run_untargeted_provider_uses_full_matrix_defaults(
+    smoke_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    monkeypatch.setattr(
+        module.live_provider_smoke_plan,
+        "detect_codex_auth_present",
+        lambda: True,
+    )
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "--dry-run",
+                "--json",
+                "--provider",
+                "codex",
+                "--run-id",
+                "codex-full-matrix",
+            ]
+        )
+
+    payload = module.json.loads(output.getvalue())
+    cases = payload["cases"]
+
+    assert exit_code == 0
+    assert [case for case in cases if case["policy"] is None] == [
+        case
+        for case in cases
+        if case["mode"] in ("ephemeral", "new_session", "resumed_session")
+        and case["policy"] is None
+    ]
+    assert [case["mode"] for case in cases[:3]] == [
+        "ephemeral",
+        "new_session",
+        "resumed_session",
+    ]
+    assert {case["policy"] for case in cases[:3]} == {None}
+    assert [case["mode"] for case in cases[3:]] == ["ephemeral"] * len(
+        module.ToolPolicy
+    )
+    assert [case["policy"] for case in cases[3:]] == [
+        policy.name for policy in module.ToolPolicy
+    ]
+
+
 def test_live_smoke_cli_default_console_output_reports_provider_mode_and_artifacts(
     smoke_module: object,
     tmp_path: Path,

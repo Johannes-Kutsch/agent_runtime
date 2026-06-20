@@ -385,6 +385,84 @@ def _coerce_lifecycle_modes(parsed: argparse.Namespace) -> tuple[str, ...]:
     return tuple(dict.fromkeys(selected))
 
 
+def _build_smoke_plan(
+    provider_selection: str | tuple[str, ...],
+    *,
+    lifecycle_modes: tuple[str, ...],
+    tool_policies: tuple[str, ...],
+    run_id: str | None,
+    model_overrides: Mapping[str, str] | None,
+    effort_overrides: Mapping[str, str] | None,
+    artifact_root: Path,
+    env: Mapping[str, str] | None = None,
+    claude_code_oauth_token: str | None = None,
+    opencode_api_key: str | None = None,
+    codex_auth_present: bool | None = None,
+) -> Any:
+    lifecycle_tool_policy_mode = bool(tool_policies) and set(lifecycle_modes) != {
+        "ephemeral"
+    }
+    if not lifecycle_tool_policy_mode:
+        return live_provider_smoke_plan.build_dry_run_plan(
+            provider_selection,
+            lifecycle_modes=lifecycle_modes,
+            tool_policies=tool_policies,
+            run_id=run_id,
+            model_overrides=model_overrides,
+            effort_overrides=effort_overrides,
+            artifact_root=artifact_root,
+            env=env,
+            claude_code_oauth_token=claude_code_oauth_token,
+            opencode_api_key=opencode_api_key,
+            codex_auth_present=codex_auth_present,
+        )
+
+    lifecycle_plan = live_provider_smoke_plan.build_dry_run_plan(
+        provider_selection,
+        lifecycle_modes=lifecycle_modes,
+        tool_policies=(),
+        run_id=run_id,
+        model_overrides=model_overrides,
+        effort_overrides=effort_overrides,
+        artifact_root=artifact_root,
+        env=env,
+        claude_code_oauth_token=claude_code_oauth_token,
+        opencode_api_key=opencode_api_key,
+        codex_auth_present=codex_auth_present,
+    )
+    policy_plan = live_provider_smoke_plan.build_dry_run_plan(
+        provider_selection,
+        lifecycle_modes=("ephemeral",),
+        tool_policies=tool_policies,
+        run_id=run_id,
+        model_overrides=model_overrides,
+        effort_overrides=effort_overrides,
+        artifact_root=artifact_root,
+        env=env,
+        claude_code_oauth_token=claude_code_oauth_token,
+        opencode_api_key=opencode_api_key,
+        codex_auth_present=codex_auth_present,
+    )
+    lifecycle_case_order = tuple(
+        c
+        for provider_plan in lifecycle_plan.provider_plans
+        for c in lifecycle_plan.cases
+        if c.service == provider_plan.service and c.policy is None
+    )
+    policy_case_order = tuple(
+        c
+        for provider_plan in lifecycle_plan.provider_plans
+        for c in policy_plan.cases
+        if c.service == provider_plan.service and c.policy is not None
+    )
+    return live_provider_smoke_plan.DryRunPlan(
+        run_id=lifecycle_plan.run_id,
+        cases=lifecycle_case_order + policy_case_order,
+        provider_plans=lifecycle_plan.provider_plans,
+        artifact_root=lifecycle_plan.artifact_root,
+    )
+
+
 def _print_run_result(
     run_result: LiveSmokeRunResult,
     *,
@@ -491,7 +569,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _print_provider_listing()
 
     if args.dry_run:
-        dry_run_plan = live_provider_smoke_plan.build_dry_run_plan(
+        dry_run_plan = _build_smoke_plan(
             providers,
             lifecycle_modes=lifecycle_modes,
             tool_policies=tool_policies,
@@ -969,68 +1047,19 @@ def run_live_smoke(
         shutil.rmtree(resolved_artifact_root, ignore_errors=True)
     resolved_artifact_root.mkdir(parents=True, exist_ok=True)
 
-    lifecycle_tool_policy_mode = bool(tool_policies) and set(lifecycle_modes) != {
-        "ephemeral"
-    }
-    if lifecycle_tool_policy_mode:
-        lifecycle_plan = live_provider_smoke_plan.build_dry_run_plan(
-            provider_selection,
-            lifecycle_modes=lifecycle_modes,
-            tool_policies=(),
-            run_id=run_id,
-            model_overrides=model_overrides,
-            effort_overrides=effort_overrides,
-            artifact_root=resolved_artifact_root,
-            env=env,
-            claude_code_oauth_token=claude_code_oauth_token,
-            opencode_api_key=opencode_api_key,
-            codex_auth_present=codex_auth_present,
-        )
-        policy_plan = live_provider_smoke_plan.build_dry_run_plan(
-            provider_selection,
-            lifecycle_modes=("ephemeral",),
-            tool_policies=tool_policies,
-            run_id=run_id,
-            model_overrides=model_overrides,
-            effort_overrides=effort_overrides,
-            artifact_root=resolved_artifact_root,
-            env=env,
-            claude_code_oauth_token=claude_code_oauth_token,
-            opencode_api_key=opencode_api_key,
-            codex_auth_present=codex_auth_present,
-        )
-        lifecycle_case_order = tuple(
-            c
-            for provider_plan in lifecycle_plan.provider_plans
-            for c in lifecycle_plan.cases
-            if c.service == provider_plan.service and c.policy is None
-        )
-        policy_case_order = tuple(
-            c
-            for provider_plan in lifecycle_plan.provider_plans
-            for c in policy_plan.cases
-            if c.service == provider_plan.service and c.policy is not None
-        )
-        dry_run_plan = live_provider_smoke_plan.DryRunPlan(
-            run_id=lifecycle_plan.run_id,
-            cases=lifecycle_case_order + policy_case_order,
-            provider_plans=lifecycle_plan.provider_plans,
-            artifact_root=lifecycle_plan.artifact_root,
-        )
-    else:
-        dry_run_plan = live_provider_smoke_plan.build_dry_run_plan(
-            provider_selection,
-            lifecycle_modes=lifecycle_modes,
-            tool_policies=tool_policies,
-            run_id=run_id,
-            model_overrides=model_overrides,
-            effort_overrides=effort_overrides,
-            artifact_root=resolved_artifact_root,
-            env=env,
-            claude_code_oauth_token=claude_code_oauth_token,
-            opencode_api_key=opencode_api_key,
-            codex_auth_present=codex_auth_present,
-        )
+    dry_run_plan = _build_smoke_plan(
+        provider_selection,
+        lifecycle_modes=lifecycle_modes,
+        tool_policies=tool_policies,
+        run_id=run_id,
+        model_overrides=model_overrides,
+        effort_overrides=effort_overrides,
+        artifact_root=resolved_artifact_root,
+        env=env,
+        claude_code_oauth_token=claude_code_oauth_token,
+        opencode_api_key=opencode_api_key,
+        codex_auth_present=codex_auth_present,
+    )
 
     warnings: list[str] = []
     case_results: list[LiveSmokeRunCaseResult] = []
@@ -1039,6 +1068,9 @@ def run_live_smoke(
     session_turns: dict[tuple[str, str | None], str] = {}
     session_invocation_dirs: dict[tuple[str, str | None], Path] = {}
     lifecycle_failures: set[str] = set()
+    lifecycle_tool_policy_mode = bool(tool_policies) and set(lifecycle_modes) != {
+        "ephemeral"
+    }
     runner = case_runner or _run_public_smoke_case
     run_started = time.perf_counter()
     run_artifact_root = resolved_artifact_root / dry_run_plan.run_id
