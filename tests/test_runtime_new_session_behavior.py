@@ -1828,6 +1828,53 @@ def test_new_session_runtime_keeps_not_started_retryable_provider_failure_withou
     assert result.continuation is None
 
 
+def _seed_codex_host_auth(monkeypatch: pytest.MonkeyPatch, home_dir: Path) -> Path:
+    auth_dir = home_dir / ".codex"
+    auth_dir.mkdir(parents=True)
+    auth_path = auth_dir / "auth.json"
+    auth_path.write_text('{"access_token":"token"}', encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_codex_host_auth_path",
+        lambda: auth_path,
+        raising=False,
+    )
+    return auth_path
+
+
+def _seed_empty_codex_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    home_dir: Path,
+) -> Path:
+    auth_path = home_dir / ".codex" / "auth.json"
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_codex_host_auth_path",
+        lambda: auth_path,
+        raising=False,
+    )
+    return auth_path
+
+
+def _stub_codex_prompt_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    prompt_path = Path("/tmp/.pycastle_prompt")
+    original_write_text = Path.write_text
+    original_unlink = Path.unlink
+
+    def _fake_write_text(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
+        if self == prompt_path:
+            return len(data)
+        return original_write_text(self, data, *args, **kwargs)
+
+    def _fake_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
+        if self == prompt_path:
+            return None
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", _fake_write_text)
+    monkeypatch.setattr(Path, "unlink", _fake_unlink)
+
+
 def test_new_session_runtime_keeps_exceptional_failures_exceptional(
     stage_selection_factory: Callable[..., runtime.StageSelection],
     service_registry_factory: Callable[..., ServiceRegistry],
@@ -1991,6 +2038,169 @@ def test_runtime_client_returns_claude_invocation_record_without_mixing_runtime_
     assert (
         b'"type":"result","result":"hello from claude"'
         in invocation_record.provider_output
+    )
+
+
+def test_runtime_client_new_codex_session_reports_isolated_missing_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    host_home_with_login = tmp_path / "host-home-with-login"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+    _seed_codex_host_auth(monkeypatch, host_home_with_login)
+    _seed_empty_codex_host_auth(monkeypatch, tmp_path / "isolated-home-without-login")
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home_with_login,
+    )
+
+    def _unexpected_popen(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise AssertionError("subprocess should not start without isolated host auth")
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _unexpected_popen,
+    )
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        asyncio.run(
+            prompt_runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=worktree,
+                    runtime_state_dir=runtime_state_dir,
+                    stage=stage_selection_factory(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
+                    session_namespace="main",
+                    tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
+                )
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Codex authentication missing: run `codex login` on the host."
+    )
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.status_code == 401
+
+
+def test_runtime_client_new_codex_session_uses_isolated_present_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    worktree = tmp_path / "worktree"
+    runtime_state_dir = tmp_path / "runtime-state"
+    host_home_without_login = tmp_path / "host-home-without-login"
+    worktree.mkdir()
+    runtime_state_dir.mkdir()
+    host_home_without_login.mkdir()
+    isolated_auth_path = _seed_codex_host_auth(
+        monkeypatch, tmp_path / "isolated-home-with-login"
+    )
+    _stub_codex_prompt_path(monkeypatch)
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home_without_login,
+    )
+
+    class _FakeProcess:
+        stdout = iter(
+            (
+                '{"type":"thread.started","thread_id":"thread-123"}\n',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"hello from codex"}}\n',
+                '{"type":"turn.completed"}\n',
+            )
+        )
+        stderr = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _FakeProcess:
+        del command, shell, stdout, stderr, text
+        assert cwd == worktree
+        assert env["CODEX_HOME"].startswith(str(runtime_state_dir))
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.subprocess,
+        "Popen",
+        _fake_popen,
+    )
+
+    outcome = asyncio.run(
+        prompt_runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                worktree=worktree,
+                runtime_state_dir=runtime_state_dir,
+                stage=stage_selection_factory(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                role=InvocationRole("implementer"),
+                session_namespace="main",
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
+            )
+        )
+    )
+
+    provider_state_dir = runtime_state_dir / session_runtime.provider_state_relpath(
+        InvocationRole("implementer"),
+        "codex",
+        "main",
+    )
+    assert provider_state_dir.joinpath("auth.json").read_text(encoding="utf-8") == (
+        isolated_auth_path.read_text(encoding="utf-8")
+    )
+    assert outcome.output == "hello from codex"
+    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
+    assert outcome.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
+        service_name="codex",
+        provider_session_id="thread-123",
+        run_kind=RunKind.FRESH,
+        session_namespace="main",
+        exact_transcript_match=False,
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_policy=runtime.ToolPolicy.UNRESTRICTED,
+    )
+    assert outcome.result.continuation == prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(worktree),
+        provider_resume_state={
+            "provider_session_id": "thread-123",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+            "run_kind": "resume",
+            "exact_transcript_match": False,
+        },
     )
 
 
