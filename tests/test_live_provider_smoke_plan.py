@@ -152,6 +152,54 @@ def test_live_smoke_credentialed_provider_without_overrides_resolves_defaults(
     assert planned[0].effort == expected_effort
 
 
+def test_live_smoke_explicit_provider_missing_opencode_credentials_is_not_runnable(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection("opencode")
+    planned = module.plan_selected_providers(
+        parsed,
+        env={"OPENCODE_GO_API_KEY": "   "},
+    )
+
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+    assert planned[0].reason == "provider not configured"
+
+
+def test_live_smoke_explicit_provider_missing_claude_credentials_is_not_runnable(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection("claude")
+    planned = module.plan_selected_providers(
+        parsed,
+        env={"CLAUDE_CODE_OAUTH_TOKEN": "   "},
+    )
+
+    assert planned[0].status is module.LiveSmokeProviderSelectionStatus.CONFIG_ERROR
+    assert planned[0].reason == "provider not configured"
+
+
+def test_live_smoke_all_selection_skips_whitespace_only_claude_credentials(
+    planning_module: Any,
+) -> None:
+    module = planning_module
+
+    parsed = module.parse_provider_selection("all")
+    planned = module.plan_selected_providers(
+        parsed,
+        env={"CLAUDE_CODE_OAUTH_TOKEN": "   "},
+    )
+
+    assert all(
+        provider.status is module.LiveSmokeProviderSelectionStatus.SKIPPED
+        for provider in planned
+    )
+    assert module.all_selected_provider_statuses_have_error(planned)
+
+
 def test_live_smoke_model_and_effort_fill_missing_field_from_live_smoke_defaults(
     planning_module: Any,
 ) -> None:
