@@ -453,6 +453,54 @@ def test_live_smoke_real_run_preserves_resolved_defaults_in_diagnostics_and_reru
     ]
 
 
+def test_build_case_rerun_command_uses_windows_command_format(
+    smoke_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+    windows_script_path = (
+        r"D:\Bootcamp\Projects\agent_runtime\pycastle\.worktrees\host-check-e92b06a"
+        r"\scripts\live_provider_smoke.py"
+    )
+    case = module.LiveSmokeRunCaseResult(
+        service="codex",
+        mode="ephemeral",
+        policy=None,
+        model="gpt-5.4-mini",
+        effort="low",
+        artifact_path="unused",
+        status="failed",
+        required=True,
+        provider_output="",
+        diagnostic="failed",
+        traceback=None,
+        duration_seconds=0.1,
+    )
+
+    monkeypatch.setattr(module, "__file__", windows_script_path)
+    monkeypatch.setattr(module, "os", SimpleNamespace(name="nt"))
+    expected_command = subprocess.list2cmdline(
+        [
+            "python",
+            windows_script_path,
+            "--provider",
+            "codex",
+            "--mode",
+            "ephemeral",
+            "--model",
+            "codex=gpt-5.4-mini",
+            "--effort",
+            "codex=low",
+            "--run-id",
+            "windows-rerun-run",
+        ]
+    )
+    command = module._build_case_rerun_command(case, run_id="windows-rerun-run")
+
+    assert command == expected_command
+    assert "'" not in expected_command
+
+
 def test_live_smoke_artifacts_do_not_capture_credentials_or_raw_env(
     smoke_module: object, tmp_path: Path
 ) -> None:
