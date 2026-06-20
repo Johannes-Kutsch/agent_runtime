@@ -1965,6 +1965,7 @@ def _invoke_provider(
     provider_invocation_adapter: ProviderInvocationAdapter,
     command: str,
     command_argv: tuple[str, ...],
+    prefer_argv: bool,
     worktree: Path,
     environment: dict[str, str],
     prompt_content: str,
@@ -1981,6 +1982,7 @@ def _invoke_provider(
         ProviderInvocationRequest(
             command=command,
             argv=command_argv,
+            prefer_argv=prefer_argv,
             worktree=worktree,
             environment=environment,
             prompt=ProviderInvocationPrompt(
@@ -2028,6 +2030,7 @@ def _invoke_claude_new_session_provider(
             run_kind=run_kind,
             session_uuid=provider_session_id,
         ),
+        prefer_argv=True,
         worktree=request.invocation_dir,
         environment=_claude_env(
             auth=request.provider_auth,
@@ -2071,6 +2074,7 @@ def _invoke_codex_new_session_provider(
             Path("/tmp/.pycastle_prompt"),
         ),
         command_argv=command_argv,
+        prefer_argv=False,
         worktree=request.invocation_dir,
         environment=_codex_env(
             state_dir_container_path=str(provider_state_dir),
@@ -2110,6 +2114,7 @@ def _invoke_codex_resumed_session_provider(
         provider_invocation_adapter=provider_invocation_adapter,
         command=_legacy_command_text(command_argv, Path("/tmp/.pycastle_prompt")),
         command_argv=command_argv,
+        prefer_argv=False,
         worktree=request.invocation_dir.host_path,
         environment=_codex_env(
             state_dir_container_path=(
@@ -2207,6 +2212,7 @@ def _invoke_opencode_new_session_provider(
             opencode_prompt_substitution=True,
         ),
         command_argv=command_argv,
+        prefer_argv=False,
         worktree=request.invocation_dir,
         environment=_opencode_env(
             auth=request.provider_auth,
@@ -2317,6 +2323,7 @@ def _run_builtin_ephemeral(
                 prompt_path,
             ),
             command_argv=command_argv,
+            prefer_argv=False,
             worktree=request.invocation_dir,
             environment=codex_env(),
             prompt_content=request.prompt,
@@ -2348,6 +2355,7 @@ def _run_builtin_ephemeral(
                 opencode_prompt_substitution=True,
             ),
             command_argv=command_argv,
+            prefer_argv=False,
             worktree=request.invocation_dir,
             environment=opencode_env(
                 auth=request.auth,
@@ -2383,6 +2391,7 @@ def _run_builtin_ephemeral(
                 run_kind=RunKind.FRESH,
             ),
             command_argv=command_argv,
+            prefer_argv=True,
             worktree=request.invocation_dir,
             environment=claude_env(auth=request.auth),
             prompt_content=request.prompt,
@@ -3071,6 +3080,7 @@ def _run_builtin_resumed_session(
             provider_invocation_adapter=invocation_adapter,
             command=command,
             command_argv=command_argv,
+            prefer_argv=(continuation_service == "claude"),
             worktree=request.invocation_dir.host_path,
             environment=environment,
             prompt_content=request.prompt,

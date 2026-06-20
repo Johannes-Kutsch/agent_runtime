@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._provider_invocation as provider_invocation
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime.runtime as prompt_runtime
@@ -78,6 +79,10 @@ class _PreparedRunSession:
 class _Session:
     def __init__(self, provider_state_dir: str | None = None) -> None:
         self.provider_state_dir = provider_state_dir
+
+
+def _observed_command_text(command: str | tuple[str, ...]) -> str:
+    return command if isinstance(command, str) else " ".join(command)
 
 
 class _RoleAwareEphemeralCompatWorkRunner:
@@ -1651,8 +1656,9 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
         text: bool,
     ) -> _FakeProcess:
         del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
-        if command.startswith("codex exec"):
+        command_text = _observed_command_text(command)
+        observed_commands.append(command_text)
+        if command_text.startswith("codex exec"):
             return _FakeProcess(
                 iter(
                     [
@@ -1743,8 +1749,7 @@ def test_runtime_client_skips_same_client_usage_limited_builtin_until_wake_time(
             "claude --verbose --dangerously-skip-permissions --output-format "
             "stream-json -p - --disable-slash-commands "
             "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
-            f"{tmp_path / '.pycastle_prompt'}"
+            '--mcp-config {"mcpServers":{}} --model sonnet --effort medium'
         ),
     ]
 
@@ -1783,8 +1788,9 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
         text: bool,
     ) -> _FakeProcess:
         del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
-        if command.startswith("codex exec"):
+        command_text = _observed_command_text(command)
+        observed_commands.append(command_text)
+        if command_text.startswith("codex exec"):
             return _FakeProcess(
                 iter(
                     [
@@ -1878,8 +1884,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
             "claude --verbose --dangerously-skip-permissions --output-format "
             "stream-json -p - --disable-slash-commands "
             "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
-            f"{tmp_path / '.pycastle_prompt'}"
+            '--mcp-config {"mcpServers":{}} --model sonnet --effort medium'
         ),
     ]
 
@@ -1887,11 +1892,11 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
 @pytest.mark.parametrize(
     ("tool_policy", "expected_flags"),
     [
-        (runtime.ToolPolicy.NONE, ('--disallowedTools "all"',)),
-        (runtime.ToolPolicy.INSPECT_ONLY, ("--tools 'Read Glob'",)),
+        (runtime.ToolPolicy.NONE, ("--disallowedTools all",)),
+        (runtime.ToolPolicy.INSPECT_ONLY, ("--tools Read Glob",)),
         (
             runtime.ToolPolicy.NO_FILE_MUTATION,
-            ('--disallowedTools "Edit Write NotebookEdit"',),
+            ("--disallowedTools Edit Write NotebookEdit",),
         ),
         (runtime.ToolPolicy.UNRESTRICTED, tuple()),
     ],
@@ -1925,7 +1930,7 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
         text: bool,
     ) -> _FakeProcess:
         del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
+        observed_commands.append(_observed_command_text(command))
         return _FakeProcess(
             iter(
                 [
@@ -2000,6 +2005,81 @@ def test_runtime_client_runs_claude_ephemeral_with_tool_policy_commands(
         assert flag in command
 
 
+def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt_path(
+    stage_selection_factory: Callable[..., runtime.StageSelection],
+) -> None:
+    invocation_dir = Path(r"C:\Users\Test User\Prompt Dir")
+    adapter = provider_invocation.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation.ProviderInvocationPreparedStream(
+                stdout_lines=(
+                    '{"type":"assistant","message":{"content":[{"type":"text","text":"hello from claude"}]}}\n',
+                    '{"type":"result","result":"hello from claude"}\n',
+                )
+            )
+        ]
+    )
+
+    result = prompt_runtime._run_builtin_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=invocation_dir,
+            stage=stage_selection_factory(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(invocation_dir),
+            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
+        ),
+        provider_invocation_adapter=adapter,
+    )
+
+    assert result == prompt_runtime.EphemeralRunResult(
+        output="hello from claude",
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(invocation_dir),
+        used_fallback=False,
+        metadata=prompt_runtime.EphemeralResultMetadata(
+            selected_service_path=("claude",),
+            runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                run_kind=RunKind.FRESH,
+            ),
+        ),
+        usage=None,
+    )
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.argv == (
+        "claude",
+        "--verbose",
+        "--dangerously-skip-permissions",
+        "--output-format",
+        "stream-json",
+        "-p",
+        "-",
+        "--disable-slash-commands",
+        "--exclude-dynamic-system-prompt-sections",
+        "--strict-mcp-config",
+        "--mcp-config",
+        '{"mcpServers":{}}',
+        "--model",
+        "sonnet",
+        "--effort",
+        "medium",
+    )
+    assert recorded_request.prefer_argv is True
+    assert recorded_request.command == (
+        "claude --verbose --dangerously-skip-permissions --output-format "
+        "stream-json -p - --disable-slash-commands "
+        "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+        "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
+        f"'{recorded_request.prompt.path}'"
+    )
+    assert recorded_request.prompt.path == invocation_dir / ".pycastle_prompt"
+
+
 @pytest.mark.parametrize(
     ("tool_access", "expected_flag"),
     [
@@ -2063,8 +2143,9 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
         text: bool,
     ) -> _FakeProcess:
         del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
-        if command.startswith("codex exec"):
+        command_text = _observed_command_text(command)
+        observed_commands.append(command_text)
+        if command_text.startswith("codex exec"):
             return _FakeProcess(
                 iter(
                     [
@@ -2145,10 +2226,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
         "stream-json -p - --disable-slash-commands "
         "--exclude-dynamic-system-prompt-sections "
     )
-    assert (
-        f"--model sonnet --effort medium < {tmp_path / '.pycastle_prompt'}"
-        in observed_commands[1]
-    )
+    assert "--model sonnet --effort medium" in observed_commands[1]
 
 
 def test_runtime_client_reports_no_service_available_when_every_reachable_builtin_is_exhausted(
@@ -2185,8 +2263,9 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
         text: bool,
     ) -> _FakeProcess:
         del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
-        if command.startswith("codex exec"):
+        command_text = _observed_command_text(command)
+        observed_commands.append(command_text)
+        if command_text.startswith("codex exec"):
             return _FakeProcess(
                 iter(
                     [
@@ -2245,8 +2324,7 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
             "claude --verbose --dangerously-skip-permissions --output-format "
             "stream-json -p - --disable-slash-commands "
             "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
-            f"{tmp_path / '.pycastle_prompt'}"
+            '--mcp-config {"mcpServers":{}} --model sonnet --effort medium'
         ),
     ]
 
@@ -2518,8 +2596,9 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
     ) -> _FakeProcess:
         nonlocal codex_calls
         del shell, cwd, env, stdout, stderr, text
-        observed_commands.append(command)
-        if command.startswith("codex exec"):
+        command_text = _observed_command_text(command)
+        observed_commands.append(command_text)
+        if command_text.startswith("codex exec"):
             codex_calls += 1
             codex_started.set()
             release_codex.wait(timeout=2)
@@ -2625,8 +2704,7 @@ def test_runtime_client_skips_exhausted_builtin_after_concurrent_exhaustion_upda
             "claude --verbose --dangerously-skip-permissions --output-format "
             "stream-json -p - --disable-slash-commands "
             "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
-            "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium < "
-            f"{tmp_path / '.pycastle_prompt'}"
+            '--mcp-config {"mcpServers":{}} --model sonnet --effort medium'
         ),
     ]
 
