@@ -124,6 +124,11 @@ def _build_case_rerun_command(
     *,
     run_id: str | None = None,
 ) -> str:
+    def _stringify_command(parts: list[str]) -> str:
+        if os.name == "nt":
+            return subprocess.list2cmdline(parts)
+        return " ".join(shlex.quote(part) for part in parts)
+
     command_parts = [
         "python",
         __file__,
@@ -138,11 +143,28 @@ def _build_case_rerun_command(
         command_parts.extend(["--model", f"{case.service}={case.model}"])
     if case.effort:
         command_parts.extend(["--effort", f"{case.service}={case.effort}"])
-    if run_id:
-        command_parts.extend(["--run-id", run_id])
-    if os.name == "nt":
-        return subprocess.list2cmdline(command_parts)
-    return " ".join(shlex.quote(part) for part in command_parts)
+    if case.mode == "resumed_session":
+        prerequisite_parts = [
+            "python",
+            __file__,
+            "--provider",
+            case.service,
+            "--mode",
+            "new_session",
+            "--model",
+            f"{case.service}={case.model}",
+            "--effort",
+            f"{case.service}={case.effort}",
+        ]
+        return "\n".join(
+            (
+                "Start Session Run prerequisite:",
+                _stringify_command(prerequisite_parts),
+                "Resume Session Run:",
+                _stringify_command(command_parts),
+            )
+        )
+    return _stringify_command(command_parts)
 
 
 def _build_summary_payload_with_reruns(
@@ -194,8 +216,17 @@ def _format_rerun_block(
         return ""
     lines = ["To rerun failed cases:"]
     for entry in failed_case_runs:
-        if entry.get("command"):
-            lines.append(f"  - {entry['command']}")
+        command = entry.get("command")
+        if command:
+            provider = str(entry.get("provider", "provider"))
+            mode = str(entry.get("mode", "mode"))
+            policy = entry.get("policy")
+            label = f"{provider}/{mode}"
+            if policy is not None:
+                label = f"{label}/{policy}"
+            command_lines = str(command).splitlines()
+            lines.append(f"  - {label}: {command_lines[0]}")
+            lines.extend(f"    {line}" for line in command_lines[1:])
     return "\n".join(lines)
 
 
@@ -402,10 +433,11 @@ def _coerce_list_provider_selection(parsed: argparse.Namespace) -> tuple[str, ..
 
 
 def _coerce_lifecycle_modes(parsed: argparse.Namespace) -> tuple[str, ...]:
-    if parsed.lifecycle_modes:
-        selected = tuple(parsed.lifecycle_modes)
-    elif parsed.tool_policies:
+    selected: tuple[str, ...]
+    if parsed.tool_policies:
         selected = ("ephemeral",)
+    elif parsed.lifecycle_modes:
+        selected = tuple(parsed.lifecycle_modes)
     else:
         selected = ("ephemeral", "new_session", "resumed_session")
     return tuple(dict.fromkeys(selected))

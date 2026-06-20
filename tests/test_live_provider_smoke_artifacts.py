@@ -447,7 +447,6 @@ def test_live_smoke_real_run_preserves_resolved_defaults_in_diagnostics_and_reru
             "status": "failed",
             "command": module._build_case_rerun_command(
                 run_result.cases[0],
-                run_id="defaults-preserved-run",
             ),
         }
     ]
@@ -491,14 +490,123 @@ def test_build_case_rerun_command_uses_windows_command_format(
             "codex=gpt-5.4-mini",
             "--effort",
             "codex=low",
-            "--run-id",
-            "windows-rerun-run",
         ]
     )
     command = module._build_case_rerun_command(case, run_id="windows-rerun-run")
 
     assert command == expected_command
     assert "'" not in expected_command
+
+
+def test_build_case_rerun_command_includes_new_session_prerequisite_for_resumed_session_case(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    case = module.LiveSmokeRunCaseResult(
+        service="codex",
+        mode="resumed_session",
+        policy=None,
+        model="gpt-5.4-mini",
+        effort="low",
+        artifact_path="unused",
+        status="failed",
+        required=True,
+        provider_output="",
+        diagnostic="failed",
+        traceback=None,
+        duration_seconds=0.1,
+    )
+    command = module._build_case_rerun_command(case)
+
+    assert "Start Session Run prerequisite" in command
+    assert "Resume Session Run" in command
+    assert "--mode new_session" in command
+    assert "--mode resumed_session" in command
+
+
+def test_build_case_rerun_command_does_not_include_run_id_or_credentials(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    case = module.LiveSmokeRunCaseResult(
+        service="claude",
+        mode="ephemeral",
+        policy="NONE",
+        model="sonnet",
+        effort="medium",
+        artifact_path="unused",
+        status="failed",
+        required=True,
+        provider_output="",
+        diagnostic="failed",
+        traceback=None,
+        duration_seconds=0.1,
+    )
+    command = module._build_case_rerun_command(case, run_id="random-run-id-123")
+
+    assert "random-run-id-123" not in command
+    assert "super-secret-claude-token" not in command
+
+
+def test_lifecycle_rerun_guidance_includes_provider_and_mode_label(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    failed_cases = module._build_failed_case_runs(
+        (
+            module.LiveSmokeRunCaseResult(
+                service="claude",
+                mode="new_session",
+                policy=None,
+                model="sonnet",
+                effort="medium",
+                artifact_path="unused",
+                status="failed",
+                required=True,
+                provider_output="",
+                diagnostic="failed",
+                traceback=None,
+                duration_seconds=0.1,
+            ),
+        )
+    )
+    guidance = module._format_rerun_block(failed_cases)
+
+    assert "claude/new_session" in guidance
+    assert "--provider claude" in guidance
+    assert "--mode new_session" in guidance
+
+
+def test_tool_policy_rerun_guidance_includes_provider_mode_and_policy_label(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    failed_cases = module._build_failed_case_runs(
+        (
+            module.LiveSmokeRunCaseResult(
+                service="claude",
+                mode="ephemeral",
+                policy="NO_FILE_MUTATION",
+                model="sonnet",
+                effort="medium",
+                artifact_path="unused",
+                status="failed",
+                required=True,
+                provider_output="",
+                diagnostic="failed",
+                traceback=None,
+                duration_seconds=0.1,
+            ),
+        )
+    )
+    guidance = module._format_rerun_block(failed_cases)
+
+    assert "claude/ephemeral/NO_FILE_MUTATION" in guidance
+    assert "--policy NO_FILE_MUTATION" in guidance
 
 
 def test_live_smoke_artifacts_do_not_capture_credentials_or_raw_env(
@@ -2352,3 +2460,14 @@ def test_live_smoke_default_case_timeout_is_full_matrix_friendly(
     module = smoke_module
 
     assert module._DEFAULT_CASE_TIMEOUT_SECONDS >= 180
+
+
+def test_cli_policy_targeting_uses_ephemeral_mode_even_when_lifecycle_flags_are_present(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    parsed = module._parse_cli_args(
+        ["--provider", "codex", "--mode", "new_session", "--policy", "NONE"]
+    )
+    assert module._coerce_lifecycle_modes(parsed) == ("ephemeral",)
