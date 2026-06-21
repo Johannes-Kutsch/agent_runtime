@@ -2539,9 +2539,86 @@ def test_live_smoke_run_command_targets_all_configured_providers_for_full_matrix
         "new_session",
         "resumed_session",
     )
-    assert captured["tool_policies"] == ()
+    assert captured["tool_policies"] == (
+        "NONE",
+        "INSPECT_ONLY",
+        "NO_FILE_MUTATION",
+        "UNRESTRICTED",
+    )
     assert captured["run_id"] == "full-matrix-run"
     assert captured["artifact_root"] == tmp_path / "artifacts"
+
+
+def test_live_smoke_run_provider_command_defaults_to_full_matrix_with_verbose_output(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    monkeypatch.setattr(module, "_resolve_live_smoke_env", lambda _: {"OPENCODE_GO_API_KEY": "api-key"})
+
+    observed: list[tuple[str, str | None]] = []
+
+    def _fake_case_runner(*, case: Any, **_: object) -> SimpleNamespace:
+        observed.append((case.mode, case.policy))
+        if case.mode == "ephemeral":
+            return SimpleNamespace(
+                kind="completed",
+                output="provider output",
+                result=SimpleNamespace(
+                    selected_service=case.service,
+                    selected_model=case.model,
+                    selected_effort=case.effort,
+                    tool_access=SimpleNamespace(tool_policy=case.policy),
+                ),
+            )
+        continuation = SimpleNamespace(serialized="continued")
+        return SimpleNamespace(
+            kind="completed",
+            output="provider output",
+            continuation=continuation,
+            result=SimpleNamespace(
+                runtime_metadata=SimpleNamespace(
+                    service_name=case.service,
+                    selected_model=case.model,
+                    selected_effort=case.effort,
+                )
+            ),
+        )
+
+    monkeypatch.setattr(module, "_run_public_smoke_case", _fake_case_runner)
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = module.main(
+            [
+                "run",
+                "opencode",
+                "--verbose",
+                "--run-id",
+                "full-matrix-output-run",
+                "--artifact-root",
+                str(tmp_path / "full-matrix-artifacts"),
+            ]
+        )
+
+    expected_modes = ("ephemeral", "new_session", "resumed_session")
+    expected_policies = ("NONE", "INSPECT_ONLY", "NO_FILE_MUTATION", "UNRESTRICTED")
+    expected_plan = tuple((mode, None) for mode in expected_modes) + tuple(
+        ("ephemeral", policy) for policy in expected_policies
+    )
+
+    assert exit_code == 0
+    assert observed == expected_plan
+    stdout = output.getvalue()
+    assert "opencode/ephemeral" in stdout
+    assert "opencode/new_session" in stdout
+    assert "opencode/resumed_session" in stdout
+    assert "opencode/ephemeral/NONE" in stdout
+    assert "opencode/ephemeral/INSPECT_ONLY" in stdout
+    assert "opencode/ephemeral/NO_FILE_MUTATION" in stdout
+    assert "opencode/ephemeral/UNRESTRICTED" in stdout
 
 
 def test_live_smoke_run_opencode_command_fails_clearly_when_unconfigured(
@@ -2808,7 +2885,7 @@ def test_live_smoke_default_case_timeout_is_full_matrix_friendly(
     assert module._DEFAULT_CASE_TIMEOUT_SECONDS >= 180
 
 
-def test_cli_policy_targeting_uses_ephemeral_mode_even_when_lifecycle_flags_are_present(
+def test_cli_policy_targeting_preserves_explicit_lifecycle_modes_when_provided(
     smoke_module: object,
 ) -> None:
     module: Any = smoke_module
@@ -2816,4 +2893,4 @@ def test_cli_policy_targeting_uses_ephemeral_mode_even_when_lifecycle_flags_are_
     parsed = module._parse_cli_args(
         ["--provider", "codex", "--mode", "new_session", "--policy", "NONE"]
     )
-    assert module._coerce_lifecycle_modes(parsed) == ("ephemeral",)
+    assert module._coerce_lifecycle_modes(parsed) == ("new_session",)
