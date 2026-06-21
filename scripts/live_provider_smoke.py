@@ -48,6 +48,7 @@ DEFAULT_LIVE_SMOKE_ARTIFACT_ROOT = "live-smoke-artifacts"
 LIVE_SMOKE_SUMMARY_FILENAME = "summary.json"
 _DEFAULT_CASE_TIMEOUT_SECONDS = 180
 _LIVE_SMOKE_ENV_PATH = Path(__file__).resolve().parent / "live-smoke" / ".env"
+_LIVE_SMOKE_ENV_PATH_ENV = "LIVE_SMOKE_ENV_PATH"
 
 
 def _parse_service_map_arg(value: str, *, flag_name: str) -> tuple[str, str]:
@@ -92,7 +93,9 @@ def _parse_live_smoke_env_lines(
 
 
 def _load_live_smoke_env(env_path: Path | None = None) -> dict[str, str]:
-    path = env_path or _LIVE_SMOKE_ENV_PATH
+    path = env_path or Path(
+        os.environ.get(_LIVE_SMOKE_ENV_PATH_ENV, str(_LIVE_SMOKE_ENV_PATH))
+    )
     if not path.exists():
         return {}
     return _parse_live_smoke_env_lines(path.read_text(encoding="utf-8"), env_path=path)

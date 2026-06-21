@@ -406,12 +406,14 @@ def _codex_command(
     tool_access: ToolAccess,
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
+    os_name: str | None = None,
 ) -> tuple[str, ...]:
     tool_policy = tool_access.tool_policy
+    executable = "codex.cmd" if (os_name or os.name) == "nt" else "codex"
     if run_kind == RunKind.RESUME and session_uuid:
-        parts = ["codex", "exec", "resume", session_uuid]
+        parts = [executable, "exec", "resume", session_uuid]
     else:
-        parts = ["codex", "exec"]
+        parts = [executable, "exec"]
     if model:
         parts.extend(["-m", model])
     if effort:

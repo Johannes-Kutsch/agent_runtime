@@ -4,6 +4,7 @@ import importlib.util
 import asyncio
 import io
 import json
+import os
 import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
@@ -1824,6 +1825,7 @@ def test_live_smoke_all_selection_with_no_configured_providers_does_not_pass_emp
         run_id="all-missing-config-run",
         artifact_root=tmp_path / "all-missing-config",
         env={},
+        codex_auth_present=False,
     )
 
     assert run_result.passed is False
@@ -2070,6 +2072,8 @@ def test_live_smoke_direct_dry_run_invocation_is_rejected(
 def test_live_smoke_explicit_provider_config_error_reports_missing_setup_on_run(
     tmp_path: Path,
 ) -> None:
+    child_env = dict(os.environ)
+    child_env["LIVE_SMOKE_ENV_PATH"] = str(tmp_path / "missing-live-smoke.env")
     proc = subprocess.run(
         [
             sys.executable,
@@ -2087,6 +2091,7 @@ def test_live_smoke_explicit_provider_config_error_reports_missing_setup_on_run(
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        env=child_env,
     )
 
     payload = json.loads(proc.stdout)

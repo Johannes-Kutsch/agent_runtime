@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import threading
 from collections.abc import Callable
@@ -83,6 +84,10 @@ class _Session:
 
 def _selection_with_auth(selection: Any, auth: Any) -> Any:
     return replace(selection, auth=auth)
+
+
+def _codex_executable() -> str:
+    return "codex.cmd" if os.name == "nt" else "codex"
 
 
 def _observed_command_text(command: str | tuple[str, ...]) -> str:
@@ -749,7 +754,7 @@ def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics
         ),
     )
     assert observed["command"] == (
-        "codex exec -m gpt-5.4 -c model_reasoning_effort=high "
+        f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=high "
         "-c approval_policy=never --sandbox danger-full-access --json"
     )
     assert observed["prompt"] == "already rendered prompt"
@@ -1677,7 +1682,7 @@ def test_runtime_client_reuses_selected_builtin_after_usage_limited_call(
         del shell, cwd, env, stdout, stderr, text
         command_text = _observed_command_text(command)
         observed_commands.append(command_text)
-        if command_text.startswith("codex exec"):
+        if command_text.startswith(f"{_codex_executable()} exec"):
             return _FakeProcess(
                 iter(
                     [
@@ -1749,11 +1754,11 @@ def test_runtime_client_reuses_selected_builtin_after_usage_limited_call(
     )
     assert observed_commands == [
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         ),
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         ),
     ]
@@ -1795,7 +1800,7 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
         del shell, cwd, env, stdout, stderr, text
         command_text = _observed_command_text(command)
         observed_commands.append(command_text)
-        if command_text.startswith("codex exec"):
+        if command_text.startswith(f"{_codex_executable()} exec"):
             return _FakeProcess(
                 iter(
                     [
@@ -1871,11 +1876,11 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
     )
     assert observed_commands == [
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         ),
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         ),
     ]
@@ -2213,7 +2218,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
         del shell, cwd, env, stdout, stderr, text
         command_text = _observed_command_text(command)
         observed_commands.append(command_text)
-        if command_text.startswith("codex exec"):
+        if command_text.startswith(f"{_codex_executable()} exec"):
             return _FakeProcess(
                 iter(
                     [
@@ -2273,7 +2278,7 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
         invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
     )
     assert observed_commands[0] == (
-        "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+        f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
         f"-c approval_policy=never {expected_flag} --json"
     )
     assert len(observed_commands) == 1
@@ -2315,7 +2320,7 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
         del shell, cwd, env, stdout, stderr, text
         command_text = _observed_command_text(command)
         observed_commands.append(command_text)
-        if command_text.startswith("codex exec"):
+        if command_text.startswith(f"{_codex_executable()} exec"):
             return _FakeProcess(
                 iter(
                     [
@@ -2372,7 +2377,7 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
     )
     assert observed_commands == [
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         ),
     ]
@@ -2472,7 +2477,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
     )
     assert observed_commands == [
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         )
     ]
@@ -2594,7 +2599,7 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
     )
     assert observed_commands == [
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         )
     ]
@@ -2640,7 +2645,7 @@ def test_runtime_client_reuses_selected_builtin_after_concurrent_usage_limit_upd
         del shell, cwd, env, stdout, stderr, text
         command_text = _observed_command_text(command)
         observed_commands.append(command_text)
-        if command_text.startswith("codex exec"):
+        if command_text.startswith(f"{_codex_executable()} exec"):
             codex_calls += 1
             codex_started.set()
             release_codex.wait(timeout=2)
@@ -2733,11 +2738,11 @@ def test_runtime_client_reuses_selected_builtin_after_concurrent_usage_limit_upd
     assert codex_calls == 2
     assert observed_commands == [
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         ),
         (
-            "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+            f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
             "-c approval_policy=never --sandbox danger-full-access --json"
         ),
     ]

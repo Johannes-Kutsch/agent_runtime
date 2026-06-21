@@ -2287,7 +2287,10 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
         )
     )
 
-    assert observed["command"].startswith("opencode run --format json")
+    opencode_executable = prompt_runtime._opencode_command(
+        model="glm-5", effort="medium"
+    )[0]
+    assert observed["command"].startswith(f"{opencode_executable} run --format json")
     assert "--model opencode-go/glm-5" in observed["command"]
     assert observed["shell"] is False
     assert observed["prompt"] == "already rendered prompt"

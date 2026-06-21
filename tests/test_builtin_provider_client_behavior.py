@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import dataclasses
 from datetime import datetime, timezone
@@ -26,6 +27,10 @@ from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
 from agent_runtime.types import StageSelection as InternalStageSelection
+
+
+def _codex_executable() -> str:
+    return "codex.cmd" if os.name == "nt" else "codex"
 
 
 def _selection_with_auth(selection: Any, auth: Any) -> Any:
@@ -2685,7 +2690,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
         "CODEX_HOME": str(provider_state_dir),
     }
     assert recorded_request.command == (
-        "codex exec resume selected-thread -m gpt-5.4 "
+        f"{_codex_executable()} exec resume selected-thread -m gpt-5.4 "
         f"-c model_reasoning_effort=medium -c approval_policy=never {expected_flag} "
         "--json"
     )
@@ -2845,9 +2850,11 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         ),
     )
 
-    assert adapter.recorded_requests[0].command.startswith("codex exec -m gpt-5.4")
+    assert adapter.recorded_requests[0].command.startswith(
+        f"{_codex_executable()} exec -m gpt-5.4"
+    )
     assert adapter.recorded_requests[1].command == (
-        "codex exec resume thread-123 -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
+        f"{_codex_executable()} exec resume thread-123 -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
         "--sandbox read-only --json"
     )
 
@@ -2940,7 +2947,7 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
     )
     assert adapter.recorded_requests[0].environment == {"TZ": "UTC"}
     assert adapter.recorded_requests[0].command == (
-        "codex exec resume selected-thread -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
+        f"{_codex_executable()} exec resume selected-thread -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
         "--sandbox read-only --json"
     )
 
@@ -3776,12 +3783,12 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
         "CODEX_HOME": str(provider_state_dir),
     }
     assert recorded_request.command == (
-        "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+        f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
         "-c approval_policy=never --sandbox read-only --json"
     )
     assert recorded_request.prefer_argv is True
     assert recorded_request.argv == (
-        "codex",
+        _codex_executable(),
         "exec",
         "-m",
         "gpt-5.4",
@@ -3884,7 +3891,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
         "CODEX_HOME": str(provider_state_dir),
     }
     assert recorded_request.command == (
-        "codex exec resume thread-123 -m gpt-5.4 "
+        f"{_codex_executable()} exec resume thread-123 -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never --sandbox read-only --json"
     )
 
@@ -3993,7 +4000,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
         "CODEX_HOME": str(provider_state_dir),
     }
     assert recorded_request.command == (
-        "codex exec resume selected-thread -m gpt-5.4 "
+        f"{_codex_executable()} exec resume selected-thread -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never --sandbox read-only --json"
     )
 
@@ -4744,7 +4751,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
             lambda _worktree: Path("/tmp/.provider_prompt"),
             {"TZ": "UTC"},
             (
-                "codex exec",
+                f"{_codex_executable()} exec",
                 "-m gpt-5.4",
                 "-c model_reasoning_effort=medium",
             ),
@@ -4811,7 +4818,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 "OPENCODE_GO_API_KEY": "go-key",
             },
             (
-                "opencode run",
+                f"{prompt_runtime._opencode_command(model='kimi-k2.6', effort='medium')[0]} run",
                 "--format json",
                 "--model opencode-go/kimi-k2.6",
             ),
@@ -4925,6 +4932,15 @@ def test_opencode_command_uses_cmd_shim_on_windows() -> None:
     )
 
 
+def test_codex_command_uses_cmd_shim_on_windows() -> None:
+    assert prompt_runtime._builtin_runtime_client_module._codex_command(
+        model="gpt-5.4-mini",
+        effort="low",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        os_name="nt",
+    )[:2] == ("codex.cmd", "exec")
+
+
 def test_opencode_env_includes_only_windows_process_launch_allowlist() -> None:
     env = prompt_runtime._opencode_env(
         auth=runtime.ProviderAuth(opencode_api_key="go-key"),
@@ -4965,7 +4981,7 @@ def test_opencode_env_includes_only_windows_process_launch_allowlist() -> None:
             ),
             None,
             (
-                "codex",
+                _codex_executable(),
                 "exec",
                 "-m",
                 "gpt-5.4",
@@ -5999,7 +6015,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
     assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.environment["TZ"] == "UTC"
-    assert "codex exec" in recorded_request.command
+    assert f"{_codex_executable()} exec" in recorded_request.command
     assert list((tmp_path / "logs").glob("*.log")) == []
 
 
