@@ -274,6 +274,13 @@ class _ObservedRuntimeOutcome:
     usage: Any | None = None
 
 
+def _runtime_outcome_continuation(runtime_outcome: Any) -> Any | None:
+    continuation = getattr(runtime_outcome, "continuation", None)
+    if continuation is not None:
+        return continuation
+    return getattr(getattr(runtime_outcome, "result", None), "continuation", None)
+
+
 def _as_observed_runtime_outcome(
     runtime_outcome: Any,
     *,
@@ -289,7 +296,7 @@ def _as_observed_runtime_outcome(
         account_label=getattr(runtime_outcome, "account_label", None),
         reset_time=getattr(runtime_outcome, "reset_time", None),
         invocation_progress=getattr(runtime_outcome, "invocation_progress", None),
-        continuation=getattr(runtime_outcome, "continuation", None),
+        continuation=_runtime_outcome_continuation(runtime_outcome),
         usage=getattr(runtime_outcome, "usage", None),
     )
 
@@ -725,6 +732,20 @@ def _write_required_summary(
 
 def _build_case_prompt(run_id: str, planned_case: Any) -> str:
     policy = planned_case.policy or "default"
+    session_sentinel = (
+        f"{run_id}:{planned_case.service}:session-continuity:{policy}"
+    )
+    if planned_case.mode == "new_session":
+        return (
+            "Live smoke start-session check. Remember this exact sentinel for "
+            f"the next turn: {session_sentinel}\n"
+            f"Reply with exactly: {session_sentinel}"
+        )
+    if planned_case.mode == "resumed_session":
+        return (
+            "Live smoke resume-session check. Reply with exactly the sentinel "
+            f"from the previous turn: {session_sentinel}"
+        )
     return f"{run_id}:{planned_case.service}:{planned_case.mode}:{policy}"
 
 
@@ -1247,7 +1268,7 @@ def run_live_smoke(
                 and case_classification.status
                 is live_provider_smoke_plan.LiveSmokeCaseStatus.PASSED
             ):
-                continuation_value = getattr(case_outcome, "continuation", None)
+                continuation_value = _runtime_outcome_continuation(case_outcome)
                 if continuation_value is not None:
                     session_continuations[case_state_key] = continuation_value
                     session_turns[case_state_key] = (

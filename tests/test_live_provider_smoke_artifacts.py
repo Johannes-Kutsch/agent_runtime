@@ -1136,7 +1136,6 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
             return SimpleNamespace(
                 kind="completed",
                 output="start response with sentinel: session-token-2026.06.19",
-                continuation=continuation,
                 result=prompt_runtime.SessionRunResult(
                     output="start response with sentinel: session-token-2026.06.19",
                     runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
@@ -1149,6 +1148,7 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
                         selected_effort="medium",
                         tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
                     ),
+                    continuation=continuation,
                 ),
                 invocation_records=(
                     prompt_runtime.InvocationRecord(
@@ -1170,7 +1170,6 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
             return SimpleNamespace(
                 kind="completed",
                 output="provider output: provider-session-receives session-token-2026.06.19 here",
-                continuation=continuation,
                 result=prompt_runtime.SessionRunResult(
                     output="provider output: provider-session-receives session-token-2026.06.19 here",
                     runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
@@ -1190,6 +1189,7 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
                             ),
                         ),
                     ),
+                    continuation=continuation,
                 ),
                 invocation_records=(
                     prompt_runtime.InvocationRecord(
@@ -1228,6 +1228,11 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
         claude_code_oauth_token="token"
     )
     resumed_request = captured_requests[1][1]
+    expected_sentinel = "session-lifecycle-run:claude:session-continuity:default"
+    assert expected_sentinel in new_session_request.prompt
+    assert "remember" in new_session_request.prompt.lower()
+    assert expected_sentinel in resumed_request.prompt
+    assert "reply" in resumed_request.prompt.lower()
     assert resumed_request.continuation == new_session_continuation[0]
     assert resumed_request.provider_auth == prompt_runtime.ProviderAuth(
         claude_code_oauth_token="token"

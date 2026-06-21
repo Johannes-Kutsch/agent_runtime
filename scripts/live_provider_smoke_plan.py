@@ -43,6 +43,13 @@ class LiveSmokeCaseResult:
     required: bool = True
 
 
+def _runtime_outcome_continuation(runtime_outcome: Any) -> Any | None:
+    continuation = getattr(runtime_outcome, "continuation", None)
+    if continuation is not None:
+        return continuation
+    return getattr(getattr(runtime_outcome, "result", None), "continuation", None)
+
+
 SUPPORTED_PROVIDERS: tuple[str, ...] = ("claude", "codex", "opencode")
 LIVE_SMOKE_CLAUDE_MODEL_ENV = "LIVE_SMOKE_CLAUDE_MODEL"
 LIVE_SMOKE_CLAUDE_EFFORT_ENV = "LIVE_SMOKE_CLAUDE_EFFORT"
@@ -189,7 +196,7 @@ def classify_live_smoke_case_result(
             )
         if (
             required_continuation
-            and getattr(runtime_outcome, "continuation", None) is None
+            and _runtime_outcome_continuation(runtime_outcome) is None
         ):
             return LiveSmokeCaseResult(
                 service=case.service,
@@ -200,7 +207,7 @@ def classify_live_smoke_case_result(
                 required=required,
             )
         if required_continuation_text is not None:
-            continuation = getattr(runtime_outcome, "continuation", None)
+            continuation = _runtime_outcome_continuation(runtime_outcome)
             continuation_text = (
                 continuation.serialized if continuation is not None else None
             )
