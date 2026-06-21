@@ -1,3 +1,5 @@
+live-smoke-artifacts/*
+
 .idea/
 .claude/
 *.pyc
