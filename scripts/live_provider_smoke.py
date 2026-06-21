@@ -316,14 +316,14 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         choices=("run",),
-        help="Friendly run command for full-matrix execution.",
+        help="Friendly run command for Full Live Smoke Matrix execution.",
     )
     parser.add_argument(
         "run_provider",
         nargs="?",
         default=None,
         choices=tuple(live_provider_smoke_plan.SUPPORTED_PROVIDERS),
-        help="Optional explicit provider for run command.",
+        help="Optional explicit provider for friendly Full Live Smoke Matrix runs.",
     )
 
     parser.add_argument(
@@ -360,7 +360,9 @@ def _build_live_smoke_parser() -> argparse.ArgumentParser:
             "Tool-policy mode. "
             "Supported values: "
             f"{_safe_list(supported_policies)}. "
-            "If set, policy cases run with ephemeral mode."
+            "If set without --mode, only targeted ephemeral policy cases run. "
+            "If combined with --mode, lifecycle cases keep the requested modes "
+            "and targeted policy cases run afterward."
         ),
     )
     parser.add_argument(
@@ -463,13 +465,21 @@ def _coerce_run_provider_selection(parsed: argparse.Namespace) -> tuple[str, ...
 
 def _coerce_lifecycle_modes(parsed: argparse.Namespace) -> tuple[str, ...]:
     selected: tuple[str, ...]
-    if parsed.tool_policies:
-        selected = ("ephemeral",)
-    elif parsed.lifecycle_modes:
+    if parsed.lifecycle_modes:
         selected = tuple(parsed.lifecycle_modes)
+    elif parsed.tool_policies:
+        selected = ("ephemeral",)
     else:
         selected = ("ephemeral", "new_session", "resumed_session")
     return tuple(dict.fromkeys(selected))
+
+
+def _coerce_tool_policies(parsed: argparse.Namespace) -> tuple[str, ...]:
+    if parsed.tool_policies:
+        return tuple(dict.fromkeys(parsed.tool_policies))
+    if parsed.command == "run" and not parsed.lifecycle_modes:
+        return tuple(policy.name for policy in ToolPolicy)
+    return ()
 
 
 def _build_smoke_plan(
@@ -610,7 +620,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else _coerce_list_provider_selection(args)
     )
     lifecycle_modes = _coerce_lifecycle_modes(args)
-    tool_policies = tuple(args.tool_policies)
+    tool_policies = _coerce_tool_policies(args)
     live_smoke_env = _resolve_live_smoke_env(None)
 
     run_result = run_live_smoke(
@@ -732,9 +742,7 @@ def _write_required_summary(
 
 def _build_case_prompt(run_id: str, planned_case: Any) -> str:
     policy = planned_case.policy or "default"
-    session_sentinel = (
-        f"{run_id}:{planned_case.service}:session-continuity:{policy}"
-    )
+    session_sentinel = f"{run_id}:{planned_case.service}:session-continuity:{policy}"
     if planned_case.mode == "new_session":
         return (
             "Live smoke start-session check. Remember this exact sentinel for "

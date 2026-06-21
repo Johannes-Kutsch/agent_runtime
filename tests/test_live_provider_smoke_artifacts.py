@@ -2556,7 +2556,11 @@ def test_live_smoke_run_provider_command_defaults_to_full_matrix_with_verbose_ou
 ) -> None:
     module: Any = smoke_module
 
-    monkeypatch.setattr(module, "_resolve_live_smoke_env", lambda _: {"OPENCODE_GO_API_KEY": "api-key"})
+    monkeypatch.setattr(
+        module,
+        "_resolve_live_smoke_env",
+        lambda _: {"OPENCODE_GO_API_KEY": "api-key"},
+    )
 
     observed: list[tuple[str, str | None]] = []
 
@@ -2610,7 +2614,7 @@ def test_live_smoke_run_provider_command_defaults_to_full_matrix_with_verbose_ou
     )
 
     assert exit_code == 0
-    assert observed == expected_plan
+    assert tuple(observed) == expected_plan
     stdout = output.getvalue()
     assert "opencode/ephemeral" in stdout
     assert "opencode/new_session" in stdout
@@ -2807,6 +2811,12 @@ def test_live_smoke_run_provider_command_preserves_artifact_json_verbose_cleanup
         "new_session",
         "resumed_session",
     )
+    assert captured["tool_policies"] == (
+        "NONE",
+        "INSPECT_ONLY",
+        "NO_FILE_MUTATION",
+        "UNRESTRICTED",
+    )
     assert captured["run_id"] == "run-preserve-options"
     assert captured["artifact_root"] == tmp_path / "preserve-artifacts"
     assert captured["cleanup_artifact_root"] is True
@@ -2894,3 +2904,64 @@ def test_cli_policy_targeting_preserves_explicit_lifecycle_modes_when_provided(
         ["--provider", "codex", "--mode", "new_session", "--policy", "NONE"]
     )
     assert module._coerce_lifecycle_modes(parsed) == ("new_session",)
+
+
+def test_friendly_run_defaults_to_full_live_smoke_matrix_policies_only_for_run_command(
+    smoke_module: object,
+) -> None:
+    module: Any = smoke_module
+
+    run_parsed = module._parse_cli_args(["run"])
+    default_parsed = module._parse_cli_args([])
+
+    assert module._coerce_tool_policies(run_parsed) == (
+        "NONE",
+        "INSPECT_ONLY",
+        "NO_FILE_MUTATION",
+        "UNRESTRICTED",
+    )
+    assert module._coerce_tool_policies(default_parsed) == ()
+
+
+def test_friendly_run_mode_targeting_does_not_force_policy_matrix(
+    smoke_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module: Any = smoke_module
+
+    captured: dict[str, Any] = {}
+
+    def _fake_runner(**kwargs: Any) -> module.LiveSmokeRunResult:
+        captured.update(kwargs)
+        artifact_root = kwargs["artifact_root"]
+        run_id = kwargs["run_id"]
+        return module.LiveSmokeRunResult(
+            run_id=run_id,
+            artifact_root=artifact_root,
+            summary_path=artifact_root / run_id / "summary.json",
+            summary_written=True,
+            passed=True,
+            cases=(),
+            warnings=(),
+        )
+
+    monkeypatch.setattr(module, "run_live_smoke", _fake_runner)
+
+    exit_code = module.main(
+        [
+            "run",
+            "codex",
+            "--mode",
+            "new_session",
+            "--run-id",
+            "targeted-lifecycle-run",
+            "--artifact-root",
+            str(tmp_path / "targeted-lifecycle-artifacts"),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["provider_selection"] == ("codex",)
+    assert captured["lifecycle_modes"] == ("new_session",)
+    assert captured["tool_policies"] == ()
