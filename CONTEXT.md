@@ -14,6 +14,7 @@
 | `Built-in Provider Invocation` | Internal runtime mechanism behind `RuntimeClient` that executes one prepared built-in provider command and returns observable invocation facts. |
 | `ProviderAuth` | Immutable credential data carried by `ProviderSelection` for new provider selection, or supplied to Resume Session Run because continuations must not store credentials. |
 | `ProviderSelection` | Public request value selecting one service, model, effort, and provider credentials for one runtime invocation. |
+| `OpenCode Go Integration` | Built-in `opencode` service integration for OpenCode Go subscription access. |
 | `Consumer Fallback` | Consuming-project orchestration that chooses whether to start a separate runtime invocation after a prior invocation completes or fails. |
 | `ToolPolicy` | Closed public value describing allowed provider tools: `NONE`, `INSPECT_ONLY`, `NO_FILE_MUTATION`, or `UNRESTRICTED`. |
 | `Invocation Directory` | Host directory where runtime launches a provider command; public request field is `invocation_dir`. |
@@ -46,6 +47,7 @@
 - Provider selection remains caller-supplied through the `provider_selection` request field; runtime validates built-in service, model, effort, and relevant credentials.
 - ProviderSelection construction validates value shape; invocation validates built-in provider support and availability.
 - ProviderSelection requires explicit service, model, and effort; selection defaults belong to consumers or maintainer tooling.
+- OpenCode Go Integration accepts service-local model ids on `ProviderSelection.model`; provider-specific prefixes such as `opencode-go/` are internal command/config rendering details.
 - `ProviderSelection.auth` is optional; selected providers that require explicit credentials validate the relevant ProviderAuth field during invocation.
 - ProviderSelection equality includes credentials, but textual representations must not reveal credential values.
 - ProviderAuth equality includes credential values, but textual representations must redact them.
@@ -104,6 +106,7 @@
 - "One-shot": use **Ephemeral Run** for execution without provider-session continuity.
 - "stage", "StageSelection", "StageOverride", and "stage chain": use **ProviderSelection** and the `provider_selection` request field for one runtime invocation, or **Consumer Fallback** for consuming-project retry orchestration.
 - "OpenAI" in issue #93 meant **OpenCode**.
+- "OpenCode subscription": use **OpenCode Go Integration** when referring to the runtime's built-in `opencode` service; OpenCode Zen/pay-as-you-go models are outside that service.
 - "Claude API key": use **ClaudeCodeOAuthToken**, not generic Anthropic API key.
 - "Adapter author": custom provider services are not supported runtime extension point.
 - "worktree": use **Invocation Directory** for command location and **Tool Workspace** for tool access to that directory.
