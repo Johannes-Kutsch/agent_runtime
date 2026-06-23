@@ -541,7 +541,7 @@ class _ModelActivityUsageLimitEphemeralCompatRunner(
                     reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
                 ),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -745,7 +745,7 @@ class _RetryableProviderFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunn
                     classification="retryable",
                 )
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -845,7 +845,7 @@ class _TransientProviderFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunn
         del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
         return reduce_text_output_events(
             [TransientError(status_code=503, raw_message="retry later")],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -904,7 +904,7 @@ class _RetryableProviderFailureEphemeralCompatRunner(
                     classification="retryable",
                 )
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -963,7 +963,7 @@ class _StartedRetryableProviderFailureEphemeralCompatRunner(
                     classification="retryable",
                 ),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -1015,7 +1015,7 @@ class _TransientProviderFailureEphemeralCompatRunner(
         del prompt, role, run_kind, session_uuid, on_provider_session_id
         return reduce_text_output_events(
             [TransientError(status_code=503, raw_message="retry later")],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -2127,7 +2127,7 @@ class _StartedUsageLimitResidentRunner(_ResidentSeamRunner):
                 AssistantTurn("hello"),
                 UsageLimit(reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -2149,7 +2149,7 @@ class _ModelActivityUsageLimitResidentRunner(_ResidentSeamRunner):
                 ModelActivity(),
                 UsageLimit(reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -2261,7 +2261,7 @@ class _RetryableProviderFailureResidentRunner(_ResidentSeamRunner):
                     classification="retryable",
                 )
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -2326,7 +2326,7 @@ class _StartedRetryableProviderFailureResidentRunner(_ResidentSeamRunner):
                     classification="retryable",
                 ),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -2386,7 +2386,7 @@ class _TransientProviderFailureResidentRunner(_ResidentSeamRunner):
         del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
         return reduce_text_output_events(
             [TransientError(status_code=503, raw_message="retry later")],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 

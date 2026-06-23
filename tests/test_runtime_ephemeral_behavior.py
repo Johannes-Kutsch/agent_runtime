@@ -369,7 +369,7 @@ class _RetryableProviderFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunn
                     classification="retryable",
                 )
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -469,7 +469,7 @@ class _TransientProviderFailureEphemeralRunner(_RoleAwareEphemeralCompatWorkRunn
         del prompt, role, tool_policy, run_kind, session_uuid, on_provider_session_id
         return reduce_text_output_events(
             [TransientError(status_code=503, raw_message="retry later")],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 

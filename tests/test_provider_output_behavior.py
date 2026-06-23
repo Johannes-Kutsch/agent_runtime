@@ -45,7 +45,7 @@ def test_provider_output_reduction_returns_result() -> None:
             AssistantTurn("hello"),
             Result("done"),
         ],
-        turns.append,
+        lambda turn, _raw: turns.append(turn),
         provider="codex",
     )
 
@@ -58,7 +58,7 @@ def test_provider_output_reduction_reports_prompt_tokens() -> None:
 
     result = reduce_text_output_events(
         [PromptTokens(2)],
-        lambda _turn: None,
+        lambda _turn, _raw: None,
         token_counts.append,
         provider="codex",
     )
@@ -71,7 +71,7 @@ def test_provider_output_reduction_maps_usage_limit() -> None:
     with pytest.raises(UsageLimitError) as exc_info:
         reduce_text_output_events(
             [UsageLimit(reset_time=None)],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -85,7 +85,7 @@ def test_provider_output_reduction_accepts_explicit_model_activity_for_usage_lim
     with pytest.raises(UsageLimitError) as exc_info:
         reduce_text_output_events(
             [ModelActivity(), UsageLimit(reset_time=None)],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -102,7 +102,7 @@ def test_provider_output_reduction_keeps_unknown_activity_usage_limits_not_start
                 UnsupportedTokens(3, "source"),
                 UsageLimit(reset_time=None),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -113,7 +113,7 @@ def test_provider_output_reduction_maps_transient_error() -> None:
     with pytest.raises(TransientAgentError) as exc_info:
         reduce_text_output_events(
             [TransientError(status_code=503, raw_message="retry")],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -131,7 +131,7 @@ def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
                     classification="retryable",
                 )
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -154,7 +154,7 @@ def test_provider_output_reduction_reports_started_progress_for_retryable_provid
                     classification="retryable",
                 ),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -174,7 +174,7 @@ def test_provider_output_reduction_accepts_explicit_model_activity_for_retryable
                     classification="retryable",
                 ),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -193,7 +193,7 @@ def test_provider_output_reduction_maps_hard_error(
                     observations=(provider_error_observation,),
                 )
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -214,7 +214,7 @@ def test_provider_output_reduction_maps_credential_failure(
                     source_observations=(provider_error_observation,),
                 )
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -233,7 +233,7 @@ def test_provider_output_reduction_joins_assistant_turns_without_result() -> Non
             UnsupportedTokens(3, "source"),
             AssistantTurn("world"),
         ],
-        turns.append,
+        lambda turn, _raw: turns.append(turn),
         provider="codex",
     )
 
@@ -252,7 +252,7 @@ def test_provider_output_reduction_stops_after_result() -> None:
             PromptTokens(99),
             AssistantTurn("ignored"),
         ],
-        turns.append,
+        lambda turn, _raw: turns.append(turn),
         token_counts.append,
         provider="codex",
     )

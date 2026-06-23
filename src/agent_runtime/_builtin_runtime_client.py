@@ -769,28 +769,240 @@ def _reduce_claude_stream(
     )
 
 
-def _live_output_observer(
-    service_name: str,
+def _emit_live_output_event(
+    event: AgentEvent,
     on_live_output: Callable[[AgentEvent], None] | None,
-) -> Callable[[str], None]:
+) -> None:
     if on_live_output is None:
-        return lambda _turn_text: None
+        return
+    try:
+        on_live_output(event)
+    except Exception as exc:
+        setattr(exc, "_is_live_output_exception", True)
+        raise
 
-    def observe(turn_text: str) -> None:
-        try:
-            on_live_output(
-                AgentEvent(
-                    type="agent_message",
-                    text=turn_text,
-                    service_name=service_name,
-                    raw_provider_output="",
+
+def _raw_event_payload(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+def _codex_tool_payload(item: dict[str, object]) -> str:
+    for key in ("arguments", "input", "payload"):
+        value = item.get(key)
+        if value is not None:
+            return _raw_event_payload(value)
+    return _raw_event_payload(item)
+
+
+def _live_output_event_for_codex_line(line: str) -> AgentEvent:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return AgentEvent(
+            type="other",
+            service_name="codex",
+            raw_provider_output=line,
+            descriptor="unparsed",
+        )
+    if not isinstance(event, dict):
+        return AgentEvent(
+            type="other",
+            service_name="codex",
+            raw_provider_output=line,
+            descriptor="non_object",
+        )
+    event_type = event.get("type")
+    if event_type in {"item.completed", "item.started"}:
+        item = event.get("item")
+        if isinstance(item, dict):
+            item_type = item.get("type")
+            if item_type == "agent_message":
+                content = item.get("text")
+                if content is None:
+                    content = item.get("content") or ""
+                if isinstance(content, str):
+                    return AgentEvent(
+                        type="agent_message",
+                        service_name="codex",
+                        raw_provider_output=line,
+                        text=content,
+                    )
+            if isinstance(item_type, str):
+                tool_name = item.get("name")
+                if not isinstance(tool_name, str) or not tool_name:
+                    tool_name = item_type
+                return AgentEvent(
+                    type="agent_tool_call",
+                    service_name="codex",
+                    raw_provider_output=line,
+                    tool_name=tool_name,
+                    payload=_codex_tool_payload(item),
                 )
-            )
-        except Exception as exc:
-            setattr(exc, "_is_live_output_exception", True)
-            raise
+    descriptor = event_type if isinstance(event_type, str) and event_type else "other"
+    return AgentEvent(
+        type="other",
+        service_name="codex",
+        raw_provider_output=line,
+        descriptor=descriptor,
+    )
 
-    return observe
+
+def _live_output_event_for_claude_line(line: str) -> AgentEvent:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return AgentEvent(
+            type="other",
+            service_name="claude",
+            raw_provider_output=line,
+            descriptor="unparsed",
+        )
+    if not isinstance(event, dict):
+        return AgentEvent(
+            type="other",
+            service_name="claude",
+            raw_provider_output=line,
+            descriptor="non_object",
+        )
+    if event.get("type") == "assistant":
+        message = event.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, list):
+                text_parts: list[str] = []
+                tool_blocks: list[dict[str, object]] = []
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    block_type = block.get("type")
+                    if block_type == "text":
+                        text = block.get("text")
+                        if isinstance(text, str) and text.strip():
+                            text_parts.append(text.strip())
+                    elif block_type == "tool_use":
+                        tool_blocks.append(cast(dict[str, object], block))
+                if text_parts:
+                    return AgentEvent(
+                        type="agent_message",
+                        service_name="claude",
+                        raw_provider_output=line,
+                        text="\n\n".join(text_parts),
+                    )
+                if tool_blocks:
+                    first_tool = tool_blocks[0]
+                    tool_name = first_tool.get("name")
+                    if not isinstance(tool_name, str) or not tool_name:
+                        tool_name = "tool_use"
+                    payload_value: object = (
+                        first_tool.get("input")
+                        if len(tool_blocks) == 1 and first_tool.get("input") is not None
+                        else tool_blocks
+                    )
+                    return AgentEvent(
+                        type="agent_tool_call",
+                        service_name="claude",
+                        raw_provider_output=line,
+                        tool_name=tool_name,
+                        payload=_raw_event_payload(payload_value),
+                    )
+    event_type = event.get("type")
+    descriptor = event_type if isinstance(event_type, str) and event_type else "other"
+    return AgentEvent(
+        type="other",
+        service_name="claude",
+        raw_provider_output=line,
+        descriptor=descriptor,
+    )
+
+
+def _live_output_event_for_opencode_line(line: str) -> AgentEvent:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return AgentEvent(
+            type="other",
+            service_name="opencode",
+            raw_provider_output=line,
+            descriptor="unparsed",
+        )
+    if not isinstance(event, dict):
+        return AgentEvent(
+            type="other",
+            service_name="opencode",
+            raw_provider_output=line,
+            descriptor="non_object",
+        )
+    if event.get("type") == "text":
+        part = event.get("part")
+        if isinstance(part, dict):
+            part_type = part.get("type")
+            if part_type == "text":
+                time = part.get("time")
+                if isinstance(time, dict) and time.get("end") is not None:
+                    text = part.get("text")
+                    if isinstance(text, str):
+                        stripped = text.strip()
+                        if stripped:
+                            return AgentEvent(
+                                type="agent_message",
+                                service_name="opencode",
+                                raw_provider_output=line,
+                                text=stripped,
+                            )
+            if part_type == "tool":
+                tool_name = part.get("name")
+                if not isinstance(tool_name, str) or not tool_name:
+                    tool_name = "tool"
+                payload_value = (
+                    part.get("input")
+                    if part.get("input") is not None
+                    else part.get("text", part)
+                )
+                return AgentEvent(
+                    type="agent_tool_call",
+                    service_name="opencode",
+                    raw_provider_output=line,
+                    tool_name=tool_name,
+                    payload=_raw_event_payload(payload_value),
+                )
+    if event.get("type") == "session.status":
+        status = event.get("status")
+        descriptor = "session.status"
+        if isinstance(status, dict):
+            status_type = status.get("type")
+            if isinstance(status_type, str):
+                descriptor = status_type
+        return AgentEvent(
+            type="other",
+            service_name="opencode",
+            raw_provider_output=line,
+            descriptor=descriptor,
+        )
+    event_type = event.get("type")
+    descriptor = event_type if isinstance(event_type, str) and event_type else "other"
+    return AgentEvent(
+        type="other",
+        service_name="opencode",
+        raw_provider_output=line,
+        descriptor=descriptor,
+    )
+
+
+def _live_output_event_for_provider_line(service_name: str, line: str) -> AgentEvent:
+    if service_name == "claude":
+        return _live_output_event_for_claude_line(line)
+    if service_name == "codex":
+        return _live_output_event_for_codex_line(line)
+    if service_name == "opencode":
+        return _live_output_event_for_opencode_line(line)
+    return AgentEvent(
+        type="other",
+        service_name=service_name,
+        raw_provider_output=line,
+        descriptor="other",
+    )
 
 
 def _is_live_output_exception(exc: BaseException) -> bool:
@@ -815,23 +1027,21 @@ class _ObservedOutputReducer:
 def _observe_output_lines(
     *,
     lines: list[str],
-    parse_output_line: Callable[[str], list[Any]],
     on_live_output: Callable[[AgentEvent], None] | None,
     service_name: str,
 ) -> None:
     if on_live_output is None:
         return
-    observe_output = _live_output_observer(service_name, on_live_output)
     for line in lines:
-        for event in parse_output_line(line):
-            if isinstance(event, AssistantTurn):
-                observe_output(event.text)
+        _emit_live_output_event(
+            _live_output_event_for_provider_line(service_name, line),
+            on_live_output,
+        )
 
 
 def _observe_output_reducer(
     reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
     on_live_output: Callable[[AgentEvent], None] | None,
-    parse_output_line: Callable[[str], list[Any]],
     *,
     service_name: str,
 ) -> Callable[[list[str]], tuple[str, ProviderUsage | None]]:
@@ -843,7 +1053,6 @@ def _observe_output_reducer(
         consume_stdout_lines=(
             lambda lines: _observe_output_lines(
                 lines=lines,
-                parse_output_line=parse_output_line,
                 on_live_output=on_live_output,
                 service_name=service_name,
             )
@@ -916,10 +1125,16 @@ def _reduce_claude_stream_with_dependencies(
     for line in lines:
         usage = _merge_provider_usage(usage, _parse_claude_usage(line))
         parsed_events.extend(parse_claude_event(line))
+    if on_live_output is not None:
+        for line in lines:
+            _emit_live_output_event(
+                _live_output_event_for_claude_line(line),
+                on_live_output,
+            )
     try:
         output = reduce_text_output_events(
             parsed_events,
-            _live_output_observer("claude", on_live_output),
+            lambda _turn, _raw: None,
             provider="claude",
         )
     except (RetryableProviderFailureError, UsageLimitError) as exc:
@@ -1026,10 +1241,16 @@ def _reduce_codex_stream(
     for line in lines:
         usage = _merge_provider_usage(usage, _parse_codex_usage(line))
         parsed_events.extend(_parse_codex_event(line))
+    if on_live_output is not None:
+        for line in lines:
+            _emit_live_output_event(
+                _live_output_event_for_codex_line(line),
+                on_live_output,
+            )
     try:
         output = reduce_text_output_events(
             parsed_events,
-            _live_output_observer("codex", on_live_output),
+            lambda _turn, _raw: None,
             provider="codex",
         )
     except (RetryableProviderFailureError, UsageLimitError) as exc:
@@ -1415,13 +1636,11 @@ def _observe_output_opencode(
     on_live_output: Callable[[AgentEvent], None],
     on_provider_session_id: Callable[[str], None] | None = None,
 ) -> Callable[[list[str]], None]:
-    observe_output = _live_output_observer("opencode", on_live_output)
     seen_session_id: str | None = None
-    has_text_output = False
     is_complete = False
 
     def _observe_output_lines(lines: list[str]) -> None:
-        nonlocal seen_session_id, has_text_output, is_complete
+        nonlocal seen_session_id, is_complete
         if is_complete:
             return
         for line in lines:
@@ -1440,37 +1659,19 @@ def _observe_output_opencode(
             ):
                 seen_session_id = session_id
                 on_provider_session_id(session_id)
+            _emit_live_output_event(
+                _live_output_event_for_opencode_line(line),
+                on_live_output,
+            )
             if event.get("type") == "session.status":
                 status = event.get("status")
-                if (
-                    isinstance(status, dict)
-                    and status.get("type") == "idle"
-                    and has_text_output
-                ):
+                if isinstance(status, dict) and status.get("type") == "idle":
                     is_complete = True
                     return
                 continue
             if event.get("type") == "error":
                 is_complete = True
                 return
-            if event.get("type") != "text":
-                continue
-            part = event.get("part")
-            if not isinstance(part, dict):
-                continue
-            if part.get("type") != "text":
-                continue
-            time = part.get("time")
-            if not isinstance(time, dict) or time.get("end") is None:
-                continue
-            text = part.get("text")
-            if not isinstance(text, str):
-                continue
-            stripped = text.strip()
-            if not stripped:
-                continue
-            observe_output(stripped)
-            has_text_output = True
 
     return _observe_output_lines
 
@@ -1555,9 +1756,15 @@ def _reduce_opencode_stream(
     lines: list[str],
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> str:
+    if on_live_output is not None:
+        for line in lines:
+            _emit_live_output_event(
+                _live_output_event_for_opencode_line(line),
+                on_live_output,
+            )
     return reduce_text_output_events(
         _parse_opencode_events(lines),
-        _live_output_observer("opencode", on_live_output),
+        lambda _turn, _raw: None,
         provider="opencode",
     )
 
@@ -2082,7 +2289,6 @@ def _invoke_claude_new_session_provider(
         reduce_output=_observe_output_reducer(
             lambda lines: _reduce_claude_stream(lines),
             on_live_output,
-            _parse_claude_event,
             service_name="claude",
         ),
     )
@@ -2122,7 +2328,6 @@ def _invoke_codex_new_session_provider(
         reduce_output=_observe_output_reducer(
             lambda lines: _reduce_codex_stream(lines),
             on_live_output,
-            _parse_codex_event,
             service_name="codex",
         ),
     )
@@ -2164,7 +2369,6 @@ def _invoke_codex_resumed_session_provider(
         reduce_output=_observe_output_reducer(
             lambda lines: _reduce_codex_stream(lines),
             on_live_output,
-            _parse_codex_event,
             service_name="codex",
         ),
         extract_provider_session_id=_extract_codex_provider_session_id,
@@ -2225,7 +2429,7 @@ def _invoke_opencode_new_session_provider(
                     lines,
                     on_provider_session_id=_record_opencode_session_id,
                 ),
-                lambda _turn: None,
+                lambda _turn, _raw: None,
                 provider="opencode",
             ),
             None,
@@ -2363,7 +2567,6 @@ def _run_builtin_ephemeral(
             reduce_output=_observe_output_reducer(
                 lambda lines: reduce_codex_stream(lines, None),
                 request.on_live_output,
-                _parse_codex_event,
                 service_name="codex",
             ),
         )
@@ -2427,7 +2630,6 @@ def _run_builtin_ephemeral(
             reduce_output=_observe_output_reducer(
                 lambda lines: reduce_claude_stream(lines, None),
                 request.on_live_output,
-                _parse_claude_event,
                 service_name="claude",
             ),
         )
@@ -3035,7 +3237,7 @@ def _run_builtin_resumed_session(
         return (
             reduce_text_output_events(
                 _parse_opencode_events(lines),
-                lambda _turn: None,
+                lambda _turn, _raw: None,
                 provider="opencode",
             ),
             None,
@@ -3068,7 +3270,6 @@ def _run_builtin_resumed_session(
             reduce_output = _observe_output_reducer(
                 lambda lines: _reduce_claude_stream(lines),
                 request.on_live_output,
-                _parse_claude_event,
                 service_name="claude",
             )
 

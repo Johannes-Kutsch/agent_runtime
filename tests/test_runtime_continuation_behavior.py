@@ -373,7 +373,7 @@ class _StartedUsageLimitResidentRunner(_ResidentSeamRunner):
                 AssistantTurn("hello"),
                 UsageLimit(reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -395,7 +395,7 @@ class _ModelActivityUsageLimitResidentRunner(_ResidentSeamRunner):
                 ModelActivity(),
                 UsageLimit(reset_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -507,7 +507,7 @@ class _RetryableProviderFailureResidentRunner(_ResidentSeamRunner):
                     classification="retryable",
                 )
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 
@@ -572,7 +572,7 @@ class _StartedRetryableProviderFailureResidentRunner(_ResidentSeamRunner):
                     classification="retryable",
                 ),
             ],
-            lambda _turn: None,
+            lambda _turn, _raw: None,
             provider="codex",
         )
 

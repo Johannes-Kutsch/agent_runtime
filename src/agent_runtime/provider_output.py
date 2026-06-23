@@ -26,7 +26,7 @@ from .invocation_progress import InvocationProgress
 
 def reduce_text_output_events(
     events: Iterable[ParsedTurn],
-    on_turn: Callable[[str], None],
+    on_turn: Callable[[str, str], None],
     on_tokens: Callable[[int], None] | None = None,
     *,
     provider: str,
@@ -83,7 +83,7 @@ def reduce_text_output_events(
             invocation_progress = InvocationProgress.STARTED
             continue
         if isinstance(event, AssistantTurn):
-            on_turn(event.text)
+            on_turn(event.text, "")
             collected_turns.append(event.text)
             invocation_progress = InvocationProgress.STARTED
             continue
