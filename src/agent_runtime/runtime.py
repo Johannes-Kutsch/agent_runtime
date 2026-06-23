@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Any, Callable
 
 from . import _time
@@ -30,6 +31,7 @@ from ._runtime_lifecycle import (
     SessionRunResult,
     SessionRuntimeMetadata,
 )
+from .session import RunKind
 from .types import ProviderSelection
 
 if TYPE_CHECKING:
@@ -208,6 +210,13 @@ def _run_builtin_session_outcome(
         )
 
 
+def _replace_request_on_live_output(
+    request: EphemeralRunRequest,
+    new_on_live_output: Callable[[AgentEvent], None],
+) -> EphemeralRunRequest:
+    return dataclasses.replace(request, on_live_output=new_on_live_output)
+
+
 class RuntimeClient:
     def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         selected_provider_selection = _supported_builtin_provider_selection(
@@ -217,11 +226,39 @@ class RuntimeClient:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
+        collected_events: list[AgentEvent] = []
+
+        def collecting_on_live_output(event: AgentEvent) -> None:
+            collected_events.append(event)
+            if request.on_live_output is not None:
+                request.on_live_output(event)
+
+        request_with_collector = _replace_request_on_live_output(
+            request, collecting_on_live_output
+        )
         try:
-            result = _run_builtin_ephemeral(request)
+            result = _run_builtin_ephemeral(request_with_collector)
         except UsageLimitError as exc:
             if getattr(exc, "_is_live_output_exception", False):
                 raise
+            records = _exception_invocation_records(exc)
+            if not records and collected_events:
+                records = (
+                    InvocationRecord(
+                        run_kind=getattr(
+                            exc,
+                            "_runtime_run_kind",
+                            RunKind.FRESH,
+                        ),
+                        service_name=exc.service_name
+                        or selected_provider_selection.service,
+                        model=selected_provider_selection.model,
+                        effort=selected_provider_selection.effort,
+                        outcome="usage_limited",
+                        events=tuple(collected_events),
+                        usage=exc.usage,
+                    ),
+                )
             return RuntimeOutcome.usage_limited(
                 output="",
                 service_name=exc.service_name or selected_provider_selection.service,
@@ -232,8 +269,17 @@ class RuntimeClient:
                 invocation_progress=exc.invocation_progress,
                 continuation=exc.continuation,
                 usage=exc.usage,
-                invocation_records=_exception_invocation_records(exc),
+                invocation_records=records,
             )
+        invocation_record = InvocationRecord(
+            run_kind=RunKind.FRESH,
+            service_name=selected_provider_selection.service,
+            model=selected_provider_selection.model,
+            effort=selected_provider_selection.effort,
+            outcome="completed",
+            events=tuple(collected_events),
+            usage=result.usage,
+        )
         return RuntimeOutcome.completed(
             output=result.output,
             service_name=selected_provider_selection.service,
@@ -241,6 +287,7 @@ class RuntimeClient:
             selected_effort=selected_provider_selection.effort,
             result=result,
             usage=result.usage,
+            invocation_records=(invocation_record,),
         )
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:

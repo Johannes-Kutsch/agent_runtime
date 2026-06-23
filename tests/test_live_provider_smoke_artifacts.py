@@ -1157,8 +1157,10 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
                     prompt_runtime.InvocationRecord(
                         run_kind=RunKind.FRESH,
                         service_name="claude",
+                        model="sonnet",
+                        effort="medium",
+                        outcome="completed",
                         provider_session_id="thread-123",
-                        prompt="start response",
                         provider_output=b"start response bytes",
                     ),
                 ),
@@ -1198,8 +1200,10 @@ def test_live_smoke_public_runner_rejects_non_ephemeral_cases(
                     prompt_runtime.InvocationRecord(
                         run_kind=RunKind.RESUME,
                         service_name="claude",
+                        model="sonnet",
+                        effort="medium",
+                        outcome="completed",
                         provider_session_id="thread-123",
-                        prompt="resume response",
                         provider_output=b"resume output bytes",
                     ),
                 ),

@@ -225,8 +225,11 @@ class AgentEvent:
 class InvocationRecord:
     run_kind: RunKind
     service_name: str
-    provider_session_id: str | None
-    prompt: str
+    model: str
+    effort: str
+    outcome: str
+    provider_session_id: str | None = None
+    events: tuple[AgentEvent, ...] = ()
     provider_output: bytes | None = None
     usage: ProviderUsage | None = None
 
