@@ -371,19 +371,3 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
     assert provider_state_session_id_path(Path("state"), "codex") == Path(
         "state/thread_id"
     )
-
-
-def test_select_resumable_provider_session_id_recovers_and_persists_state() -> None:
-    pytest.skip("Removed function: select_resumable_provider_session_id")
-
-
-def test_select_resumable_provider_session_id_prefers_session_store_over_recovery() -> (
-    None
-):
-    pytest.skip("Removed function: select_resumable_provider_session_id")
-
-
-def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher() -> (
-    None
-):
-    pytest.skip("Removed function: is_exact_resumable_service_session")

@@ -161,16 +161,5 @@ class ExternalStateResidentPlanningProviderSessionAdapterFake:
     def prepare_local_provider_run_state(
         self,
         provider_state_dir: Path | None,
-        auth_seed_action: Any | None = None,
     ) -> None:
-        del provider_state_dir, auth_seed_action
-
-    def record_provider_session_id(
-        self,
-        *,
-        session_store: Any,
-        provider_session_id: str,
-        service_state_dir: Path | None = None,
-    ) -> None:
-        del service_state_dir
-        session_store.save_service_session_id("codex", provider_session_id)
+        del provider_state_dir

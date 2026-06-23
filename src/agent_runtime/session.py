@@ -20,11 +20,6 @@ class RunKind(Enum):
 
 
 @dataclasses.dataclass(frozen=True)
-class ProviderSessionSelection:
-    provider_session_id: str | None
-
-
-@dataclasses.dataclass(frozen=True)
 class ProviderSessionStateRequest:
     provider_state_dir: Path | None
     has_resumable_provider_state: bool
@@ -135,7 +130,6 @@ def load_state_dir_provider_session_id(
 
 
 __all__ = [
-    "ProviderSessionSelection",
     "ProviderSessionState",
     "ProviderSessionStateRequest",
     "RunKind",
