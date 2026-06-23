@@ -659,7 +659,7 @@ def _stub_codex_prompt_path(
     monkeypatch.setattr(Path, "unlink", _fake_unlink)
 
 
-def test_runtime_client_runs_codex_stage_with_pycastle_command_and_env_semantics(
+def test_runtime_client_runs_codex_provider_selection_with_pycastle_command_and_env_semantics(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     stage_selection_factory: Callable[..., runtime.ProviderSelection],
@@ -2166,7 +2166,7 @@ def test_run_builtin_ephemeral_non_claude_uses_runtime_neutral_temp_prompt_artif
         ),
     ],
 )
-def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builtin(
+def test_runtime_client_reports_selected_builtin_usage_limit_without_consumer_fallback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     stage_selection_factory: Callable[..., runtime.ProviderSelection],

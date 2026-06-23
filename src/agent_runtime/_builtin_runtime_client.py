@@ -219,7 +219,9 @@ class BuiltInAvailabilityState:
     def has_available_stage(self, stage: ProviderSelection, *, now: datetime) -> bool:
         return self.first_available_stage(stage, now=now) is not None
 
-    def next_wake_time(self, stage: ProviderSelection, *, now: datetime) -> datetime | None:
+    def next_wake_time(
+        self, stage: ProviderSelection, *, now: datetime
+    ) -> datetime | None:
         with self._lock:
             if stage.service not in _SUPPORTED_BUILTIN_SERVICES:
                 return None
@@ -2250,7 +2252,9 @@ def _run_builtin_ephemeral(
     ] = _select_builtin_stage,
     validate_claude_stage: Callable[[ProviderSelection], None] = _validate_claude_stage,
     validate_codex_stage: Callable[[ProviderSelection], None] = _validate_codex_stage,
-    validate_opencode_stage: Callable[[ProviderSelection], None] = _validate_opencode_stage,
+    validate_opencode_stage: Callable[
+        [ProviderSelection], None
+    ] = _validate_opencode_stage,
     claude_command: Callable[..., tuple[str, ...]] = _claude_command,
     claude_env: Callable[..., dict[str, str]] = _claude_env,
     reduce_claude_stream: Callable[

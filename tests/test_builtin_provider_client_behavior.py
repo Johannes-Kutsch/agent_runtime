@@ -1518,8 +1518,6 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
     assert observed == [("hello", "codex")]
 
 
-
-
 def test_runtime_client_resumed_session_run_calls_live_output_observer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -4996,10 +4994,6 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
     assert len(adapter.recorded_requests) == 0
 
 
-
-
-
-
 def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_invocation_seam(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5168,8 +5162,32 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
     assert captured["env"] == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
 
 
-
-
+@pytest.mark.parametrize(
+    ("tool_access", "expected_flag"),
+    [
+        (
+            contracts_runtime.ToolAccess.no_tools(),
+            "--sandbox read-only",
+        ),
+        (
+            contracts_runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
+            ),
+            "--sandbox read-only",
+        ),
+        (
+            contracts_runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
+            ),
+            "--sandbox read-only",
+        ),
+        (
+            contracts_runtime.ToolAccess.workspace_backed(
+                Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
+            ),
+            "--sandbox danger-full-access",
+        ),
+    ],
 )
 def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocation_seam(
     monkeypatch: pytest.MonkeyPatch,
@@ -6161,8 +6179,6 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
     )
 
 
-
-
 def test_runtime_client_maps_claude_transient_error_stream_to_transient_exception(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -6464,8 +6480,6 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope
     assert outcome.service_name == "claude"
     assert outcome.reset_time is None
     assert not hasattr(outcome, "usage_limit_scope")
-
-
 
 
 def test_runtime_client_preserves_claude_credential_failure_observations(

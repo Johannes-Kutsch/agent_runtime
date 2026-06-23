@@ -25,7 +25,9 @@ def _call_func_name(node: ast.expr) -> str | None:
     return None
 
 
-def _find_fallback_regions(source: str, path: Path) -> list[tuple[tuple[int, int], tuple[int, int]]]:
+def _find_fallback_regions(
+    source: str, path: Path
+) -> list[tuple[tuple[int, int], tuple[int, int]]]:
     tree = ast.parse(source, filename=str(path))
     regions: list[tuple[tuple[int, int], tuple[int, int]]] = []
     for node in ast.walk(tree):
@@ -37,13 +39,17 @@ def _find_fallback_regions(source: str, path: Path) -> list[tuple[tuple[int, int
         for kw in node.keywords:
             if kw.arg != "fallback":
                 continue
+            if kw.end_lineno is None or kw.end_col_offset is None:
+                continue
             start = (kw.lineno, kw.col_offset)
             end = (kw.end_lineno, kw.end_col_offset)
             regions.append((start, end))
     return regions
 
 
-def _remove_regions(source: str, regions: list[tuple[tuple[int, int], tuple[int, int]]]) -> str:
+def _remove_regions(
+    source: str, regions: list[tuple[tuple[int, int], tuple[int, int]]]
+) -> str:
     lines = source.splitlines(keepends=True)
     regions = sorted(regions, key=lambda r: (r[0][0], r[0][1]))
     line_starts: list[int] = [0]
@@ -68,7 +74,12 @@ def _remove_regions(source: str, regions: list[tuple[tuple[int, int], tuple[int,
             else:
                 break
         if preceding_comma_idx is not None:
-            comma_start = to_offset((tokens[preceding_comma_idx].start[0], tokens[preceding_comma_idx].start[1]))
+            comma_start = to_offset(
+                (
+                    tokens[preceding_comma_idx].start[0],
+                    tokens[preceding_comma_idx].start[1],
+                )
+            )
             removals.append((comma_start, end_offset))
         else:
             removals.append((start_offset, end_offset))

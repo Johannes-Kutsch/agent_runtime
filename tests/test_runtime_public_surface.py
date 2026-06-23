@@ -377,6 +377,11 @@ def test_types_module_exposes_provider_selection_only() -> None:
         exec("from agent_runtime.types import StageSelection", {})
 
 
+def test_deleted_stage_priority_chain_module_is_not_importable() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_runtime.stage_priority_chain")
+
+
 def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     assert {
         "NewSessionRunRequest",

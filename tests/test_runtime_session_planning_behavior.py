@@ -298,6 +298,79 @@ def test_application_can_render_service_availability_summary_from_registry(
     ]
 
 
+def test_service_registry_resolves_single_provider_selection_unchanged(
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    registry = service_registry_factory("codex", unavailable={"codex"})
+    provider_selection = InternalStageSelection(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+    )
+
+    assert (
+        registry.resolve(
+            provider_selection,
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        is provider_selection
+    )
+
+
+def test_service_registry_scopes_availability_to_selected_provider(
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        unavailable={"codex"},
+        wake_times={"codex": datetime(2026, 1, 2, tzinfo=timezone.utc)},
+    )
+
+    assert (
+        registry.has_available_for(
+            InternalStageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            now,
+        )
+        is False
+    )
+    assert registry.next_wake_time_for(
+        InternalStageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        now,
+    ) == datetime(2026, 1, 2, tzinfo=timezone.utc)
+    assert (
+        registry.has_available_for(
+            InternalStageSelection(
+                service="claude",
+                model="sonnet",
+                effort="high",
+            ),
+            now,
+        )
+        is True
+    )
+    assert (
+        registry.next_wake_time_for(
+            InternalStageSelection(
+                service="claude",
+                model="sonnet",
+                effort="high",
+            ),
+            now,
+        )
+        is None
+    )
+
+
 def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_path() -> (
     None
 ):
