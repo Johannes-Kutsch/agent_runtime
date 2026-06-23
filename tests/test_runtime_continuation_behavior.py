@@ -2215,7 +2215,7 @@ def test_runtime_client_writes_resumed_opencode_session_log_with_observed_provid
 
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
@@ -2839,7 +2839,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
     prompt_path = worktree / ".provider_prompt"
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
@@ -2948,7 +2948,7 @@ def test_runtime_client_resumed_opencode_session_uses_continuation_state_dir_and
     )
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=continuation.tool_access,
         provider_resume_state={
@@ -2970,7 +2970,7 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
     prompt_path = worktree / ".provider_prompt"
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
@@ -3059,7 +3059,7 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
     assert observed["prompt"] == "already rendered prompt"
     assert observed["stdin_closed"] is True
     assert "OPENCODE_HOME" in observed["env"]
-    assert "--model opencode-go/glm-5" in observed["command"]
+    assert "--model opencode-go/glm-5.2" in observed["command"]
     assert not prompt_path.exists()
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
@@ -3071,7 +3071,7 @@ def test_runtime_client_resumed_opencode_session_restores_continuity_without_run
     )
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=continuation.tool_access,
         provider_resume_state={
@@ -3102,7 +3102,7 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
     )
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
@@ -3193,7 +3193,7 @@ def test_runtime_client_resumed_opencode_session_keeps_saved_exact_match_semanti
     )
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=continuation.tool_access,
         provider_resume_state={
@@ -3226,7 +3226,7 @@ def test_runtime_client_resumed_opencode_session_restores_only_portable_provider
     )
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
@@ -3313,7 +3313,7 @@ def test_runtime_client_resumed_opencode_session_restores_only_portable_provider
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=continuation.tool_access,
         provider_resume_state={
@@ -3334,7 +3334,7 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
     runtime_state_dir.mkdir()
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
@@ -3424,7 +3424,7 @@ def test_runtime_client_resumed_opencode_session_keeps_observed_session_id_on_st
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="opencode",
-                selected_model="glm-5",
+                selected_model="glm-5.2",
                 selected_effort="medium",
                 tool_access=continuation.tool_access,
                 provider_resume_state={

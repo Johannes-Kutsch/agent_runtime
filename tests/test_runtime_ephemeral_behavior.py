@@ -880,7 +880,7 @@ def test_runtime_client_writes_ephemeral_invocation_log_only_when_logs_dir_is_su
             provider_selection=_selection_with_auth(
                 stage_selection_factory(
                     service="opencode",
-                    model="glm-5",
+                    model="glm-5.2",
                     effort="medium",
                     auth=prompt_runtime.ProviderAuth(opencode_api_key="token"),
                 ),
@@ -907,7 +907,7 @@ def test_runtime_client_does_not_create_ephemeral_invocation_log_when_dispatch_n
                 worktree=tmp_path,
                 provider_selection=stage_selection_factory(
                     service="opencode",
-                    model="glm-5",
+                    model="glm-5.2",
                     effort="medium",
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
@@ -2095,7 +2095,7 @@ def test_run_builtin_ephemeral_prefers_argv_for_claude_with_windows_style_prompt
         ),
         (
             "opencode",
-            "glm-5",
+            "glm-5.2",
             (
                 (
                     '{"type":"text","sessionID":"observed-session","part":'

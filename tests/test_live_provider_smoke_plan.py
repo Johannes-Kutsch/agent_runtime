@@ -9,6 +9,12 @@ from typing import Any, cast
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_live_smoke_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+
+
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "live_provider_smoke_plan.py"
 )
