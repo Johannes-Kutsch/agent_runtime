@@ -1,77 +1,37 @@
 # Runtime public surface narrowing
 
-Status: Refined by [0005 - Runtime session lifecycle entrypoints](0005-runtime-session-lifecycle-entrypoints.md), [0006 - Built-in provider-only runtime](0006-built-in-provider-only-runtime.md), and [0011 - Single-candidate provider selection](0011-single-candidate-provider-selection.md). ADR 0011 is the current provider-selection decision; current glossary and public API docs own exact `Invocation Directory`, `ToolPolicy`, and `ProviderSelection` vocabulary.
+Status: Refined by [0005 - Runtime session lifecycle entrypoints](0005-runtime-session-lifecycle-entrypoints.md), [0006 - Built-in provider-only runtime](0006-built-in-provider-only-runtime.md), and [0010 - Single-candidate provider selection](0010-single-candidate-provider-selection.md). ADR 0010 is the current provider-selection decision; current glossary and public API docs own exact `Invocation Directory`, `ToolPolicy`, and `ProviderSelection` vocabulary.
 
-The runtime boundary should expose a smaller, clearer front-facing surface: one canonical runtime entrypoint per mode, a narrow package root, and focused seams for work invocation, session planning, and provider policy.
+The runtime boundary exposes a small, clear front-facing surface: one canonical entrypoint per mode, a narrow package root, and focused seams for work invocation, session planning, and provider policy.
 
 ## Decision
 
-- Keep the package root as a narrow compatibility entrypoint, not a catch-all export surface.
-- Keep `ruhken-agent-runtime` as distribution name and `agent_runtime` as import package name.
-- Use package metadata for installed version lookup rather than package-root `__version__`.
-- Keep core values such as `ToolPolicy`, `ProviderAuth`, `Continuation`, `ProviderSelection`, and outcome/result values public without promoting implementation modules.
-- Keep behaviorful lifecycle entrypoints in focused runtime modules.
-- Keep runtime execution entrypoints async-only until synchronous wrappers have a proven consumer need.
-- Keep runtime import-isolation checks as internal self-test infrastructure.
-- Validate runtime service identities used in registry, paths, logs, and diagnostics as path-safe service names.
-- Treat model and effort as provider execution parameters, not path-safe runtime identities.
-- Expose one canonical lifecycle entrypoint per mode instead of parallel facades and free functions.
-- Give each canonical mode its own request type instead of aliasing low-level work or prompt request shapes.
-- Keep prompt inputs as already-rendered text strings rather than structured message schemas.
-- Require explicit tool policy rather than inheriting provider defaults.
-- Keep public request, result, and metadata dataclasses immutable.
-- Avoid untyped extension holes on public request/session objects unless replaced by named protocols or value types.
-- Return normalized text and grouped runtime metadata from canonical results.
-- Keep selected-provider diagnostics explicit where consumers commonly need them.
-- Use plain invocation directories in canonical APIs unless a richer mount abstraction is actually configurable.
-- Keep canonical requests focused on execution intent, not presentation or status UI wiring.
-- Keep container workspace paths out of canonical APIs; container projection is low-level execution plumbing.
-- Provider-selection shape and fallback ownership are superseded here by [0011 - Single-candidate provider selection](0011-single-candidate-provider-selection.md): one `ProviderSelection` per invocation, with fallback owned by consuming projects across separate invocations.
-- Keep work invocation dependencies focused on runtime execution rather than presentation or orchestration concerns.
-- Keep provider event dataclasses as provider output contracts instead of untyped event envelopes.
-- Preserve raw provider diagnostic observations in adapter contracts; consumers own display, storage, and redaction.
-- Expose provider-output reduction helpers through focused adapter seams, not low-level work invocation modules.
-- Keep invocation logging as an advanced focused seam: runtime owns record shape, consumers own location, persistence, retention, and presentation.
-- Keep service selection and availability policy separate from presentation helpers.
-- Keep `CancellationToken` as runtime-owned cooperative cancellation; keep quota/fallback bookkeeping separate from caller cancellation.
-- Use service-name vocabulary for runtime-owned usage-limit identity.
-- Keep usage-limit account labels diagnostic, not selection identity.
-- Keep `provider_session_id` distinct from runtime service names.
-- Keep `ToolPolicy` as the coarse runtime-owned execution policy enum.
-- Keep intermediate tool policies because downstream integrations need more than no-tools/full-tools.
-- Keep tool-policy command mappings behind provider adapters.
-- Provider adapters own translation into provider-specific CLI flags and limitations.
-- Keep `RunKind` as a closed runtime-owned session lifecycle enum.
-- Use `RunKind.RESUME` for provider-session resume lifecycle while public mode names use session lifecycle vocabulary.
-- Treat low-level work invocation modules as implementation modules, even when importable for compatibility and tests.
-- Treat direct `invoke_work` usage as undocumented implementation API.
+- Package root is a narrow compatibility entrypoint, not a catch-all export surface.
+- `ruhken-agent-runtime` distribution name, `agent_runtime` import package name; installed version via package metadata, not package-root `__version__`.
+- Keep core values (`ToolPolicy`, `ProviderAuth`, `Continuation`, `ProviderSelection`, outcome/result values) public without promoting implementation modules.
+- Behaviorful lifecycle entrypoints live in focused runtime modules: one canonical entrypoint per mode, not parallel facades or free functions. Each mode gets its own request type, not aliased low-level work/prompt shapes.
+- Execution entrypoints async-only until synchronous wrappers have proven need.
+- Import-isolation checks stay internal self-test infrastructure.
+- Validate runtime service identities (registry, paths, logs, diagnostics) as path-safe names; model and effort are provider execution parameters, not path-safe identities.
+- Prompt inputs are already-rendered text strings, not structured message schemas.
+- Require explicit tool policy, not provider defaults.
+- Public request/result/metadata dataclasses immutable; no untyped extension holes (use named protocols/value types).
+- Canonical results return normalized text and grouped runtime metadata; keep selected-provider diagnostics explicit.
+- Plain invocation directories in canonical APIs unless a richer mount abstraction is configurable; keep container workspace paths out (low-level plumbing). Canonical requests focus on execution intent, not presentation/status UI.
+- Provider-selection shape and fallback ownership superseded here by [0010 - Single-candidate provider selection](0010-single-candidate-provider-selection.md): one `ProviderSelection` per invocation, fallback owned by consumers across separate invocations.
+- Provider event dataclasses are provider output contracts, not untyped event envelopes; preserve raw provider diagnostics in adapter contracts (consumers own display/storage/redaction). Provider-output reduction helpers via focused adapter seams, not low-level work invocation modules.
+- Invocation logging is an advanced focused seam: runtime owns record shape, consumers own location/persistence/retention/presentation.
+- Service selection/availability policy separate from presentation helpers.
+- `CancellationToken` is runtime-owned cooperative cancellation; quota/fallback bookkeeping separate from caller cancellation.
+- Service-name vocabulary for usage-limit identity; usage-limit account labels are diagnostic, not selection identity. `provider_session_id` distinct from runtime service names.
+- `ToolPolicy` is the coarse runtime-owned execution policy enum; keep intermediate policies (downstream needs more than none/full); tool-policy command mappings behind provider adapters.
+- `RunKind` is a closed runtime-owned session lifecycle enum; `RunKind.RESUME` for provider-session resume while public mode names use session lifecycle vocabulary.
+- Low-level work invocation modules are implementation modules even when importable; direct `invoke_work` usage is undocumented implementation API.
 
 ## Consequences
 
-- The runtime boundary is easier to learn and test through its public surface.
-- The published distribution name carries the intended package namespace while import stays concise.
-- Package-root imports remain small vocabulary, not a full runtime facade.
-- Boundary self-tests remain internal.
-- Consumers can import core values directly without learning implementation modules.
-- Provider-selection and quota availability policy can evolve without widening execution contracts.
-- Service names stay safe identity keys across selection, state layout, logs, and diagnostics.
-- Provider adapters retain provider-specific model and effort validation.
-- Service availability summaries can vary by consuming application without runtime presentation APIs.
-- Callers have one ordinary way to reach each behavior.
-- Mode-specific request types can evolve without freezing implementation shapes into consumer API.
-- Application prompt rendering remains outside the runtime boundary.
-- Boundary values are safe to pass through async execution without accidental mutation.
-- Release surface avoids UI/status concerns even if implementation modules still contain presentation plumbing.
-- Ordinary consumers do not need container workspace mechanics.
-- Missing provider-selection configuration fails at construction or validation boundaries.
-- Consumer-owned fallback can choose provider-appropriate model and effort settings across separate invocations.
-- Release work can prioritize canonical consumer seams without hiding every implementation module first.
-- Ordinary consumers should use runtime entrypoints and adapter seams instead of work invocation internals.
-- Provider output remains type-directed while staying behind adapter contracts.
-- Provider failure diagnostics remain useful without runtime pretending to sanitize provider payloads.
-- Shared log lifecycle remains reusable without making logging configuration ordinary request model.
-- Long-running invocations remain cancellable without exposing lower-level async primitives.
-- Usage-limit policy refers to runtime service identity.
-- Runtime service identity and external provider session identity remain separate.
-- Tool-policy values stay small while preserving downstream-required intermediate access.
-- Shared policy helpers can reduce duplicated adapter logic without moving provider CLI syntax into public runtime API.
+- Boundary easier to learn and test through its public surface; consumers import core values without learning implementation modules.
+- Provider-selection and quota policy can evolve without widening execution contracts; consumer-owned fallback chooses provider-appropriate model/effort across invocations.
+- Service names stay safe identity keys across selection, state layout, logs, diagnostics; runtime and external provider session identity stay separate.
+- Provider failure diagnostics stay useful without runtime pretending to sanitize payloads.
+- Long-running invocations stay cancellable without exposing lower-level async primitives.

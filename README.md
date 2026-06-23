@@ -10,7 +10,7 @@ pip install ruhken-agent-runtime
 
 The accepted runtime direction is to ship Claude, Codex, and OpenCode execution inside this package. Consuming projects select a built-in provider, model, effort, credentials, tool policy, invocation directory, and session lifecycle through runtime call arguments; they do not construct provider services, service registries, command builders, provider-session adapters, or provider event parsers.
 
-For complete target signatures and invariants, see [the public API reference](docs/public-api.md). For the portable continuation decision, see [ADR 0010](docs/adr/0010-portable-continuations.md).
+For complete target signatures and invariants, see [the public API reference](docs/public-api.md). For the portable continuation decision, see [ADR 0005](docs/adr/0005-runtime-session-lifecycle-entrypoints.md).
 
 Only the documented import paths are stable. Internal runtime modules may be reorganized as the implementation is split, but ordinary consumers should continue importing from `agent_runtime` and `agent_runtime.runtime`.
 

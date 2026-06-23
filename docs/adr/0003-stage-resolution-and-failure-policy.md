@@ -1,19 +1,14 @@
 # Stage resolution and failure policy
 
-Status: Superseded by [0011 - Single-candidate provider selection](0011-single-candidate-provider-selection.md) for stage-chain resolution and runtime-owned fallback. Provider failure classification remains current.
+Status: Stage-chain resolution superseded by [0010 - Single-candidate provider selection](0010-single-candidate-provider-selection.md). Provider failure classification below remains current.
 
-Runtime service selection uses ordered stage chains. Each chain node may name a preferred service and a fallback node. Resolution chooses the first configured and available service, preserving the remaining fallback chain for later evaluation.
-
-Provider failures are classified by runtime-owned error types so execution can distinguish transient failures, hard failures, credential failures, timeout-like aborts, and usage limits.
+Provider failures are classified by runtime-owned error types so execution distinguishes transient failures, hard failures, credential failures, timeout-like aborts, and usage limits.
 
 ## Decision
 
-- Resolve nested stage chains in priority order.
-- Skip unavailable or unconfigured services instead of treating every chain as a hard failure.
 - Classify provider failures with runtime-owned error types that preserve provider payloads.
 
 ## Consequences
 
-- Consuming projects can defer provider choice until runtime.
-- Failure handling remains consistent across provider implementations.
-- The runtime can make continuation decisions without knowing application semantics.
+- Failure handling stays consistent across provider implementations.
+- Runtime makes continuation decisions without knowing application semantics.
