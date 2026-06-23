@@ -14,7 +14,6 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
-import agent_runtime._runtime_compat as compat_runtime
 import agent_runtime._provider_session_adapter as internal_provider_session_adapter_runtime
 import agent_runtime._portable_continuation_payload as continuation_payload_module
 import agent_runtime.runtime as prompt_runtime
@@ -94,7 +93,6 @@ def test_package_exports_runtime_surface() -> None:
         "RuntimeOutcome",
         "SessionRunResult",
         "SessionRuntimeMetadata",
-        "WorktreeMount",
     } <= set(prompt_runtime.__all__)
     assert "ToolAccess" not in prompt_runtime.__all__
     assert "ToolPolicyProfile" not in prompt_runtime.__all__
@@ -447,7 +445,7 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
 
     assert ephemeral_request.invocation_dir == Path("/tmp/worktree")
     assert new_session_request.invocation_dir == Path("/tmp/worktree")
-    assert resumed_session_request.invocation_dir.host_path == Path("/tmp/worktree")
+    assert resumed_session_request.invocation_dir == Path("/tmp/worktree")
     for request in (
         ephemeral_request,
         new_session_request,
@@ -586,18 +584,6 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_smoke_env(
             env_path.unlink(missing_ok=True)
         else:
             env_path.write_text(original_env, encoding="utf-8")
-
-
-def test_internal_runtime_compatibility_module_keeps_resume_wrapper_private() -> None:
-    runtime_instance = compat_runtime.ResumedSessionRuntime(
-        execution_adapter=cast(
-            compat_runtime.ResumedSessionRuntimeExecutionAdapter,
-            object(),
-        )
-    )
-
-    assert hasattr(runtime_instance, "run_resumed_session")
-    assert not hasattr(runtime_instance, "run_resumable_prompt")
 
 
 def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import inspect
 import math
@@ -8,7 +9,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
-from ._execution_contracts import CancellationToken, WorktreeMount
 from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
 from ._request_normalization import (
@@ -49,16 +49,32 @@ _DEFAULT_EPHEMERAL_SESSION_NAMESPACE = ""
 _PUBLIC_INVOCATION_DIR_NAME = "invocation_dir"
 
 
+@dataclasses.dataclass
+class CancellationToken:
+    _event: asyncio.Event = dataclasses.field(
+        default_factory=asyncio.Event,
+        init=False,
+        repr=False,
+    )
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+
 def _redacted_credential_value(value: str | None) -> str:
     return "None" if value is None else "'<redacted>'"
 
 
 def _resolve_public_invocation_dir(
-    invocation_dir: Path | WorktreeMount | None,
+    invocation_dir: Path | None,
     compatibility_kwargs: dict[str, Any],
     *,
     context: str,
-) -> Path | WorktreeMount:
+) -> Path:
     legacy_worktree = compatibility_kwargs.pop("worktree", None)
     if compatibility_kwargs:
         unexpected_argument = next(iter(compatibility_kwargs))
@@ -518,7 +534,7 @@ class EphemeralRunRequest:
     def __init__(
         self,
         prompt: str,
-        invocation_dir: Path | WorktreeMount | None = None,
+        invocation_dir: Path | None = None,
         provider_selection: ProviderSelection | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
@@ -588,7 +604,7 @@ class NewSessionRunRequest:
     def __init__(
         self,
         prompt: str,
-        invocation_dir: Path | WorktreeMount | None = None,
+        invocation_dir: Path | None = None,
         provider_selection: ProviderSelection | None = None,
         role: InvocationRole | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
@@ -701,7 +717,7 @@ class SessionRunResult:
 @dataclasses.dataclass(frozen=True, init=False)
 class ResumedSessionRunRequest:
     prompt: str
-    invocation_dir: WorktreeMount
+    invocation_dir: Path
     model: str
     effort: str
     role: InvocationRole
@@ -722,7 +738,7 @@ class ResumedSessionRunRequest:
     def __init__(
         self,
         prompt: str,
-        invocation_dir: Path | WorktreeMount | None = None,
+        invocation_dir: Path | None = None,
         model: str | None = None,
         effort: str | None = None,
         session_plan: ResumableSessionPlan | None = None,
@@ -853,7 +869,7 @@ class ResumedSessionRunRequest:
         object.__setattr__(
             self,
             _PUBLIC_INVOCATION_DIR_NAME,
-            normalized_request.worktree.mount,
+            normalized_request.worktree.path,
         )
         object.__setattr__(self, "_runtime_state_dir", _runtime_state_dir)
         object.__setattr__(self, "model", resolved_model)
@@ -875,8 +891,8 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "token", token)
 
     @property
-    def mount_path(self) -> Any:
-        return self.invocation_dir.host_path
+    def mount_path(self) -> Path:
+        return self.invocation_dir
 
     @property
     def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:

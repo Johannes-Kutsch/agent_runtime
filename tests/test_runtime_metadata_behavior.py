@@ -15,7 +15,6 @@ from agent_runtime.errors import (
     TransientAgentError,
     UsageLimitError,
 )
-from agent_runtime._execution_contracts import PromptRunSession
 from agent_runtime.roles import InvocationRole
 from agent_runtime.usage_limit_scope import UsageLimitScope
 from agent_runtime.session import RunKind
@@ -31,17 +30,6 @@ def test_invocation_role_rejects_unsafe_labels(label: str) -> None:
 def test_usage_limit_scope_rejects_unsafe_labels(label: str) -> None:
     with pytest.raises(ValueError):
         UsageLimitScope(label)
-
-
-@pytest.mark.parametrize("label", [" ", "a/b", "../escape"])
-def test_prompt_run_session_namespace_preserves_empty_default_and_rejects_unsafe_non_empty_values(
-    label: str,
-) -> None:
-    assert PromptRunSession().namespace == ""
-    assert PromptRunSession(namespace="").namespace == ""
-
-    with pytest.raises(ValueError):
-        PromptRunSession(namespace=label)
 
 
 def test_agent_failed_error_rejects_unsafe_session_namespace_before_building_diagnostics() -> (

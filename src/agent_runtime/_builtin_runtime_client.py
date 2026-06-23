@@ -2350,7 +2350,7 @@ def _invoke_codex_resumed_session_provider(
         command="",
         command_argv=command_argv,
         prefer_argv=True,
-        worktree=request.invocation_dir.host_path,
+        worktree=request.invocation_dir,
         environment=_codex_env(
             state_dir_container_path=(
                 str(provider_state_dir) if provider_state_dir is not None else None
@@ -3226,7 +3226,7 @@ def _run_builtin_resumed_session(
             state_dir_session_id=state_dir_session_id,
         )
         run_kind = RunKind.RESUME
-    prompt_path = _builtin_provider_prompt_path(request.invocation_dir.host_path)
+    prompt_path = _builtin_provider_prompt_path(request.invocation_dir)
 
     def _reduce_opencode_session_output(
         lines: list[str],
@@ -3298,7 +3298,7 @@ def _run_builtin_resumed_session(
             command="" if continuation_service == "opencode" else command,
             command_argv=command_argv,
             prefer_argv=(continuation_service in {"claude", "opencode"}),
-            worktree=request.invocation_dir.host_path,
+            worktree=request.invocation_dir,
             environment=environment,
             prompt_content=request.prompt,
             prompt_path=prompt_path,

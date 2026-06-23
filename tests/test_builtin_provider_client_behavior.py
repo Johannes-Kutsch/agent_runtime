@@ -605,7 +605,7 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -643,7 +643,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     provider_selection=InternalStageSelection(
                         service="unsupported",
                         model="gpt-5.4",
@@ -659,7 +659,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     provider_selection=InternalStageSelection(
                         service="opencode",
                         model="glm-5.2",
@@ -675,7 +675,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     provider_selection=_selection_with_auth(
                         InternalStageSelection(
                             service="missing",
@@ -714,7 +714,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
     ):
         prompt_runtime.NewSessionRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=InternalStageSelection(
                 service="opencode",
                 model="glm-5.2",
@@ -753,7 +753,7 @@ def test_runtime_client_new_session_validation_failure_cleans_runtime_managed_st
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     provider_selection=InternalStageSelection(
                         service="unsupported",
                         model="gpt-5.4",
@@ -1028,7 +1028,7 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
-        worktree=tmp_path,
+        invocation_dir=tmp_path,
         runtime_state_dir=runtime_state_dir,
         provider_selection=_selection_with_auth(
             InternalStageSelection(
@@ -1129,7 +1129,7 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     request = prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
-        worktree=tmp_path,
+        invocation_dir=tmp_path,
         runtime_state_dir=runtime_state_dir,
         provider_selection=_selection_with_auth(
             InternalStageSelection(
@@ -1233,7 +1233,7 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="opencode",
@@ -1324,7 +1324,7 @@ def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_p
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="opencode",
@@ -1398,7 +1398,7 @@ def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
@@ -1524,7 +1524,7 @@ def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=worktree,
+                invocation_dir=worktree,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -1596,7 +1596,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="codex",
@@ -1649,7 +1649,7 @@ def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_a
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="codex",
@@ -1699,7 +1699,7 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="codex",
@@ -1757,7 +1757,7 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -1813,7 +1813,7 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     provider_selection=_selection_with_auth(
                         InternalStageSelection(
                             service="codex",
@@ -1895,7 +1895,7 @@ def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
@@ -1953,7 +1953,7 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 continuation=continuation,
                 on_live_output=on_live_output,
             )
@@ -2002,7 +2002,7 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
             runtime.RuntimeClient().run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     continuation=continuation,
                     on_live_output=on_live_output,
                 )
@@ -2032,7 +2032,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="claude",
@@ -2211,7 +2211,7 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -2315,7 +2315,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
         outcome = client.run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -2333,7 +2333,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
             client.run_new_session(
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     provider_selection=_selection_with_auth(
                         InternalStageSelection(
                             service="opencode",
@@ -2353,7 +2353,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
             client.run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                     continuation=prompt_runtime.Continuation(
                         selected_service="opencode",
@@ -2442,7 +2442,7 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -2520,7 +2520,7 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -2687,7 +2687,7 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
                 session_namespace="main",
@@ -2941,7 +2941,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -3072,7 +3072,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -3127,7 +3127,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
                 session_namespace="main",
@@ -3224,7 +3224,7 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
                 session_namespace="main",
@@ -3340,7 +3340,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -3386,7 +3386,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=first.continuation,
                 role=InvocationRole("implementer"),
@@ -3460,7 +3460,7 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -3521,7 +3521,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
         lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
@@ -3615,7 +3615,7 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -3692,7 +3692,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -3782,7 +3782,7 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -3891,7 +3891,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
@@ -3979,7 +3979,7 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
@@ -4036,7 +4036,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -4154,7 +4154,7 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -4264,7 +4264,7 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -4354,7 +4354,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -4439,7 +4439,7 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -4519,7 +4519,7 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     provider_selection=_selection_with_auth(
                         InternalStageSelection(
@@ -4543,7 +4543,7 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
             runtime.RuntimeClient().run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     continuation=continuation,
                     role=InvocationRole("implementer"),
@@ -4631,7 +4631,7 @@ def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_stat
             runtime.RuntimeClient().run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     continuation=continuation,
                     role=InvocationRole("implementer"),
@@ -4696,7 +4696,7 @@ def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_stat
             runtime.RuntimeClient().run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     continuation=continuation,
                     role=InvocationRole("implementer"),
@@ -4722,7 +4722,7 @@ def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_se
             runtime.RuntimeClient().run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     continuation=prompt_runtime.Continuation(
                         selected_service="codex",
                         selected_model="gpt-5.4",
@@ -4754,7 +4754,7 @@ def test_runtime_client_rejects_resumed_session_with_non_object_portable_continu
             runtime.RuntimeClient().run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     runtime_state_dir=tmp_path / ".agent-runtime" / "state",
                     continuation=prompt_runtime.Continuation(
                         selected_service="codex",
@@ -4789,7 +4789,7 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     runtime_state_dir=tmp_path / ".agent-runtime" / "state",
                     provider_selection=_selection_with_auth(
                         InternalStageSelection(
@@ -4824,7 +4824,7 @@ def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_p
             runtime.RuntimeClient().run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    worktree=tmp_path,
+                    invocation_dir=tmp_path,
                     runtime_state_dir=tmp_path / ".agent-runtime" / "state",
                     continuation=prompt_runtime.Continuation(
                         selected_service="opencode",
@@ -4866,7 +4866,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
                 runtime.RuntimeClient().run_new_session(
                     prompt_runtime.NewSessionRunRequest(
                         prompt="already rendered prompt",
-                        worktree=tmp_path,
+                        invocation_dir=tmp_path,
                         runtime_state_dir=runtime_state_dir,
                         provider_selection=InternalStageSelection(
                             service="codex",
@@ -4884,7 +4884,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
                 runtime.RuntimeClient().run_resumed_session(
                     prompt_runtime.ResumedSessionRunRequest(
                         prompt="already rendered prompt",
-                        worktree=tmp_path,
+                        invocation_dir=tmp_path,
                         runtime_state_dir=runtime_state_dir,
                         continuation=prompt_runtime.Continuation(
                             selected_service="codex",
@@ -4949,7 +4949,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
@@ -5175,7 +5175,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 stage,
                 auth,
@@ -5356,7 +5356,7 @@ def test_runtime_client_ephemeral_non_claude_invocation_prefers_argv_prompt_tran
     runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 stage,
                 auth,
@@ -5393,7 +5393,7 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=InternalStageSelection(
                     service="missing",
                     model="placeholder",
@@ -5421,7 +5421,7 @@ def test_runtime_client_ephemeral_rejects_unsupported_selected_provider_without_
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=InternalStageSelection(
                     service="missing",
                     model="placeholder",
@@ -5450,7 +5450,7 @@ def test_runtime_client_reachable_fallback_opencode_stage_requires_its_own_api_k
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="missing",
@@ -5522,7 +5522,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         runtime.RuntimeClient().run_resumed_session(
             prompt_runtime.ResumedSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=worktree,
+                invocation_dir=worktree,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 role=InvocationRole("implementer"),
@@ -5623,7 +5623,7 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
     runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="claude",
@@ -5649,7 +5649,7 @@ def test_runtime_client_reachable_opencode_stage_requires_api_key_without_fallin
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="missing",
@@ -5690,7 +5690,7 @@ def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="missing",
@@ -5793,7 +5793,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -5937,7 +5937,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -6037,7 +6037,7 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
         runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -6129,7 +6129,7 @@ def test_runtime_client_preserves_opencode_invalid_api_key_observations(
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -6298,7 +6298,7 @@ def test_runtime_client_validates_opencode_model_allowlist_and_medium_effort(
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -6366,7 +6366,7 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="opencode",
@@ -6431,7 +6431,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
@@ -6503,7 +6503,7 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
     )
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
-        worktree=tmp_path,
+        invocation_dir=tmp_path,
         provider_selection=InternalStageSelection(
             service="codex",
             model="gpt-5.4",
@@ -6575,7 +6575,7 @@ def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
@@ -6644,7 +6644,7 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -6697,7 +6697,7 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
@@ -6770,7 +6770,7 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="opencode",
@@ -6832,7 +6832,7 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="claude",
@@ -6866,7 +6866,7 @@ def test_runtime_client_reachable_claude_stage_requires_token_without_falling_th
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="missing",
@@ -6917,7 +6917,7 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="claude",
@@ -6964,7 +6964,7 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="claude",
@@ -7023,7 +7023,7 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="claude",
@@ -7064,7 +7064,7 @@ def test_runtime_client_rejects_unsupported_selected_provider_for_ephemeral_resu
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=InternalStageSelection(
                     service="missing",
                     model="ignored",
@@ -7099,7 +7099,7 @@ def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metad
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="claude",
@@ -7134,7 +7134,7 @@ def test_runtime_client_completed_ephemeral_result_hides_fallback_metadata(
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="claude",
@@ -7184,7 +7184,7 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=_selection_with_auth(
                 InternalStageSelection(
                     service="claude",
@@ -7260,7 +7260,7 @@ def test_runtime_client_ephemeral_usage_limit_does_not_fallback_to_another_provi
     outcome = runtime.RuntimeClient().run_ephemeral(
         prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=tmp_path,
+            invocation_dir=tmp_path,
             provider_selection=InternalStageSelection(
                 service="codex",
                 model="gpt-5.4",
@@ -7314,7 +7314,7 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
         runtime.RuntimeClient().run_ephemeral(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
-                worktree=tmp_path,
+                invocation_dir=tmp_path,
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="claude",
