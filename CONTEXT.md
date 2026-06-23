@@ -19,13 +19,15 @@
 | `ToolPolicy` | Closed public value describing allowed provider tools: `NONE`, `INSPECT_ONLY`, `NO_FILE_MUTATION`, or `UNRESTRICTED`. |
 | `Invocation Directory` | Host directory where runtime launches a provider command; public request field is `invocation_dir`. |
 | `Tool Workspace` | Invocation Directory when runtime exposes it through provider tools. |
+| `Idle Timeout` | Per-run heartbeat watchdog: maximum seconds without any observed `Agent Event` before the runtime aborts the invocation with a `timed_out` outcome. Consumer-configurable per run; defaults to 300 seconds. |
 | `Ephemeral Run` | Runtime invocation that does not prepare or promise provider-session continuity. |
 | `Start Session Run` | Runtime invocation that selects a service and prepares provider-session continuity. |
 | `Resume Session Run` | Runtime invocation that continues an existing provider-session continuity chain without fallback or reselection. |
 | `Session-backed Provider` | Built-in provider that can produce and consume portable continuation data. |
 | `Continuation` | Opaque portable resume token callers persist and pass back to resume a continuity chain. |
-| `InvocationRecord` | Structured runtime output describing an invocation for caller persistence or display. |
-| `Live Runtime Output` | Provider-neutral observable agent-message text and selected service identity emitted during runtime invocation. |
+| `InvocationRecord` | Structured finished-run output for caller persistence or display: the complete ordered Agent Event sequence plus terminal metadata and raw provider output evidence. |
+| `Live Runtime Output` | Provider-neutral stream of typed `Agent Event` observations emitted during runtime invocation. |
+| `Agent Event` | One observed signal, discriminated by type (agent message, agent tool call, or other agent life sign), carrying both the filtered/neutral interpretation and the raw provider output it was derived from, plus selected service identity. |
 | `RuntimeClient` | Caller-owned runtime object that executes runtime requests without durable provider session storage or cross-call provider availability policy. |
 | `RuntimeOutcome` | Canonical result category for one runtime invocation: completion, usage limits, cancellation, timeout, selected-provider temporary unavailability, or retryable provider failure. |
 | `Live Provider Smoke Test` | Opt-in validation run outside default tests that exercises real built-in providers through Runtime Public Surface. |
@@ -59,8 +61,11 @@
 - Normal RuntimeOutcome values identify the selected provider service, model, and effort for the invocation.
 - Runtime results report selected provider facts for one invocation, not Consumer Fallback attempt paths.
 - Invocation records describe one runtime invocation and do not carry Consumer Fallback group or attempt identifiers.
+- Absence of `InvocationRecord` values means runtime has no provider invocation evidence for that outcome.
+- Runtime returns an `InvocationRecord` for each provider dispatch that starts, including interrupted outcomes.
 - Built-in provider credentials are part of `ProviderSelection`; missing explicit credentials are credential failures and do not trigger Consumer Fallback inside runtime.
 - Runtime-owned selection, availability, resumability, failure classification, path-safety validation, and provider parsing stay inside runtime boundary.
+- Runtime classifies provider failures but never acts on the classification: no waiting, retry scheduling, or in-runtime fallback. Provider-specific detection (e.g. subscription-denial recognition) stays internal; surfaced outcomes carry a neutral category plus the raw provider error.
 - Built-in Provider Invocation is internal and must not become a consumer-defined adapter extension point or request-time injection point.
 - WorkInvocation and execution adapter seams are internal and must not be consumer-accessible.
 - Public-looking internal modules should be moved behind underscore-prefixed module names before release where practical.
@@ -68,7 +73,11 @@
 - Built-in Provider Invocation must use runtime-neutral internal artifact names, not pycastle-specific prompt or session naming.
 - Provider event DTOs, provider-specific session details, command rendering, stream parsing, and provider flag profiles are internal.
 - Public provider failure diagnostics may expose provider observations; consumers own storage, display, and redaction.
-- Live Runtime Output is per-request observation of `AgentMessageTurn` values, not arbitrary provider chunks, token streaming, replay, logs, or alternate lifecycle entrypoints.
+- Live Runtime Output is per-request observation of typed `Agent Event` values, not arbitrary provider chunks, token streaming, replay, logs, or alternate lifecycle entrypoints.
+- Agent Events are discriminated by a closed type set: agent message, agent tool call, and other agent life sign; consumers branch on type.
+- Each Agent Event carries both a filtered/neutral view (typed content, e.g. tool identity and neutral payload, not per-tool structured schemas) and the raw provider output it was derived from; consumers choose which to read.
+- Exposing raw provider output on Agent Events intentionally supersedes the earlier rule that live output hides raw provider stdout/JSON; raw is now a carried payload, while provider DTO objects, command rendering, and stream parsing remain internal.
+- The finished-run log and Live Runtime Output share one Agent Event vocabulary: live emits events incrementally, the finished-run log is their complete ordered sequence plus terminal metadata; runtime owns no durable storage of either.
 - Live Runtime Output is independent of session lifecycle and `ToolPolicy`; completed runtime output remains authoritative.
 - Live Runtime Output observers are synchronous, notification-only, at-most-once per provider attempt, and consumer-owned for async bridging and backpressure.
 - Live Runtime Output callback failures propagate as exceptional consumer failures.
@@ -82,12 +91,16 @@
 - Continuations may carry provider identity and resume state, but not ProviderSelection objects.
 - Session-backed execution is limited to built-in providers that produce and consume portable continuation data.
 - Runtime must not own durable provider-session storage, durable invocation-log storage, or cleanup policy.
+- All resume state round-trips through the opaque Continuation: per session run the runtime may capture provider on-disk session state into the continuation and restore it into an ephemeral, self-cleaned working directory; it keeps no cross-call SessionStore, session-id persistence, or durable state directory between calls.
 - Resumed-session availability or usage-limit failures do not invalidate continuations and must not trigger automatic Consumer Fallback inside runtime.
 - Session-backed interruptions report invocation progress so callers can choose retry or continuation prompts.
 - Usage limits, cancellation, timeout, temporary unavailability, and confidently retryable provider failures are normal `RuntimeOutcome` values.
 - Credential failures, runtime configuration errors, hard provider failures, adapter/protocol bugs, unclassified provider failures, invalid service references, and unexpected exceptions remain exceptional failures.
 - Provider-reported usage belongs on runtime outcomes whenever observed, including interrupted outcomes.
 - Cancellation and timeout outcomes report only usage observed before interruption; runtime does not perform provider-specific post-kill usage recovery.
+- `timed_out` is an Idle Timeout: an idle/heartbeat watchdog reset by every observed Agent Event, not a total wall-clock budget.
+- Idle Timeout length is a consumer-supplied per-run parameter on every lifecycle entrypoint, defaulting to 300 seconds.
+- Runtime performs no automatic timeout retry or restart; it reports `timed_out` and the consumer decides whether to start a new invocation.
 - A new continuation becomes meaningful only after provider work has started.
 - Resumed-session execution keeps service, model, effort, and `ToolPolicy` fixed from the continuation while receiving credentials separately.
 - Runtime requests require explicit `ToolPolicy`; non-`NONE` policies grant Invocation Directory as Tool Workspace.

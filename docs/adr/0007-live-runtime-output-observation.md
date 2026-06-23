@@ -1,6 +1,6 @@
 # Live runtime output observation
 
-Status: Accepted.
+Status: Superseded by 0012. The message-only, no-raw-output decision below is retained for history; see 0012 for the typed `Agent Event` model that carries raw output and is shared with the finished-run log.
 
 `agent_runtime` needs a consumer-facing way to observe live agent-message output during provider execution. Pycastle uses provider-parsed assistant turns for live display and protocol handling; runtime must support that without exposing provider JSON events, raw stdout, or provider adapter seams as public API.
 
