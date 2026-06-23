@@ -99,6 +99,7 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
     parameters = inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
 
     assert "on_live_output" in parameters
+    assert "timeout_seconds" in parameters
     assert "session_store" not in parameters
     assert "provider_session_adapter" not in parameters
 

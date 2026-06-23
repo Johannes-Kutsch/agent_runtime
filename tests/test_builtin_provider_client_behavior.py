@@ -6983,7 +6983,9 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
     def collect_events(event: prompt_runtime.AgentEvent) -> None:
         events_emitted.append(event)
 
-    class SlowProviderAdapter(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
+    class SlowProviderAdapter(
+        provider_invocation_runtime.InMemoryProviderInvocationAdapter
+    ):
         """Provider adapter that emits output after the timeout window."""
 
         def execute(
@@ -7013,6 +7015,9 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
                         prepared.provider_session_id or request.provider_session_id
                     ),
                 )
+            assert isinstance(
+                prepared, provider_invocation_runtime.ProviderInvocationResult
+            )
             return prepared
 
     adapter = SlowProviderAdapter(
@@ -7050,5 +7055,112 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
 
     assert outcome.kind == "timed_out"
     assert outcome.service_name == "opencode"
-    # The event may or may not have been emitted depending on timing,
-    # but the outcome should be timed_out
+
+
+def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
+    tmp_path: Path,
+) -> None:
+    """All three lifecycle request types default to a 300s idle timeout."""
+    import inspect
+
+    ephemeral = prompt_runtime.EphemeralRunRequest(
+        prompt="test",
+        invocation_dir=tmp_path,
+        provider_selection=_selection_with_auth(
+            InternalStageSelection(
+                service="claude", model="claude-haiku-4-5", effort="low"
+            ),
+            runtime.ProviderAuth(claude_code_oauth_token="tok"),
+        ),
+        tool_policy=runtime.ToolPolicy.NONE,
+    )
+    assert ephemeral.timeout_seconds == 300
+
+    new_session = prompt_runtime.NewSessionRunRequest(
+        prompt="test",
+        invocation_dir=tmp_path,
+        provider_selection=_selection_with_auth(
+            InternalStageSelection(
+                service="claude", model="claude-haiku-4-5", effort="low"
+            ),
+            runtime.ProviderAuth(claude_code_oauth_token="tok"),
+        ),
+        role=InvocationRole("implementer"),
+        tool_policy=runtime.ToolPolicy.NONE,
+    )
+    assert new_session.timeout_seconds == 300
+
+    assert (
+        "timeout_seconds"
+        in inspect.signature(prompt_runtime.ResumedSessionRunRequest).parameters
+    )
+
+
+def test_runtime_client_ephemeral_times_out_without_live_output_callback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Idle timeout fires even when no on_live_output callback is provided."""
+    import time
+
+    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.recorded_requests.append(request)
+            if not self.prepared_invocations:
+                raise AssertionError("No prepared provider invocation remains.")
+            prepared = self.prepared_invocations.pop(0)
+            assert isinstance(
+                prepared, provider_invocation_runtime.ProviderInvocationPreparedStream
+            )
+            stdout_lines = list(prepared.stdout_lines)
+            time.sleep(2)
+            provider_invocation_runtime._consume_new_stdout_lines(
+                request.output_hooks.reduce_output, stdout_lines
+            )
+            output, usage = request.output_hooks.reduce_output(stdout_lines)
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output=output,
+                usage=usage,
+                stdout_lines=tuple(stdout_lines),
+                provider_session_id=(
+                    prepared.provider_session_id or request.provider_session_id
+                ),
+            )
+
+    adapter = SlowProvider(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationPreparedStream(
+                stdout_lines=(
+                    json.dumps({"type": "session.status", "status": {"type": "idle"}}),
+                )
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(opencode_api_key="go-key"),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            timeout_seconds=1,
+        )
+    )
+
+    assert outcome.kind == "timed_out"
+    assert outcome.service_name == "opencode"

@@ -1068,7 +1068,7 @@ def _wrap_on_live_output_with_timeout(
     on_live_output: Callable[[AgentEvent], None] | None,
     timeout_seconds: int,
 ) -> tuple[Callable[[AgentEvent], None] | None, _IdleTimeoutWatchdog | None]:
-    if on_live_output is None or timeout_seconds <= 0:
+    if timeout_seconds <= 0:
         return on_live_output, None
 
     watchdog = _IdleTimeoutWatchdog(timeout_seconds)
@@ -1076,13 +1076,9 @@ def _wrap_on_live_output_with_timeout(
 
     def wrapper(event: AgentEvent) -> None:
         watchdog.reset_timer()
-        on_live_output(event)
-        try:
-            watchdog.check_timeout()
-        except Exception:
-            # Don't mark timeout as a live output exception - we want it to propagate
-            # and be handled by the outcome conversion logic
-            raise
+        if on_live_output is not None:
+            on_live_output(event)
+        watchdog.check_timeout()
 
     return wrapper, watchdog
 
@@ -2778,6 +2774,10 @@ def _run_builtin_new_session(
             context="new-session",
         )
     )
+    _on_live_output, timeout_watchdog = _wrap_on_live_output_with_timeout(
+        request.on_live_output,
+        request.timeout_seconds,
+    )
     try:
         if supported_builtin_provider_selection(request.provider_selection) is None:
             raise RuntimeConfigurationError(
@@ -2825,7 +2825,8 @@ def _run_builtin_new_session(
                         ),
                         role=request.role,
                         provider_auth=selected_stage_auth,
-                        on_live_output=request.on_live_output,
+                        on_live_output=_on_live_output,
+                        timeout_seconds=0,
                         _session_namespace=request._session_namespace,
                     ),
                     provider_invocation_adapter=invocation_adapter,
@@ -2838,7 +2839,7 @@ def _run_builtin_new_session(
                     request=request,
                     stage=selected_stage,
                     provider_state_dir=provider_state_dir,
-                    on_live_output=request.on_live_output,
+                    on_live_output=_on_live_output,
                 )
                 provider_session_id = _active_codex_provider_session_id_from_result(
                     invocation_result,
@@ -2929,7 +2930,8 @@ def _run_builtin_new_session(
                         prompt=request.prompt,
                         invocation_dir=cast(Any, request.invocation_dir),
                         _runtime_state_dir=runtime_state_dir,
-                        on_live_output=request.on_live_output,
+                        on_live_output=_on_live_output,
+                        timeout_seconds=0,
                         continuation=_build_claude_continuation(
                             model=selected_stage.model,
                             effort=selected_stage.effort,
@@ -2985,7 +2987,7 @@ def _run_builtin_new_session(
                     provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
                     provider_session_id=provider_session_id,
-                    on_live_output=request.on_live_output,
+                    on_live_output=_on_live_output,
                 )
                 invocation_records = _provider_invocation_records(
                     service_name=selected_stage.service,
@@ -3004,7 +3006,7 @@ def _run_builtin_new_session(
                         provider_state_dir=provider_state_dir,
                         run_kind=run_kind,
                         provider_session_id=provider_session_id,
-                        on_live_output=request.on_live_output,
+                        on_live_output=_on_live_output,
                     )
                 )
                 invocation_records = _provider_invocation_records(
@@ -3097,6 +3099,8 @@ def _run_builtin_new_session(
         )
     finally:
         cleanup_runtime_state_dir()
+        if timeout_watchdog is not None:
+            timeout_watchdog.stop_monitoring()
 
 
 def _run_builtin_resumed_session(
@@ -3108,6 +3112,10 @@ def _run_builtin_resumed_session(
         _default_provider_invocation_adapter()
         if provider_invocation_adapter is None
         else provider_invocation_adapter
+    )
+    _on_live_output, timeout_watchdog = _wrap_on_live_output_with_timeout(
+        request.on_live_output,
+        request.timeout_seconds,
     )
     runtime_state_dir = request._runtime_state_dir
     continuation = request.continuation
@@ -3168,7 +3176,7 @@ def _run_builtin_resumed_session(
                 provider_session_id=provider_session_id,
                 request=request,
                 provider_state_dir=provider_state_dir,
-                on_live_output=request.on_live_output,
+                on_live_output=_on_live_output,
             )
             active_provider_session_id = _active_codex_provider_session_id_from_result(
                 invocation_result,
@@ -3329,7 +3337,7 @@ def _run_builtin_resumed_session(
 
             reduce_output = _observe_output_reducer(
                 lambda lines: _reduce_claude_stream(lines),
-                request.on_live_output,
+                _on_live_output,
                 service_name="claude",
             )
 
@@ -3353,7 +3361,7 @@ def _run_builtin_resumed_session(
             )
             reduce_output = _observe_opencode_output_reducer(
                 _reduce_opencode_session_output,
-                request.on_live_output,
+                _on_live_output,
             )
             extract_provider_session_id = _extract_opencode_provider_session_id
         invocation_result = _invoke_provider(
