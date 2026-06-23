@@ -7091,3 +7091,56 @@ def test_interrupted_run_invocation_record_carries_observed_events(
     assert record.service_name == "claude"
     assert record.model == "sonnet"
     assert record.effort == "medium"
+
+
+def test_completed_run_invocation_record_carries_events_without_live_observer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    assistant_line = (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "Hello world"}],
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            }
+        )
+        + "\n"
+    )
+    result_line = (
+        json.dumps({"type": "result", "result": "Hello world", "is_error": False})
+        + "\n"
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(assistant_line, result_line),
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="test prompt",
+            invocation_dir=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="test-token"),
+            ),
+            tool_policy=runtime.ToolPolicy.NONE,
+            on_live_output=None,
+        )
+    )
+
+    assert outcome.kind == "completed"
+    assert len(outcome.invocation_records) == 1
+    record = outcome.invocation_records[0]
+    assert isinstance(record, prompt_runtime.InvocationRecord)
+    assert len(record.events) > 0
+    assert record.outcome == "completed"
+    assert record.service_name == "claude"

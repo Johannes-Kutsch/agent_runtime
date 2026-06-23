@@ -2108,7 +2108,7 @@ def _build_opencode_continuation(
 def _invocation_events_from_stdout_lines(
     service_name: str,
     stdout_lines: tuple[str, ...],
-) -> tuple[Any, ...]:
+) -> tuple[AgentEvent, ...]:
     return tuple(
         _live_output_event_for_provider_line(service_name, line)
         for line in stdout_lines
