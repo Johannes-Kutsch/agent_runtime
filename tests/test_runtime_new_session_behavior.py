@@ -1112,11 +1112,6 @@ def test_new_session_runtime_requires_selected_configured_service(
                     worktree=WorktreeMount(worktree),
                     provider_selection=stage_selection_factory(
                         service="missing",
-                        fallback=stage_selection_factory(
-                            service="claude",
-                            model="sonnet",
-                            effort="high",
-                        ),
                     ),
                     role=InvocationRole("implementer"),
                     session_namespace="main",
@@ -1153,11 +1148,6 @@ def test_new_session_runtime_reports_selected_usage_limit_without_fallback(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
-                    ),
                 ),
                 role=InvocationRole("implementer"),
                 session_namespace="main",

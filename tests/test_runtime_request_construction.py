@@ -22,7 +22,7 @@ from agent_runtime.session_planning import (
     AuthSeedingRequirement,
     ResumableSessionPlan,
 )
-from agent_runtime.types import StageSelection as InternalStageSelection
+from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionService
 

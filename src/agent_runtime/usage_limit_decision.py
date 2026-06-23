@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Callable, TypeAlias
 
 from ._service_registry import ServiceRegistry
-from .types import StageSelection
+from .types import ProviderSelection
 from .usage_limit_scope import UsageLimitScope
 
 
@@ -85,7 +85,7 @@ def _provider_message_label(provider_label: str) -> str:
 def decide_usage_limit_continuation(
     outcome: UsageLimitOutcome,
     *,
-    stage_override: StageSelection | None,
+    stage_override: ProviderSelection | None,
     service_registry: ServiceRegistry | None,
     now: datetime,
     compute_wake_time: WakeTimeComputer,

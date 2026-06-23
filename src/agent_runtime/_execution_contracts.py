@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
 from ._request_normalization import (
+    normalize_provider_selection,
     normalize_session_namespace,
-    normalize_stage_selection,
     normalize_tool_policy,
     normalize_tool_access,
     normalize_worktree_mount,
@@ -19,7 +19,7 @@ from .contracts import ExecutionProvider, ToolAccess, ToolPolicy, ToolPolicyProf
 from .errors import AgentTimeoutError, UsageLimitError
 from .roles import InvocationRole
 from .session import RunKind
-from .types import StageSelection, validate_stage_selection
+from .types import ProviderSelection, validate_provider_selection
 from .usage_limit_scope import UsageLimitScope
 
 WorkResultT = TypeVar("WorkResultT")
@@ -62,7 +62,7 @@ class PromptRuntimeExecutionAdapter(Protocol):
 class PromptRunRequest:
     prompt: str
     worktree: WorktreeMount
-    stage: StageSelection
+    stage: ProviderSelection
     role: InvocationRole
     tool_access: ToolAccess
     name: str = "Runtime Agent"
@@ -75,7 +75,7 @@ class PromptRunRequest:
         self,
         prompt: str,
         worktree: WorktreeMount,
-        stage: StageSelection | None = None,
+        stage: ProviderSelection | None = None,
         role: InvocationRole | None = None,
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
@@ -85,11 +85,10 @@ class PromptRunRequest:
         token: CancellationToken | None = None,
         session: PromptRunSession | None = None,
         *,
-        override: StageSelection | None = None,
+        override: ProviderSelection | None = None,
     ) -> None:
-        stage = normalize_stage_selection(
-            stage,
-            override=override,
+        stage = normalize_provider_selection(
+            stage if stage is not None else override,
             context="PromptRunRequest",
             validate=False,
         )
@@ -103,7 +102,7 @@ class PromptRunRequest:
             context="PromptRunRequest",
             missing_message="PromptRunRequest requires an explicit `tool_policy` value.",
         )
-        validate_stage_selection(stage)
+        validate_provider_selection(stage)
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "worktree", resolved_worktree)
@@ -129,7 +128,7 @@ class PromptRunRequest:
         return self.tool_access.tool_policy
 
     @property
-    def override(self) -> StageSelection:
+    def override(self) -> ProviderSelection:
         return self.stage
 
     @property

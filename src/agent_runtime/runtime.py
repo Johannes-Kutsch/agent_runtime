@@ -139,7 +139,6 @@ _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
 _supported_builtin_provider_selection = (
     _builtin_runtime_client_module.supported_builtin_provider_selection
 )
-_supported_builtin_stage = _builtin_runtime_client_module.supported_builtin_stage
 _run_builtin_new_session = _builtin_runtime_client_module._run_builtin_new_session
 _run_builtin_resumed_session = (
     _builtin_runtime_client_module._run_builtin_resumed_session

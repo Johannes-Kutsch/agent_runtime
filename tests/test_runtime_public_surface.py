@@ -365,13 +365,16 @@ def test_runtime_direct_import_rejects_removed_resumable_completed_result_names(
         exec("from agent_runtime.runtime import ResumableRuntimeMetadata", {}, {})
 
 
-def test_types_module_exposes_stage_selection_as_the_only_stage_chain_value() -> None:
+def test_types_module_exposes_provider_selection_only() -> None:
     types_module = importlib.import_module("agent_runtime.types")
 
-    assert types_module.StageSelection.__module__.startswith("agent_runtime")
+    assert types_module.ProviderSelection.__module__.startswith("agent_runtime")
+    assert not hasattr(types_module, "StageSelection")
     assert not hasattr(types_module, "StageOverride")
     with pytest.raises(ImportError, match="StageOverride"):
         exec("from agent_runtime.types import StageOverride", {})
+    with pytest.raises(ImportError, match="StageSelection"):
+        exec("from agent_runtime.types import StageSelection", {})
 
 
 def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:

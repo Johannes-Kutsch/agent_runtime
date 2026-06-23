@@ -68,8 +68,7 @@ from .invocation_progress import InvocationProgress
 from .provider_errors import ProviderErrorObservation
 from .provider_output import reduce_text_output_events
 from .session import RunKind, provider_state_relpath
-from .stage_priority_chain import iter_provider_selection_chain
-from .types import SelectionLike, StageSelection
+from .types import ProviderSelection
 
 _log = logging.getLogger(__name__)
 subprocess = _subprocess
@@ -206,10 +205,10 @@ class BuiltInAvailabilityState:
 
     def first_available_stage(
         self,
-        stage: SelectionLike,
+        stage: ProviderSelection,
         *,
         now: datetime,
-    ) -> SelectionLike | None:
+    ) -> ProviderSelection | None:
         with self._lock:
             if stage.service not in _SUPPORTED_BUILTIN_SERVICES:
                 return None
@@ -217,10 +216,10 @@ class BuiltInAvailabilityState:
                 return stage
         return None
 
-    def has_available_stage(self, stage: SelectionLike, *, now: datetime) -> bool:
+    def has_available_stage(self, stage: ProviderSelection, *, now: datetime) -> bool:
         return self.first_available_stage(stage, now=now) is not None
 
-    def next_wake_time(self, stage: SelectionLike, *, now: datetime) -> datetime | None:
+    def next_wake_time(self, stage: ProviderSelection, *, now: datetime) -> datetime | None:
         with self._lock:
             if stage.service not in _SUPPORTED_BUILTIN_SERVICES:
                 return None
@@ -248,48 +247,29 @@ class BuiltInAvailabilityState:
                 self._exhausted_until_by_service[service_name] = wake
 
 
-def supported_builtin_stage(stage: SelectionLike) -> SelectionLike | None:
-    return supported_builtin_provider_selection(stage)
-
-
 def supported_builtin_provider_selection(
-    provider_selection: SelectionLike,
-) -> SelectionLike | None:
+    provider_selection: ProviderSelection,
+) -> ProviderSelection | None:
     if provider_selection.service in _SUPPORTED_BUILTIN_SERVICES:
         return provider_selection
     return None
 
 
-def _selected_service_path(
-    override: SelectionLike,
-    *,
-    selected_service: str,
-) -> tuple[str, ...]:
-    path: list[str] = []
-    for node in iter_provider_selection_chain(override):
-        if not node.service:
-            continue
-        path.append(node.service)
-        if node.service == selected_service:
-            return tuple(path)
-    return (selected_service,)
-
-
-def _validate_claude_stage(stage: SelectionLike) -> None:
+def _validate_claude_stage(stage: ProviderSelection) -> None:
     if stage.model not in _CLAUDE_VALID_MODELS:
         raise RuntimeConfigurationError(f"Unsupported Claude model {stage.model!r}.")
     if stage.effort not in _CLAUDE_VALID_EFFORTS:
         raise RuntimeConfigurationError(f"Unsupported Claude effort {stage.effort!r}.")
 
 
-def _validate_codex_stage(stage: SelectionLike) -> None:
+def _validate_codex_stage(stage: ProviderSelection) -> None:
     if stage.model not in _CODEX_VALID_MODELS:
         raise RuntimeConfigurationError(f"Unsupported Codex model {stage.model!r}.")
     if stage.effort not in _CODEX_VALID_EFFORTS:
         raise RuntimeConfigurationError(f"Unsupported Codex effort {stage.effort!r}.")
 
 
-def _validate_opencode_stage(stage: SelectionLike) -> None:
+def _validate_opencode_stage(stage: ProviderSelection) -> None:
     if stage.model not in _OPENCODE_GO_MODELS:
         raise RuntimeConfigurationError(f"Unsupported OpenCode model {stage.model!r}.")
     if stage.effort not in _OPENCODE_VALID_EFFORTS:
@@ -1555,7 +1535,7 @@ def _reduce_opencode_stream(
     )
 
 
-def _select_builtin_stage(stage: SelectionLike) -> SelectionLike:
+def _select_builtin_stage(stage: ProviderSelection) -> ProviderSelection:
     candidate = supported_builtin_provider_selection(stage)
     if candidate is not None:
         return candidate
@@ -2036,7 +2016,7 @@ def _invoke_claude_new_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
     request: NewSessionRunRequest,
-    stage: SelectionLike,
+    stage: ProviderSelection,
     provider_state_dir: Path,
     run_kind: RunKind,
     provider_session_id: str,
@@ -2085,7 +2065,7 @@ def _invoke_codex_new_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
     request: NewSessionRunRequest,
-    stage: SelectionLike,
+    stage: ProviderSelection,
     provider_state_dir: Path,
     on_live_output: Callable[[AgentMessageTurn], None] | None = None,
 ) -> ProviderInvocationResult:
@@ -2197,7 +2177,7 @@ def _invoke_opencode_new_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
     request: NewSessionRunRequest,
-    stage: SelectionLike,
+    stage: ProviderSelection,
     provider_state_dir: Path,
     run_kind: RunKind,
     provider_session_id: str,
@@ -2266,11 +2246,11 @@ def _run_builtin_ephemeral(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     select_builtin_stage: Callable[
-        [SelectionLike], SelectionLike
+        [ProviderSelection], ProviderSelection
     ] = _select_builtin_stage,
-    validate_claude_stage: Callable[[SelectionLike], None] = _validate_claude_stage,
-    validate_codex_stage: Callable[[SelectionLike], None] = _validate_codex_stage,
-    validate_opencode_stage: Callable[[SelectionLike], None] = _validate_opencode_stage,
+    validate_claude_stage: Callable[[ProviderSelection], None] = _validate_claude_stage,
+    validate_codex_stage: Callable[[ProviderSelection], None] = _validate_codex_stage,
+    validate_opencode_stage: Callable[[ProviderSelection], None] = _validate_opencode_stage,
     claude_command: Callable[..., tuple[str, ...]] = _claude_command,
     claude_env: Callable[..., dict[str, str]] = _claude_env,
     reduce_claude_stream: Callable[
@@ -2480,7 +2460,7 @@ def _require_opencode_auth(auth: ProviderAuth | None) -> None:
     )
 
 
-def _selection_auth(selection: SelectionLike) -> ProviderAuth | None:
+def _selection_auth(selection: ProviderSelection) -> ProviderAuth | None:
     return selection.auth
 
 
@@ -2510,7 +2490,7 @@ def _run_builtin_new_session(
         )
     )
     try:
-        if supported_builtin_stage(request.provider_selection) is None:
+        if supported_builtin_provider_selection(request.provider_selection) is None:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
@@ -2863,7 +2843,7 @@ def _run_builtin_resumed_session(
 
     if continuation_service == "codex":
         _validate_codex_stage(
-            StageSelection(
+            ProviderSelection(
                 service="codex",
                 model=request.model,
                 effort=request.effort,

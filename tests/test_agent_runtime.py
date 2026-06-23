@@ -25,7 +25,7 @@ from agent_runtime.contracts import (
     UsageLimit,
 )
 from agent_runtime._provider_session_adapter import ProviderSessionPlanningRequest
-from agent_runtime.types import StageSelection as InternalStageSelection
+from agent_runtime.types import ProviderSelection as InternalStageSelection
 from agent_runtime.errors import (
     AgentCancelledError,
     AgentCredentialFailureError,

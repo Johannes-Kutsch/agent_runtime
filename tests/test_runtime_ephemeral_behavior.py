@@ -1715,12 +1715,6 @@ def test_runtime_client_reuses_selected_builtin_after_usage_limited_call(
         service="codex",
         model="gpt-5.4",
         effort="medium",
-        fallback=stage_selection_factory(
-            service="claude",
-            model="sonnet",
-            effort="medium",
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
-        ),
     )
 
     first_outcome = client.run_ephemeral(
@@ -1847,14 +1841,6 @@ def test_runtime_client_instances_keep_independent_builtin_availability_state(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                        auth=prompt_runtime.ProviderAuth(
-                            claude_code_oauth_token="token"
-                        ),
-                    ),
                 ),
                 prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
@@ -2250,14 +2236,6 @@ def test_runtime_client_falls_back_within_stage_chain_after_usage_limited_builti
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                        auth=prompt_runtime.ProviderAuth(
-                            claude_code_oauth_token="token"
-                        ),
-                    ),
                 ),
                 prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
@@ -2354,14 +2332,6 @@ def test_runtime_client_reports_no_service_available_when_every_reachable_builti
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                        auth=prompt_runtime.ProviderAuth(
-                            claude_code_oauth_token="token"
-                        ),
-                    ),
                 ),
                 prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
@@ -2396,12 +2366,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_credential_fai
         service="codex",
         model="gpt-5.4",
         effort="medium",
-        fallback=stage_selection_factory(
-            service="claude",
-            model="sonnet",
-            effort="medium",
-            auth=prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
-        ),
     )
     client = prompt_runtime.RuntimeClient()
 
@@ -2496,11 +2460,6 @@ def test_runtime_client_does_not_fallback_or_mark_availability_on_hard_failure(
         service="codex",
         model="gpt-5.4",
         effort="medium",
-        fallback=stage_selection_factory(
-            service="claude",
-            model="sonnet",
-            effort="medium",
-        ),
     )
     client = prompt_runtime.RuntimeClient()
 
@@ -2706,14 +2665,6 @@ def test_runtime_client_reuses_selected_builtin_after_concurrent_usage_limit_upd
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                        auth=prompt_runtime.ProviderAuth(
-                            claude_code_oauth_token="token"
-                        ),
-                    ),
                 ),
                 prompt_runtime.ProviderAuth(claude_code_oauth_token="token"),
             ),
@@ -2859,11 +2810,6 @@ def test_ephemeral_runtime_requires_selected_configured_service(
                     worktree=Path("."),
                     provider_selection=stage_selection_factory(
                         service="missing",
-                        fallback=stage_selection_factory(
-                            service="claude",
-                            model="sonnet",
-                            effort="high",
-                        ),
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
@@ -2949,11 +2895,6 @@ def test_ephemeral_runtime_returns_no_service_available_outcome_for_temporarily_
                     service="codex",
                     model="gpt-5",
                     effort="medium",
-                    fallback=stage_selection_factory(
-                        service="claude",
-                        model="sonnet",
-                        effort="high",
-                    ),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -3163,11 +3104,6 @@ def test_ephemeral_runtime_keeps_exceptional_failures_exceptional(
                     worktree=Path("."),
                     provider_selection=stage_selection_factory(
                         service="missing",
-                        fallback=stage_selection_factory(
-                            service="also-missing",
-                            model="sonnet",
-                            effort="high",
-                        ),
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
