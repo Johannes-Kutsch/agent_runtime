@@ -5,7 +5,7 @@ import inspect
 import math
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from ._execution_contracts import CancellationToken, WorktreeMount
@@ -24,7 +24,7 @@ from .types import ProviderSelection
 from .errors import RuntimeConfigurationError
 
 __all__ = [
-    "AgentMessageTurn",
+    "AgentEvent",
     "Continuation",
     "EphemeralRunRequest",
     "EphemeralRunResult",
@@ -195,9 +195,14 @@ class ProviderAuth:
 
 
 @dataclasses.dataclass(frozen=True)
-class AgentMessageTurn:
-    text: str
+class AgentEvent:
+    type: Literal["agent_message", "agent_tool_call", "other"]
     service_name: str
+    raw_provider_output: str
+    text: str = ""
+    tool_name: str = ""
+    payload: str = ""
+    descriptor: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -507,7 +512,7 @@ class EphemeralRunRequest:
     invocation_dir: Path
     provider_selection: ProviderSelection
     tool_access: ToolAccess
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None
+    on_live_output: Callable[[AgentEvent], None] | None = None
     token: CancellationToken | None = None
 
     def __init__(
@@ -518,7 +523,7 @@ class EphemeralRunRequest:
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         token: CancellationToken | None = None,
-        on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+        on_live_output: Callable[[AgentEvent], None] | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
         resolved_invocation_dir = _resolve_public_invocation_dir(
@@ -573,7 +578,7 @@ class NewSessionRunRequest:
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None
+    on_live_output: Callable[[AgentEvent], None] | None = None
     token: CancellationToken | None = None
 
     if TYPE_CHECKING:
@@ -593,7 +598,7 @@ class NewSessionRunRequest:
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
-        on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+        on_live_output: Callable[[AgentEvent], None] | None = None,
         token: CancellationToken | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
@@ -707,7 +712,7 @@ class ResumedSessionRunRequest:
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None
+    on_live_output: Callable[[AgentEvent], None] | None = None
     token: CancellationToken | None = None
 
     if TYPE_CHECKING:
@@ -731,7 +736,7 @@ class ResumedSessionRunRequest:
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
-        on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+        on_live_output: Callable[[AgentEvent], None] | None = None,
         token: CancellationToken | None = None,
         **compatibility_kwargs: Any,
     ) -> None:

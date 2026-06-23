@@ -30,8 +30,8 @@ from agent_runtime.usage_limit_scope import UsageLimitScope
 def test_package_exports_runtime_surface() -> None:
     assert runtime.__all__ == [
         "AgentCredentialFailureError",
+        "AgentEvent",
         "AgentFailedError",
-        "AgentMessageTurn",
         "AgentRuntimeError",
         "AgentTimeoutError",
         "Continuation",
@@ -83,7 +83,7 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
     assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
     assert {
-        "AgentMessageTurn",
+        "AgentEvent",
         "Continuation",
         "EphemeralRunRequest",
         "NewSessionRunRequest",
@@ -387,16 +387,23 @@ def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
     )
 
 
-def test_runtime_surface_exports_agent_message_turn_public_vocabulary() -> None:
-    assert hasattr(runtime, "AgentMessageTurn")
-    assert runtime.AgentMessageTurn is prompt_runtime.AgentMessageTurn
-    assert [field.name for field in fields(runtime.AgentMessageTurn)] == [
-        "text",
+def test_runtime_surface_exports_agent_event_public_vocabulary() -> None:
+    assert hasattr(runtime, "AgentEvent")
+    assert runtime.AgentEvent is prompt_runtime.AgentEvent
+    assert {field.name for field in fields(runtime.AgentEvent)} == {
+        "type",
         "service_name",
-    ]
+        "raw_provider_output",
+        "text",
+        "tool_name",
+        "payload",
+        "descriptor",
+    }
     with pytest.raises(FrozenInstanceError):
         setattr(
-            runtime.AgentMessageTurn(text="hello", service_name="codex"),
+            runtime.AgentEvent(
+                type="agent_message", service_name="codex", raw_provider_output=""
+            ),
             "service_name",
             "claude",
         )

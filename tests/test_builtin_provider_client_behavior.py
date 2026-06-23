@@ -159,6 +159,62 @@ def _claude_result_output_line(text: str) -> str:
     return json.dumps({"type": "result", "result": text}) + "\n"
 
 
+def test_runtime_client_ephemeral_run_emits_typed_agent_message_event(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[runtime.AgentEvent] = []
+
+    def on_live_output(event: runtime.AgentEvent) -> None:
+        observed.append(event)
+
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        ),
+    )
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            on_live_output=on_live_output,
+        )
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    assert outcome.output == "hello\nworld"
+    assert len(observed) == 2
+    assert observed[0].type == "agent_message"
+    assert observed[0].text == "hello"
+    assert observed[0].service_name == "codex"
+    assert observed[1].type == "agent_message"
+    assert observed[1].text == "world"
+    assert observed[1].service_name == "codex"
+
+
 def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1266,7 +1322,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     adapter = _install_in_memory_provider_invocation_adapter(
@@ -1316,7 +1372,7 @@ def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_a
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
         raise runtime.UsageLimitError(service_name="codex")
 
@@ -1366,7 +1422,7 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     adapter = _install_in_memory_provider_invocation_adapter(
@@ -1419,7 +1475,7 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     host_home = tmp_path / "host-home"
@@ -1476,7 +1532,7 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
         raise runtime.UsageLimitError(service_name="codex")
 
@@ -1529,7 +1585,7 @@ def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     _install_in_memory_provider_invocation_adapter(
@@ -1617,7 +1673,7 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     adapter = _install_in_memory_provider_invocation_adapter(
@@ -1660,7 +1716,7 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
         raise RetryableProviderFailureError(
             service_name="codex",
@@ -1706,7 +1762,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     _install_in_memory_provider_invocation_adapter(
@@ -1745,7 +1801,7 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
@@ -1820,7 +1876,7 @@ def test_runtime_client_new_session_run_propagates_claude_live_output_observer_f
         lambda: "session-uuid",
     )
 
-    def on_live_output(_turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(_turn: runtime.AgentEvent) -> None:
         raise RuntimeError("observer failed")
 
     with pytest.raises(RuntimeError, match="observer failed"):
@@ -1855,7 +1911,7 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     _install_in_memory_provider_invocation_adapter(
@@ -1926,7 +1982,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     adapter = _install_in_memory_provider_invocation_adapter(
@@ -2062,7 +2118,7 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     _install_in_memory_provider_invocation_adapter(
@@ -2148,7 +2204,7 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
 ) -> None:
     observed: list[tuple[str, str]] = []
 
-    def on_live_output(turn: runtime.AgentMessageTurn) -> None:
+    def on_live_output(turn: runtime.AgentEvent) -> None:
         observed.append((turn.text, turn.service_name))
 
     _install_in_memory_provider_invocation_adapter(

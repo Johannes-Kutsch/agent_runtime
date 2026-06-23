@@ -32,7 +32,7 @@ from ._portable_continuation_payload import (
 from ._runtime_lifecycle import (
     _DEFAULT_EPHEMERAL_ROLE,
     Continuation,
-    AgentMessageTurn,
+    AgentEvent,
     EphemeralResultMetadata,
     EphemeralRunRequest,
     EphemeralRunResult,
@@ -760,7 +760,7 @@ def _parse_claude_event_with_dependencies(
 
 def _reduce_claude_stream(
     lines: list[str],
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
     return _reduce_claude_stream_with_dependencies(
         lines,
@@ -771,14 +771,21 @@ def _reduce_claude_stream(
 
 def _live_output_observer(
     service_name: str,
-    on_live_output: Callable[[AgentMessageTurn], None] | None,
+    on_live_output: Callable[[AgentEvent], None] | None,
 ) -> Callable[[str], None]:
     if on_live_output is None:
-        return lambda _turn: None
+        return lambda _turn_text: None
 
     def observe(turn_text: str) -> None:
         try:
-            on_live_output(AgentMessageTurn(text=turn_text, service_name=service_name))
+            on_live_output(
+                AgentEvent(
+                    type="agent_message",
+                    text=turn_text,
+                    service_name=service_name,
+                    raw_provider_output="",
+                )
+            )
         except Exception as exc:
             setattr(exc, "_is_live_output_exception", True)
             raise
@@ -809,7 +816,7 @@ def _observe_output_lines(
     *,
     lines: list[str],
     parse_output_line: Callable[[str], list[Any]],
-    on_live_output: Callable[[AgentMessageTurn], None] | None,
+    on_live_output: Callable[[AgentEvent], None] | None,
     service_name: str,
 ) -> None:
     if on_live_output is None:
@@ -823,7 +830,7 @@ def _observe_output_lines(
 
 def _observe_output_reducer(
     reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
-    on_live_output: Callable[[AgentMessageTurn], None] | None,
+    on_live_output: Callable[[AgentEvent], None] | None,
     parse_output_line: Callable[[str], list[Any]],
     *,
     service_name: str,
@@ -846,7 +853,7 @@ def _observe_output_reducer(
 
 def _observe_opencode_output_reducer(
     reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
-    on_live_output: Callable[[AgentMessageTurn], None] | None,
+    on_live_output: Callable[[AgentEvent], None] | None,
 ) -> Callable[[list[str]], tuple[str, ProviderUsage | None]]:
     if on_live_output is None:
         return reduce_output
@@ -902,7 +909,7 @@ def _reduce_claude_stream_with_dependencies(
     lines: list[str],
     *,
     parse_claude_event: Callable[[str], list[Any]],
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
     usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
@@ -1012,7 +1019,7 @@ def _parse_codex_event(line: str) -> list[Any]:
 
 def _reduce_codex_stream(
     lines: list[str],
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
     usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
@@ -1405,7 +1412,7 @@ def _parse_opencode_output_line(line: str) -> list[Any]:
 
 def _observe_output_opencode(
     *,
-    on_live_output: Callable[[AgentMessageTurn], None],
+    on_live_output: Callable[[AgentEvent], None],
     on_provider_session_id: Callable[[str], None] | None = None,
 ) -> Callable[[list[str]], None]:
     observe_output = _live_output_observer("opencode", on_live_output)
@@ -1546,7 +1553,7 @@ def _provider_session_id_from_error(
 
 def _reduce_opencode_stream(
     lines: list[str],
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> str:
     return reduce_text_output_events(
         _parse_opencode_events(lines),
@@ -2040,7 +2047,7 @@ def _invoke_claude_new_session_provider(
     provider_state_dir: Path,
     run_kind: RunKind,
     provider_session_id: str,
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult:
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
@@ -2087,7 +2094,7 @@ def _invoke_codex_new_session_provider(
     request: NewSessionRunRequest,
     stage: SelectionLike,
     provider_state_dir: Path,
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult:
     command_argv = _codex_command(
         model=stage.model,
@@ -2127,7 +2134,7 @@ def _invoke_codex_resumed_session_provider(
     request: ResumedSessionRunRequest,
     provider_state_dir: Path | None,
     provider_session_id: str,
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult:
     command_argv = _codex_command(
         model=request.model,
@@ -2201,7 +2208,7 @@ def _invoke_opencode_new_session_provider(
     provider_state_dir: Path,
     run_kind: RunKind,
     provider_session_id: str,
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[ProviderInvocationResult, str]:
     observed_provider_session_id = provider_session_id
 
@@ -2274,19 +2281,19 @@ def _run_builtin_ephemeral(
     claude_command: Callable[..., tuple[str, ...]] = _claude_command,
     claude_env: Callable[..., dict[str, str]] = _claude_env,
     reduce_claude_stream: Callable[
-        [list[str], Callable[[AgentMessageTurn], None] | None],
+        [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
     ] = _reduce_claude_stream,
     codex_command: Callable[..., tuple[str, ...]] = _codex_command,
     codex_env: Callable[..., dict[str, str]] = _codex_env,
     reduce_codex_stream: Callable[
-        [list[str], Callable[[AgentMessageTurn], None] | None],
+        [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
     ] = _reduce_codex_stream,
     opencode_command: Callable[..., tuple[str, ...]] = _opencode_command,
     opencode_env: Callable[..., dict[str, str]] = _opencode_env,
     reduce_opencode_stream: Callable[
-        [list[str], Callable[[AgentMessageTurn], None] | None],
+        [list[str], Callable[[AgentEvent], None] | None],
         str,
     ] = _reduce_opencode_stream,
     validate_codex_auth: Callable[[], None] = _validate_codex_auth,
