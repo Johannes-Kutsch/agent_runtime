@@ -17,13 +17,10 @@ from agent_runtime._provider_session_adapter import ProviderSessionPlanningReque
 from agent_runtime.roles import InvocationRole
 from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import (
-    ProviderSessionSelection,
     RunKind,
-    is_exact_resumable_service_session,
     normalize_state_dir_relpath,
     provider_state_relpath,
     provider_state_session_id_path,
-    select_resumable_provider_session_id,
 )
 from agent_runtime.session_planning import (
     ResumableSessionPlanRequest,
@@ -33,7 +30,6 @@ from agent_runtime.types import ProviderSelection as InternalStageSelection
 from tests.runtime_boundary_fakes import (
     ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
     SelectionServiceFake as _Service,
-    SessionStoreFake as _SessionStore,
 )
 
 
@@ -65,7 +61,6 @@ def test_runtime_service_identities_reject_unsafe_labels(label: str) -> None:
 def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsafe_non_empty_values(
     label: str,
     execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
     assert (
@@ -82,7 +77,6 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
             role=InvocationRole("implementer"),
             namespace="",
             service=execution_service_factory(),
-            session_store=session_store_factory(),
             provider_session_adapter=resident_provider_session_adapter,
         ).namespace
         == ""
@@ -101,14 +95,12 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
             role=InvocationRole("implementer"),
             namespace=label,
             service=execution_service_factory(),
-            session_store=session_store_factory(),
             provider_session_adapter=resident_provider_session_adapter,
         )
 
 
 def test_provider_session_planning_returns_immutable_decision_value(
     execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
     provider_session_decision = session_planning_runtime.plan_provider_session(
@@ -120,7 +112,6 @@ def test_provider_session_planning_returns_immutable_decision_value(
                 ResumabilityProvider,
                 execution_service_factory(),
             ),
-            session_store=session_store_factory(),
             provider_session_adapter=resident_provider_session_adapter,
         )
     )
@@ -132,15 +123,8 @@ def test_provider_session_planning_returns_immutable_decision_value(
             provider_session_id="recovered-session",
             state_dir_relpath="state/",
             state_dir_path=Path("state"),
-            recovered_session_id_persistence=(
-                session_planning_runtime.RecoveredSessionIdPersistence.SKIP
-            ),
             service_state_dir=Path("state"),
             exact_transcript_match=False,
-            auth_seeding_requirement=(
-                session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
-            ),
-            auth_seed_action=None,
         )
     )
     with pytest.raises(FrozenInstanceError):
@@ -149,7 +133,6 @@ def test_provider_session_planning_returns_immutable_decision_value(
 
 def test_resumable_session_plan_exposes_public_value_fields_only(
     execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
     service = execution_service_factory()
@@ -160,7 +143,6 @@ def test_resumable_session_plan_exposes_public_value_fields_only(
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            session_store=session_store_factory(),
             provider_session_adapter=resident_provider_session_adapter,
         )
     )
@@ -172,11 +154,6 @@ def test_resumable_session_plan_exposes_public_value_fields_only(
     assert session_plan.run_kind is RunKind.RESUME
     assert session_plan.provider_state_dir == Path("state")
     assert session_plan.provider_session_id == "recovered-session"
-    assert (
-        session_plan.auth_seeding_requirement
-        is session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
-    )
-    assert session_plan.auth_seed_action is None
     assert session_plan.exact_transcript_match is False
     assert session_plan.usage_limit_scope is None
     with pytest.raises(FrozenInstanceError):
@@ -185,7 +162,6 @@ def test_resumable_session_plan_exposes_public_value_fields_only(
 
 def test_resumable_session_plan_hides_container_state_selection_metadata(
     execution_service_factory: Callable[..., ExecutionProvider],
-    session_store_factory: Callable[..., _SessionStore],
     resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
 ) -> None:
     service = execution_service_factory()
@@ -196,7 +172,6 @@ def test_resumable_session_plan_hides_container_state_selection_metadata(
             role=InvocationRole("implementer"),
             namespace="main",
             service=service,
-            session_store=session_store_factory(),
             provider_session_adapter=resident_provider_session_adapter,
         )
     )
@@ -398,81 +373,17 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
     )
 
 
-def test_select_resumable_provider_session_id_recovers_and_persists_state(
-    session_store_factory: Callable[..., _SessionStore],
-) -> None:
-    state_dir = Path("state")
-    session_store = session_store_factory()
-
-    selection = select_resumable_provider_session_id(
-        session_store,
-        "codex",
-        provider_state_dir=state_dir,
-        has_resumable_provider_state=True,
-        recover_provider_session_id=lambda path: (
-            "provider-session" if path == state_dir else None
-        ),
-    )
-
-    assert selection == ProviderSessionSelection(
-        provider_session_id="provider-session",
-        persist_provider_session_id=True,
-    )
-    assert session_store.service_session_id("codex") == "provider-session"
+def test_select_resumable_provider_session_id_recovers_and_persists_state() -> None:
+    pytest.skip("Removed function: select_resumable_provider_session_id")
 
 
-def test_select_resumable_provider_session_id_prefers_session_store_over_recovery(
-    session_store_factory: Callable[..., _SessionStore],
-) -> None:
-    recover_calls = 0
-    session_store = session_store_factory(service_sessions={"codex": "stored-session"})
-
-    def recover_provider_session_id(_path: Path | None) -> str | None:
-        nonlocal recover_calls
-        recover_calls += 1
-        return "recovered-session"
-
-    selection = select_resumable_provider_session_id(
-        session_store,
-        "codex",
-        provider_state_dir=Path("state"),
-        has_resumable_provider_state=True,
-        recover_provider_session_id=recover_provider_session_id,
-    )
-
-    assert selection == ProviderSessionSelection(
-        provider_session_id="stored-session",
-        persist_provider_session_id=False,
-    )
-    assert recover_calls == 0
-    assert session_store.service_session_id("codex") == "stored-session"
+def test_select_resumable_provider_session_id_prefers_session_store_over_recovery() -> (
+    None
+):
+    pytest.skip("Removed function: select_resumable_provider_session_id")
 
 
-def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher(
-    session_store_factory: Callable[..., _SessionStore],
-) -> None:
-    session_store = session_store_factory(
-        service_sessions={"codex": "provider-session"},
-        service_metadata={"codex": {"provider_session_id": "provider-session"}},
-        exact_transcript_service="codex",
-    )
-
-    assert (
-        is_exact_resumable_service_session(
-            session_store,
-            "codex",
-            provider_session_id="provider-session",
-            provider_state_dir=Path("state"),
-        )
-        is True
-    )
-    assert (
-        is_exact_resumable_service_session(
-            session_store,
-            "codex",
-            provider_session_id="provider-session",
-            provider_state_dir=Path("state"),
-            exact_provider_session_matcher=lambda *_args: False,
-        )
-        is False
-    )
+def test_exact_resumable_service_session_requires_matching_metadata_and_maybe_matcher() -> (
+    None
+):
+    pytest.skip("Removed function: is_exact_resumable_service_session")

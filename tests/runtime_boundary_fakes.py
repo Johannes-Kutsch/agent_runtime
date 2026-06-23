@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -102,37 +101,6 @@ class ExecutionServiceFake:
         return frozenset()
 
 
-@dataclass
-class SessionStoreFake:
-    service_sessions: dict[str, str | None]
-    service_metadata: dict[str, dict[str, str] | None]
-    exact_transcript_service: str | None = None
-
-    def session_uuid(self) -> str:
-        return "session-uuid"
-
-    def service_session_id(self, service_name: str) -> str | None:
-        return self.service_sessions.get(service_name)
-
-    def save_service_session_id(self, service_name: str, session_id: str) -> None:
-        self.service_sessions[service_name] = session_id
-
-    def service_session_metadata(self, service_name: str) -> dict[str, str] | None:
-        return self.service_metadata.get(service_name)
-
-    def exact_transcript_service_name(self) -> str | None:
-        return self.exact_transcript_service
-
-    def record_successful_provider_session_metadata(
-        self,
-        service_name: str,
-        provider_session_id: str | None,
-    ) -> None:
-        self.service_metadata[service_name] = {
-            "provider_session_id": provider_session_id or ""
-        }
-
-
 class ResidentPlanningProviderSessionAdapterFake:
     @property
     def service_name(self) -> str:
@@ -161,19 +129,8 @@ class ResidentPlanningProviderSessionAdapterFake:
     def prepare_local_provider_run_state(
         self,
         provider_state_dir: Path | None,
-        auth_seed_action: Any | None = None,
     ) -> None:
-        del provider_state_dir, auth_seed_action
-
-    def record_provider_session_id(
-        self,
-        *,
-        session_store: Any,
-        provider_session_id: str,
-        service_state_dir: Path | None = None,
-    ) -> None:
-        del service_state_dir
-        session_store.save_service_session_id("codex", provider_session_id)
+        del provider_state_dir
 
 
 class ExternalStateResidentPlanningProviderSessionAdapterFake:

@@ -4,10 +4,9 @@ import dataclasses
 from pathlib import Path
 from typing import Protocol
 
-from .contracts import ProviderStatePreparationAction
 from .identity import validate_session_namespace
 from .roles import InvocationRole
-from .session import ProviderSessionState, ProviderSessionStateRequest, SessionStore
+from .session import ProviderSessionState, ProviderSessionStateRequest
 
 
 @dataclasses.dataclass(frozen=True)
@@ -42,15 +41,6 @@ class ProviderSessionAdapter(Protocol):
     def prepare_local_provider_run_state(
         self,
         provider_state_dir: Path | None,
-        auth_seed_action: ProviderStatePreparationAction | None = None,
-    ) -> None: ...
-
-    def record_provider_session_id(
-        self,
-        *,
-        session_store: SessionStore,
-        provider_session_id: str,
-        service_state_dir: Path | None = None,
     ) -> None: ...
 
 

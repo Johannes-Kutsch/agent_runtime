@@ -444,9 +444,6 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
             run_kind=RunKind.FRESH,
             provider_state_dir=None,
             provider_session_id=None,
-            auth_seeding_requirement=(
-                session_planning_runtime.AuthSeedingRequirement.NOT_REQUIRED
-            ),
         ),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
@@ -650,7 +647,7 @@ def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
 
 
 def test_provider_session_seams_consolidate_public_session_store_vocabulary() -> None:
-    assert "SessionStore" in session_runtime.__all__
+    assert "SessionStore" not in session_runtime.__all__
     assert not hasattr(session_runtime, "ServiceResumeIdentityStore")
     assert not hasattr(
         importlib.import_module("agent_runtime.contracts"),
@@ -680,7 +677,7 @@ def test_provider_session_adapter_public_seam_stays_narrow() -> None:
     assert "provider_session_planning_facts" in adapter_members
     assert "provider_session_state" in adapter_members
     assert "prepare_local_provider_run_state" in adapter_members
-    assert "record_provider_session_id" in adapter_members
+    assert "record_provider_session_id" not in adapter_members
     assert "provider_session_preferences" not in adapter_members
     assert "recover_provider_session_id" not in adapter_members
     assert "is_exact_resumable_provider_session" not in adapter_members
@@ -694,7 +691,6 @@ def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> N
     assert [
         field.name for field in fields(session_runtime.ProviderSessionStateRequest)
     ] == [
-        "session_store",
         "provider_state_dir",
         "has_resumable_provider_state",
         "state_dir_relpath",
@@ -706,9 +702,6 @@ def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> N
         "state_dir_relpath",
         "state_dir_path",
         "exact_transcript_match",
-        "persist_provider_session_id",
-        "auth_seeding_requirement",
-        "auth_seed_action",
         "use_service_state_dir_for_container",
     ]
 

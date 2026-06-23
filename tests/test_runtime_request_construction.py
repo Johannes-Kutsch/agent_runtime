@@ -17,7 +17,6 @@ from agent_runtime.roles import InvocationRole
 from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.session import RunKind
 from agent_runtime.session_planning import (
-    AuthSeedingRequirement,
     ResumableSessionPlan,
 )
 from agent_runtime.usage_limit_scope import UsageLimitScope
@@ -34,7 +33,6 @@ def _session_plan(*, worktree: Path = Path("/repo")) -> ResumableSessionPlan:
         run_kind=RunKind.FRESH,
         provider_state_dir=None,
         provider_session_id=None,
-        auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
     )
 
 
