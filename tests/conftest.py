@@ -19,7 +19,6 @@ from tests.runtime_boundary_fakes import (
     ExternalStateResidentPlanningProviderSessionAdapterFake,
     ResidentPlanningProviderSessionAdapterFake,
     SelectionServiceFake,
-    SessionStoreFake,
 )
 
 
@@ -65,23 +64,6 @@ def provider_selection_factory() -> Callable[..., runtime.ProviderSelection]:
 def execution_service_factory() -> Callable[[str], ExecutionProvider]:
     def _factory(service_name: str = "codex") -> ExecutionProvider:
         return cast(ExecutionProvider, ExecutionServiceFake(service_name))
-
-    return _factory
-
-
-@pytest.fixture
-def session_store_factory() -> Callable[..., SessionStoreFake]:
-    def _factory(
-        *,
-        service_sessions: dict[str, str | None] | None = None,
-        service_metadata: dict[str, dict[str, str] | None] | None = None,
-        exact_transcript_service: str | None = None,
-    ) -> SessionStoreFake:
-        return SessionStoreFake(
-            service_sessions={} if service_sessions is None else service_sessions,
-            service_metadata={} if service_metadata is None else service_metadata,
-            exact_transcript_service=exact_transcript_service,
-        )
 
     return _factory
 

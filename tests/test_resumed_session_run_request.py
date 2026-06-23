@@ -13,7 +13,6 @@ from agent_runtime.contracts import ExecutionProvider
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
 from agent_runtime.session_planning import (
-    AuthSeedingRequirement,
     ResumableSessionPlan,
 )
 
@@ -29,7 +28,6 @@ def _session_plan(*, worktree: Path = Path("/repo")) -> ResumableSessionPlan:
         run_kind=RunKind.FRESH,
         provider_state_dir=None,
         provider_session_id=None,
-        auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
     )
 
 
