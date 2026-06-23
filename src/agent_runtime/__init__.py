@@ -17,7 +17,7 @@ from .errors import (
 )
 from .invocation_progress import InvocationProgress
 from .runtime import (
-    AgentMessageTurn,
+    AgentEvent,
     Continuation,
     ProviderSelection,
     ProviderAuth,
@@ -29,8 +29,8 @@ from .session import RunKind
 
 __all__ = [
     "AgentCredentialFailureError",
+    "AgentEvent",
     "AgentFailedError",
-    "AgentMessageTurn",
     "AgentRuntimeError",
     "AgentTimeoutError",
     "Continuation",

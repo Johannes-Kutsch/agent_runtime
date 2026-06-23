@@ -783,8 +783,11 @@ def test_live_smoke_ephemeral_runs_through_public_runtime_request_values(
             captured_request["request"] = request
             if request.on_live_output is not None:
                 request.on_live_output(
-                    prompt_runtime.AgentMessageTurn(
-                        text="provider says ok", service_name="claude"
+                    prompt_runtime.AgentEvent(
+                        type="agent_message",
+                        text="provider says ok",
+                        service_name="claude",
+                        raw_provider_output="",
                     )
                 )
             return SimpleNamespace(

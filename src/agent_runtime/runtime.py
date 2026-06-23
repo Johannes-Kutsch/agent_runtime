@@ -23,7 +23,7 @@ from .errors import (
 from .invocation_progress import InvocationProgress
 from . import _runtime_facade_lifecycle as _runtime_facade_lifecycle_module
 from ._runtime_lifecycle import (
-    AgentMessageTurn,
+    AgentEvent,
     Continuation,
     EphemeralResultMetadata,
     EphemeralRunRequest,
@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from ._provider_invocation import ProviderInvocationAdapter
 
 __all__ = [
+    "AgentEvent",
     "Continuation",
     "EphemeralRunRequest",
     "EphemeralRunResult",
@@ -53,7 +54,6 @@ __all__ = [
     "NewSessionRunRequest",
     "InvocationProgress",
     "InvocationRecord",
-    "AgentMessageTurn",
     "ProviderAuth",
     "ProviderSelection",
     "ProviderUsage",
@@ -106,7 +106,7 @@ _interruption_continuation = _runtime_facade_lifecycle_module._interruption_cont
 _run_ephemeral_outcome = _runtime_facade_lifecycle_module._run_ephemeral_outcome
 _run_new_session_outcome = _runtime_facade_lifecycle_module._run_new_session_outcome
 for _runtime_export in (
-    AgentMessageTurn,
+    AgentEvent,
     Continuation,
     EphemeralResultMetadata,
     EphemeralRunRequest,
@@ -160,7 +160,7 @@ def _parse_claude_event(line: str) -> list[Any]:
 
 def _reduce_claude_stream(
     lines: list[str],
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
     return _builtin_runtime_client_module._reduce_claude_stream_with_dependencies(
         lines,
@@ -171,7 +171,7 @@ def _reduce_claude_stream(
 
 def _reduce_opencode_stream(
     lines: list[str],
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> str:
     return _builtin_runtime_client_module._reduce_opencode_stream(
         lines,
