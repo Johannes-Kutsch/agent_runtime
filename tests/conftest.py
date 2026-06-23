@@ -11,8 +11,6 @@ import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider, ServiceSelectionProvider
-from agent_runtime._execution_contracts import PromptRunRequest, WorktreeMount
-from agent_runtime.roles import InvocationRole
 from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.types import StageSelection as InternalStageSelection
 
@@ -137,7 +135,7 @@ def ephemeral_request_factory(
     def _factory(
         *,
         prompt: str = "already rendered prompt",
-        worktree: Path | WorktreeMount = WorktreeMount(Path(".")),
+        invocation_dir: Path = Path("."),
         stage: runtime.ProviderSelection | None = None,
         tool_access: contracts_runtime.ToolAccess | None = None,
         tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.NONE,
@@ -148,34 +146,9 @@ def ephemeral_request_factory(
             kwargs["tool_access"] = tool_access
         return prompt_runtime.EphemeralRunRequest(
             prompt=prompt,
-            worktree=worktree,
+            invocation_dir=invocation_dir,
             provider_selection=stage or provider_selection_factory(),
             **kwargs,
-            token=token,
-        )
-
-    return _factory
-
-
-@pytest.fixture
-def prompt_run_request_factory(
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> Callable[..., PromptRunRequest]:
-    def _factory(
-        *,
-        prompt: str = "already rendered prompt",
-        worktree: WorktreeMount = WorktreeMount(Path(".")),
-        stage: InternalStageSelection | None = None,
-        role: InvocationRole = InvocationRole("implementer"),
-        tool_policy: runtime.ToolPolicy = runtime.ToolPolicy.UNRESTRICTED,
-        token: Any = None,
-    ) -> PromptRunRequest:
-        return PromptRunRequest(
-            prompt=prompt,
-            worktree=worktree,
-            stage=stage or stage_selection_factory(),
-            role=role,
-            tool_policy=tool_policy,
             token=token,
         )
 

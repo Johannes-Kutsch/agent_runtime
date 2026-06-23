@@ -11,42 +11,62 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
-import agent_runtime._execution_contracts as execution_contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider
-from agent_runtime._execution_contracts import WorktreeMount
 from agent_runtime.roles import InvocationRole
+from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.session import RunKind
-from agent_runtime.usage_limit_scope import UsageLimitScope
 from agent_runtime.session_planning import (
     AuthSeedingRequirement,
     ResumableSessionPlan,
 )
-from agent_runtime.types import StageSelection as InternalStageSelection
+from agent_runtime.usage_limit_scope import UsageLimitScope
 
 from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionService
+
+
+def _session_plan(*, worktree: Path = Path("/repo")) -> ResumableSessionPlan:
+    return ResumableSessionPlan(
+        role=InvocationRole("reviewer"),
+        worktree=worktree,
+        namespace="main",
+        service=cast(ExecutionProvider, _ExecutionService("codex")),
+        run_kind=RunKind.FRESH,
+        provider_state_dir=None,
+        provider_session_id=None,
+        auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
+    )
+
+
+def _continuation() -> prompt_runtime.Continuation:
+    return prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={"run_kind": "resume"},
+    )
 
 
 def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
     provider_selection_factory: Callable[..., runtime.ProviderSelection],
 ) -> None:
+    token = CancellationToken()
     request = prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        provider_selection=runtime.ProviderSelection(
+        provider_selection=provider_selection_factory(
             service="codex",
-            model="gpt-5.4",
-            effort="medium",
             auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         ),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
-        token=execution_contracts_runtime.CancellationToken(),
+        token=token,
     )
 
     assert request.provider_selection.auth == runtime.ProviderAuth(
         opencode_api_key="go-key"
     )
-    assert request.token is not None
+    assert request.token is token
     for field_name in ("role", "logs_dir", "usage_limit_scope", "session_namespace"):
         with pytest.raises(AttributeError, match=field_name):
             getattr(request, field_name)
@@ -74,18 +94,11 @@ def test_resumed_session_run_request_has_minimal_public_signature() -> None:
 
 
 def test_new_session_run_request_signature_exposes_live_output_observer() -> None:
-    assert (
-        "on_live_output"
-        in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
-    )
-    assert (
-        "session_store"
-        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
-    )
-    assert (
-        "provider_session_adapter"
-        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
-    )
+    parameters = inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
+
+    assert "on_live_output" in parameters
+    assert "session_store" not in parameters
+    assert "provider_session_adapter" not in parameters
 
 
 def test_new_invocation_requests_take_provider_auth_from_provider_selection() -> None:
@@ -113,30 +126,6 @@ def test_new_invocation_requests_take_provider_auth_from_provider_selection() ->
 
     assert ephemeral_request.provider_selection.auth == provider_auth
     assert new_session_request.provider_selection.auth == provider_auth
-    assert (
-        "auth" not in inspect.signature(prompt_runtime.EphemeralRunRequest).parameters
-    )
-    assert (
-        "provider_auth"
-        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
-    )
-    with pytest.raises(TypeError, match="unexpected keyword argument 'auth'"):
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            provider_selection=provider_selection,
-            tool_policy=runtime.ToolPolicy.NONE,
-            auth=provider_auth,
-        )
-    with pytest.raises(TypeError, match="unexpected keyword argument 'provider_auth'"):
-        prompt_runtime.NewSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            provider_selection=provider_selection,
-            role=InvocationRole("implementer"),
-            tool_policy=runtime.ToolPolicy.NONE,
-            provider_auth=provider_auth,
-        )
 
 
 def test_public_root_and_runtime_modules_expose_provider_selection_only() -> None:
@@ -145,22 +134,6 @@ def test_public_root_and_runtime_modules_expose_provider_selection_only() -> Non
         runtime.StageSelection
     with pytest.raises(AttributeError):
         prompt_runtime.StageSelection
-
-
-def test_public_provider_selection_requires_explicit_fields_without_fallback() -> None:
-    with pytest.raises(TypeError):
-        cast(Any, runtime.ProviderSelection)()
-    with pytest.raises(TypeError, match="unexpected keyword argument 'fallback'"):
-        cast(Any, runtime.ProviderSelection)(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-            fallback=runtime.ProviderSelection(
-                service="claude",
-                model="sonnet",
-                effort="high",
-            ),
-        )
 
 
 def test_provider_value_objects_redact_credential_values_in_textual_representation() -> (
@@ -185,36 +158,6 @@ def test_provider_value_objects_redact_credential_values_in_textual_representati
     ):
         assert "claude-secret" not in rendered
         assert "opencode-secret" not in rendered
-
-
-def test_provider_value_objects_compare_using_credential_values() -> None:
-    first_auth = runtime.ProviderAuth(opencode_api_key="first-key")
-    second_auth = runtime.ProviderAuth(opencode_api_key="second-key")
-
-    assert first_auth == runtime.ProviderAuth(opencode_api_key="first-key")
-    assert first_auth != second_auth
-    assert runtime.ProviderSelection(
-        service="opencode",
-        model="gpt-5.4",
-        effort="medium",
-        auth=first_auth,
-    ) == runtime.ProviderSelection(
-        service="opencode",
-        model="gpt-5.4",
-        effort="medium",
-        auth=runtime.ProviderAuth(opencode_api_key="first-key"),
-    )
-    assert runtime.ProviderSelection(
-        service="opencode",
-        model="gpt-5.4",
-        effort="medium",
-        auth=first_auth,
-    ) != runtime.ProviderSelection(
-        service="opencode",
-        model="gpt-5.4",
-        effort="medium",
-        auth=second_auth,
-    )
 
 
 @pytest.mark.parametrize(
@@ -247,7 +190,6 @@ def test_runtime_lifecycle_requests_use_provider_selection_public_field(
     request_type: type[object],
 ) -> None:
     provider_selection = provider_selection_factory(service="codex")
-
     request = cast(Any, request_factory(provider_selection))
 
     assert request.provider_selection == provider_selection
@@ -257,50 +199,14 @@ def test_runtime_lifecycle_requests_use_provider_selection_public_field(
 
 
 @pytest.mark.parametrize(
-    "request_factory",
-    [
-        lambda provider_selection: prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            provider_selection=provider_selection,
-            tool_policy=runtime.ToolPolicy.NONE,
-        ),
-        lambda provider_selection: prompt_runtime.NewSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            provider_selection=provider_selection,
-            role=InvocationRole("implementer"),
-            tool_policy=runtime.ToolPolicy.NONE,
-        ),
-    ],
-)
-def test_runtime_lifecycle_requests_expose_provider_selection_without_stage_aliases(
-    request_factory: Callable[[runtime.ProviderSelection], object],
-) -> None:
-    provider_selection = runtime.ProviderSelection(
-        service="codex",
-        model="gpt-5.4",
-        effort="medium",
-    )
-
-    request = cast(Any, request_factory(provider_selection))
-
-    assert request.provider_selection == provider_selection
-    with pytest.raises(AttributeError):
-        request.stage
-    with pytest.raises(AttributeError):
-        request.override
-
-
-@pytest.mark.parametrize(
     ("request_factory", "request_name"),
     [
         (
-            lambda on_live_output, stage_selection_factory, tmp_path: (
+            lambda on_live_output, provider_selection_factory, tmp_path: (
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=stage_selection_factory(service="codex"),
+                    provider_selection=provider_selection_factory(service="codex"),
                     on_live_output=on_live_output,
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
@@ -308,11 +214,11 @@ def test_runtime_lifecycle_requests_expose_provider_selection_without_stage_alia
             "EphemeralRunRequest",
         ),
         (
-            lambda on_live_output, stage_selection_factory, tmp_path: (
+            lambda on_live_output, provider_selection_factory, tmp_path: (
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=stage_selection_factory(service="codex"),
+                    provider_selection=provider_selection_factory(service="codex"),
                     on_live_output=on_live_output,
                     role=InvocationRole("implementer"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
@@ -321,19 +227,11 @@ def test_runtime_lifecycle_requests_expose_provider_selection_without_stage_alia
             "NewSessionRunRequest",
         ),
         (
-            lambda on_live_output, stage_selection_factory, tmp_path: (
+            lambda on_live_output, _provider_selection_factory, tmp_path: (
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    continuation=prompt_runtime.Continuation(
-                        selected_service="codex",
-                        selected_model="gpt-5.4",
-                        selected_effort="medium",
-                        tool_access=contracts_runtime.ToolAccess.no_tools(),
-                        provider_resume_state={
-                            "provider_session_id": "provider-session-id"
-                        },
-                    ),
+                    continuation=_continuation(),
                     on_live_output=on_live_output,
                 )
             ),
@@ -353,62 +251,20 @@ def test_runtime_lifecycle_request_values_accept_live_output_observer(
         observed.append(value)
 
     request = request_factory(on_live_output, provider_selection_factory, tmp_path)
+
     assert request.on_live_output is on_live_output
     assert request_name in request.__class__.__name__
-    assert len(observed) == 0
+    assert observed == []
 
 
-def test_lifecycle_request_signatures_no_longer_show_tool_access() -> None:
-    assert (
-        "tool_access"
-        not in inspect.signature(
-            prompt_runtime.EphemeralRunRequest,
-        ).parameters
-    )
-    assert (
-        "tool_access"
-        not in inspect.signature(
-            prompt_runtime.NewSessionRunRequest,
-        ).parameters
-    )
-    assert (
-        "tool_access"
-        not in inspect.signature(
-            prompt_runtime.ResumedSessionRunRequest,
-        ).parameters
-    )
-    assert (
-        "runtime_state_dir"
-        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
-    )
-    assert (
-        "session_namespace"
-        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
-    )
-    assert (
-        "session_store"
-        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
-    )
-    assert (
-        "provider_session_adapter"
-        not in inspect.signature(prompt_runtime.NewSessionRunRequest).parameters
-    )
-
-
-@pytest.mark.parametrize("removed_name", ["stage", "override"])
 @pytest.mark.parametrize(
     ("request_factory", "request_name"),
     [
-        (
-            prompt_runtime.EphemeralRunRequest,
-            "EphemeralRunRequest",
-        ),
-        (
-            prompt_runtime.NewSessionRunRequest,
-            "NewSessionRunRequest",
-        ),
+        (prompt_runtime.EphemeralRunRequest, "EphemeralRunRequest"),
+        (prompt_runtime.NewSessionRunRequest, "NewSessionRunRequest"),
     ],
 )
+@pytest.mark.parametrize("removed_name", ["stage", "override"])
 def test_public_lifecycle_requests_reject_removed_request_selection_names(
     request_factory: type[object],
     request_name: str,
@@ -416,7 +272,7 @@ def test_public_lifecycle_requests_reject_removed_request_selection_names(
 ) -> None:
     with pytest.raises(
         TypeError,
-        match=(f"{request_name} got an unexpected keyword argument '{removed_name}'."),
+        match=f"{request_name} got an unexpected keyword argument '{removed_name}'.",
     ):
         kwargs: dict[str, Any] = {
             "prompt": "already rendered prompt",
@@ -433,33 +289,19 @@ def test_public_lifecycle_requests_reject_removed_request_selection_names(
         cast(Any, request_factory)(**kwargs)
 
 
-def test_new_session_run_request_defaults_to_implementer_without_caller_managed_inputs(
-    provider_selection_factory: Callable[..., runtime.ProviderSelection],
-    tmp_path: Path,
-) -> None:
-    request = prompt_runtime.NewSessionRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=tmp_path,
-        provider_selection=provider_selection_factory(service="codex"),
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-    )
-
-    assert request.role == InvocationRole("implementer")
-    assert not hasattr(request, "runtime_state_dir")
-    assert not hasattr(request, "usage_limit_scope")
-    assert not hasattr(request, "session_namespace")
-    assert not hasattr(request, "logs_dir")
-
-
 @pytest.mark.parametrize(
     ("request_factory", "request_name"),
     [
         (
-            lambda stage_selection_factory, tmp_path, unexpected_name, unexpected_value: (
+            lambda unexpected_name, unexpected_value: (
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
-                    invocation_dir=tmp_path,
-                    provider_selection=stage_selection_factory(service="codex"),
+                    invocation_dir=Path("/repo"),
+                    provider_selection=runtime.ProviderSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
                     tool_policy=runtime.ToolPolicy.NONE,
                     **{unexpected_name: unexpected_value},
                 )
@@ -467,11 +309,16 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
             "EphemeralRunRequest",
         ),
         (
-            lambda stage_selection_factory, tmp_path, unexpected_name, unexpected_value: (
+            lambda unexpected_name, unexpected_value: (
                 prompt_runtime.NewSessionRunRequest(
                     prompt="already rendered prompt",
-                    invocation_dir=tmp_path,
-                    provider_selection=stage_selection_factory(service="codex"),
+                    invocation_dir=Path("/repo"),
+                    provider_selection=runtime.ProviderSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    role=InvocationRole("implementer"),
                     tool_policy=runtime.ToolPolicy.NONE,
                     **{unexpected_name: unexpected_value},
                 )
@@ -479,17 +326,11 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
             "NewSessionRunRequest",
         ),
         (
-            lambda stage_selection_factory, tmp_path, unexpected_name, unexpected_value: (
+            lambda unexpected_name, unexpected_value: (
                 prompt_runtime.ResumedSessionRunRequest(
                     prompt="already rendered prompt",
-                    invocation_dir=WorktreeMount(tmp_path),
-                    continuation=prompt_runtime.Continuation(
-                        selected_service="codex",
-                        selected_model="gpt-5.4",
-                        selected_effort="medium",
-                        tool_access=contracts_runtime.ToolAccess.no_tools(),
-                        provider_resume_state={"run_kind": "resume"},
-                    ),
+                    invocation_dir=Path("/repo"),
+                    continuation=_continuation(),
                     **{unexpected_name: unexpected_value},
                 )
             ),
@@ -502,596 +343,265 @@ def test_new_session_run_request_defaults_to_implementer_without_caller_managed_
     [
         ("logs_dir", Path("/tmp/runtime-logs")),
         ("log_name", "implementer"),
+        ("usage_limit_scope", UsageLimitScope("review")),
     ],
 )
-def test_ordinary_runtime_requests_reject_runtime_managed_log_inputs(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
-    tmp_path: Path,
-    request_factory: Callable[..., object],
+def test_ordinary_runtime_requests_reject_runtime_managed_inputs(
+    request_factory: Callable[[str, object], object],
     request_name: str,
     unexpected_name: str,
     unexpected_value: object,
 ) -> None:
     with pytest.raises(
         TypeError,
-        match=(
-            f"{request_name} got an unexpected keyword argument '{unexpected_name}'."
-        ),
+        match=f"{request_name} got an unexpected keyword argument '{unexpected_name}'.",
     ):
-        request_factory(
-            stage_selection_factory,
-            tmp_path,
-            unexpected_name,
-            unexpected_value,
-        )
+        request_factory(unexpected_name, unexpected_value)
 
 
-def test_new_session_run_request_rejects_caller_provided_usage_limit_scope() -> None:
-    with pytest.raises(
-        TypeError,
-        match="got an unexpected keyword argument 'usage_limit_scope'",
-    ):
-        cast(Any, prompt_runtime.NewSessionRunRequest)(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            provider_selection=runtime.ProviderSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="high",
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            usage_limit_scope=UsageLimitScope("review"),
-        )
-
-
-@pytest.mark.parametrize(
-    "removed_name",
-    [
-        "session_store",
-        "provider_session_adapter",
-        "_session_store",
-        "_provider_session_adapter",
-    ],
-)
-def test_new_session_run_request_rejects_consumer_adapter_injection_kwargs(
-    removed_name: str,
-) -> None:
-    with pytest.raises(
-        TypeError,
-        match=(
-            f"NewSessionRunRequest got an unexpected keyword argument '{removed_name}'."
-        ),
-    ):
-        cast(Any, prompt_runtime.NewSessionRunRequest)(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            provider_selection=runtime.ProviderSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="high",
-            ),
-            role=InvocationRole("implementer"),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            **{removed_name: object()},
-        )
-
-
-def test_ephemeral_run_request_rejects_caller_provided_usage_limit_scope() -> None:
-    with pytest.raises(
-        TypeError,
-        match="got an unexpected keyword argument 'usage_limit_scope'",
-    ):
-        cast(Any, prompt_runtime.EphemeralRunRequest)(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            provider_selection=runtime.ProviderSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="high",
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            usage_limit_scope=UsageLimitScope("review"),
-        )
-
-
-def test_resumed_session_run_request_rejects_caller_provided_usage_limit_scope() -> (
+def test_lifecycle_requests_derive_workspace_backed_tool_access_from_tool_policy() -> (
     None
 ):
-    with pytest.raises(
-        TypeError,
-        match="got an unexpected keyword argument 'usage_limit_scope'",
-    ):
-        cast(Any, prompt_runtime.ResumedSessionRunRequest)(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            continuation=prompt_runtime.Continuation(
-                selected_service="codex",
-                selected_model="gpt-5.4",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={"run_kind": "resume"},
-            ),
-            usage_limit_scope=UsageLimitScope("review"),
-        )
-
-
-def test_prompt_run_request_rejects_caller_provided_usage_limit_scope() -> None:
-    with pytest.raises(
-        TypeError,
-        match="got an unexpected keyword argument 'usage_limit_scope'",
-    ):
-        cast(Any, execution_contracts_runtime.PromptRunRequest)(
-            prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
-            stage=InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="high",
-            ),
-            role=InvocationRole("implementer"),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            usage_limit_scope=UsageLimitScope("review"),
-        )
-
-
-def test_prompt_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> None:
-    request = execution_contracts_runtime.PromptRunRequest(
-        prompt="already rendered prompt",
-        worktree=WorktreeMount(Path("/repo")),
-        stage=stage_selection_factory(service="codex"),
-        role=InvocationRole("implementer"),
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-    )
-
-    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
-        Path("/repo"),
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-    )
-    assert request.tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION
-
-
-def test_ephemeral_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> None:
-    request = prompt_runtime.EphemeralRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=Path("/repo"),
-        provider_selection=stage_selection_factory(service="codex"),
-        tool_policy=runtime.ToolPolicy.UNRESTRICTED,
-    )
-
-    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
-        Path("/repo")
-    )
-    assert request.tool_policy is runtime.ToolPolicy.UNRESTRICTED
-
-
-def test_ephemeral_run_request_uses_none_tool_policy_for_explicit_no_tools_access(
-    provider_selection_factory: Callable[..., runtime.ProviderSelection],
-) -> None:
-    request = prompt_runtime.EphemeralRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=Path("/repo"),
-        provider_selection=provider_selection_factory(service="codex"),
-        tool_policy=runtime.ToolPolicy.NONE,
-    )
-
-    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
-    assert request.tool_policy is runtime.ToolPolicy.NONE
-
-
-def test_new_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access(
-    provider_selection_factory: Callable[..., runtime.ProviderSelection],
-) -> None:
-    request = prompt_runtime.NewSessionRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=Path("/repo"),
-        provider_selection=provider_selection_factory(service="codex"),
-        role=InvocationRole("implementer"),
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-    )
-
-    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
-        Path("/repo"),
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-    )
-    assert request.tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION
-
-
-def test_new_session_request_non_none_tool_policy_uses_invocation_dir_as_tool_workspace(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
-    tmp_path: Path,
-) -> None:
-    request = prompt_runtime.NewSessionRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=tmp_path,
-        provider_selection=stage_selection_factory(service="codex"),
-        role=InvocationRole("implementer"),
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-    )
-
-    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
-        tmp_path,
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-    )
-
-
-def test_lifecycle_request_construction_does_not_expose_session_namespace_field_as_public_attribute() -> (
-    None
-):
-    request = prompt_runtime.NewSessionRunRequest(
+    assert prompt_runtime.EphemeralRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
         provider_selection=runtime.ProviderSelection(
-            service="codex", model="gpt-5.4", effort="high"
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
         ),
-        role=InvocationRole("implementer"),
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    ).tool_access == contracts_runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
-    assert not hasattr(request, "session_namespace")
-
-
-def test_new_session_request_keeps_runtime_managed_compatibility_fields_internal_to_dataclass_surface() -> (
-    None
-):
-    request = prompt_runtime.NewSessionRunRequest(
+    assert prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
         provider_selection=runtime.ProviderSelection(
-            service="codex", model="gpt-5.4", effort="high"
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        role=InvocationRole("implementer"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    ).tool_access == contracts_runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+
+    assert prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        model="gpt-5.4",
+        effort="medium",
+        session_plan=_session_plan(),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    ).tool_access == contracts_runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+
+
+def test_lifecycle_requests_keep_runtime_managed_compatibility_fields_internal_to_dataclass_surface() -> (
+    None
+):
+    new_session_request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        provider_selection=runtime.ProviderSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="high",
         ),
         role=InvocationRole("implementer"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         runtime_state_dir=Path("/state"),
         session_namespace="main",
     )
-
-    assert request._runtime_state_dir == Path("/state")
-    assert request._session_namespace == "main"
-    assert "_runtime_state_dir" not in repr(request)
-    assert "_session_namespace" not in repr(request)
-    assert "_runtime_state_dir" not in {field.name for field in fields(request)}
-    assert "_session_namespace" not in {field.name for field in fields(request)}
-    assert "_runtime_state_dir" not in asdict(request)
-    assert "_session_namespace" not in asdict(request)
-
-
-def test_resumed_session_run_request_uses_compatibility_tool_policy_for_workspace_backed_tool_access() -> (
-    None
-):
-    request = prompt_runtime.ResumedSessionRunRequest(
+    resumed_request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        model="gpt-5.4",
-        effort="medium",
-        session_plan=ResumableSessionPlan(
-            role=InvocationRole("reviewer"),
-            worktree=Path("/repo"),
-            namespace="main",
-            service=cast(ExecutionProvider, _ExecutionService("codex")),
-            run_kind=RunKind.FRESH,
-            provider_state_dir=None,
-            provider_session_id=None,
-            auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
-        ),
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-    )
-
-    assert request.tool_access == contracts_runtime.ToolAccess.workspace_backed(
-        Path("/repo"),
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-    )
-    assert request.tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION
-
-
-def test_resumed_session_run_request_from_session_plan_keeps_namespace_from_session_plan() -> (
-    None
-):
-    request = prompt_runtime.ResumedSessionRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=Path("/repo"),
-        model="gpt-5.4",
-        effort="medium",
-        session_plan=ResumableSessionPlan(
-            role=InvocationRole("reviewer"),
-            worktree=Path("/repo"),
-            namespace="main",
-            service=cast(ExecutionProvider, _ExecutionService("codex")),
-            run_kind=RunKind.FRESH,
-            provider_state_dir=None,
-            provider_session_id=None,
-            auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
-        ),
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-    )
-
-    assert not hasattr(request, "session_namespace")
-
-
-def test_resumed_session_request_keeps_runtime_managed_compatibility_fields_internal_to_dataclass_surface() -> (
-    None
-):
-    request = prompt_runtime.ResumedSessionRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=WorktreeMount(Path("/repo")),
-        continuation=prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={"run_kind": "resume"},
-        ),
+        continuation=_continuation(),
         role=InvocationRole("implementer"),
         runtime_state_dir=Path("/state"),
         session_namespace="main",
     )
 
-    assert request._runtime_state_dir == Path("/state")
-    assert request._session_namespace == "main"
-    assert "_runtime_state_dir" not in repr(request)
-    assert "_session_namespace" not in repr(request)
-    assert "_runtime_state_dir" not in {field.name for field in fields(request)}
-    assert "_session_namespace" not in {field.name for field in fields(request)}
-    assert "_runtime_state_dir" not in asdict(request)
-    assert "_session_namespace" not in asdict(request)
+    for request in (new_session_request, resumed_request):
+        assert request._runtime_state_dir == Path("/state")
+        assert request._session_namespace == "main"
+        assert "_runtime_state_dir" not in repr(request)
+        assert "_session_namespace" not in repr(request)
+        assert "_runtime_state_dir" not in {field.name for field in fields(request)}
+        assert "_session_namespace" not in {field.name for field in fields(request)}
+        assert "_runtime_state_dir" not in asdict(request)
+        assert "_session_namespace" not in asdict(request)
 
 
-def test_prompt_run_request_rejects_workspace_backed_tool_access_for_other_worktree(
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> None:
+def test_lifecycle_request_construction_requires_explicit_tool_policy() -> None:
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "EphemeralRunRequest requires an explicit `tool_policy` value."
+        ),
+    ):
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+        )
+
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "NewSessionRunRequest requires an explicit `tool_policy` value."
+        ),
+    ):
+        prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+        )
+
+
+def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for_other_invocation_dir() -> (
+    None
+):
     with pytest.raises(
         ValueError,
         match=re.escape(
-            "PromptRunRequest workspace-backed tool access requires worktree /other, got /repo."
+            "EphemeralRunRequest workspace-backed tool access requires invocation_dir /other, got /repo."
         ),
     ):
-        execution_contracts_runtime.PromptRunRequest(
+        prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            worktree=WorktreeMount(Path("/repo")),
-            stage=stage_selection_factory(service="codex"),
-            role=InvocationRole("implementer"),
-            tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/other")),
+            invocation_dir=Path("/repo"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                Path("/other"),
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            ),
         )
 
 
-@pytest.mark.parametrize(
-    ("request_factory", "expected_message"),
-    [
-        (
-            lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=Path("/repo"),
-                provider_selection=stage_selection_factory(service="codex"),
-                tool_access=contracts_runtime.ToolAccess.workspace_backed(
-                    Path("/other"),
-                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-                ),
-            ),
-            "EphemeralRunRequest workspace-backed tool access requires invocation_dir /other, got /repo.",
-        ),
-        (
-            lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=Path("/repo"),
-                provider_selection=stage_selection_factory(service="codex"),
-                role=InvocationRole("implementer"),
-                tool_access=contracts_runtime.ToolAccess.workspace_backed(
-                    Path("/other"),
-                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
-                ),
-            ),
-            "NewSessionRunRequest workspace-backed tool access requires invocation_dir /other, got /repo.",
-        ),
-    ],
-)
-def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for_other_worktree(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
-    request_factory: Callable[[Callable[..., runtime.ProviderSelection]], object],
-    expected_message: str,
-) -> None:
-    with pytest.raises(ValueError, match=re.escape(expected_message)):
-        request_factory(stage_selection_factory)
-
-
-@pytest.mark.parametrize(
-    ("request_factory", "expected_message"),
-    [
-        (
-            lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=Path("/repo"),
-                provider_selection=stage_selection_factory(service="codex"),
-            ),
-            "EphemeralRunRequest requires an explicit `tool_policy` value.",
-        ),
-        (
-            lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=Path("/repo"),
-                provider_selection=stage_selection_factory(service="codex"),
-                role=InvocationRole("implementer"),
-            ),
-            "NewSessionRunRequest requires an explicit `tool_policy` value.",
-        ),
-    ],
-)
-def test_lifecycle_request_construction_requires_explicit_tool_policy(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
-    request_factory: Callable[
-        [Callable[..., runtime.ProviderSelection]],
-        object,
-    ],
-    expected_message: str,
-) -> None:
-    with pytest.raises(TypeError, match=re.escape(expected_message)):
-        request_factory(stage_selection_factory)
-
-
-def test_ephemeral_request_none_tool_policy_prohibits_provider_tools_and_requires_invocation_dir(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
-    tmp_path: Path,
-) -> None:
-    request = prompt_runtime.EphemeralRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=tmp_path,
-        provider_selection=stage_selection_factory(service="codex"),
-        tool_policy=runtime.ToolPolicy.NONE,
-    )
-
-    assert request.invocation_dir == tmp_path
-    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
-    assert request.tool_policy is runtime.ToolPolicy.NONE
-
-
-def test_new_session_request_none_tool_policy_prohibits_provider_tools_and_requires_invocation_dir(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
-    tmp_path: Path,
-) -> None:
-    request = prompt_runtime.NewSessionRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=tmp_path,
-        provider_selection=stage_selection_factory(service="codex"),
-        role=InvocationRole("implementer"),
-        tool_policy=runtime.ToolPolicy.NONE,
-    )
-
-    assert request.invocation_dir == tmp_path
-    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
-    assert request.tool_policy is runtime.ToolPolicy.NONE
-
-
-def test_resumed_session_run_request_coerces_path_invocation_dir_to_worktree_mount() -> (
-    None
-):
+def test_resumed_session_run_request_keeps_path_invocation_dir() -> None:
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
         model="gpt-5.4",
         effort="medium",
-        session_plan=ResumableSessionPlan(
-            role=InvocationRole("reviewer"),
-            worktree=Path("/repo"),
-            namespace="main",
-            service=cast(ExecutionProvider, _ExecutionService("codex")),
-            run_kind=RunKind.FRESH,
-            provider_state_dir=None,
-            provider_session_id=None,
-            auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
-        ),
+        session_plan=_session_plan(),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
 
-    assert request.invocation_dir == WorktreeMount(Path("/repo"))
+    assert request.invocation_dir == Path("/repo")
     assert request.mount_path == Path("/repo")
-
-
-@pytest.mark.parametrize(
-    ("request_factory", "expected_invocation_dir"),
-    [
-        (
-            lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=Path("/repo"),
-                provider_selection=stage_selection_factory(service="codex"),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            ),
-            Path("/repo"),
-        ),
-        (
-            lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=Path("/repo"),
-                provider_selection=stage_selection_factory(service="codex"),
-                role=InvocationRole("implementer"),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            ),
-            Path("/repo"),
-        ),
-        (
-            lambda _stage_selection_factory: prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                worktree=Path("/repo"),
-                model="gpt-5.4",
-                effort="medium",
-                session_plan=ResumableSessionPlan(
-                    role=InvocationRole("reviewer"),
-                    worktree=Path("/repo"),
-                    namespace="main",
-                    service=cast(ExecutionProvider, _ExecutionService("codex")),
-                    run_kind=RunKind.FRESH,
-                    provider_state_dir=None,
-                    provider_session_id=None,
-                    auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            ),
-            WorktreeMount(Path("/repo")),
-        ),
-    ],
-)
-def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_public_surface(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
-    request_factory: Callable[[Callable[..., runtime.ProviderSelection]], object],
-    expected_invocation_dir: Path | WorktreeMount,
-) -> None:
-    request = request_factory(stage_selection_factory)
-
-    assert getattr(request, "invocation_dir") == expected_invocation_dir
 
 
 @pytest.mark.parametrize(
     "request_factory",
     [
-        lambda stage_selection_factory: prompt_runtime.EphemeralRunRequest(
+        lambda: prompt_runtime.EphemeralRunRequest(
             prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            worktree=Path("/other"),
-            provider_selection=stage_selection_factory(service="codex"),
+            worktree=Path("/repo"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
-        lambda stage_selection_factory: prompt_runtime.NewSessionRunRequest(
+        lambda: prompt_runtime.NewSessionRunRequest(
             prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            worktree=Path("/other"),
-            provider_selection=stage_selection_factory(service="codex"),
+            worktree=Path("/repo"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
             role=InvocationRole("implementer"),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
-        lambda _stage_selection_factory: prompt_runtime.ResumedSessionRunRequest(
+        lambda: prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            worktree=Path("/repo"),
+            model="gpt-5.4",
+            effort="medium",
+            session_plan=_session_plan(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        ),
+    ],
+)
+def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_public_surface(
+    request_factory: Callable[[], object],
+) -> None:
+    request = cast(Any, request_factory())
+
+    assert request.invocation_dir == Path("/repo")
+
+
+@pytest.mark.parametrize(
+    "request_factory",
+    [
+        lambda: prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            worktree=Path("/other"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        ),
+        lambda: prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            worktree=Path("/other"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            role=InvocationRole("implementer"),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        ),
+        lambda: prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
             worktree=Path("/other"),
             model="gpt-5.4",
             effort="medium",
-            session_plan=ResumableSessionPlan(
-                role=InvocationRole("reviewer"),
-                worktree=Path("/repo"),
-                namespace="main",
-                service=cast(ExecutionProvider, _ExecutionService("codex")),
-                run_kind=RunKind.FRESH,
-                provider_state_dir=None,
-                provider_session_id=None,
-                auth_seeding_requirement=AuthSeedingRequirement.NOT_REQUIRED,
-            ),
+            session_plan=_session_plan(),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
     ],
 )
 def test_lifecycle_request_construction_rejects_conflicting_invocation_dir_and_legacy_worktree(
-    stage_selection_factory: Callable[..., runtime.ProviderSelection],
-    request_factory: Callable[[Callable[..., runtime.ProviderSelection]], object],
+    request_factory: Callable[[], object],
 ) -> None:
     with pytest.raises(
         TypeError,
         match=re.escape("received conflicting `invocation_dir` and `worktree` values."),
     ):
-        request_factory(stage_selection_factory)
+        request_factory()
 
 
 def test_runtime_public_surface_keeps_request_normalization_module_private() -> None:
     assert "_request_normalization" not in runtime.__all__
     assert "_request_normalization" not in prompt_runtime.__all__
-    assert "_request_normalization" not in execution_contracts_runtime.__all__

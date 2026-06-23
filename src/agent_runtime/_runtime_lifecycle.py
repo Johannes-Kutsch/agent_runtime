@@ -75,18 +75,22 @@ def _resolve_public_invocation_dir(
     *,
     context: str,
 ) -> Path:
-    if "worktree" in compatibility_kwargs:
-        raise TypeError(
-            f"{context} does not accept a `worktree` value; use `{_PUBLIC_INVOCATION_DIR_NAME}`."
-        )
+    legacy_worktree = compatibility_kwargs.pop("worktree", None)
     if compatibility_kwargs:
         unexpected_argument = next(iter(compatibility_kwargs))
         raise TypeError(
             f"{context} got an unexpected keyword argument '{unexpected_argument}'."
         )
-    if invocation_dir is None:
+    if invocation_dir is not None and legacy_worktree is not None:
+        raise TypeError(
+            f"{context} received conflicting `{_PUBLIC_INVOCATION_DIR_NAME}` and `worktree` values."
+        )
+    resolved_invocation_dir = (
+        invocation_dir if invocation_dir is not None else legacy_worktree
+    )
+    if resolved_invocation_dir is None:
         raise TypeError(f"{context} requires an `{_PUBLIC_INVOCATION_DIR_NAME}` value.")
-    return invocation_dir
+    return resolved_invocation_dir
 
 
 def _public_request_signature(
@@ -525,7 +529,7 @@ class EphemeralRunRequest:
     def __init__(
         self,
         prompt: str,
-        invocation_dir: Path,
+        invocation_dir: Path | None = None,
         provider_selection: ProviderSelection | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
@@ -595,7 +599,7 @@ class NewSessionRunRequest:
     def __init__(
         self,
         prompt: str,
-        invocation_dir: Path,
+        invocation_dir: Path | None = None,
         provider_selection: ProviderSelection | None = None,
         role: InvocationRole | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
@@ -729,7 +733,7 @@ class ResumedSessionRunRequest:
     def __init__(
         self,
         prompt: str,
-        invocation_dir: Path,
+        invocation_dir: Path | None = None,
         model: str | None = None,
         effort: str | None = None,
         session_plan: ResumableSessionPlan | None = None,

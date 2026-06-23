@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
+from . import _time
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from .contracts import ToolPolicy
 from .errors import (
@@ -33,6 +34,8 @@ from .types import ProviderSelection
 
 if TYPE_CHECKING:
     from ._provider_invocation import ProviderInvocationAdapter
+
+_time_module = _time
 
 __all__ = [
     "Continuation",
