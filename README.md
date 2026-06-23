@@ -75,7 +75,7 @@ result = await runtime.run_new_session(
         invocation_dir=Path("."),
         stage=StageSelection(
             service="opencode",
-            model="github-copilot/gpt-5.1-codex",
+            model="deepseek-v4-flash",
             effort="medium",
         ),
         provider_auth=ProviderAuth(opencode_api_key=opencode_api_key),
