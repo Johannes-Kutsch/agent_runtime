@@ -3,12 +3,8 @@ from __future__ import annotations
 import dataclasses
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from .identity import validate_runtime_identity_label, validate_session_namespace
-
-if TYPE_CHECKING:
-    from .roles import InvocationRole
 
 
 _DEFAULT_PROVIDER_SESSION_ID_FILENAME = "thread_id"
@@ -38,7 +34,7 @@ class ProviderSessionState:
 
 
 def provider_state_relpath(
-    role: "InvocationRole",
+    role: str,
     provider_name: str,
     namespace: str = "",
     *,
@@ -49,14 +45,14 @@ def provider_state_relpath(
         kind="Provider state service name",
     )
     validate_session_namespace(namespace)
-    base = f"{role.value}/{provider_name}/"
+    base = f"{role}/{provider_name}/"
     if namespace:
-        base = f"{role.value}/{namespace}/{provider_name}/"
+        base = f"{role}/{namespace}/{provider_name}/"
     return f"{session_root}/{base}" if session_root else base
 
 
 def normalize_state_dir_relpath(
-    role: "InvocationRole",
+    role: str,
     namespace: str,
     service_name: str,
     state_dir_relpath: str | None,

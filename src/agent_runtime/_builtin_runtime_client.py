@@ -30,7 +30,6 @@ from ._portable_continuation_payload import (
     read_portable_continuation_payload,
 )
 from ._runtime_lifecycle import (
-    _DEFAULT_EPHEMERAL_ROLE,
     Continuation,
     AgentEvent,
     EphemeralResultMetadata,
@@ -2067,7 +2066,7 @@ def _restore_opencode_state_dir(
         _seed_opencode_provider_state_dir(state_dir, continuation_provider_state)
         return state_dir, cleanup
     provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
-        role=request.role,
+        role="implementer",
         session_namespace=request._session_namespace,
     )
     state_dir = request._runtime_state_dir / provider_state_dir_relpath
@@ -2286,8 +2285,6 @@ def _invoke_provider(
     prompt_path: Path | None,
     cleanup_prompt_path: bool,
     run_kind: RunKind,
-    role: Any,
-    usage_limit_scope: Any,
     provider_session_id: str | None,
     reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
     extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
@@ -2305,8 +2302,6 @@ def _invoke_provider(
                 cleanup_path=cleanup_prompt_path,
             ),
             run_kind=run_kind,
-            role=role,
-            usage_limit_scope=usage_limit_scope,
             log_context=None,
             provider_session_id=provider_session_id,
             output_hooks=ProviderOutputReductionHooks(
@@ -2354,8 +2349,6 @@ def _invoke_claude_new_session_provider(
         prompt_path=_builtin_provider_prompt_path(request.invocation_dir),
         cleanup_prompt_path=True,
         run_kind=run_kind,
-        role=request.role,
-        usage_limit_scope=None,
         provider_session_id=provider_session_id,
         reduce_output=_observe_output_reducer(
             lambda lines: _reduce_claude_stream(lines),
@@ -2393,8 +2386,6 @@ def _invoke_codex_new_session_provider(
         prompt_path=_builtin_provider_temp_prompt_path(),
         cleanup_prompt_path=True,
         run_kind=RunKind.FRESH,
-        role=request.role,
-        usage_limit_scope=None,
         provider_session_id=None,
         reduce_output=_observe_output_reducer(
             lambda lines: _reduce_codex_stream(lines),
@@ -2434,8 +2425,6 @@ def _invoke_codex_resumed_session_provider(
         prompt_path=_builtin_provider_temp_prompt_path(),
         cleanup_prompt_path=True,
         run_kind=RunKind.RESUME,
-        role=request.role,
-        usage_limit_scope=None,
         provider_session_id=provider_session_id,
         reduce_output=_observe_output_reducer(
             lambda lines: _reduce_codex_stream(lines),
@@ -2527,8 +2516,6 @@ def _invoke_opencode_new_session_provider(
         prompt_path=_builtin_provider_prompt_path(request.invocation_dir),
         cleanup_prompt_path=True,
         run_kind=run_kind,
-        role=request.role,
-        usage_limit_scope=None,
         provider_session_id=provider_session_id,
         reduce_output=_observe_opencode_output_reducer(
             _reduce_opencode_session_output,
@@ -2641,8 +2628,6 @@ def _run_builtin_ephemeral(
                 prompt_path=prompt_path,
                 cleanup_prompt_path=True,
                 run_kind=RunKind.FRESH,
-                role=_DEFAULT_EPHEMERAL_ROLE,
-                usage_limit_scope=None,
                 provider_session_id=None,
                 reduce_output=_observe_output_reducer(
                     lambda lines: reduce_codex_stream(lines, None),
@@ -2672,8 +2657,6 @@ def _run_builtin_ephemeral(
                 prompt_path=prompt_path,
                 cleanup_prompt_path=True,
                 run_kind=RunKind.FRESH,
-                role=_DEFAULT_EPHEMERAL_ROLE,
-                usage_limit_scope=None,
                 provider_session_id=None,
                 reduce_output=_observe_opencode_output_reducer(
                     lambda lines: (reduce_opencode_stream(lines, None), None),
@@ -2704,8 +2687,6 @@ def _run_builtin_ephemeral(
                 prompt_path=prompt_path,
                 cleanup_prompt_path=True,
                 run_kind=RunKind.FRESH,
-                role=_DEFAULT_EPHEMERAL_ROLE,
-                usage_limit_scope=None,
                 provider_session_id=None,
                 reduce_output=_observe_output_reducer(
                     lambda lines: reduce_claude_stream(lines, None),
@@ -2826,7 +2807,7 @@ def _run_builtin_new_session(
             provider_state_dir_relpath, provider_state_dir = (
                 _codex_prepare_runtime_state(
                     runtime_state_dir,
-                    role=request.role,
+                    role="implementer",
                     session_namespace=request._session_namespace,
                 )
             )
@@ -2850,7 +2831,6 @@ def _run_builtin_new_session(
                                 provider_state_dir_relpath
                             ),
                         ),
-                        role=request.role,
                         provider_auth=selected_stage_auth,
                         on_live_output=_on_live_output,
                         timeout_seconds=0,
@@ -2950,7 +2930,7 @@ def _run_builtin_new_session(
             provider_state_dir_relpath, provider_state_dir = (
                 _claude_prepare_runtime_state(
                     runtime_state_dir,
-                    role=request.role,
+                    role="implementer",
                     session_namespace=request._session_namespace,
                 )
             )
@@ -2968,7 +2948,6 @@ def _run_builtin_new_session(
                             tool_access=request.tool_access,
                             provider_session_id=_new_provider_session_id(),
                         ),
-                        role=request.role,
                         provider_auth=selected_stage_auth,
                         _session_namespace=request._session_namespace,
                     ),
@@ -2983,7 +2962,7 @@ def _run_builtin_new_session(
             provider_state_dir_relpath, provider_state_dir = (
                 _opencode_prepare_runtime_state(
                     runtime_state_dir,
-                    role=request.role,
+                    role="implementer",
                     session_namespace=request._session_namespace,
                 )
             )
@@ -3413,8 +3392,6 @@ def _run_builtin_resumed_session(
             prompt_path=prompt_path,
             cleanup_prompt_path=True,
             run_kind=run_kind,
-            role=request.role,
-            usage_limit_scope=None,
             provider_session_id=provider_session_id,
             reduce_output=reduce_output,
             extract_provider_session_id=extract_provider_session_id,

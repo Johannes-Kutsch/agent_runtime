@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from .identity import validate_session_namespace
-from .roles import InvocationRole
 from .types import (
     ProviderSelection,
     validate_provider_selection,
@@ -23,7 +22,6 @@ class NormalizedWorktree:
 @dataclasses.dataclass(frozen=True)
 class NormalizedProviderSelectionRequest:
     provider_selection: ProviderSelection
-    role: InvocationRole
     worktree: NormalizedWorktree
     tool_access: ToolAccess
     session_namespace: str
@@ -31,7 +29,6 @@ class NormalizedProviderSelectionRequest:
 
 @dataclasses.dataclass(frozen=True)
 class NormalizedResumedRequest:
-    role: InvocationRole
     worktree: NormalizedWorktree
     tool_access: ToolAccess
     session_namespace: str
@@ -51,17 +48,6 @@ def normalize_provider_selection(
     if validate:
         validate_provider_selection(provider_selection)
     return provider_selection
-
-
-def require_invocation_role(
-    role: InvocationRole | None,
-    *,
-    context: str,
-    message: str | None = None,
-) -> InvocationRole:
-    if role is None:
-        raise TypeError(message or f"{context} requires a `role` value.")
-    return role
 
 
 def normalize_session_namespace(session_namespace: str) -> str:
@@ -128,7 +114,6 @@ def normalize_resolved_tool_access(
 def normalize_provider_selection_request(
     *,
     provider_selection: ProviderSelection | None,
-    role: InvocationRole | None,
     worktree: Path,
     tool_access: Any,
     tool_policy: Any,
@@ -146,7 +131,6 @@ def normalize_provider_selection_request(
             context=context,
             validate=validate_stage,
         ),
-        role=require_invocation_role(role, context=context),
         worktree=normalized_worktree,
         tool_access=normalize_tool_access(
             tool_access=tool_access,
@@ -163,17 +147,14 @@ def normalize_provider_selection_request(
 
 def normalize_continuation_request(
     *,
-    role: InvocationRole | None,
     worktree: Path,
     tool_access: "ToolAccess",
     session_namespace: str,
     context: str,
-    role_message: str,
     workspace_name: str = "worktree",
 ) -> NormalizedResumedRequest:
     normalized_worktree = normalize_worktree(worktree)
     return NormalizedResumedRequest(
-        role=require_invocation_role(role, context=context, message=role_message),
         worktree=normalized_worktree,
         tool_access=normalize_resolved_tool_access(
             tool_access=tool_access,
@@ -187,7 +168,6 @@ def normalize_continuation_request(
 
 def normalize_session_plan_request(
     *,
-    role: InvocationRole,
     worktree: Path,
     tool_access: Any,
     tool_policy: Any,
@@ -199,7 +179,6 @@ def normalize_session_plan_request(
 ) -> NormalizedResumedRequest:
     normalized_worktree = normalize_worktree(worktree)
     return NormalizedResumedRequest(
-        role=role,
         worktree=normalized_worktree,
         tool_access=normalize_tool_access(
             tool_access=tool_access,

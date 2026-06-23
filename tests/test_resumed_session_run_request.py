@@ -10,7 +10,6 @@ import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider
-from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
 from agent_runtime.session_planning import (
     ResumableSessionPlan,

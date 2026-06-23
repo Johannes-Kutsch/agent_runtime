@@ -5,14 +5,12 @@ from pathlib import Path
 from typing import Protocol
 
 from .identity import validate_session_namespace
-from .roles import InvocationRole
 from .session import ProviderSessionState, ProviderSessionStateRequest
 
 
 @dataclasses.dataclass(frozen=True)
 class ProviderSessionPlanningRequest:
     worktree: Path
-    role: InvocationRole
     namespace: str
 
     def __post_init__(self) -> None:

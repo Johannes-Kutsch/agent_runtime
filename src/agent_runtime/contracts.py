@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .provider_errors import ProviderErrorObservation
-from .roles import InvocationRole
 from .session import RunKind
 
 
@@ -225,7 +224,6 @@ class ExecutionProvider(Protocol):
 
     def build_command(
         self,
-        role: InvocationRole,
         model: str,
         effort: str,
         run_kind: RunKind,

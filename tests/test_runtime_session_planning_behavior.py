@@ -14,7 +14,6 @@ from agent_runtime.contracts import (
     ServiceSelectionProvider,
 )
 from agent_runtime._provider_session_adapter import ProviderSessionPlanningRequest
-from agent_runtime.roles import InvocationRole
 from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import (
     RunKind,

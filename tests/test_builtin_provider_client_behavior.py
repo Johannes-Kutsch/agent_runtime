@@ -24,7 +24,6 @@ from agent_runtime.errors import (
     TransientAgentError,
 )
 from agent_runtime.provider_errors import ProviderErrorObservation
-from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
 

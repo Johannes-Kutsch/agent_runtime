@@ -8,7 +8,6 @@ from .identity import validate_runtime_identity_label, validate_session_namespac
 from .invocation_progress import InvocationProgress
 from .provider_errors import ProviderErrorObservation
 from .provider_usage import ProviderUsage
-from .usage_limit_scope import UsageLimitScope
 
 
 class AgentRuntimeError(RuntimeError):
@@ -56,13 +55,11 @@ class NoServiceAvailableError(AgentRuntimeError):
         self,
         *,
         reset_time: datetime | None = None,
-        usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
         usage: ProviderUsage | None = None,
     ) -> None:
         self.reset_time = reset_time
-        self.usage_limit_scope = usage_limit_scope
         self.invocation_progress = invocation_progress
         self.continuation = continuation
         self.usage = usage
@@ -78,7 +75,6 @@ class UsageLimitError(AgentRuntimeError):
         *,
         is_permanent: bool = False,
         account_label: str | None = None,
-        usage_limit_scope: UsageLimitScope | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
         usage: ProviderUsage | None = None,
@@ -93,7 +89,6 @@ class UsageLimitError(AgentRuntimeError):
         self.service_name = service_name
         self.is_permanent = is_permanent
         self.account_label = account_label
-        self.usage_limit_scope = usage_limit_scope
         self.invocation_progress = invocation_progress
         self.continuation = continuation
         self.usage = usage

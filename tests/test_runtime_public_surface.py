@@ -21,9 +21,7 @@ import agent_runtime.session as session_runtime
 import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.errors import AgentRuntimeError
 from agent_runtime.provider_usage import ProviderUsage
-from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
-from agent_runtime.usage_limit_scope import UsageLimitScope
 
 
 def test_package_exports_runtime_surface() -> None:
@@ -237,8 +235,6 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         environment={"PATH": "/usr/bin"},
         prompt=prompt,
         run_kind=RunKind.FRESH,
-        role=InvocationRole("review"),
-        usage_limit_scope=UsageLimitScope("review"),
         log_context=None,
         provider_session_id="session-123",
         output_hooks=hooks,
@@ -265,8 +261,6 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         "environment",
         "prompt",
         "run_kind",
-        "role",
-        "usage_limit_scope",
         "log_context",
         "provider_session_id",
         "output_hooks",
@@ -428,7 +422,6 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
         prompt="already rendered prompt",
         invocation_dir=Path("/tmp/worktree"),
         provider_selection=stage_selection_factory(service="codex"),
-        role=InvocationRole("implementer"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     resumed_session_request = prompt_runtime.ResumedSessionRunRequest(
@@ -437,7 +430,6 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
         model="gpt-5.4",
         effort="medium",
         session_plan=session_planning_runtime.ResumableSessionPlan(
-            role=InvocationRole("implementer"),
             worktree=Path("/tmp/worktree"),
             namespace="main",
             service=cast(Any, object()),

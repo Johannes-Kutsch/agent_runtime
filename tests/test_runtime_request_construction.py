@@ -13,13 +13,11 @@ import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider
-from agent_runtime.roles import InvocationRole
 from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.session import RunKind
 from agent_runtime.session_planning import (
     ResumableSessionPlan,
 )
-from agent_runtime.usage_limit_scope import UsageLimitScope
 
 from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionService
 
@@ -344,7 +342,6 @@ def test_public_lifecycle_requests_reject_removed_request_selection_names(
     [
         ("logs_dir", Path("/tmp/runtime-logs")),
         ("log_name", "implementer"),
-        ("usage_limit_scope", UsageLimitScope("review")),
     ],
 )
 def test_ordinary_runtime_requests_reject_runtime_managed_inputs(

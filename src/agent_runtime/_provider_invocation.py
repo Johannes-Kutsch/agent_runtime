@@ -11,9 +11,7 @@ from typing import Protocol
 from .agent_log import LogicalAgentInvocationLog, WorkInvocationLog
 from .errors import RetryableProviderFailureError, UsageLimitError
 from .provider_usage import ProviderUsage
-from .roles import InvocationRole
 from .session import RunKind
-from .usage_limit_scope import UsageLimitScope
 
 _FAILURE_STDOUT_LINES_ATTR = "_provider_invocation_stdout_lines"
 _FAILURE_PROVIDER_SESSION_ID_ATTR = "_provider_invocation_provider_session_id"
@@ -51,8 +49,6 @@ class ProviderOutputReductionHooks:
 @dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationLogContext:
     invocation_log: LogicalAgentInvocationLog
-    role: InvocationRole
-    usage_limit_scope: UsageLimitScope | None = None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -61,8 +57,6 @@ class ProviderInvocationRequest:
     environment: Mapping[str, str]
     prompt: ProviderInvocationPrompt
     run_kind: RunKind
-    role: InvocationRole
-    usage_limit_scope: UsageLimitScope | None
     log_context: ProviderInvocationLogContext | None
     provider_session_id: str | None
     output_hooks: ProviderOutputReductionHooks
@@ -147,11 +141,9 @@ class ProductionProviderInvocationAdapter:
             nullcontext()
             if request.log_context is None
             else request.log_context.invocation_log.open_work_invocation(
-                role=request.log_context.role,
                 run_kind=request.run_kind,
                 session_uuid=request.provider_session_id,
                 prompt=request.prompt.content,
-                usage_limit_scope=request.log_context.usage_limit_scope,
             )
         )
 
@@ -319,11 +311,9 @@ class InMemoryProviderInvocationAdapter:
                 nullcontext()
                 if request.log_context is None
                 else request.log_context.invocation_log.open_work_invocation(
-                    role=request.log_context.role,
                     run_kind=request.run_kind,
                     session_uuid=request.provider_session_id,
                     prompt=request.prompt.content,
-                    usage_limit_scope=request.log_context.usage_limit_scope,
                 )
             )
             with work_invocation_context as work_invocation_log:

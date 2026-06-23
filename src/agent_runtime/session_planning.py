@@ -10,13 +10,11 @@ from ._provider_session_adapter import (
     ProviderSessionAdapter,
     ProviderSessionPlanningRequest,
 )
-from .roles import InvocationRole
 from .session import (
     ProviderSessionStateRequest,
     RunKind,
     normalize_state_dir_relpath,
 )
-from .usage_limit_scope import UsageLimitScope
 
 
 @dataclasses.dataclass(frozen=True)
@@ -59,7 +57,6 @@ class ProviderSessionDecision:
 @dataclasses.dataclass(frozen=True)
 class ProviderSessionPlanRequest:
     worktree: Path
-    role: InvocationRole
     namespace: str
     resumability_service: ResumabilityProvider
     provider_session_adapter: ProviderSessionAdapter
@@ -125,12 +122,10 @@ class _ProviderRunStatePlan:
 @dataclasses.dataclass(frozen=True)
 class ResumableSessionPlanRequest:
     worktree: Path
-    role: InvocationRole
     namespace: str
     service: ExecutionProvider
     provider_session_adapter: ProviderSessionAdapter
     resumability_service: ResumabilityProvider | None = None
-    usage_limit_scope: UsageLimitScope | None = None
 
     def __post_init__(self) -> None:
         validate_session_namespace(self.namespace)
@@ -138,7 +133,6 @@ class ResumableSessionPlanRequest:
 
 @dataclasses.dataclass(frozen=True)
 class ResumableSessionPlan:
-    role: InvocationRole
     worktree: Path
     namespace: str
     service: ExecutionProvider
@@ -146,7 +140,6 @@ class ResumableSessionPlan:
     provider_state_dir: Path | None
     provider_session_id: str | None
     exact_transcript_match: bool = False
-    usage_limit_scope: UsageLimitScope | None = None
 
 
 def plan_resumable_session(
@@ -155,18 +148,15 @@ def plan_resumable_session(
     provider_run_state_plan = _plan_provider_run_state(
         ProviderSessionPlanRequest(
             worktree=request.worktree,
-            role=request.role,
             namespace=request.namespace,
             resumability_service=_resumable_resumability_service(request),
             provider_session_adapter=request.provider_session_adapter,
         )
     )
     session_plan = ResumableSessionPlan(
-        role=request.role,
         worktree=request.worktree,
         namespace=request.namespace,
         service=request.service,
-        usage_limit_scope=request.usage_limit_scope,
         run_kind=provider_run_state_plan.run_kind,
         provider_state_dir=_public_provider_state_dir(provider_run_state_plan),
         provider_session_id=provider_run_state_plan.provider_session_id,
@@ -205,13 +195,12 @@ def _plan_provider_run_state(
         provider_session_adapter.provider_session_planning_facts(
             ProviderSessionPlanningRequest(
                 worktree=request.worktree,
-                role=request.role,
                 namespace=request.namespace,
             )
         )
     )
     state_dir_relpath = normalize_state_dir_relpath(
-        request.role,
+        "implementer",
         request.namespace,
         provider_session_adapter.service_name,
         provider_session_planning_facts.state_dir_relpath,

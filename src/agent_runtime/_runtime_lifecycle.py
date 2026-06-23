@@ -15,9 +15,7 @@ from ._request_normalization import (
     normalize_continuation_request,
     normalize_provider_selection_request,
     normalize_session_plan_request,
-    require_invocation_role,
 )
-from .roles import InvocationRole
 from .session import RunKind
 from .session_planning import ResumableSessionPlan
 from .types import ProviderSelection
@@ -44,7 +42,6 @@ if TYPE_CHECKING:
     from ._portable_continuation_payload import PortableContinuationPayload
 
 _MISSING_TOOL_POLICY = object()
-_DEFAULT_EPHEMERAL_ROLE = InvocationRole("implementer")
 _DEFAULT_EPHEMERAL_SESSION_NAMESPACE = ""
 _PUBLIC_INVOCATION_DIR_NAME = "invocation_dir"
 
@@ -554,7 +551,6 @@ class EphemeralRunRequest:
         )
         normalized_request = normalize_provider_selection_request(
             provider_selection=provider_selection,
-            role=_DEFAULT_EPHEMERAL_ROLE,
             worktree=resolved_invocation_dir,
             tool_access=tool_access,
             tool_policy=tool_policy,
@@ -595,7 +591,6 @@ class NewSessionRunRequest:
     prompt: str
     invocation_dir: Path
     provider_selection: ProviderSelection
-    role: InvocationRole
     tool_access: ToolAccess
     timeout_seconds: int = 300
     name: str = "Runtime Agent"
@@ -613,7 +608,6 @@ class NewSessionRunRequest:
         prompt: str,
         invocation_dir: Path | None = None,
         provider_selection: ProviderSelection | None = None,
-        role: InvocationRole | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         _runtime_state_dir: Path | None = None,
@@ -654,7 +648,6 @@ class NewSessionRunRequest:
         )
         normalized_request = normalize_provider_selection_request(
             provider_selection=provider_selection,
-            role=role or _DEFAULT_EPHEMERAL_ROLE,
             worktree=resolved_invocation_dir,
             tool_access=tool_access,
             tool_policy=tool_policy,
@@ -677,7 +670,6 @@ class NewSessionRunRequest:
             "provider_selection",
             normalized_request.provider_selection,
         )
-        object.__setattr__(self, "role", normalized_request.role)
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
         object.__setattr__(
             self, "_session_namespace", normalized_request.session_namespace
@@ -729,7 +721,6 @@ class ResumedSessionRunRequest:
     invocation_dir: Path
     model: str
     effort: str
-    role: InvocationRole
     session_plan: ResumableSessionPlan | None
     continuation: Continuation | None
     provider_auth: ProviderAuth | None
@@ -753,7 +744,6 @@ class ResumedSessionRunRequest:
         effort: str | None = None,
         session_plan: ResumableSessionPlan | None = None,
         continuation: Continuation | None = None,
-        role: InvocationRole | None = None,
         provider_auth: ProviderAuth | None = None,
         _runtime_state_dir: Path | None = None,
         _session_namespace: str = "",
@@ -805,14 +795,6 @@ class ResumedSessionRunRequest:
                 "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
             )
         if continuation is not None:
-            resolved_role = require_invocation_role(
-                role or _DEFAULT_EPHEMERAL_ROLE,
-                context="ResumedSessionRunRequest",
-                message=(
-                    "ResumedSessionRunRequest requires a `role` value when "
-                    "constructed from a continuation."
-                ),
-            )
             if tool_policy is not _MISSING_TOOL_POLICY or isinstance(
                 tool_access, ToolAccess
             ):
@@ -834,15 +816,10 @@ class ResumedSessionRunRequest:
             try:
                 continuation_payload = read_portable_continuation_payload(continuation)
                 normalized_request = normalize_continuation_request(
-                    role=resolved_role,
                     worktree=resolved_invocation_dir,
                     tool_access=continuation_payload.tool_access,
                     session_namespace=_session_namespace,
                     context="ResumedSessionRunRequest",
-                    role_message=(
-                        "ResumedSessionRunRequest requires a `role` value when "
-                        "constructed from a continuation."
-                    ),
                     workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
                 )
                 resolved_model = continuation_payload.model
@@ -858,12 +835,7 @@ class ResumedSessionRunRequest:
                 raise TypeError(
                     "ResumedSessionRunRequest requires `model` and `effort` when constructed from a session plan."
                 )
-            if role is not None:
-                raise TypeError(
-                    "ResumedSessionRunRequest does not accept request-level `role` when `session_plan` is supplied."
-                )
             normalized_request = normalize_session_plan_request(
-                role=session_plan.role,
                 worktree=resolved_invocation_dir,
                 tool_access=tool_access,
                 tool_policy=tool_policy,
@@ -885,7 +857,6 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "_runtime_state_dir", _runtime_state_dir)
         object.__setattr__(self, "model", resolved_model)
         object.__setattr__(self, "effort", resolved_effort)
-        object.__setattr__(self, "role", normalized_request.role)
         object.__setattr__(
             self,
             "_session_namespace",
@@ -924,7 +895,6 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "prompt",
     "invocation_dir",
     "provider_selection",
-    "role",
     "tool_policy",
     "timeout_seconds",
     "name",

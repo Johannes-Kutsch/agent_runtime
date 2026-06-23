@@ -7,9 +7,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from . import _time as _time_module
-from .roles import InvocationRole
 from .session import RunKind
-from .usage_limit_scope import UsageLimitScope
 
 
 class WorkInvocationLog:
@@ -60,16 +58,12 @@ class LogicalAgentInvocationLog:
     def open_work_invocation(
         self,
         *,
-        role: InvocationRole,
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
-        usage_limit_scope: UsageLimitScope | None = None,
     ) -> Iterator[WorkInvocationLog]:
         with self._owner.open_work_invocation(
             log_path=self.log_path,
-            role=role,
-            usage_limit_scope=usage_limit_scope,
             run_kind=run_kind,
             session_uuid=session_uuid,
             prompt=prompt,
@@ -80,17 +74,13 @@ class LogicalAgentInvocationLog:
     def append_work_invocation(
         self,
         *,
-        role: InvocationRole,
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
         provider_bytes: bytes,
-        usage_limit_scope: UsageLimitScope | None = None,
     ) -> None:
         self._owner.append_work_invocation(
             log_path=self.log_path,
-            role=role,
-            usage_limit_scope=usage_limit_scope,
             run_kind=run_kind,
             session_uuid=session_uuid,
             prompt=prompt,
@@ -147,11 +137,9 @@ class AgentInvocationLog:
         self,
         *,
         log_path: Path,
-        role: InvocationRole,
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
-        usage_limit_scope: UsageLimitScope | None = None,
     ) -> Iterator[WorkInvocationLog]:
         with open(log_path, "ab") as log:
             separator = self._separator_for_next_invocation(log_path)
@@ -160,13 +148,10 @@ class AgentInvocationLog:
             header_start = log.tell()
             header_record: dict[str, object] = {
                 "type": "agent_invocation",
-                "invocation_role": role.value,
                 "run_kind": run_kind.value,
                 "provider_session_id": session_uuid,
                 "prompt": prompt,
             }
-            if usage_limit_scope is not None and usage_limit_scope.value != role.value:
-                header_record["usage_limit_scope"] = usage_limit_scope.value
             log.write(json.dumps(header_record).encode() + b"\n")
             log.flush()
             yield WorkInvocationLog(
@@ -180,17 +165,13 @@ class AgentInvocationLog:
         self,
         *,
         log_path: Path,
-        role: InvocationRole,
         run_kind: RunKind,
         session_uuid: str | None,
         prompt: str,
         provider_bytes: bytes,
-        usage_limit_scope: UsageLimitScope | None = None,
     ) -> None:
         with self.open_work_invocation(
             log_path=log_path,
-            role=role,
-            usage_limit_scope=usage_limit_scope,
             run_kind=run_kind,
             session_uuid=session_uuid,
             prompt=prompt,

@@ -10,9 +10,7 @@ import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime.provider_usage import ProviderUsage
-from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
-from agent_runtime.usage_limit_scope import UsageLimitScope
 
 
 def test_production_adapter_executes_prepared_invocation_and_returns_reduced_result(

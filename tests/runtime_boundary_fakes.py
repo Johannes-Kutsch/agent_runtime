@@ -9,7 +9,6 @@ from agent_runtime._provider_session_adapter import (
     ProviderSessionPlanningFacts,
     ProviderSessionPlanningRequest,
 )
-from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
 
 
@@ -32,7 +31,7 @@ class SelectionServiceFake:
             self._wake_time = reset_time
 
     def state_dir_relpath(
-        self, role: InvocationRole, namespace: str = ""
+        self, role: str, namespace: str = ""
     ) -> str | None:
         del role, namespace
         return None
@@ -57,7 +56,6 @@ class ExecutionServiceFake:
 
     def build_command(
         self,
-        role: InvocationRole,
         model: str,
         effort: str,
         run_kind: RunKind,
@@ -65,7 +63,7 @@ class ExecutionServiceFake:
         *,
         tool_policy: Any | None = None,
     ) -> str:
-        del role, model, effort, run_kind, session_uuid, tool_policy
+        del model, effort, run_kind, session_uuid, tool_policy
         return ""
 
     def build_env(
@@ -85,7 +83,7 @@ class ExecutionServiceFake:
         return iter(())
 
     def state_dir_relpath(
-        self, role: InvocationRole, namespace: str = ""
+        self, role: str, namespace: str = ""
     ) -> str | None:
         del role, namespace
         return None
