@@ -6969,3 +6969,86 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
             status_code=403,
         ),
     )
+
+
+def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A run with no Agent Events within the timeout window should abort with timed_out outcome."""
+    import time
+
+    events_emitted: list[prompt_runtime.AgentEvent] = []
+
+    def collect_events(event: prompt_runtime.AgentEvent) -> None:
+        events_emitted.append(event)
+
+    class SlowProviderAdapter(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
+        """Provider adapter that emits output after the timeout window."""
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.recorded_requests.append(request)
+            if not self.prepared_invocations:
+                raise AssertionError("No prepared provider invocation remains.")
+            prepared = self.prepared_invocations.pop(0)
+            if isinstance(
+                prepared, provider_invocation_runtime.ProviderInvocationPreparedStream
+            ):
+                stdout_lines = list(prepared.stdout_lines)
+                # Delay before processing output, which triggers the timeout
+                time.sleep(2)
+                # Now emit the output - but timeout should trigger during this call
+                provider_invocation_runtime._consume_new_stdout_lines(
+                    request.output_hooks.reduce_output, stdout_lines
+                )
+                output, usage = request.output_hooks.reduce_output(stdout_lines)
+                return provider_invocation_runtime.ProviderInvocationResult(
+                    output=output,
+                    usage=usage,
+                    stdout_lines=tuple(stdout_lines),
+                    provider_session_id=(
+                        prepared.provider_session_id or request.provider_session_id
+                    ),
+                )
+            return prepared
+
+    adapter = SlowProviderAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationPreparedStream(
+                stdout_lines=(
+                    json.dumps({"type": "session.status", "status": {"type": "idle"}}),
+                )
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(opencode_api_key="go-key"),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            timeout_seconds=1,
+            on_live_output=collect_events,
+        )
+    )
+
+    assert outcome.kind == "timed_out"
+    assert outcome.service_name == "opencode"
+    # The event may or may not have been emitted depending on timing,
+    # but the outcome should be timed_out

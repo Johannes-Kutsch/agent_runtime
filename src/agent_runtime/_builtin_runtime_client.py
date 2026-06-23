@@ -748,6 +748,52 @@ def _reduce_claude_stream(
     )
 
 
+class _IdleTimeoutWatchdog:
+    def __init__(self, timeout_seconds: int) -> None:
+        self.timeout_seconds = timeout_seconds
+        self._lock = threading.Lock()
+        self._start_time: datetime | None = None
+        self._last_event_time: datetime | None = None
+        self._stop_event = threading.Event()
+        self._timeout_occurred = False
+
+    def reset_timer(self) -> None:
+        with self._lock:
+            self._last_event_time = _time_module.now_local()
+
+    def start_monitoring(self) -> None:
+        with self._lock:
+            self._start_time = _time_module.now_local()
+            self._last_event_time = self._start_time
+        self._stop_event.clear()
+        thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        thread.start()
+
+    def stop_monitoring(self) -> None:
+        self._stop_event.set()
+
+    def _monitor_loop(self) -> None:
+        while not self._stop_event.is_set():
+            with self._lock:
+                if self._last_event_time is not None:
+                    elapsed = (
+                        _time_module.now_local() - self._last_event_time
+                    ).total_seconds()
+                    if elapsed > self.timeout_seconds:
+                        self._timeout_occurred = True
+                        return
+            self._stop_event.wait(timeout=0.1)
+
+    def check_timeout(self) -> None:
+        with self._lock:
+            if self._timeout_occurred:
+                from .errors import AgentTimeoutError
+
+                raise AgentTimeoutError(
+                    "Idle timeout: no Agent Event within configured window"
+                )
+
+
 def _emit_live_output_event(
     event: AgentEvent,
     on_live_output: Callable[[AgentEvent], None] | None,
@@ -1016,6 +1062,29 @@ def _observe_output_lines(
             _live_output_event_for_provider_line(service_name, line),
             on_live_output,
         )
+
+
+def _wrap_on_live_output_with_timeout(
+    on_live_output: Callable[[AgentEvent], None] | None,
+    timeout_seconds: int,
+) -> tuple[Callable[[AgentEvent], None] | None, _IdleTimeoutWatchdog | None]:
+    if on_live_output is None or timeout_seconds <= 0:
+        return on_live_output, None
+
+    watchdog = _IdleTimeoutWatchdog(timeout_seconds)
+    watchdog.start_monitoring()
+
+    def wrapper(event: AgentEvent) -> None:
+        watchdog.reset_timer()
+        on_live_output(event)
+        try:
+            watchdog.check_timeout()
+        except Exception:
+            # Don't mark timeout as a live output exception - we want it to propagate
+            # and be handled by the outcome conversion logic
+            raise
+
+    return wrapper, watchdog
 
 
 def _observe_output_reducer(
@@ -2488,144 +2557,154 @@ def _run_builtin_ephemeral(
         if provider_invocation_adapter is None
         else provider_invocation_adapter
     )
-    selected_stage = select_builtin_stage(request.provider_selection)
-    selected_stage_auth = _selection_auth(selected_stage)
-    if selected_stage.service == "codex":
-        validate_codex_stage(selected_stage)
-        validate_codex_auth()
-        prompt_path = _builtin_provider_temp_prompt_path()
-    elif selected_stage.service == "opencode":
-        validate_opencode_stage(selected_stage)
-        if selected_stage_auth is None or not selected_stage_auth.opencode_api_key:
-            message = "Missing OpenCode API key."
-            raise AgentCredentialFailureError(
-                message=message,
-                service_name="opencode",
-                classification="operator_actionable_agent_credential_failure",
-                observations=(
-                    ProviderErrorObservation(
-                        service_name="opencode",
-                        raw_provider_text=message,
-                        source_stream="pre-dispatch auth check",
-                        status_code=401,
+
+    wrapped_on_live_output, timeout_watchdog = _wrap_on_live_output_with_timeout(
+        request.on_live_output,
+        request.timeout_seconds,
+    )
+
+    try:
+        selected_stage = select_builtin_stage(request.provider_selection)
+        selected_stage_auth = _selection_auth(selected_stage)
+        if selected_stage.service == "codex":
+            validate_codex_stage(selected_stage)
+            validate_codex_auth()
+            prompt_path = _builtin_provider_temp_prompt_path()
+        elif selected_stage.service == "opencode":
+            validate_opencode_stage(selected_stage)
+            if selected_stage_auth is None or not selected_stage_auth.opencode_api_key:
+                message = "Missing OpenCode API key."
+                raise AgentCredentialFailureError(
+                    message=message,
+                    service_name="opencode",
+                    classification="operator_actionable_agent_credential_failure",
+                    observations=(
+                        ProviderErrorObservation(
+                            service_name="opencode",
+                            raw_provider_text=message,
+                            source_stream="pre-dispatch auth check",
+                            status_code=401,
+                        ),
                     ),
-                ),
-                status_code=401,
-            )
-        prompt_path = _builtin_provider_temp_prompt_path()
-    else:
-        validate_claude_stage(selected_stage)
-        if (
-            selected_stage_auth is None
-            or not selected_stage_auth.claude_code_oauth_token
-        ):
-            raise AgentCredentialFailureError(
-                message="Missing Claude Code OAuth token.",
-                service_name="claude",
-                observations=(),
-            )
-        prompt_path = _builtin_provider_prompt_path(request.invocation_dir)
-    if selected_stage.service == "codex":
-        command_argv = codex_command(
-            model=selected_stage.model,
-            effort=selected_stage.effort,
-            tool_access=request.tool_access,
-        )
-        invocation_result = _invoke_provider(
-            provider_invocation_adapter=invocation_adapter,
-            command="",
-            command_argv=command_argv,
-            prefer_argv=True,
-            worktree=request.invocation_dir,
-            environment=codex_env(),
-            prompt_content=request.prompt,
-            prompt_path=prompt_path,
-            cleanup_prompt_path=True,
-            run_kind=RunKind.FRESH,
-            role=_DEFAULT_EPHEMERAL_ROLE,
-            usage_limit_scope=None,
-            provider_session_id=None,
-            reduce_output=_observe_output_reducer(
-                lambda lines: reduce_codex_stream(lines, None),
-                request.on_live_output,
-                service_name="codex",
-            ),
-        )
-    elif selected_stage.service == "opencode":
-        command_argv = opencode_command(
-            model=selected_stage.model,
-            effort=selected_stage.effort,
-            run_kind=RunKind.FRESH,
-            session_uuid=None,
-        )
-        invocation_result = _invoke_provider(
-            provider_invocation_adapter=invocation_adapter,
-            command="",
-            command_argv=command_argv,
-            prefer_argv=True,
-            worktree=request.invocation_dir,
-            environment=opencode_env(
-                auth=selected_stage_auth,
-                state_dir_container_path=str(request.invocation_dir),
-                tool_policy=request.tool_access.tool_policy,
-            ),
-            prompt_content=request.prompt,
-            prompt_path=prompt_path,
-            cleanup_prompt_path=True,
-            run_kind=RunKind.FRESH,
-            role=_DEFAULT_EPHEMERAL_ROLE,
-            usage_limit_scope=None,
-            provider_session_id=None,
-            reduce_output=_observe_opencode_output_reducer(
-                lambda lines: (reduce_opencode_stream(lines, None), None),
-                request.on_live_output,
-            ),
-        )
-    else:
-        command_argv = claude_command(
-            model=selected_stage.model,
-            effort=selected_stage.effort,
-            tool_access=request.tool_access,
-            run_kind=RunKind.FRESH,
-        )
-        invocation_result = _invoke_provider(
-            provider_invocation_adapter=invocation_adapter,
-            command=_claude_legacy_command_text(
+                    status_code=401,
+                )
+            prompt_path = _builtin_provider_temp_prompt_path()
+        else:
+            validate_claude_stage(selected_stage)
+            if (
+                selected_stage_auth is None
+                or not selected_stage_auth.claude_code_oauth_token
+            ):
+                raise AgentCredentialFailureError(
+                    message="Missing Claude Code OAuth token.",
+                    service_name="claude",
+                    observations=(),
+                )
+            prompt_path = _builtin_provider_prompt_path(request.invocation_dir)
+        if selected_stage.service == "codex":
+            command_argv = codex_command(
                 model=selected_stage.model,
                 effort=selected_stage.effort,
                 tool_access=request.tool_access,
+            )
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
+                command="",
+                command_argv=command_argv,
+                prefer_argv=True,
+                worktree=request.invocation_dir,
+                environment=codex_env(),
+                prompt_content=request.prompt,
                 prompt_path=prompt_path,
+                cleanup_prompt_path=True,
                 run_kind=RunKind.FRESH,
+                role=_DEFAULT_EPHEMERAL_ROLE,
+                usage_limit_scope=None,
+                provider_session_id=None,
+                reduce_output=_observe_output_reducer(
+                    lambda lines: reduce_codex_stream(lines, None),
+                    wrapped_on_live_output,
+                    service_name="codex",
+                ),
+            )
+        elif selected_stage.service == "opencode":
+            command_argv = opencode_command(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                run_kind=RunKind.FRESH,
+                session_uuid=None,
+            )
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
+                command="",
+                command_argv=command_argv,
+                prefer_argv=True,
+                worktree=request.invocation_dir,
+                environment=opencode_env(
+                    auth=selected_stage_auth,
+                    state_dir_container_path=str(request.invocation_dir),
+                    tool_policy=request.tool_access.tool_policy,
+                ),
+                prompt_content=request.prompt,
+                prompt_path=prompt_path,
+                cleanup_prompt_path=True,
+                run_kind=RunKind.FRESH,
+                role=_DEFAULT_EPHEMERAL_ROLE,
+                usage_limit_scope=None,
+                provider_session_id=None,
+                reduce_output=_observe_opencode_output_reducer(
+                    lambda lines: (reduce_opencode_stream(lines, None), None),
+                    wrapped_on_live_output,
+                ),
+            )
+        else:
+            command_argv = claude_command(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                tool_access=request.tool_access,
+                run_kind=RunKind.FRESH,
+            )
+            invocation_result = _invoke_provider(
+                provider_invocation_adapter=invocation_adapter,
+                command=_claude_legacy_command_text(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    prompt_path=prompt_path,
+                    run_kind=RunKind.FRESH,
+                ),
+                command_argv=command_argv,
+                prefer_argv=True,
+                worktree=request.invocation_dir,
+                environment=claude_env(auth=selected_stage_auth),
+                prompt_content=request.prompt,
+                prompt_path=prompt_path,
+                cleanup_prompt_path=True,
+                run_kind=RunKind.FRESH,
+                role=_DEFAULT_EPHEMERAL_ROLE,
+                usage_limit_scope=None,
+                provider_session_id=None,
+                reduce_output=_observe_output_reducer(
+                    lambda lines: reduce_claude_stream(lines, None),
+                    wrapped_on_live_output,
+                    service_name="claude",
+                ),
+            )
+        result_text = invocation_result.output
+        usage = invocation_result.usage
+        return EphemeralRunResult(
+            output=result_text,
+            tool_access=request.tool_access,
+            metadata=EphemeralResultMetadata(
+                runtime=EphemeralRuntimeMetadata(
+                    run_kind=RunKind.FRESH,
+                ),
             ),
-            command_argv=command_argv,
-            prefer_argv=True,
-            worktree=request.invocation_dir,
-            environment=claude_env(auth=selected_stage_auth),
-            prompt_content=request.prompt,
-            prompt_path=prompt_path,
-            cleanup_prompt_path=True,
-            run_kind=RunKind.FRESH,
-            role=_DEFAULT_EPHEMERAL_ROLE,
-            usage_limit_scope=None,
-            provider_session_id=None,
-            reduce_output=_observe_output_reducer(
-                lambda lines: reduce_claude_stream(lines, None),
-                request.on_live_output,
-                service_name="claude",
-            ),
+            usage=usage,
         )
-    result_text = invocation_result.output
-    usage = invocation_result.usage
-    return EphemeralRunResult(
-        output=result_text,
-        tool_access=request.tool_access,
-        metadata=EphemeralResultMetadata(
-            runtime=EphemeralRuntimeMetadata(
-                run_kind=RunKind.FRESH,
-            ),
-        ),
-        usage=usage,
-    )
+    finally:
+        if timeout_watchdog is not None:
+            timeout_watchdog.stop_monitoring()
 
 
 def _new_session_runtime_state_dir(

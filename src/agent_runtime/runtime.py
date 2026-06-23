@@ -219,6 +219,16 @@ class RuntimeClient:
             )
         try:
             result = _run_builtin_ephemeral(request)
+        except AgentTimeoutError as exc:
+            return RuntimeOutcome.timed_out(
+                output="",
+                service_name=selected_provider_selection.service,
+                selected_model=selected_provider_selection.model,
+                selected_effort=selected_provider_selection.effort,
+                invocation_progress=exc.invocation_progress,
+                continuation=exc.continuation,
+                usage=exc.usage,
+            )
         except UsageLimitError as exc:
             if getattr(exc, "_is_live_output_exception", False):
                 raise

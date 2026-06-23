@@ -528,6 +528,7 @@ class EphemeralRunRequest:
     invocation_dir: Path
     provider_selection: ProviderSelection
     tool_access: ToolAccess
+    timeout_seconds: int = 300
     on_live_output: Callable[[AgentEvent], None] | None = None
     token: CancellationToken | None = None
 
@@ -538,6 +539,7 @@ class EphemeralRunRequest:
         provider_selection: ProviderSelection | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
+        timeout_seconds: int = 300,
         token: CancellationToken | None = None,
         on_live_output: Callable[[AgentEvent], None] | None = None,
         **compatibility_kwargs: Any,
@@ -572,6 +574,7 @@ class EphemeralRunRequest:
             normalized_request.provider_selection,
         )
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
+        object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
 
@@ -591,6 +594,7 @@ class NewSessionRunRequest:
     provider_selection: ProviderSelection
     role: InvocationRole
     tool_access: ToolAccess
+    timeout_seconds: int = 300
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
@@ -611,6 +615,7 @@ class NewSessionRunRequest:
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         _runtime_state_dir: Path | None = None,
         _session_namespace: str = "",
+        timeout_seconds: int = 300,
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
@@ -677,6 +682,7 @@ class NewSessionRunRequest:
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
+        object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
 
@@ -725,6 +731,7 @@ class ResumedSessionRunRequest:
     continuation: Continuation | None
     provider_auth: ProviderAuth | None
     tool_access: ToolAccess
+    timeout_seconds: int = 300
     name: str = "Runtime Agent"
     status_display: Any = None
     work_body: str = ""
@@ -749,6 +756,7 @@ class ResumedSessionRunRequest:
         _session_namespace: str = "",
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
+        timeout_seconds: int = 300,
         name: str = "Runtime Agent",
         status_display: Any = None,
         work_body: str = "",
@@ -887,6 +895,7 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
+        object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
 
@@ -904,6 +913,7 @@ cast(Any, EphemeralRunRequest).__signature__ = _public_request_signature(
     "invocation_dir",
     "provider_selection",
     "tool_policy",
+    "timeout_seconds",
     "token",
     "on_live_output",
 )
@@ -913,6 +923,7 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "provider_selection",
     "role",
     "tool_policy",
+    "timeout_seconds",
     "name",
     "status_display",
     "work_body",
@@ -924,6 +935,7 @@ cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
     "invocation_dir",
     "continuation",
     "provider_auth",
+    "timeout_seconds",
     "on_live_output",
     "token",
 )

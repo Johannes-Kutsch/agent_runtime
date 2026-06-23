@@ -75,6 +75,7 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
         "invocation_dir",
         "provider_selection",
         "tool_policy",
+        "timeout_seconds",
         "token",
         "on_live_output",
     )
@@ -88,6 +89,7 @@ def test_resumed_session_run_request_has_minimal_public_signature() -> None:
         "invocation_dir",
         "continuation",
         "provider_auth",
+        "timeout_seconds",
         "on_live_output",
         "token",
     )
