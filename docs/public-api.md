@@ -73,9 +73,19 @@ The runtime validates built-in service, model, and effort values before provider
 
 Supported built-in provider allowlists:
 
-- Claude models: `haiku`, `sonnet`, `opus`; efforts: `low`, `medium`, `high`, `xhigh`, `max`.
-- Codex models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`; efforts: `low`, `medium`, `high`, `xhigh`.
-- OpenCode effort is currently `medium`.
+**Claude**
+- Models: `haiku`, `sonnet`, `opus`
+- Efforts: `low`, `medium`, `high`, `xhigh`, `max`
+
+**Codex**
+- Models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`
+- Efforts: `low`, `medium`, `high`, `xhigh`
+
+**OpenCode Go** (model list pinned from [opencode.ai](https://opencode.ai))
+- Models: `deepseek-v4-flash`, `deepseek-v4-pro`, `glm-5.1`, `glm-5.2`, `kimi-k2.6`, `kimi-k2.7-code`, `mimo-v2.5`, `mimo-v2.5-pro`, `minimax-m2.7`, `minimax-m3`, `qwen3.6-plus`, `qwen3.7-max`, `qwen3.7-plus`
+- Efforts: `medium`
+
+`ProviderSelection.model` values for OpenCode Go are service-local identifiers. Provider-specific prefixes such as `opencode-go/` are internal command/config rendering details and are not part of the public API.
 
 ### Request Values
 
