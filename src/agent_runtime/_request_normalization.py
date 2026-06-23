@@ -7,8 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 from .identity import validate_session_namespace
 from .roles import InvocationRole
 from .types import (
-    SelectionLike,
-    StageSelection,
+    ProviderSelection,
     validate_provider_selection,
 )
 
@@ -23,15 +22,11 @@ class NormalizedWorktree:
 
 @dataclasses.dataclass(frozen=True)
 class NormalizedProviderSelectionRequest:
-    provider_selection: SelectionLike
+    provider_selection: ProviderSelection
     role: InvocationRole
     worktree: NormalizedWorktree
     tool_access: ToolAccess
     session_namespace: str
-
-    @property
-    def stage(self) -> SelectionLike:
-        return self.provider_selection
 
 
 @dataclasses.dataclass(frozen=True)
@@ -46,33 +41,16 @@ NormalizedStageRequest = NormalizedProviderSelectionRequest
 
 
 def normalize_provider_selection(
-    provider_selection: SelectionLike | None,
+    provider_selection: ProviderSelection | None,
     *,
     context: str,
     validate: bool = True,
-) -> SelectionLike:
+) -> ProviderSelection:
     if provider_selection is None:
         raise TypeError(f"{context} requires a `provider_selection` value.")
     if validate:
         validate_provider_selection(provider_selection)
     return provider_selection
-
-
-def normalize_stage_selection(
-    stage: StageSelection | None,
-    *,
-    override: StageSelection | None,
-    context: str,
-    validate: bool = True,
-) -> StageSelection:
-    return cast(
-        StageSelection,
-        normalize_provider_selection(
-            stage if stage is not None else override,
-            context=context,
-            validate=validate,
-        ),
-    )
 
 
 def require_invocation_role(
@@ -149,7 +127,7 @@ def normalize_resolved_tool_access(
 
 def normalize_provider_selection_request(
     *,
-    provider_selection: SelectionLike | None,
+    provider_selection: ProviderSelection | None,
     role: InvocationRole | None,
     worktree: Path,
     tool_access: Any,
@@ -180,36 +158,6 @@ def normalize_provider_selection_request(
             workspace_name=workspace_name,
         ),
         session_namespace=normalize_session_namespace(session_namespace),
-    )
-
-
-def normalize_stage_request(
-    *,
-    stage: StageSelection | None,
-    override: StageSelection | None,
-    role: InvocationRole | None,
-    worktree: Path,
-    tool_access: Any,
-    tool_policy: Any,
-    missing_sentinel: object,
-    session_namespace: str,
-    context: str,
-    missing_message: str,
-    validate_stage: bool = True,
-    workspace_name: str = "worktree",
-) -> NormalizedStageRequest:
-    return normalize_provider_selection_request(
-        provider_selection=stage if stage is not None else override,
-        role=role,
-        worktree=worktree,
-        tool_access=tool_access,
-        tool_policy=tool_policy,
-        missing_sentinel=missing_sentinel,
-        session_namespace=session_namespace,
-        context=context,
-        missing_message=missing_message,
-        validate_stage=validate_stage,
-        workspace_name=workspace_name,
     )
 
 

@@ -26,7 +26,7 @@ from agent_runtime.errors import (
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.roles import InvocationRole
 from agent_runtime.session import RunKind
-from agent_runtime.types import StageSelection as InternalStageSelection
+from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 
 _CURRENT_OPENCODE_GO_MODELS = [
@@ -681,11 +681,6 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
                             service="missing",
                             model="ignored",
                             effort="low",
-                            fallback=InternalStageSelection(
-                                service="opencode",
-                                model="glm-5.2",
-                                effort="medium",
-                            ),
                         ),
                         runtime.ProviderAuth(opencode_api_key="root-only-key"),
                     ),
@@ -1830,95 +1825,6 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
         )
 
     assert observed == [("hello", "codex")]
-
-
-def test_runtime_client_ephemeral_fallback_attempt_notifies_observed_codex_turns_before_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    observed: list[tuple[str, str]] = []
-
-    def on_live_output(turn: runtime.AgentEvent) -> None:
-        if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
-
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                _codex_assistant_output_line("temporary codex output"),
-                (
-                    json.dumps(
-                        {
-                            "type": "turn.failed",
-                            "error": {
-                                "message": (
-                                    "You've hit your usage limit."
-                                    " Try again at January 2, 5pm (UTC)."
-                                )
-                            },
-                        }
-                    )
-                    + "\n"
-                ),
-            ),
-        ),
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                json.dumps(
-                    {
-                        "type": "text",
-                        "sessionID": "provider-session-777",
-                        "part": {
-                            "type": "text",
-                            "time": {"end": True},
-                            "text": "hello from opencode",
-                        },
-                    }
-                )
-                + "\n",
-                json.dumps({"type": "session.status", "status": {"type": "idle"}})
-                + "\n",
-            ),
-        ),
-    )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
-
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-                fallback=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
-                    auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
-                ),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            on_live_output=on_live_output,
-        )
-    )
-
-    assert outcome == prompt_runtime.RuntimeOutcome.usage_limited(
-        output="",
-        service_name="codex",
-        reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
-        invocation_progress=runtime.InvocationProgress.STARTED,
-    )
-    assert observed == [("temporary codex output", "codex")]
 
 
 def test_runtime_client_resumed_session_run_calls_live_output_observer(
@@ -5398,77 +5304,11 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
                     service="missing",
                     model="placeholder",
                     effort="placeholder",
-                    fallback=InternalStageSelection(
-                        service="opencode",
-                        model="deepseek-v4-flash",
-                        effort="medium",
-                        auth=runtime.ProviderAuth(opencode_api_key="api-key"),
-                    ),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     assert len(adapter.recorded_requests) == 0
-
-
-def test_runtime_client_ephemeral_rejects_unsupported_selected_provider_without_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
-
-    with pytest.raises(RuntimeConfigurationError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="missing",
-                    model="placeholder",
-                    effort="placeholder",
-                    fallback=InternalStageSelection(
-                        service="opencode",
-                        model="deepseek-v4-flash",
-                        effort="medium",
-                        auth=runtime.ProviderAuth(opencode_api_key="api-key"),
-                    ),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-
-    assert len(adapter.recorded_requests) == 0
-
-
-def test_runtime_client_reachable_fallback_opencode_stage_requires_its_own_api_key(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
-
-    with pytest.raises(RuntimeConfigurationError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="missing",
-                        model="ignored",
-                        effort="low",
-                        fallback=InternalStageSelection(
-                            service="opencode",
-                            model="kimi-k2.6",
-                            effort="medium",
-                        ),
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="root-only-key"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-
-    assert adapter.recorded_requests == []
 
 
 def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_invocation_seam(
@@ -5637,83 +5477,6 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
     )
 
     assert captured["env"] == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
-
-
-def test_runtime_client_reachable_opencode_stage_requires_api_key_without_falling_through(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
-
-    with pytest.raises(RuntimeConfigurationError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="missing",
-                        model="ignored",
-                        effort="low",
-                        fallback=InternalStageSelection(
-                            service="opencode",
-                            model="kimi-k2.6",
-                            effort="medium",
-                            fallback=InternalStageSelection(
-                                service="codex",
-                                model="gpt-5.4",
-                                effort="medium",
-                            ),
-                        ),
-                    ),
-                    runtime.ProviderAuth(),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-
-    assert adapter.recorded_requests == []
-
-
-def test_runtime_client_reachable_codex_stage_requires_host_auth_without_falling_through(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: tmp_path / "missing-home",
-    )
-
-    with pytest.raises(RuntimeConfigurationError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="missing",
-                        model="ignored",
-                        effort="low",
-                        fallback=InternalStageSelection(
-                            service="codex",
-                            model="gpt-5.4",
-                            effort="medium",
-                            fallback=InternalStageSelection(
-                                service="claude",
-                                model="sonnet",
-                                effort="medium",
-                            ),
-                        ),
-                    ),
-                    runtime.ProviderAuth(),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-
-    assert adapter.recorded_requests == []
 
 
 @pytest.mark.parametrize(
@@ -6856,42 +6619,6 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
     )
 
 
-def test_runtime_client_reachable_claude_stage_requires_token_without_falling_through(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
-
-    with pytest.raises(RuntimeConfigurationError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="missing",
-                        model="ignored",
-                        effort="low",
-                        fallback=InternalStageSelection(
-                            service="claude",
-                            model="sonnet",
-                            effort="medium",
-                            fallback=InternalStageSelection(
-                                service="codex",
-                                model="gpt-5",
-                                effort="medium",
-                            ),
-                        ),
-                    ),
-                    runtime.ProviderAuth(),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-
-    assert adapter.recorded_requests == []
-
-
 def test_runtime_client_maps_claude_transient_error_stream_to_transient_exception(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7069,14 +6796,6 @@ def test_runtime_client_rejects_unsupported_selected_provider_for_ephemeral_resu
                     service="missing",
                     model="ignored",
                     effort="low",
-                    fallback=InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                        auth=runtime.ProviderAuth(
-                            claude_code_oauth_token="oauth-token"
-                        ),
-                    ),
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -7201,91 +6920,6 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope
     assert outcome.service_name == "claude"
     assert outcome.reset_time is None
     assert not hasattr(outcome, "usage_limit_scope")
-
-
-def test_runtime_client_ephemeral_usage_limit_does_not_fallback_to_another_provider(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                _codex_assistant_output_line("temporary codex output"),
-                (
-                    json.dumps(
-                        {
-                            "type": "turn.failed",
-                            "error": {
-                                "message": (
-                                    "You've hit your usage limit."
-                                    " Try again at January 2, 5pm (UTC)."
-                                )
-                            },
-                        }
-                    )
-                    + "\n"
-                ),
-            ),
-        ),
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                json.dumps(
-                    {
-                        "type": "text",
-                        "sessionID": "provider-session-777",
-                        "part": {
-                            "type": "text",
-                            "time": {"end": True},
-                            "text": "hello from opencode",
-                        },
-                    }
-                )
-                + "\n",
-                json.dumps({"type": "session.status", "status": {"type": "idle"}})
-                + "\n",
-            ),
-        ),
-    )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
-
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-                fallback=InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
-                    auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
-                ),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-        )
-    )
-
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
-            output="",
-            service_name="codex",
-            reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
-            invocation_progress=runtime.InvocationProgress.STARTED,
-        ),
-    )
-    assert len(adapter.recorded_requests) == 1
 
 
 def test_runtime_client_preserves_claude_credential_failure_observations(

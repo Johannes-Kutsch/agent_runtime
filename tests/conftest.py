@@ -12,7 +12,7 @@ import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.contracts import ExecutionProvider, ServiceSelectionProvider
 from agent_runtime._service_registry import ServiceRegistry
-from agent_runtime.types import StageSelection as InternalStageSelection
+from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 from tests.runtime_boundary_fakes import (
     ExecutionServiceFake,
@@ -31,14 +31,12 @@ def stage_selection_factory() -> Callable[..., InternalStageSelection]:
         model: str = "gpt-5.4",
         effort: str = "medium",
         auth: runtime.ProviderAuth | None = None,
-        fallback: InternalStageSelection | None = None,
     ) -> InternalStageSelection:
         return InternalStageSelection(
             service=service,
             model=model,
             effort=effort,
             auth=auth,
-            fallback=fallback,
         )
 
     return _factory

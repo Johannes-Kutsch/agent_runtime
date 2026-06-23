@@ -29,19 +29,7 @@ from agent_runtime.session_planning import (
     ResumableSessionPlanRequest,
     plan_resumable_session,
 )
-from agent_runtime.stage_priority_chain import (
-    chain_entries,
-    configured_candidate_chain,
-    configured_provider_selection_chain,
-    iter_stage_chain,
-    iter_provider_selection_chain,
-    provider_selection_entries,
-    render_chain_label,
-    render_provider_selection_label,
-    select_configured_candidate_chain,
-    select_configured_provider_selection_chain,
-)
-from agent_runtime.types import StageSelection as InternalStageSelection
+from agent_runtime.types import ProviderSelection as InternalStageSelection
 from tests.runtime_boundary_fakes import (
     ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
     SelectionServiceFake as _Service,
@@ -237,116 +225,7 @@ def test_provider_state_path_helpers_reject_unsafe_runtime_service_labels(
         )
 
 
-def test_stage_chain_resolution_prefers_first_available_configured_service(
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> None:
-    override = stage_selection_factory(
-        service="missing",
-        model="ignored",
-        effort="medium",
-        fallback=stage_selection_factory(
-            service="codex",
-            fallback=stage_selection_factory(
-                service="claude",
-                model="sonnet",
-                effort="high",
-            ),
-        ),
-    )
-
-    selection = select_configured_candidate_chain(
-        override,
-        configured_service_names=("codex", "claude"),
-        available_service_names=("claude",),
-    )
-
-    assert selection.has_configured_candidate is True
-    assert selection.selected_chain == stage_selection_factory(
-        service="claude",
-        model="sonnet",
-        effort="high",
-    )
-    assert render_chain_label(override) == "missing -> codex -> claude"
-    assert [entry.service for entry in chain_entries(override)] == [
-        "missing",
-        "codex",
-        "claude",
-    ]
-
-
-def test_provider_selection_helpers_match_stage_chain_behavior(
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> None:
-    stage = stage_selection_factory(
-        service="missing",
-        model="ignored",
-        effort="medium",
-        fallback=stage_selection_factory(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-            fallback=stage_selection_factory(
-                service="claude",
-                model="sonnet",
-                effort="high",
-            ),
-        ),
-    )
-
-    assert tuple(iter_provider_selection_chain(stage)) == tuple(iter_stage_chain(stage))
-    assert provider_selection_entries(stage) == chain_entries(stage)
-    assert render_provider_selection_label(stage) == render_chain_label(stage)
-    assert configured_provider_selection_chain(
-        stage,
-        configured_service_names=("codex", "claude"),
-    ) == configured_candidate_chain(
-        stage,
-        configured_service_names=("codex", "claude"),
-    )
-
-
-def test_provider_selection_resolution_preserves_selected_chain_alias(
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> None:
-    stage = stage_selection_factory(
-        service="missing",
-        model="ignored",
-        effort="medium",
-        fallback=stage_selection_factory(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-            fallback=stage_selection_factory(
-                service="claude",
-                model="sonnet",
-                effort="high",
-            ),
-        ),
-    )
-
-    stage_selection = select_configured_candidate_chain(
-        stage,
-        configured_service_names=("codex", "claude"),
-        available_service_names=("claude",),
-    )
-    provider_selection = select_configured_provider_selection_chain(
-        stage,
-        configured_service_names=("codex", "claude"),
-        available_service_names=("claude",),
-    )
-
-    assert provider_selection == stage_selection
-    assert provider_selection.selected_provider_selection == stage_selection_factory(
-        service="claude",
-        model="sonnet",
-        effort="high",
-    )
-    assert provider_selection.selected_chain == (
-        provider_selection.selected_provider_selection
-    )
-
-
-def test_public_stage_selection_requires_non_empty_candidate_configuration() -> None:
+def test_public_provider_selection_requires_non_empty_candidate_configuration() -> None:
     with pytest.raises(ValueError, match="service"):
         InternalStageSelection(
             service="",
@@ -368,75 +247,14 @@ def test_public_stage_selection_requires_non_empty_candidate_configuration() -> 
             effort="",
         )
 
-    with pytest.raises(ValueError, match="model"):
-        InternalStageSelection(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-            fallback=InternalStageSelection(
-                service="claude",
-                model="",
-                effort="high",
-            ),
-        )
 
-
-def test_public_stage_selection_rejects_path_like_service_name() -> None:
-    with pytest.raises(ValueError, match="StageSelection service"):
+def test_public_provider_selection_rejects_path_like_service_name() -> None:
+    with pytest.raises(ValueError, match="ProviderSelection service"):
         InternalStageSelection(
             service="bad/name",
             model="gpt-5.4",
             effort="medium",
         )
-
-
-def test_public_stage_selection_rejects_invalid_fallback_effort() -> None:
-    with pytest.raises(ValueError, match="effort"):
-        InternalStageSelection(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-            fallback=InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="",
-            ),
-        )
-
-
-def test_service_registry_resolve_and_wake_time(
-    service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> None:
-    registry = service_registry_factory(
-        "codex",
-        "claude",
-        unavailable={"codex"},
-        wake_times={
-            "codex": datetime(2026, 1, 1, tzinfo=timezone.utc),
-            "claude": datetime(2026, 1, 2, tzinfo=timezone.utc),
-        },
-    )
-    override = stage_selection_factory(
-        service="codex",
-        fallback=stage_selection_factory(
-            service="claude",
-            model="sonnet",
-            effort="high",
-        ),
-    )
-
-    resolved = registry.resolve(override, datetime(2026, 1, 1, tzinfo=timezone.utc))
-
-    assert resolved == stage_selection_factory(
-        service="claude",
-        model="sonnet",
-        effort="high",
-    )
-    assert registry.has_available(datetime(2026, 1, 1, tzinfo=timezone.utc)) is True
-    assert registry.next_wake_time(
-        datetime(2026, 1, 1, tzinfo=timezone.utc)
-    ) == datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
 def test_service_registry_rejects_invalid_public_service_name_configuration() -> None:
@@ -480,61 +298,76 @@ def test_application_can_render_service_availability_summary_from_registry(
     ]
 
 
-def test_public_stage_selection_rejects_invalid_fallback_service_name() -> None:
-    with pytest.raises(ValueError, match="service"):
+def test_service_registry_resolves_single_provider_selection_unchanged(
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    registry = service_registry_factory("codex", unavailable={"codex"})
+    provider_selection = InternalStageSelection(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+    )
+
+    assert (
+        registry.resolve(
+            provider_selection,
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        is provider_selection
+    )
+
+
+def test_service_registry_scopes_availability_to_selected_provider(
+    service_registry_factory: Callable[..., ServiceRegistry],
+) -> None:
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    registry = service_registry_factory(
+        "codex",
+        "claude",
+        unavailable={"codex"},
+        wake_times={"codex": datetime(2026, 1, 2, tzinfo=timezone.utc)},
+    )
+
+    assert (
+        registry.has_available_for(
+            InternalStageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            now,
+        )
+        is False
+    )
+    assert registry.next_wake_time_for(
         InternalStageSelection(
             service="codex",
             model="gpt-5.4",
             effort="medium",
-            fallback=InternalStageSelection(
-                service="",
-                model="sonnet",
-                effort="high",
-            ),
-        )
-
-
-def test_service_registry_preserves_per_candidate_configuration_on_filtered_chain(
-    service_registry_factory: Callable[..., ServiceRegistry],
-    stage_selection_factory: Callable[..., InternalStageSelection],
-) -> None:
-    registry = service_registry_factory(
-        "codex",
-        "claude",
-        "gemini",
-        unavailable={"codex"},
-    )
-    override = stage_selection_factory(
-        service="codex",
-        fallback=stage_selection_factory(
-            service="missing",
-            model="ignored",
-            effort="low",
-            fallback=stage_selection_factory(
+        ),
+        now,
+    ) == datetime(2026, 1, 2, tzinfo=timezone.utc)
+    assert (
+        registry.has_available_for(
+            InternalStageSelection(
                 service="claude",
                 model="sonnet",
                 effort="high",
-                fallback=stage_selection_factory(
-                    service="gemini",
-                    model="2.5-pro",
-                    effort="low",
-                ),
             ),
-        ),
+            now,
+        )
+        is True
     )
-
-    assert registry.resolve(
-        override,
-        datetime(2026, 1, 1, tzinfo=timezone.utc),
-    ) == stage_selection_factory(
-        service="claude",
-        model="sonnet",
-        effort="high",
-        fallback=stage_selection_factory(
-            service="gemini",
-            model="2.5-pro",
-            effort="low",
-        ),
+    assert (
+        registry.next_wake_time_for(
+            InternalStageSelection(
+                service="claude",
+                model="sonnet",
+                effort="high",
+            ),
+            now,
+        )
+        is None
     )
 
 
