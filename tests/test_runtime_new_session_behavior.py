@@ -2276,7 +2276,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=stage_selection_factory(
                     service="opencode",
-                    model="glm-5",
+                    model="glm-5.2",
                     effort="medium",
                     auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 ),
@@ -2288,10 +2288,10 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
     )
 
     opencode_executable = prompt_runtime._opencode_command(
-        model="glm-5", effort="medium"
+        model="glm-5.2", effort="medium"
     )[0]
     assert observed["command"].startswith(f"{opencode_executable} run --format json")
-    assert "--model opencode-go/glm-5" in observed["command"]
+    assert "--model opencode-go/glm-5.2" in observed["command"]
     assert observed["shell"] is False
     assert observed["prompt"] == "already rendered prompt"
     assert observed["stdin_closed"] is True
@@ -2301,7 +2301,7 @@ def test_runtime_client_new_opencode_session_uses_runtime_state_dir_and_relative
     assert isinstance(result.result, prompt_runtime.SessionRunResult)
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=tool_access,
         provider_resume_state={
@@ -2405,7 +2405,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=stage_selection_factory(
                     service="opencode",
-                    model="glm-5",
+                    model="glm-5.2",
                     effort="medium",
                     auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 ),
@@ -2429,7 +2429,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
         session_namespace="main",
         exact_transcript_match=True,
     )
-    assert result.result.runtime_metadata.selected_model == "glm-5"
+    assert result.result.runtime_metadata.selected_model == "glm-5.2"
     assert result.result.runtime_metadata.selected_effort == "medium"
     assert (
         result.result.runtime_metadata.tool_policy
@@ -2437,7 +2437,7 @@ def test_runtime_client_new_opencode_session_resumes_recovered_state_dir_session
     )
     assert result.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=tool_access,
         provider_resume_state={
@@ -2527,7 +2527,7 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=stage_selection_factory(
                     service="opencode",
-                    model="glm-5",
+                    model="glm-5.2",
                     effort="medium",
                     auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 ),
@@ -2547,7 +2547,7 @@ def test_runtime_client_new_opencode_session_keeps_observed_session_id_on_starte
             invocation_progress=runtime.InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="opencode",
-                selected_model="glm-5",
+                selected_model="glm-5.2",
                 selected_effort="medium",
                 tool_access=tool_access,
                 provider_resume_state={
@@ -2621,7 +2621,7 @@ def test_runtime_client_returns_new_opencode_invocation_record_with_observed_pro
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=stage_selection_factory(
                     service="opencode",
-                    model="glm-5",
+                    model="glm-5.2",
                     effort="medium",
                     auth=prompt_runtime.ProviderAuth(opencode_api_key="test-key"),
                 ),

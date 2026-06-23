@@ -94,20 +94,17 @@ _OPENCODE_GO_MODELS = frozenset(
     {
         "deepseek-v4-flash",
         "deepseek-v4-pro",
-        "glm-5",
         "glm-5.1",
-        "hy3-preview",
-        "kimi-k2.5",
+        "glm-5.2",
         "kimi-k2.6",
-        "mimo-v2-omni",
-        "mimo-v2-pro",
+        "kimi-k2.7-code",
         "mimo-v2.5",
         "mimo-v2.5-pro",
-        "minimax-m2.5",
         "minimax-m2.7",
-        "qwen3.5-plus",
+        "minimax-m3",
         "qwen3.6-plus",
         "qwen3.7-max",
+        "qwen3.7-plus",
     }
 )
 _OPENCODE_VALID_EFFORTS = frozenset({"medium"})

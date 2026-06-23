@@ -81,7 +81,7 @@ def test_portable_continuation_payload_serialization_omits_provider_selection_an
 ):
     payload = create_portable_continuation_payload(
         service_name="opencode",
-        model="glm-5",
+        model="glm-5.2",
         effort="medium",
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
@@ -94,7 +94,7 @@ def test_portable_continuation_payload_serialization_omits_provider_selection_an
 
     assert serialized_payload == {
         "service_name": "opencode",
-        "model": "glm-5",
+        "model": "glm-5.2",
         "effort": "medium",
         "tool_access": {
             "kind": "none",
@@ -115,7 +115,7 @@ def test_portable_continuation_payload_rejects_non_object_provider_resume_state(
 ):
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state=["resume"],

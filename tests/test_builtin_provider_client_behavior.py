@@ -29,6 +29,32 @@ from agent_runtime.session import RunKind
 from agent_runtime.types import StageSelection as InternalStageSelection
 
 
+_CURRENT_OPENCODE_GO_MODELS = [
+    "glm-5.2",
+    "glm-5.1",
+    "kimi-k2.7-code",
+    "kimi-k2.6",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
+    "minimax-m3",
+    "minimax-m2.7",
+    "qwen3.7-max",
+    "qwen3.7-plus",
+    "qwen3.6-plus",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+]
+_STALE_OPENCODE_GO_MODELS = [
+    "glm-5",
+    "qwen3.5-plus",
+    "kimi-k2.5",
+    "mimo-v2-omni",
+    "mimo-v2-pro",
+    "minimax-m2.5",
+    "hy3-preview",
+]
+
+
 def _codex_executable() -> str:
     return "codex.cmd" if os.name == "nt" else "codex"
 
@@ -305,7 +331,7 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
-                        model="glm-5",
+                        model="glm-5.2",
                         effort="medium",
                     ),
                     runtime.ProviderAuth(opencode_api_key="opencode-key"),
@@ -358,7 +384,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
                     worktree=tmp_path,
                     provider_selection=InternalStageSelection(
                         service="opencode",
-                        model="glm-5",
+                        model="glm-5.2",
                         effort="medium",
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
@@ -379,7 +405,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
                             effort="low",
                             fallback=InternalStageSelection(
                                 service="opencode",
-                                model="glm-5",
+                                model="glm-5.2",
                                 effort="medium",
                             ),
                         ),
@@ -396,7 +422,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             prompt="already rendered prompt",
             provider_selection=InternalStageSelection(
                 service="opencode",
-                model="glm-5",
+                model="glm-5.2",
                 effort="medium",
             ),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
@@ -413,7 +439,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             worktree=tmp_path,
             provider_selection=InternalStageSelection(
                 service="opencode",
-                model="glm-5",
+                model="glm-5.2",
                 effort="medium",
             ),
         )
@@ -830,7 +856,7 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
         provider_selection=_selection_with_auth(
             InternalStageSelection(
                 service="opencode",
-                model="glm-5",
+                model="glm-5.2",
                 effort="medium",
             ),
             runtime.ProviderAuth(opencode_api_key="opencode-key"),
@@ -861,7 +887,7 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
                 ),
                 continuation=prompt_runtime.Continuation(
                     selected_service="opencode",
-                    selected_model="glm-5",
+                    selected_model="glm-5.2",
                     selected_effort="medium",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     provider_resume_state={
@@ -1099,7 +1125,7 @@ def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
-                        model="glm-5",
+                        model="glm-5.2",
                         effort="medium",
                     ),
                     runtime.ProviderAuth(opencode_api_key="opencode-key"),
@@ -1123,13 +1149,13 @@ def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
                     run_kind=RunKind.FRESH,
                     session_namespace="main",
                     exact_transcript_match=False,
-                    selected_model="glm-5",
+                    selected_model="glm-5.2",
                     selected_effort="medium",
                     tool_policy=tool_policy,
                 ),
                 continuation=prompt_runtime.Continuation(
                     selected_service="opencode",
-                    selected_model="glm-5",
+                    selected_model="glm-5.2",
                     selected_effort="medium",
                     tool_access=_opencode_tool_access(tool_policy, tmp_path),
                     provider_resume_state={
@@ -1206,7 +1232,7 @@ def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
 
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=_opencode_tool_access(tool_policy, worktree),
         provider_resume_state={
@@ -1242,7 +1268,7 @@ def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
                     run_kind=RunKind.RESUME,
                     session_namespace="main",
                     exact_transcript_match=False,
-                    selected_model="glm-5",
+                    selected_model="glm-5.2",
                     selected_effort="medium",
                     tool_policy=tool_policy,
                 ),
@@ -1900,7 +1926,7 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
-                        model="glm-5",
+                        model="glm-5.2",
                         effort="medium",
                     ),
                     runtime.ProviderAuth(opencode_api_key="opencode-key"),
@@ -5184,7 +5210,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     )
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.workspace_backed(
             worktree,
@@ -5229,7 +5255,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
                 ),
                 continuation=prompt_runtime.Continuation(
                     selected_service="opencode",
-                    selected_model="glm-5",
+                    selected_model="glm-5.2",
                     selected_effort="medium",
                     tool_access=continuation.tool_access,
                     provider_resume_state={
@@ -5247,7 +5273,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     )
     assert outcome.result is not None
     assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
-    assert outcome.result.runtime_metadata.selected_model == "glm-5"
+    assert outcome.result.runtime_metadata.selected_model == "glm-5.2"
     assert outcome.result.runtime_metadata.selected_effort == "medium"
     assert (
         outcome.result.runtime_metadata.tool_policy
@@ -5266,7 +5292,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     assert Path(recorded_request.environment["OPENCODE_HOME"]).name == "opencode"
     assert recorded_request.environment["OPENCODE_GO_API_KEY"] == "go-key"
     assert "--session persisted-session-1" in recorded_request.command
-    assert "--model opencode-go/glm-5" in recorded_request.command
+    assert "--model opencode-go/glm-5.2" in recorded_request.command
 
 
 def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
@@ -5723,7 +5749,7 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
                 provider_selection=_selection_with_auth(
                     InternalStageSelection(
                         service="opencode",
-                        model="glm-5",
+                        model="glm-5.2",
                         effort="medium",
                     ),
                     runtime.ProviderAuth(opencode_api_key="go-key"),
@@ -5751,7 +5777,7 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
     )
     assert outcome.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
-        selected_model="glm-5",
+        selected_model="glm-5.2",
         selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
@@ -5838,6 +5864,129 @@ def test_runtime_client_preserves_opencode_invalid_api_key_observations(
             error_name="AuthenticationError",
         ),
     )
+
+
+def test_runtime_client_opencode_allowlist_accepts_current_models_and_rejects_stale_models(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for model in _CURRENT_OPENCODE_GO_MODELS:
+        adapter = _install_in_memory_provider_invocation_adapter(
+            monkeypatch,
+            provider_invocation_runtime.ProviderInvocationResult(
+                output=f"hello from {model}"
+            ),
+        )
+        outcome = runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model=model,
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+        assert outcome.kind == "completed"
+        assert outcome.selected_model == model
+        assert len(adapter.recorded_requests) == 1
+        assert f"--model opencode-go/{model}" in adapter.recorded_requests[0].command
+
+    for model in stale_models:
+        adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+        with pytest.raises(
+            RuntimeConfigurationError, match="Unsupported OpenCode model"
+        ):
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    worktree=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model=model,
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="go-key"),
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        assert adapter.recorded_requests == []
+
+
+def test_runtime_client_opencode_config_exposes_current_subscription_models(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    current_models = set(_CURRENT_OPENCODE_GO_MODELS)
+    stale_models = set(_STALE_OPENCODE_GO_MODELS)
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(output="hello"),
+    )
+
+    runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="opencode",
+                    model="deepseek-v4-flash",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(opencode_api_key="go-key"),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+    )
+
+    config = json.loads(
+        adapter.recorded_requests[0].environment["OPENCODE_CONFIG_CONTENT"]
+    )
+    configured_models = set(config["provider"]["opencode-go"]["models"])
+    assert configured_models == current_models
+    assert not configured_models.intersection(stale_models)
+
+
+def test_runtime_client_opencode_command_uses_prefixed_model_reference_while_public_selection_stays_unprefixed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model = "glm-5.2"
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(output="hello"),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="opencode",
+                    model=model,
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(opencode_api_key="go-key"),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+    )
+
+    assert outcome.selected_model == model
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert f"--model opencode-go/{model}" in recorded_request.command
+    assert f"--model {model}" not in recorded_request.command
+    assert f"--model opencode-go/opencode-go/{model}" not in recorded_request.command
 
 
 @pytest.mark.parametrize(
