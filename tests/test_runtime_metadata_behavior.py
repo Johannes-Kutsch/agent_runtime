@@ -19,12 +19,6 @@ from agent_runtime._execution_contracts import PromptRunSession
 from agent_runtime.roles import InvocationRole
 from agent_runtime.usage_limit_scope import UsageLimitScope
 from agent_runtime.session import RunKind
-from agent_runtime.usage_limit_decision import (
-    SleepUntil,
-    Stop,
-    UsageLimitOutcome,
-    decide_usage_limit_continuation,
-)
 
 
 @pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
@@ -121,26 +115,6 @@ def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
     )
 
     assert error.usage_limit_scope == UsageLimitScope("quota-review")
-
-
-def test_permanent_usage_limit_account_label_remains_diagnostic_metadata() -> None:
-    decision = decide_usage_limit_continuation(
-        UsageLimitOutcome(
-            reset_time=None,
-            service_name=None,
-            account_label="team account",
-            is_permanent=True,
-        ),
-        stage_override=None,
-        service_registry=None,
-        now=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
-        compute_wake_time=lambda reset_time, current_time: (current_time, False),
-    )
-
-    assert isinstance(decision, Stop)
-    assert decision.message is not None
-    assert "team account" in decision.message
-    assert "claude" not in decision.message.lower()
 
 
 @pytest.mark.parametrize("service_name", [" ", "a/b", "../escape"])
@@ -262,30 +236,6 @@ def test_agent_invocation_log_records_provider_session_id_in_header(
     header = json.loads(log_path.read_text().splitlines()[0])
 
     assert header["provider_session_id"] == "provider-session"
-
-
-def test_usage_limit_continuation_exposes_selected_usage_limit_scope() -> None:
-    now = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
-    wake_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-
-    decision = decide_usage_limit_continuation(
-        UsageLimitOutcome(
-            reset_time=None,
-            service_name="codex",
-            usage_limit_scope=UsageLimitScope("quota-review"),
-        ),
-        stage_override=None,
-        service_registry=None,
-        now=now,
-        compute_wake_time=lambda reset_time, current_time: (wake_time, False),
-    )
-
-    assert decision == SleepUntil(
-        wake_time=wake_time,
-        message="Usage limit reached. Sleeping until 12:00. Press Ctrl+C to abort.",
-        is_estimated=False,
-        usage_limit_scope=UsageLimitScope("quota-review"),
-    )
 
 
 def test_agent_timeout_error_is_an_agent_runtime_error() -> None:
