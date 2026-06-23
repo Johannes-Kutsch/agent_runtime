@@ -2,16 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
-from . import _time as _time_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from .contracts import ToolPolicy
-from ._execution_contracts import (
-    PromptRunRequest as _PromptRunRequest,
-    PromptRuntimeExecutionAdapter as _PromptRuntimeExecutionAdapter,
-    TextOutputAdapter,
-    WorkInvocationPresentation,
-    WorktreeMount,
-)
 from .errors import (
     AgentCancelledError,
     AgentTimeoutError,
@@ -21,7 +13,6 @@ from .errors import (
     UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
-from . import _runtime_facade_lifecycle as _runtime_facade_lifecycle_module
 from ._runtime_lifecycle import (
     AgentMessageTurn,
     Continuation,
@@ -38,7 +29,6 @@ from ._runtime_lifecycle import (
     SessionRunResult,
     SessionRuntimeMetadata,
 )
-from ._service_registry import ServiceRegistry
 from .types import ProviderSelection
 
 if TYPE_CHECKING:
@@ -63,7 +53,6 @@ __all__ = [
     "SessionRunResult",
     "SessionRuntimeMetadata",
     "ToolPolicy",
-    "WorktreeMount",
 ]
 
 _REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES = {
@@ -73,38 +62,6 @@ _REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES = {
     "UsageLimitScope",
 }
 
-_RuntimeIntent = _runtime_facade_lifecycle_module._RuntimeIntent
-_EphemeralPreparedProviderRunSession = (
-    _runtime_facade_lifecycle_module._EphemeralPreparedProviderRunSession
-)
-_EphemeralPreparedRunSessionState = (
-    _runtime_facade_lifecycle_module._EphemeralPreparedRunSessionState
-)
-_TrackedPreparedSessionState = (
-    _runtime_facade_lifecycle_module._TrackedPreparedSessionState
-)
-_require_execution_adapter_method = (
-    _runtime_facade_lifecycle_module._require_execution_adapter_method
-)
-_build_run_session = _runtime_facade_lifecycle_module._build_run_session
-_latest_provider_run_session = (
-    _runtime_facade_lifecycle_module._latest_provider_run_session
-)
-_invoke_runtime_intent = _runtime_facade_lifecycle_module._invoke_runtime_intent
-_run_ephemeral = _runtime_facade_lifecycle_module._run_ephemeral
-_run_new_session = _runtime_facade_lifecycle_module._run_new_session
-_run_resumed_session = _runtime_facade_lifecycle_module._run_resumed_session
-_run_resumed_session_outcome = (
-    _runtime_facade_lifecycle_module._run_resumed_session_outcome
-)
-_provider_state_dir_container_path = (
-    _runtime_facade_lifecycle_module._provider_state_dir_container_path
-)
-_continuation_resume_state = _runtime_facade_lifecycle_module._continuation_resume_state
-_build_continuation = _runtime_facade_lifecycle_module._build_continuation
-_interruption_continuation = _runtime_facade_lifecycle_module._interruption_continuation
-_run_ephemeral_outcome = _runtime_facade_lifecycle_module._run_ephemeral_outcome
-_run_new_session_outcome = _runtime_facade_lifecycle_module._run_new_session_outcome
 for _runtime_export in (
     AgentMessageTurn,
     Continuation,
@@ -334,56 +291,6 @@ def _run_builtin_ephemeral(
         opencode_command=_opencode_command,
         opencode_env=_opencode_env,
         reduce_opencode_stream=_reduce_opencode_stream,
-    )
-
-
-async def _run_prompt(
-    *,
-    runner: _PromptRuntimeExecutionAdapter,
-    service_registry: ServiceRegistry,
-    request: _PromptRunRequest,
-) -> str:
-    resolved_override = service_registry.resolve(
-        request.stage,
-        _time_module.now_local(),
-    )
-    role = request.role
-    resolve_service = _require_execution_adapter_method(runner, "resolve_service")
-    build_work_dependencies = _require_execution_adapter_method(
-        runner,
-        "build_work_dependencies",
-    )
-    resolved_service = resolve_service(resolved_override.service)
-    dependencies = build_work_dependencies(
-        name=request.name,
-        model=resolved_override.model,
-        effort=resolved_override.effort,
-        service=resolved_service,
-    )
-    return await _invoke_runtime_intent(
-        _RuntimeIntent(
-            run_session=_build_run_session(
-                mount_path=request.mount_path,
-                role=role,
-                session_namespace=request.session_namespace,
-                service=resolved_service,
-                container_workspace=dependencies.execution.container_workspace,
-            ),
-            model=resolved_override.model,
-            effort=resolved_override.effort,
-            output_adapter=TextOutputAdapter(
-                prompt=request.prompt,
-                tool_access=request.tool_access,
-                workspace=request.worktree.host_path,
-            ),
-            dependencies=dependencies,
-            presentation=WorkInvocationPresentation(
-                name=request.name,
-                status_display=request.status_display,
-                work_body=request.work_body,
-            ),
-            token=request.token,
-        )
     )
 
 

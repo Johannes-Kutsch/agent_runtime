@@ -14,13 +14,11 @@ from .types import (
 
 if TYPE_CHECKING:
     from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
-    from ._execution_contracts import WorktreeMount
 
 
 @dataclasses.dataclass(frozen=True)
 class NormalizedWorktree:
     path: Path
-    mount: WorktreeMount
 
 
 @dataclasses.dataclass(frozen=True)
@@ -93,27 +91,8 @@ def normalize_session_namespace(session_namespace: str) -> str:
     return session_namespace
 
 
-def normalize_worktree_path(worktree: Path | WorktreeMount) -> Path:
-    from ._execution_contracts import WorktreeMount
-
-    if isinstance(worktree, WorktreeMount):
-        return worktree.host_path
-    return worktree
-
-
-def normalize_worktree_mount(worktree: Path | WorktreeMount) -> WorktreeMount:
-    from ._execution_contracts import WorktreeMount
-
-    if isinstance(worktree, WorktreeMount):
-        return worktree
-    return WorktreeMount(worktree)
-
-
-def normalize_worktree(worktree: Path | WorktreeMount) -> NormalizedWorktree:
-    return NormalizedWorktree(
-        path=normalize_worktree_path(worktree),
-        mount=normalize_worktree_mount(worktree),
-    )
+def normalize_worktree(worktree: Path) -> NormalizedWorktree:
+    return NormalizedWorktree(path=worktree)
 
 
 def normalize_tool_access(
@@ -172,7 +151,7 @@ def normalize_provider_selection_request(
     *,
     provider_selection: SelectionLike | None,
     role: InvocationRole | None,
-    worktree: Path | WorktreeMount,
+    worktree: Path,
     tool_access: Any,
     tool_policy: Any,
     missing_sentinel: object,
@@ -209,7 +188,7 @@ def normalize_stage_request(
     stage: StageSelection | None,
     override: StageSelection | None,
     role: InvocationRole | None,
-    worktree: Path | WorktreeMount,
+    worktree: Path,
     tool_access: Any,
     tool_policy: Any,
     missing_sentinel: object,
@@ -237,7 +216,7 @@ def normalize_stage_request(
 def normalize_continuation_request(
     *,
     role: InvocationRole | None,
-    worktree: Path | WorktreeMount,
+    worktree: Path,
     tool_access: "ToolAccess",
     session_namespace: str,
     context: str,
@@ -261,7 +240,7 @@ def normalize_continuation_request(
 def normalize_session_plan_request(
     *,
     role: InvocationRole,
-    worktree: Path | WorktreeMount,
+    worktree: Path,
     tool_access: Any,
     tool_policy: Any,
     missing_sentinel: object,
