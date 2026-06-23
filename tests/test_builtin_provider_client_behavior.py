@@ -5897,7 +5897,7 @@ def test_runtime_client_opencode_allowlist_accepts_current_models_and_rejects_st
         assert len(adapter.recorded_requests) == 1
         assert f"--model opencode-go/{model}" in adapter.recorded_requests[0].command
 
-    for model in stale_models:
+    for model in _STALE_OPENCODE_GO_MODELS:
         adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
         with pytest.raises(
             RuntimeConfigurationError, match="Unsupported OpenCode model"
