@@ -2170,32 +2170,49 @@ def _build_opencode_continuation(
     ).to_continuation()
 
 
+def _invocation_events_from_stdout_lines(
+    service_name: str,
+    stdout_lines: tuple[str, ...],
+) -> tuple[AgentEvent, ...]:
+    return tuple(
+        _live_output_event_for_provider_line(service_name, line)
+        for line in stdout_lines
+    )
+
+
 def _provider_invocation_records(
     service_name: str,
     run_kind: RunKind,
-    prompt: str,
+    outcome: str,
+    model: str,
+    effort: str,
     invocation_result: ProviderInvocationResult,
     provider_session_id: str | None = None,
 ) -> tuple[InvocationRecord]:
     resolved_provider_session_id = (
         invocation_result.provider_session_id or provider_session_id
     )
+    provider_output_lines = _provider_invocation_records_output_lines(
+        service_name,
+        invocation_result.stdout_lines,
+    )
     stdout_output = (
-        "".join(
-            _provider_invocation_records_output_lines(
-                service_name,
-                invocation_result.stdout_lines,
-            )
-        ).encode("utf-8")
-        if invocation_result.stdout_lines
+        "".join(provider_output_lines).encode("utf-8")
+        if provider_output_lines
         else None
+    )
+    events = _invocation_events_from_stdout_lines(
+        service_name, invocation_result.stdout_lines
     )
     return (
         InvocationRecord(
             run_kind=run_kind,
             service_name=service_name,
+            model=model,
+            effort=effort,
+            outcome=outcome,
             provider_session_id=resolved_provider_session_id,
-            prompt=prompt,
+            events=events,
             provider_output=stdout_output,
             usage=invocation_result.usage,
         ),
@@ -2205,9 +2222,15 @@ def _provider_invocation_records(
 def _provider_invocation_records_from_error(
     service_name: str,
     run_kind: RunKind,
-    prompt: str,
+    model: str,
+    effort: str,
     exc: UsageLimitError | RetryableProviderFailureError,
 ) -> tuple[InvocationRecord]:
+    outcome = (
+        "usage_limited"
+        if isinstance(exc, UsageLimitError)
+        else "retryable_provider_failure"
+    )
     stdout_lines = provider_invocation_failure_stdout_lines(exc)
     usage = getattr(exc, "usage", None)
     provider_session_id = _provider_session_id_from_error(
@@ -2224,12 +2247,16 @@ def _provider_invocation_records_from_error(
         if provider_output_lines
         else None
     )
+    events = _invocation_events_from_stdout_lines(service_name, stdout_lines)
     return (
         InvocationRecord(
             run_kind=run_kind,
             service_name=service_name,
+            model=model,
+            effort=effort,
+            outcome=outcome,
             provider_session_id=provider_session_id,
-            prompt=prompt,
+            events=events,
             provider_output=provider_output,
             usage=usage,
         ),
@@ -2848,7 +2875,9 @@ def _run_builtin_new_session(
                 invocation_records = _provider_invocation_records(
                     service_name="codex",
                     run_kind=RunKind.FRESH,
-                    prompt=request.prompt,
+                    outcome="completed",
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
                     invocation_result=invocation_result,
                     provider_session_id=provider_session_id,
                 )
@@ -2864,7 +2893,8 @@ def _run_builtin_new_session(
                     _provider_invocation_records_from_error(
                         service_name="codex",
                         run_kind=RunKind.FRESH,
-                        prompt=request.prompt,
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
                         exc=exc,
                     ),
                 )
@@ -2992,7 +3022,9 @@ def _run_builtin_new_session(
                 invocation_records = _provider_invocation_records(
                     service_name=selected_stage.service,
                     run_kind=run_kind,
-                    prompt=request.prompt,
+                    outcome="completed",
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
                     invocation_result=invocation_result,
                     provider_session_id=provider_session_id,
                 )
@@ -3012,7 +3044,9 @@ def _run_builtin_new_session(
                 invocation_records = _provider_invocation_records(
                     service_name=selected_stage.service,
                     run_kind=run_kind,
-                    prompt=request.prompt,
+                    outcome="completed",
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
                     invocation_result=invocation_result,
                     provider_session_id=provider_session_id,
                 )
@@ -3023,7 +3057,8 @@ def _run_builtin_new_session(
                 _provider_invocation_records_from_error(
                     service_name=selected_stage.service,
                     run_kind=run_kind,
-                    prompt=request.prompt,
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
                     exc=exc,
                 ),
             )
@@ -3185,7 +3220,9 @@ def _run_builtin_resumed_session(
             invocation_records = _provider_invocation_records(
                 service_name="codex",
                 run_kind=run_kind,
-                prompt=request.prompt,
+                outcome="completed",
+                model=request.model,
+                effort=request.effort,
                 invocation_result=invocation_result,
                 provider_session_id=active_provider_session_id,
             )
@@ -3197,7 +3234,8 @@ def _run_builtin_resumed_session(
                 _provider_invocation_records_from_error(
                     service_name="codex",
                     run_kind=run_kind,
-                    prompt=request.prompt,
+                    model=request.model,
+                    effort=request.effort,
                     exc=exc,
                 ),
             )
@@ -3385,7 +3423,9 @@ def _run_builtin_resumed_session(
             invocation_records = _provider_invocation_records(
                 service_name="opencode",
                 run_kind=run_kind,
-                prompt=request.prompt,
+                outcome="completed",
+                model=request.model,
+                effort=request.effort,
                 invocation_result=invocation_result,
                 provider_session_id=provider_session_id,
             )
@@ -3404,7 +3444,8 @@ def _run_builtin_resumed_session(
             _provider_invocation_records_from_error(
                 service_name=continuation_service,
                 run_kind=run_kind,
-                prompt=request.prompt,
+                model=request.model,
+                effort=request.effort,
                 exc=exc,
             ),
         )
@@ -3447,7 +3488,9 @@ def _run_builtin_resumed_session(
         invocation_records = _provider_invocation_records(
             service_name="claude",
             run_kind=run_kind,
-            prompt=request.prompt,
+            outcome="completed",
+            model=request.model,
+            effort=request.effort,
             invocation_result=invocation_result,
             provider_session_id=provider_session_id,
         )

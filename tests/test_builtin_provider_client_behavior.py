@@ -5643,7 +5643,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     assert invocation_record.run_kind is RunKind.FRESH
     assert invocation_record.service_name == "codex"
     assert invocation_record.provider_session_id == "thread-123"
-    assert invocation_record.prompt == "already rendered prompt"
+    assert len(invocation_record.events) > 0
     assert invocation_record.provider_output == (
         b'{"type":"item.completed","item":{"type":"agent_message","text":"continued'
         b' output"}}\n{"type":"turn.completed","usage":{"input_tokens":3,'
@@ -5747,7 +5747,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
     assert invocation_record.run_kind is RunKind.FRESH
     assert invocation_record.service_name == "codex"
     assert invocation_record.provider_session_id == "thread-123"
-    assert invocation_record.prompt == "already rendered prompt"
+    assert len(invocation_record.events) > 0
     assert invocation_record.provider_output == (
         b'{"type":"thread.started","thread_id":"thread-123"}\n'
         b'{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. '
@@ -5848,7 +5848,7 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
     assert invocation_record.run_kind is RunKind.FRESH
     assert invocation_record.service_name == "opencode"
     assert invocation_record.provider_session_id == "session-123"
-    assert invocation_record.prompt == "already rendered prompt"
+    assert len(invocation_record.events) > 0
     assert invocation_record.provider_output is not None
     assert (
         b'"type": "text", "sessionID": "session-123"'
@@ -6970,7 +6970,6 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
         ),
     )
 
-
 def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7164,3 +7163,179 @@ def test_runtime_client_ephemeral_times_out_without_live_output_callback(
 
     assert outcome.kind == "timed_out"
     assert outcome.service_name == "opencode"
+
+
+
+def test_completed_run_invocation_record_carries_agent_event_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    assistant_line = (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "Hello world"}],
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            }
+        )
+        + "\n"
+    )
+    result_line = (
+        json.dumps({"type": "result", "result": "Hello world", "is_error": False})
+        + "\n"
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(assistant_line, result_line),
+        ),
+    )
+
+    observed_events: list[prompt_runtime.AgentEvent] = []
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="test prompt",
+            invocation_dir=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="test-token"),
+            ),
+            tool_policy=runtime.ToolPolicy.NONE,
+            on_live_output=observed_events.append,
+        )
+    )
+
+    assert len(outcome.invocation_records) == 1
+    record = outcome.invocation_records[0]
+    assert isinstance(record, prompt_runtime.InvocationRecord)
+    assert len(observed_events) > 0
+    assert record.events == tuple(observed_events)
+    assert record.outcome == "completed"
+    assert record.service_name == "claude"
+    assert record.model == "sonnet"
+    assert record.effort == "medium"
+    assert record.run_kind is RunKind.FRESH
+    assert record.usage is not None
+
+
+def test_interrupted_run_invocation_record_carries_observed_events(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    message_line = (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "Working on it..."}],
+                    "usage": {"input_tokens": 5, "output_tokens": 2},
+                },
+            }
+        )
+        + "\n"
+    )
+    limit_line = (
+        json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "api_error_status": 429,
+                "result": "Usage limit reached.",
+            }
+        )
+        + "\n"
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(message_line, limit_line),
+        ),
+    )
+
+    observed_events: list[prompt_runtime.AgentEvent] = []
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="test prompt",
+            invocation_dir=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="test-token"),
+            ),
+            tool_policy=runtime.ToolPolicy.NONE,
+            on_live_output=observed_events.append,
+        )
+    )
+
+    assert outcome.kind == "usage_limited"
+    assert len(outcome.invocation_records) == 1
+    record = outcome.invocation_records[0]
+    assert isinstance(record, prompt_runtime.InvocationRecord)
+    assert len(observed_events) > 0
+    assert record.events == tuple(observed_events)
+    assert record.outcome == "usage_limited"
+    assert record.service_name == "claude"
+    assert record.model == "sonnet"
+    assert record.effort == "medium"
+
+
+def test_completed_run_invocation_record_carries_events_without_live_observer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    assistant_line = (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "Hello world"}],
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            }
+        )
+        + "\n"
+    )
+    result_line = (
+        json.dumps({"type": "result", "result": "Hello world", "is_error": False})
+        + "\n"
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(assistant_line, result_line),
+        ),
+    )
+
+    outcome = runtime.RuntimeClient().run_ephemeral(
+        prompt_runtime.EphemeralRunRequest(
+            prompt="test prompt",
+            invocation_dir=tmp_path,
+            provider_selection=_selection_with_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="test-token"),
+            ),
+            tool_policy=runtime.ToolPolicy.NONE,
+            on_live_output=None,
+        )
+    )
+
+    assert outcome.kind == "completed"
+    assert len(outcome.invocation_records) == 1
+    record = outcome.invocation_records[0]
+    assert isinstance(record, prompt_runtime.InvocationRecord)
+    assert len(record.events) > 0
+    assert record.outcome == "completed"
+    assert record.service_name == "claude"
