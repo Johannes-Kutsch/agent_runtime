@@ -39,7 +39,15 @@ def plan() -> Any:
 def _runtime_outcome(kind_name: str, **result_kwargs: Any) -> Any:
     from agent_runtime import runtime as pr
 
-    kinds = {
+    kinds: dict[
+        str,
+        pr.Completed
+        | pr.UsageLimited
+        | pr.NoServiceAvailable
+        | pr.Cancelled
+        | pr.TimedOut
+        | pr.RetryableProviderFailure,
+    ] = {
         "completed": pr.Completed(),
         "usage_limited": pr.UsageLimited(None),
         "no_service_available": pr.NoServiceAvailable(None),

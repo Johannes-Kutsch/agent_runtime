@@ -190,7 +190,7 @@ def _run_single_case(
             )
             outcome = _resolve_runtime_outcome(client.run_ephemeral(request))
         elif case.mode == "new_session":
-            request = NewSessionRunRequest(
+            new_session_request = NewSessionRunRequest(
                 prompt=prompt,
                 invocation_dir=invocation_dir,
                 provider_selection=selection,
@@ -198,14 +198,14 @@ def _run_single_case(
                 timeout_seconds=timeout_seconds,
                 on_live_output=_on_live_output,
             )
-            outcome = _resolve_runtime_outcome(client.run_new_session(request))
+            outcome = _resolve_runtime_outcome(client.run_new_session(new_session_request))
         elif case.mode == "resumed_session":
             if continuation is None:
                 raise RuntimeError(
                     "resumed_session requires a continuation from new_session; "
                     "the new_session case did not produce one"
                 )
-            request = ResumedSessionRunRequest(
+            resumed_request = ResumedSessionRunRequest(
                 prompt=prompt,
                 invocation_dir=invocation_dir,
                 continuation=continuation,
@@ -213,7 +213,7 @@ def _run_single_case(
                 timeout_seconds=timeout_seconds,
                 on_live_output=_on_live_output,
             )
-            outcome = _resolve_runtime_outcome(client.run_resumed_session(request))
+            outcome = _resolve_runtime_outcome(client.run_resumed_session(resumed_request))
         else:
             raise ValueError(f"unsupported probe mode: {case.mode!r}")
     except AgentCredentialFailureError:

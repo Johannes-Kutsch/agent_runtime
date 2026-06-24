@@ -103,11 +103,11 @@ def _expected_session_meta(
     return (service_name, selected_model, selected_effort)
 
 
-def _expected_ephemeral_meta(**_kw: Any) -> None:
+def _expected_ephemeral_meta(**_kw: Any) -> Any:
     return None
 
 
-def _expected_ephemeral_runtime_meta(**_kw: Any) -> None:
+def _expected_ephemeral_runtime_meta(**_kw: Any) -> Any:
     return None
 
 
@@ -202,6 +202,7 @@ def _assert_runtime_outcome(
         if effort:
             assert actual.result.selected.effort == effort
     if expected.reset_time_provided:
+        assert isinstance(actual.kind, (prompt_runtime.UsageLimited, prompt_runtime.NoServiceAvailable))
         assert actual.kind.reset_time == expected.reset_time
 
 
