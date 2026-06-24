@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 
-import agent_runtime as runtime
 from agent_runtime.invocation_progress import InvocationProgress as _InvocationProgress
 from agent_runtime.contracts import (
     AssistantTurn,

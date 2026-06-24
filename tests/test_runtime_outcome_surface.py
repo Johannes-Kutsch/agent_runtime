@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import json
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path

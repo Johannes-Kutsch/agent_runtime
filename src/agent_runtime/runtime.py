@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 from typing import TYPE_CHECKING, Any, Callable
 
 from . import _time
@@ -31,7 +30,6 @@ from ._runtime_lifecycle import (
     TimedOut,
     UsageLimited,
 )
-from .session import RunKind
 from .types import ProviderSelection, ResolvedProvider
 
 if TYPE_CHECKING:

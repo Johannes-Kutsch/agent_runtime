@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib
 import inspect
 import asyncio
-from types import SimpleNamespace
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import Any, cast
