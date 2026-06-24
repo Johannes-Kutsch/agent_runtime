@@ -491,10 +491,10 @@ def test_runtime_package_root_exports_keep_runtime_lifecycle_identity() -> None:
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
 
 
-def test_runtime_client_lifecycle_entrypoints_do_not_read_live_smoke_env(
+def test_runtime_client_lifecycle_entrypoints_do_not_read_live_probe_env(
     tmp_path: Path,
 ) -> None:
-    env_path = Path(__file__).resolve().parents[1] / "scripts" / "live-smoke" / ".env"
+    env_path = Path(__file__).resolve().parents[1] / "scripts" / "live-probe" / ".env"
     original_env = None
     if env_path.exists():
         original_env = env_path.read_text(encoding="utf-8")

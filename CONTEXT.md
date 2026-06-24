@@ -31,9 +31,9 @@
 | `RuntimeOutcome` | One invocation's outcome: a discriminated `kind` plus a `RunResult`. `kind` is a closed variant set — completion, usage limits (reset time), selected-provider temporary unavailability (reset time), cancellation, timeout, or retryable provider failure; bad credentials are not a kind but an exception. |
 | `RunResult` | The run facts carried by every `RuntimeOutcome`, present even after interruption: final output, provider usage, resume continuation (none for ephemeral), and the `ResolvedProvider`. |
 | `ResolvedProvider` | Credential-free identity of the provider actually run: service, model, effort. Distinct from `ProviderSelection` (the request value carrying auth); canonical wherever that triple appears — result, continuation, session metadata. |
-| `Live Provider Smoke Test` | Opt-in validation run outside default tests exercising real built-in providers through Runtime Public Surface. |
-| `Full Live Smoke Matrix` | Maintainer confidence scope for Live Provider Smoke Tests: all lifecycle modes plus every public `ToolPolicy` for each selected configured provider. |
-| `Live Smoke Default` | Cost-first runtime-supported provider/model/effort tuple used by Live Provider Smoke Tests absent CLI or environment override. |
+| `Live Provider Probe` | Opt-in manual debugging tool (not CI, not default tests, not Runtime Public Surface) exercising real built-in providers through Runtime Public Surface; streams agent messages and tool calls live to the terminal and writes per-case JSON artifacts, wiping a service's artifacts on rerun. |
+| `Live Probe Case Matrix` | Per-service probe case set: each of the three entry paths once at `UNRESTRICTED`, plus ephemeral under each remaining `ToolPolicy` — six cases, deduplicated on `ephemeral_UNRESTRICTED`. |
+| `Live Probe Default` | Cost-first runtime-supported provider/model/effort tuple used by the Live Provider Probe absent CLI override. |
 | `ProviderUsage` | Provider-reported usage: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, optional provider duration. |
 
 ## Boundary Rules
@@ -107,9 +107,9 @@
 - `ProviderSelection` is the canonical single-candidate selection value for one invocation.
 - Runtime Compatibility Aliases are not Runtime Public Surface promises and may be removed before release without tailored migration behavior.
 - Lifecycle-specific runtime execution adapter names are canonical public spellings even when they share adapter protocols.
-- Live Provider Smoke Tests are opt-in maintainer tooling, not default automated tests or Runtime Public Surface additions.
-- Live Provider Smoke Tests prove real provider invocation through Runtime Public Surface; they do not judge answer quality, tool usefulness, or strict instruction following.
-- Live Smoke Defaults prefer the cheapest runtime-supported provider tuple over stronger models; smoke prompts must stay simple enough for those defaults.
+- The Live Provider Probe is opt-in manual debugging tooling — not CI, default automated tests, or a Runtime Public Surface addition.
+- The Live Provider Probe proves real provider invocation through Runtime Public Surface; it does not judge answer quality, tool usefulness, or strict instruction following.
+- Live Probe Defaults prefer the cheapest runtime-supported provider tuple over stronger models; probe prompts must stay simple enough for those defaults.
 
 ## Flagged Ambiguities
 

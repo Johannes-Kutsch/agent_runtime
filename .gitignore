@@ -1,4 +1,6 @@
-live-smoke-artifacts/*
+# Live Provider Probe (manual-debug tooling): ignore artifacts and local creds
+live-probe-artifacts/
+scripts/live-probe/.env
 
 .idea/
 .claude/

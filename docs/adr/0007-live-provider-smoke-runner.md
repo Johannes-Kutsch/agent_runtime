@@ -1,6 +1,6 @@
 # Live provider smoke runner
 
-Status: Accepted; artifact set partially superseded by ADR 0012 (invocation records removed from the runtime surface, so they are no longer a preservable artifact).
+Status: Superseded by ADR 0013 (repositioned from credentialed-CI smoke runner to manual-debug-only `Live Provider Probe`). Artifact set already partially superseded by ADR 0012 (invocation records removed from the runtime surface).
 
 Deterministic tests cover lifecycle behavior, command rendering, tool policy, live output observation, and portable continuations. They do not prove real Claude, Codex, and OpenCode integrations can invoke provider commands with host credentials and live availability. The project needs an opt-in Live Provider Smoke Test for maintainers and credentialed CI that proves the Runtime Public Surface contract without becoming a provider benchmark, default suite dependency, or runtime public API.
 
