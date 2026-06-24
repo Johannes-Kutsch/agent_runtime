@@ -10,8 +10,10 @@ from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime.errors import (
     AgentFailedError,
     AgentRuntimeError,
+    AgentCredentialFailureError,
     AgentTimeoutError,
     HardAgentError,
+    RetryableProviderFailureError,
     TransientAgentError,
     UsageLimitError,
 )
@@ -150,9 +152,33 @@ def test_transient_agent_error_exposes_status_code_metadata() -> None:
 
 
 def test_hard_agent_error_exposes_service_name_metadata() -> None:
-    hard = HardAgentError("hard", status_code=400, service_name="codex")
+    hard = HardAgentError("hard", service_name="codex")
 
     assert hard.service_name == "codex"
+
+
+def test_retryable_provider_failure_error_omits_provider_diagnostic_metadata() -> None:
+    retryable = RetryableProviderFailureError("retry", service_name="codex")
+
+    assert not hasattr(retryable, "status_code")
+    assert not hasattr(retryable, "observations")
+
+
+def test_hard_agent_error_omits_provider_diagnostic_metadata() -> None:
+    hard = HardAgentError("hard", service_name="codex")
+
+    assert not hasattr(hard, "status_code")
+    assert not hasattr(hard, "observations")
+
+
+def test_agent_credential_failure_error_omits_provider_diagnostic_metadata() -> None:
+    credential_failure = AgentCredentialFailureError(
+        "bad token",
+        service_name="codex",
+    )
+
+    assert not hasattr(credential_failure, "status_code")
+    assert not hasattr(credential_failure, "observations")
 
 
 def test_agent_failed_error_builds_session_dir_from_service_name_metadata() -> None:

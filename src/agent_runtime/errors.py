@@ -6,7 +6,6 @@ from typing import Any
 
 from .identity import validate_runtime_identity_label, validate_session_namespace
 from .invocation_progress import InvocationProgress
-from .provider_errors import ProviderErrorObservation
 from .provider_usage import ProviderUsage
 
 
@@ -106,22 +105,18 @@ class RetryableProviderFailureError(AgentRuntimeError):
         self,
         message: str = "",
         *,
-        status_code: int | None = None,
         service_name: str,
         classification: str | None = None,
-        observations: tuple[ProviderErrorObservation, ...] = (),
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
         usage: ProviderUsage | None = None,
     ) -> None:
-        self.status_code = status_code
         validate_runtime_identity_label(
             service_name,
             kind="RetryableProviderFailureError service name",
         )
         self.service_name = service_name
         self.classification = classification
-        self.observations = observations
         self.invocation_progress = invocation_progress
         self.continuation = continuation
         self.usage = usage
@@ -132,12 +127,9 @@ class HardAgentError(AgentRuntimeError):
     def __init__(
         self,
         message: str = "",
-        status_code: int | None = None,
         service_name: str = "",
         classification: str | None = None,
-        observations: tuple[ProviderErrorObservation, ...] = (),
     ) -> None:
-        self.status_code = status_code
         self.caller = ""
         if service_name:
             validate_runtime_identity_label(
@@ -146,7 +138,6 @@ class HardAgentError(AgentRuntimeError):
             )
         self.service_name = service_name
         self.classification = classification
-        self.observations = observations
         super().__init__(message)
 
 
@@ -155,18 +146,14 @@ class AgentCredentialFailureError(HardAgentError):
         self,
         message: str = "",
         *,
-        status_code: int | None = None,
         service_name: str,
         classification: str | None = None,
-        observations: tuple[ProviderErrorObservation, ...],
     ) -> None:
         self.is_operator_actionable = True
         super().__init__(
             message=message,
-            status_code=status_code,
             service_name=service_name,
             classification=classification,
-            observations=observations,
         )
 
 

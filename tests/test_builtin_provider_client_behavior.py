@@ -23,7 +23,6 @@ from agent_runtime.errors import (
     RuntimeConfigurationError,
     TransientAgentError,
 )
-from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
 from agent_runtime.invocation_progress import InvocationProgress as _InvocationProgress
@@ -4517,17 +4516,6 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
         "Codex authentication missing: run `codex login` on the host."
     )
     assert exc_info.value.service_name == "codex"
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.observations == (
-        ProviderErrorObservation(
-            service_name="codex",
-            raw_provider_text=(
-                "Codex authentication missing: run `codex login` on the host."
-            ),
-            source_stream="pre-dispatch host check",
-            status_code=401,
-        ),
-    )
     assert adapter.recorded_requests == []
 
 
@@ -5471,7 +5459,7 @@ def test_runtime_client_returns_run_result_for_session_run_output(
     )
 
 
-def test_runtime_client_preserves_opencode_invalid_api_key_observations(
+def test_runtime_client_preserves_opencode_invalid_api_key_classification(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5519,19 +5507,12 @@ def test_runtime_client_preserves_opencode_invalid_api_key_observations(
         )
 
     assert exc_info.value.service_name == "opencode"
-    assert exc_info.value.status_code == 401
     assert exc_info.value.classification == (
         "operator_actionable_agent_credential_failure"
     )
-    assert exc_info.value.observations == (
-        ProviderErrorObservation(
-            service_name="opencode",
-            raw_provider_text="invalid api key",
-            source_stream="json_event.error",
-            status_code=401,
-            error_name="AuthenticationError",
-        ),
-    )
+    assert str(exc_info.value) == "invalid api key"
+    assert not hasattr(exc_info.value, "status_code")
+    assert not hasattr(exc_info.value, "observations")
 
 
 def test_runtime_client_opencode_allowlist_accepts_current_models_and_rejects_stale_models(
@@ -6038,7 +6019,6 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
         "Did you mean: deepseek-v4-flash?"
     )
     assert exc_info.value.service_name == "opencode"
-    assert exc_info.value.status_code == 400
 
 
 def test_runtime_client_maps_opencode_transient_error_stream_to_transient_exception(
@@ -6264,6 +6244,7 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
             )
         )
 
+    assert "temporary Claude failure" in str(exc_info.value)
     assert exc_info.value.status_code == 500
 
 
@@ -6405,7 +6386,7 @@ def test_runtime_client_rejects_unsupported_selected_provider_for_ephemeral_resu
         )
 
 
-def test_runtime_client_preserves_claude_credential_failure_observations(
+def test_runtime_client_preserves_claude_credential_failure_message(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6446,14 +6427,11 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
             )
         )
 
-    assert exc_info.value.observations == (
-        ProviderErrorObservation(
-            service_name="claude",
-            raw_provider_text=denial_message,
-            source_stream="json_event.result",
-            status_code=403,
-        ),
-    )
+    assert denial_message in str(exc_info.value)
+    assert exc_info.value.service_name == "claude"
+    assert exc_info.value.classification is None
+    assert not hasattr(exc_info.value, "status_code")
+    assert not hasattr(exc_info.value, "observations")
 
 
 def test_runtime_client_ephemeral_times_out_with_no_events_within_window(

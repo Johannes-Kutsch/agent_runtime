@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from .provider_errors import ProviderErrorObservation
 from .session import RunKind
 
 
@@ -49,10 +48,6 @@ class TransientError:
     status_code: int | None
     raw_message: str
     classification: str | None = None
-    observations: tuple[ProviderErrorObservation, ...] = dataclasses.field(
-        default=(),
-        compare=False,
-    )
 
 
 @dataclasses.dataclass
@@ -60,19 +55,12 @@ class HardError:
     status_code: int
     raw_message: str
     classification: str | None = None
-    observations: tuple[ProviderErrorObservation, ...] = dataclasses.field(
-        default=(),
-        compare=False,
-    )
 
 
 @dataclasses.dataclass
 class CredentialFailure:
     raw_message: str
     service_name: str
-    source_observations: tuple[ProviderErrorObservation, ...] = dataclasses.field(
-        compare=False,
-    )
     status_code: int | None = None
     classification: str | None = None
 
