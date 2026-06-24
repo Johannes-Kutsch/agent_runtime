@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
-import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -638,10 +638,18 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
         ),
     )
 
-    with pytest.raises(UsageLimitError):
-        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
-            request
-        )
+    result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        request
+    )
+
+    assert result == provider_invocation_runtime.ProviderInvocationFailure(
+        kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+        detail="Usage limit reached (reset_time=2027-01-02T17:00:00+00:00)",
+        stdout_lines=(usage_limit_line,),
+        provider_session_id=None,
+        usage=None,
+        reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
+    )
 
 
 def test_production_adapter_streams_stderr_lines_to_live_output_and_reduction(
@@ -876,13 +884,30 @@ def test_production_adapter_preserves_reducer_classification_on_nonzero_exit(
         ),
     )
 
-    with pytest.raises(
-        type(classified_failure),
-        match=re.escape(str(classified_failure)),
-    ):
-        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
-            request
+    result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        request
+    )
+
+    if isinstance(classified_failure, UsageLimitError):
+        expected = provider_invocation_runtime.ProviderInvocationFailure(
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail=str(classified_failure),
+            stdout_lines=("classified failure output\n",),
+            provider_session_id=None,
+            usage=classified_failure.usage,
+            reset_time=classified_failure.reset_time,
         )
+    else:
+        expected = provider_invocation_runtime.ProviderInvocationFailure(
+            kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
+            detail=str(classified_failure),
+            stdout_lines=("classified failure output\n",),
+            provider_session_id=None,
+            usage=classified_failure.usage,
+            reset_time=None,
+        )
+
+    assert result == expected
 
 
 def test_provider_invocation_request_requires_command_or_argv() -> None:

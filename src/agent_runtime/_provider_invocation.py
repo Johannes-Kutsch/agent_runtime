@@ -6,6 +6,8 @@ import shlex
 import threading
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
@@ -13,9 +15,6 @@ from .agent_log import LogicalAgentInvocationLog, WorkInvocationLog
 from .errors import HardAgentError, ProviderUnavailableError, UsageLimitError
 from .provider_usage import ProviderUsage
 from .session import RunKind
-
-_FAILURE_STDOUT_LINES_ATTR = "_provider_invocation_stdout_lines"
-_FAILURE_PROVIDER_SESSION_ID_ATTR = "_provider_invocation_provider_session_id"
 
 ProviderOutputReducer = Callable[[list[str]], tuple[str, ProviderUsage | None]]
 ProviderLoggedOutputReducer = Callable[
@@ -91,47 +90,58 @@ class ProviderInvocationPreparedStream:
     provider_session_id: str | None = None
 
 
+class InvocationFailureKind(str, Enum):
+    USAGE_LIMITED = "USAGE_LIMITED"
+    PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationFailure:
-    error: UsageLimitError | ProviderUnavailableError
+    kind: InvocationFailureKind
+    detail: str
     stdout_lines: tuple[str, ...] = ()
     provider_session_id: str | None = None
+    usage: ProviderUsage | None = None
+    reset_time: datetime | None = None
 
 
 class ProviderInvocationAdapter(Protocol):
     def execute(
         self,
         request: ProviderInvocationRequest,
-    ) -> ProviderInvocationResult: ...
+    ) -> ProviderInvocationResult | ProviderInvocationFailure: ...
 
 
-def record_provider_invocation_failure_facts(
+def _provider_invocation_failure_from_error(
     error: UsageLimitError | ProviderUnavailableError,
     *,
-    stdout_lines: tuple[str, ...] = (),
-    provider_session_id: str | None = None,
-) -> None:
-    setattr(error, _FAILURE_STDOUT_LINES_ATTR, stdout_lines)
-    setattr(error, _FAILURE_PROVIDER_SESSION_ID_ATTR, provider_session_id)
-
-
-def provider_invocation_failure_stdout_lines(
-    error: UsageLimitError | ProviderUnavailableError,
-) -> tuple[str, ...]:
-    return tuple(getattr(error, _FAILURE_STDOUT_LINES_ATTR, ()))
-
-
-def provider_invocation_failure_provider_session_id(
-    error: UsageLimitError | ProviderUnavailableError,
-) -> str | None:
-    return getattr(error, _FAILURE_PROVIDER_SESSION_ID_ATTR, None)
+    stdout_lines: tuple[str, ...],
+    provider_session_id: str | None,
+) -> ProviderInvocationFailure:
+    if isinstance(error, UsageLimitError):
+        return ProviderInvocationFailure(
+            kind=InvocationFailureKind.USAGE_LIMITED,
+            detail=error.raw_message or str(error),
+            stdout_lines=stdout_lines,
+            provider_session_id=provider_session_id,
+            usage=error.usage,
+            reset_time=error.reset_time,
+        )
+    return ProviderInvocationFailure(
+        kind=InvocationFailureKind.PROVIDER_UNAVAILABLE,
+        detail=str(error),
+        stdout_lines=stdout_lines,
+        provider_session_id=provider_session_id,
+        usage=error.usage,
+        reset_time=None,
+    )
 
 
 class ProductionProviderInvocationAdapter:
     def execute(
         self,
         request: ProviderInvocationRequest,
-    ) -> ProviderInvocationResult:
+    ) -> ProviderInvocationResult | ProviderInvocationFailure:
         use_shell = not (request.prefer_argv and request.argv)
         prompt_path = request.prompt.path
         prompt_file_created = use_shell and prompt_path is not None
@@ -238,11 +248,8 @@ class ProductionProviderInvocationAdapter:
                         output, usage = request.output_hooks.reduce_output(stdout_lines)
                     except Exception as exc:
                         observed_provider_session_id = _observed_provider_session_id()
-                        setattr(
-                            exc, "provider_session_id", observed_provider_session_id
-                        )
                         if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
-                            record_provider_invocation_failure_facts(
+                            return _provider_invocation_failure_from_error(
                                 exc,
                                 stdout_lines=tuple(stdout_lines),
                                 provider_session_id=observed_provider_session_id,
@@ -261,11 +268,8 @@ class ProductionProviderInvocationAdapter:
                         output, usage = reducer(stdout_lines, work_invocation_log)
                     except Exception as exc:
                         observed_provider_session_id = _observed_provider_session_id()
-                        setattr(
-                            exc, "provider_session_id", observed_provider_session_id
-                        )
                         if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
-                            record_provider_invocation_failure_facts(
+                            return _provider_invocation_failure_from_error(
                                 exc,
                                 stdout_lines=tuple(stdout_lines),
                                 provider_session_id=observed_provider_session_id,
@@ -314,18 +318,13 @@ class InMemoryProviderInvocationAdapter:
     def execute(
         self,
         request: ProviderInvocationRequest,
-    ) -> ProviderInvocationResult:
+    ) -> ProviderInvocationResult | ProviderInvocationFailure:
         self.recorded_requests.append(request)
         if not self.prepared_invocations:
             raise AssertionError("No prepared provider invocation remains.")
         prepared = self.prepared_invocations.pop(0)
         if isinstance(prepared, ProviderInvocationFailure):
-            record_provider_invocation_failure_facts(
-                prepared.error,
-                stdout_lines=prepared.stdout_lines,
-                provider_session_id=prepared.provider_session_id,
-            )
-            raise prepared.error
+            return prepared
         if isinstance(prepared, ProviderInvocationPreparedStream):
             stdout_lines = list(prepared.stdout_lines)
             _consume_new_stdout_lines(request.output_hooks.reduce_output, stdout_lines)
@@ -372,9 +371,8 @@ class InMemoryProviderInvocationAdapter:
                     output, usage = reducer()
                 except Exception as exc:
                     observed_provider_session_id = _observed_provider_session_id()
-                    setattr(exc, "provider_session_id", observed_provider_session_id)
                     if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
-                        record_provider_invocation_failure_facts(
+                        return _provider_invocation_failure_from_error(
                             exc,
                             stdout_lines=tuple(stdout_lines),
                             provider_session_id=observed_provider_session_id,

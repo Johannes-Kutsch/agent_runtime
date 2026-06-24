@@ -16,14 +16,14 @@ from typing import Any, Callable, cast
 
 from . import _time as _time_module
 from ._provider_invocation import (
+    InvocationFailureKind,
     ProductionProviderInvocationAdapter,
     ProviderInvocationAdapter,
+    ProviderInvocationFailure,
     ProviderInvocationPrompt,
     ProviderInvocationRequest,
     ProviderInvocationResult,
     ProviderOutputReductionHooks,
-    provider_invocation_failure_provider_session_id,
-    provider_invocation_failure_stdout_lines,
 )
 from ._portable_continuation_payload import (
     create_portable_continuation_payload,
@@ -57,6 +57,7 @@ from .contracts import (
 from .errors import (
     AgentCredentialFailureError,
     ProviderUnavailableError,
+    ProviderUnavailableReason,
     RuntimeConfigurationError,
     UsageLimitError,
 )
@@ -161,6 +162,9 @@ _CLAUDE_MONTHS = {
 _SUPPORTED_BUILTIN_SERVICES = frozenset({"claude", "codex", "opencode"})
 _PORTABLE_CONTINUATION_PROVIDERS = frozenset({"claude", "codex", "opencode"})
 _WAKE_TIME_BUFFER = timedelta(minutes=2)
+_SERVICE_NOT_AVAILABLE_DETAIL = (
+    "No configured service candidates are currently available."
+)
 
 
 def _builtin_provider_prompt_path(invocation_dir: Path) -> Path:
@@ -1604,24 +1608,77 @@ def _provider_session_id_from_stdout_lines(
     return None
 
 
-def _provider_session_id_from_error(
+def _provider_invocation_failure_started(
     service_name: str,
-    error: UsageLimitError | ProviderUnavailableError,
+    failure: ProviderInvocationFailure,
+) -> bool:
+    if _provider_session_id_from_stdout_lines(service_name, failure.stdout_lines):
+        return True
+    parsed_events: list[Any]
+    if service_name == "claude":
+        parsed_events = [
+            event
+            for line in failure.stdout_lines
+            for event in _parse_claude_event(line)
+        ]
+    elif service_name == "codex":
+        parsed_events = [
+            event for line in failure.stdout_lines for event in _parse_codex_event(line)
+        ]
+    elif service_name == "opencode":
+        parsed_events = _parse_opencode_events(list(failure.stdout_lines))
+    else:
+        return False
+    return any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events)
+
+
+def _provider_invocation_error_from_failure(
+    service_name: str,
+    failure: ProviderInvocationFailure,
+) -> UsageLimitError | ProviderUnavailableError:
+    invocation_progress = (
+        InvocationProgress.STARTED
+        if _provider_invocation_failure_started(service_name, failure)
+        else InvocationProgress.NOT_STARTED
+    )
+    if failure.kind is InvocationFailureKind.USAGE_LIMITED:
+        error: UsageLimitError | ProviderUnavailableError = UsageLimitError(
+            reset_time=cast(datetime | None, failure.reset_time),
+            raw_message=(failure.detail if failure.reset_time is None else None),
+            service_name=service_name,
+            invocation_progress=invocation_progress,
+            usage=failure.usage,
+        )
+    else:
+        error = ProviderUnavailableError(
+            failure.detail,
+            reason=(
+                ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
+                if failure.detail == _SERVICE_NOT_AVAILABLE_DETAIL
+                else ProviderUnavailableReason.TRANSIENT_API_ERROR
+            ),
+            service_name=service_name,
+            invocation_progress=invocation_progress,
+            usage=failure.usage,
+        )
+    setattr(error, "provider_session_id", failure.provider_session_id)
+    return error
+
+
+def _provider_session_id_from_failure(
+    service_name: str,
+    failure: ProviderInvocationFailure,
     *,
     fallback_provider_session_id: str | None = None,
 ) -> str | None:
-    provider_session_id = provider_invocation_failure_provider_session_id(error)
-    if provider_session_id is not None:
-        return provider_session_id
     fallback_session_id = _provider_session_id_from_stdout_lines(
         service_name,
-        provider_invocation_failure_stdout_lines(error),
+        failure.stdout_lines,
     )
     if fallback_session_id is not None:
         return fallback_session_id
-    provider_error_session_id = getattr(error, "provider_session_id", None)
-    if provider_error_session_id is not None:
-        return provider_error_session_id
+    if failure.provider_session_id is not None:
+        return failure.provider_session_id
     return fallback_provider_session_id
 
 
@@ -2038,7 +2095,7 @@ def _invoke_provider(
     provider_session_id: str | None,
     reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
     extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
-) -> ProviderInvocationResult:
+) -> ProviderInvocationResult | ProviderInvocationFailure:
     return provider_invocation_adapter.execute(
         ProviderInvocationRequest(
             command=command,
@@ -2071,7 +2128,7 @@ def _invoke_claude_new_session_provider(
     run_kind: RunKind,
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> ProviderInvocationResult:
+) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
         command=_claude_legacy_command_text(
@@ -2115,7 +2172,7 @@ def _invoke_codex_new_session_provider(
     stage: ProviderSelection,
     provider_state_dir: Path,
     on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> ProviderInvocationResult:
+) -> ProviderInvocationResult | ProviderInvocationFailure:
     command_argv = _codex_command(
         model=stage.model,
         effort=stage.effort,
@@ -2152,7 +2209,7 @@ def _invoke_codex_resumed_session_provider(
     provider_state_dir: Path | None,
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> ProviderInvocationResult:
+) -> ProviderInvocationResult | ProviderInvocationFailure:
     command_argv = _codex_command(
         model=request.model,
         effort=request.effort,
@@ -2198,19 +2255,14 @@ def _active_codex_provider_session_id_from_result(
 
 
 def _active_codex_provider_session_id_from_failure(
-    error: UsageLimitError | ProviderUnavailableError,
+    failure: ProviderInvocationFailure,
     *,
     fallback_provider_session_id: str | None,
 ) -> str | None:
     return (
-        _extract_codex_provider_session_id(
-            list(provider_invocation_failure_stdout_lines(error))
-        )
-        or provider_invocation_failure_provider_session_id(error)
-        or cast(
-            str | None,
-            getattr(error, "provider_session_id", fallback_provider_session_id),
-        )
+        _extract_codex_provider_session_id(list(failure.stdout_lines))
+        or failure.provider_session_id
+        or fallback_provider_session_id
     )
 
 
@@ -2223,7 +2275,7 @@ def _invoke_opencode_new_session_provider(
     run_kind: RunKind,
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> tuple[ProviderInvocationResult, str]:
+) -> tuple[ProviderInvocationResult | ProviderInvocationFailure, str]:
     observed_provider_session_id = provider_session_id
 
     def _record_opencode_session_id(session_id: str) -> None:
@@ -2434,6 +2486,11 @@ def _run_builtin_ephemeral(
                     service_name="claude",
                 ),
             )
+        if isinstance(invocation_result, ProviderInvocationFailure):
+            raise _provider_invocation_error_from_failure(
+                selected_stage.service,
+                invocation_result,
+            )
         result_text = invocation_result.output
         usage = invocation_result.usage
         return RunResult(
@@ -2568,26 +2625,25 @@ def _run_builtin_new_session(
                     provider_invocation_adapter=invocation_adapter,
                 )
             provider_session_id: str | None = None
-            try:
-                invocation_result = _invoke_codex_new_session_provider(
-                    provider_invocation_adapter=invocation_adapter,
-                    request=request,
-                    stage=selected_stage,
-                    provider_state_dir=provider_state_dir,
-                    on_live_output=_on_live_output,
-                )
-                provider_session_id = _active_codex_provider_session_id_from_result(
+            invocation_result = _invoke_codex_new_session_provider(
+                provider_invocation_adapter=invocation_adapter,
+                request=request,
+                stage=selected_stage,
+                provider_state_dir=provider_state_dir,
+                on_live_output=_on_live_output,
+            )
+            if isinstance(invocation_result, ProviderInvocationFailure):
+                provider_session_id = _active_codex_provider_session_id_from_failure(
                     invocation_result,
                     fallback_provider_session_id=provider_session_id,
                 )
-                result_text = invocation_result.output
-                usage = invocation_result.usage
-            except (UsageLimitError, ProviderUnavailableError) as exc:
-                provider_session_id = _active_codex_provider_session_id_from_failure(
-                    exc,
-                    fallback_provider_session_id=provider_session_id,
+                failure_error = _provider_invocation_error_from_failure(
+                    "codex",
+                    invocation_result,
                 )
-                exc.continuation = (
+                if provider_session_id is not None:
+                    failure_error.invocation_progress = InvocationProgress.STARTED
+                failure_error.continuation = (
                     _build_codex_continuation(
                         model=selected_stage.model,
                         effort=selected_stage.effort,
@@ -2597,11 +2653,18 @@ def _run_builtin_new_session(
                             provider_state_dir_relpath
                         ),
                     )
-                    if exc.invocation_progress is InvocationProgress.STARTED
+                    if failure_error.invocation_progress is InvocationProgress.STARTED
                     and provider_session_id is not None
                     else None
                 )
-                raise
+                raise failure_error
+            else:
+                provider_session_id = _active_codex_provider_session_id_from_result(
+                    invocation_result,
+                    fallback_provider_session_id=provider_session_id,
+                )
+                result_text = invocation_result.output
+                usage = invocation_result.usage
             return _completed_outcome(
                 output=result_text,
                 usage=usage,
@@ -2684,10 +2747,21 @@ def _run_builtin_new_session(
             raise RuntimeConfigurationError(
                 "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
             )
-        try:
-            if selected_stage.service == "claude":
-                assert provider_session_id is not None
-                invocation_result = _invoke_claude_new_session_provider(
+        if selected_stage.service == "claude":
+            assert provider_session_id is not None
+            invocation_result = _invoke_claude_new_session_provider(
+                provider_invocation_adapter=invocation_adapter,
+                request=request,
+                stage=selected_stage,
+                provider_state_dir=provider_state_dir,
+                run_kind=run_kind,
+                provider_session_id=provider_session_id,
+                on_live_output=_on_live_output,
+            )
+        else:
+            assert provider_session_id is not None
+            invocation_result, provider_session_id = (
+                _invoke_opencode_new_session_provider(
                     provider_invocation_adapter=invocation_adapter,
                     request=request,
                     stage=selected_stage,
@@ -2696,32 +2770,24 @@ def _run_builtin_new_session(
                     provider_session_id=provider_session_id,
                     on_live_output=_on_live_output,
                 )
-            else:
-                assert provider_session_id is not None
-                invocation_result, provider_session_id = (
-                    _invoke_opencode_new_session_provider(
-                        provider_invocation_adapter=invocation_adapter,
-                        request=request,
-                        stage=selected_stage,
-                        provider_state_dir=provider_state_dir,
-                        run_kind=run_kind,
-                        provider_session_id=provider_session_id,
-                        on_live_output=_on_live_output,
-                    )
-                )
-                _persist_opencode_session_id(provider_state_dir, provider_session_id)
-        except (UsageLimitError, ProviderUnavailableError) as exc:
-            provider_session_id = _provider_session_id_from_error(
+            )
+            _persist_opencode_session_id(provider_state_dir, provider_session_id)
+        if isinstance(invocation_result, ProviderInvocationFailure):
+            provider_session_id = _provider_session_id_from_failure(
                 selected_stage.service,
-                exc,
+                invocation_result,
                 fallback_provider_session_id=provider_session_id,
             )
-            exc.continuation = None
+            failure_error = _provider_invocation_error_from_failure(
+                selected_stage.service,
+                invocation_result,
+            )
+            failure_error.continuation = None
             if (
-                exc.invocation_progress is InvocationProgress.STARTED
+                failure_error.invocation_progress is InvocationProgress.STARTED
                 and provider_session_id is not None
             ):
-                exc.continuation = (
+                failure_error.continuation = (
                     _build_claude_continuation(
                         model=selected_stage.model,
                         effort=selected_stage.effort,
@@ -2738,7 +2804,7 @@ def _run_builtin_new_session(
                         exact_transcript_match=exact_transcript_match,
                     )
                 )
-            raise
+            raise failure_error
         if selected_stage.service == "claude":
             provider_session_id = (
                 invocation_result.provider_session_id or provider_session_id
@@ -2842,26 +2908,25 @@ def _run_builtin_resumed_session(
             )
         run_kind = RunKind.RESUME
         active_provider_session_id: str | None = provider_session_id
-        try:
-            invocation_result = _invoke_codex_resumed_session_provider(
-                provider_invocation_adapter=invocation_adapter,
-                provider_session_id=provider_session_id,
-                request=request,
-                provider_state_dir=provider_state_dir,
-                on_live_output=_on_live_output,
-            )
-            active_provider_session_id = _active_codex_provider_session_id_from_result(
-                invocation_result,
-                fallback_provider_session_id=provider_session_id,
-            )
-            result_text = invocation_result.output
-            usage = invocation_result.usage
-        except (UsageLimitError, ProviderUnavailableError) as exc:
+        invocation_result = _invoke_codex_resumed_session_provider(
+            provider_invocation_adapter=invocation_adapter,
+            provider_session_id=provider_session_id,
+            request=request,
+            provider_state_dir=provider_state_dir,
+            on_live_output=_on_live_output,
+        )
+        if isinstance(invocation_result, ProviderInvocationFailure):
             active_provider_session_id = _active_codex_provider_session_id_from_failure(
-                exc,
+                invocation_result,
                 fallback_provider_session_id=active_provider_session_id,
             )
-            exc.continuation = (
+            failure_error = _provider_invocation_error_from_failure(
+                "codex",
+                invocation_result,
+            )
+            if active_provider_session_id is not None:
+                failure_error.invocation_progress = InvocationProgress.STARTED
+            failure_error.continuation = (
                 _build_codex_continuation(
                     model=request.model,
                     effort=request.effort,
@@ -2869,11 +2934,18 @@ def _run_builtin_resumed_session(
                     provider_session_id=active_provider_session_id,
                     provider_state_dir_relpath=provider_state_dir_relpath,
                 )
-                if exc.invocation_progress is InvocationProgress.STARTED
+                if failure_error.invocation_progress is InvocationProgress.STARTED
                 and active_provider_session_id is not None
                 else None
             )
-            raise
+            raise failure_error
+        else:
+            active_provider_session_id = _active_codex_provider_session_id_from_result(
+                invocation_result,
+                fallback_provider_session_id=provider_session_id,
+            )
+            result_text = invocation_result.output
+            usage = invocation_result.usage
         return _completed_outcome(
             output=result_text,
             usage=usage,
@@ -2956,88 +3028,77 @@ def _run_builtin_resumed_session(
             None,
         )
 
-    try:
-        if continuation_service == "claude":
-            command_argv = _claude_command(
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                run_kind=run_kind,
-                session_uuid=provider_session_id,
-            )
-            command = _claude_legacy_command_text(
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                prompt_path=prompt_path,
-                run_kind=run_kind,
-                session_uuid=provider_session_id,
-            )
-            environment = _claude_env(
-                auth=request.provider_auth,
-                state_dir_container_path=(
-                    str(provider_state_dir) if provider_state_dir is not None else None
-                ),
-            )
-
-            reduce_output = _observe_output_reducer(
-                lambda lines: _reduce_claude_stream(lines),
-                _on_live_output,
-                service_name="claude",
-            )
-
-            extract_provider_session_id = None
-        else:
-            command_argv = _opencode_command(
-                model=request.model,
-                effort=request.effort,
-                run_kind=run_kind,
-                session_uuid=provider_session_id,
-            )
-            command = _legacy_command_text(
-                command_argv,
-                prompt_path,
-                opencode_prompt_substitution=True,
-            )
-            environment = _opencode_env(
-                auth=request.provider_auth,
-                state_dir_container_path=str(provider_state_dir),
-                tool_policy=request.tool_access.tool_policy,
-            )
-            reduce_output = _observe_opencode_output_reducer(
-                _reduce_opencode_session_output,
-                _on_live_output,
-            )
-            extract_provider_session_id = _extract_opencode_provider_session_id
-        invocation_result = _invoke_provider(
-            provider_invocation_adapter=invocation_adapter,
-            command="" if continuation_service == "opencode" else command,
-            command_argv=command_argv,
-            prefer_argv=(continuation_service in {"claude", "opencode"}),
-            worktree=request.invocation_dir,
-            environment=environment,
-            prompt_content=request.prompt,
-            prompt_path=prompt_path,
-            cleanup_prompt_path=True,
+    if continuation_service == "claude":
+        command_argv = _claude_command(
+            model=request.model,
+            effort=request.effort,
+            tool_access=request.tool_access,
             run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            reduce_output=reduce_output,
-            extract_provider_session_id=extract_provider_session_id,
+            session_uuid=provider_session_id,
         )
-        if continuation_service == "opencode":
-            provider_session_id = invocation_result.provider_session_id
-            assert provider_session_id is not None
-            assert provider_state_dir is not None
-            exact_transcript_match = _opencode_exact_transcript_match(
-                saved_exact_transcript_match=saved_exact_transcript_match,
-                provider_session_id=provider_session_id,
-                state_dir_session_id=state_dir_session_id,
-            )
-            _persist_opencode_session_id(provider_state_dir, provider_session_id)
-    except (UsageLimitError, ProviderUnavailableError) as exc:
-        provider_session_id = _provider_session_id_from_error(
+        command = _claude_legacy_command_text(
+            model=request.model,
+            effort=request.effort,
+            tool_access=request.tool_access,
+            prompt_path=prompt_path,
+            run_kind=run_kind,
+            session_uuid=provider_session_id,
+        )
+        environment = _claude_env(
+            auth=request.provider_auth,
+            state_dir_container_path=(
+                str(provider_state_dir) if provider_state_dir is not None else None
+            ),
+        )
+
+        reduce_output = _observe_output_reducer(
+            lambda lines: _reduce_claude_stream(lines),
+            _on_live_output,
+            service_name="claude",
+        )
+
+        extract_provider_session_id = None
+    else:
+        command_argv = _opencode_command(
+            model=request.model,
+            effort=request.effort,
+            run_kind=run_kind,
+            session_uuid=provider_session_id,
+        )
+        command = _legacy_command_text(
+            command_argv,
+            prompt_path,
+            opencode_prompt_substitution=True,
+        )
+        environment = _opencode_env(
+            auth=request.provider_auth,
+            state_dir_container_path=str(provider_state_dir),
+            tool_policy=request.tool_access.tool_policy,
+        )
+        reduce_output = _observe_opencode_output_reducer(
+            _reduce_opencode_session_output,
+            _on_live_output,
+        )
+        extract_provider_session_id = _extract_opencode_provider_session_id
+    invocation_result = _invoke_provider(
+        provider_invocation_adapter=invocation_adapter,
+        command="" if continuation_service == "opencode" else command,
+        command_argv=command_argv,
+        prefer_argv=(continuation_service in {"claude", "opencode"}),
+        worktree=request.invocation_dir,
+        environment=environment,
+        prompt_content=request.prompt,
+        prompt_path=prompt_path,
+        cleanup_prompt_path=True,
+        run_kind=run_kind,
+        provider_session_id=provider_session_id,
+        reduce_output=reduce_output,
+        extract_provider_session_id=extract_provider_session_id,
+    )
+    if isinstance(invocation_result, ProviderInvocationFailure):
+        provider_session_id = _provider_session_id_from_failure(
             continuation_service,
-            exc,
+            invocation_result,
             fallback_provider_session_id=provider_session_id,
         )
         if continuation_service == "opencode":
@@ -3046,19 +3107,23 @@ def _run_builtin_resumed_session(
                 provider_session_id=provider_session_id,
                 state_dir_session_id=state_dir_session_id,
             )
+        failure_error = _provider_invocation_error_from_failure(
+            continuation_service,
+            invocation_result,
+        )
         if (
-            exc.invocation_progress is InvocationProgress.STARTED
+            failure_error.invocation_progress is InvocationProgress.STARTED
             and provider_session_id is not None
         ):
             if continuation_service == "claude":
-                exc.continuation = _build_claude_continuation(
+                failure_error.continuation = _build_claude_continuation(
                     model=request.model,
                     effort=request.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
                 )
             else:
-                exc.continuation = _build_opencode_continuation(
+                failure_error.continuation = _build_opencode_continuation(
                     model=request.model,
                     effort=request.effort,
                     tool_access=request.tool_access,
@@ -3067,9 +3132,19 @@ def _run_builtin_resumed_session(
                     exact_transcript_match=exact_transcript_match,
                 )
         else:
-            exc.continuation = None
+            failure_error.continuation = None
         cleanup_opencode_state_dir()
-        raise
+        raise failure_error
+    if continuation_service == "opencode":
+        provider_session_id = invocation_result.provider_session_id
+        assert provider_session_id is not None
+        assert provider_state_dir is not None
+        exact_transcript_match = _opencode_exact_transcript_match(
+            saved_exact_transcript_match=saved_exact_transcript_match,
+            provider_session_id=provider_session_id,
+            state_dir_session_id=state_dir_session_id,
+        )
+        _persist_opencode_session_id(provider_state_dir, provider_session_id)
     if continuation_service == "claude":
         provider_session_id = (
             invocation_result.provider_session_id or provider_session_id

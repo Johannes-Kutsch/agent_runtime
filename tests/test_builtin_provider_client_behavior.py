@@ -26,7 +26,6 @@ from agent_runtime.errors import (
 )
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
-from agent_runtime.invocation_progress import InvocationProgress as _InvocationProgress
 
 
 _CURRENT_OPENCODE_GO_MODELS = [
@@ -1841,11 +1840,8 @@ def test_runtime_client_new_session_maps_provider_unavailable_outcomes(
     _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
-            error=ProviderUnavailableError(
-                detail,
-                reason=reason,
-                service_name="claude",
-            )
+            kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
+            detail=detail,
         ),
     )
 
@@ -3068,14 +3064,11 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
     _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
-            error=runtime.UsageLimitError(
-                reset_time=None,
-                service_name="codex",
-                invocation_progress=_InvocationProgress.STARTED,
-                usage=runtime.ProviderUsage(
-                    input_tokens=1,
-                    output_tokens=1,
-                ),
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
+            usage=runtime.ProviderUsage(
+                input_tokens=1,
+                output_tokens=1,
             ),
             stdout_lines=(
                 '{"type":"assistant","message":{"content":[{"type":"text","text":"continued"}]}}\n',
@@ -3083,14 +3076,11 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             provider_session_id="usage-session-1",
         ),
         provider_invocation_runtime.ProviderInvocationFailure(
-            error=runtime.UsageLimitError(
-                reset_time=None,
-                service_name="codex",
-                invocation_progress=_InvocationProgress.STARTED,
-                usage=runtime.ProviderUsage(
-                    input_tokens=1,
-                    output_tokens=1,
-                ),
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
+            usage=runtime.ProviderUsage(
+                input_tokens=1,
+                output_tokens=1,
             ),
             stdout_lines=(
                 '{"type":"assistant","message":{"content":[{"type":"text","text":"continued"}]}}\n',
@@ -3289,14 +3279,11 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
     adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
         prepared_invocations=[
             provider_invocation_runtime.ProviderInvocationFailure(
-                error=runtime.UsageLimitError(
-                    reset_time=None,
-                    service_name="claude",
-                    invocation_progress=_InvocationProgress.STARTED,
-                    usage=runtime.ProviderUsage(
-                        input_tokens=3,
-                        output_tokens=1,
-                    ),
+                kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+                detail="Usage limit reached (reset_time=None)",
+                usage=runtime.ProviderUsage(
+                    input_tokens=3,
+                    output_tokens=1,
                 ),
                 stdout_lines=(
                     '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}\n',
@@ -3361,14 +3348,11 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
-            error=runtime.UsageLimitError(
-                reset_time=None,
-                service_name="codex",
-                invocation_progress=_InvocationProgress.STARTED,
-                usage=runtime.ProviderUsage(
-                    input_tokens=3,
-                    output_tokens=1,
-                ),
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=1,
             ),
             stdout_lines=(),
             provider_session_id=None,
@@ -4041,11 +4025,8 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
-            error=runtime.UsageLimitError(
-                reset_time=None,
-                service_name="codex",
-                invocation_progress=_InvocationProgress.STARTED,
-            ),
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
             stdout_lines=('{"type":"thread.started","thread_id":"thread-123"}\n',),
             provider_session_id=None,
         ),
@@ -4107,11 +4088,8 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
-            error=runtime.UsageLimitError(
-                reset_time=None,
-                service_name="codex",
-                invocation_progress=_InvocationProgress.STARTED,
-            ),
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
             stdout_lines=('{"type":"thread.started","thread_id":"thread-456"}\n',),
             provider_session_id=None,
         ),
@@ -5371,15 +5349,12 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
-            error=runtime.UsageLimitError(
-                reset_time=None,
-                service_name="codex",
-                invocation_progress=_InvocationProgress.STARTED,
-                usage=runtime.ProviderUsage(
-                    input_tokens=3,
-                    output_tokens=1,
-                    cache_read_input_tokens=1,
-                ),
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=1,
+                cache_read_input_tokens=1,
             ),
             stdout_lines=(
                 '{"type":"thread.started","thread_id":"thread-123"}\n',
@@ -5985,11 +5960,9 @@ def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_
     _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
-            error=runtime.UsageLimitError(
-                service_name=None,
-                reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
-                invocation_progress=_InvocationProgress.NOT_STARTED,
-            ),
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=2026-01-02T17:00:00+00:00)",
+            reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
         ),
     )
 
