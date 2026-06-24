@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,11 @@ import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime._builtin_runtime_client import _reduce_codex_stream
 from agent_runtime.agent_log import AgentInvocationLog
-from agent_runtime.errors import HardAgentError, UsageLimitError
+from agent_runtime.errors import (
+    HardAgentError,
+    RetryableProviderFailureError,
+    UsageLimitError,
+)
 from agent_runtime.provider_usage import ProviderUsage
 from agent_runtime.session import RunKind
 
@@ -819,6 +824,60 @@ def test_production_adapter_raises_hard_error_on_nonzero_exit_with_empty_output(
     )
 
     with pytest.raises(HardAgentError, match="exit code 17"):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+
+@pytest.mark.parametrize(
+    "classified_failure",
+    [
+        UsageLimitError(),
+        RetryableProviderFailureError(
+            "temporary provider failure",
+            service_name="codex",
+        ),
+    ],
+)
+def test_production_adapter_preserves_reducer_classification_on_nonzero_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    classified_failure: UsageLimitError | RetryableProviderFailureError,
+) -> None:
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(["classified failure output\n"])
+            self.stderr = iter(())
+            self.returncode = 19
+
+        def wait(self) -> int:
+            return 19
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda _lines: (_ for _ in ()).throw(classified_failure),
+        ),
+    )
+
+    with pytest.raises(
+        type(classified_failure),
+        match=re.escape(str(classified_failure)),
+    ):
         provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
             request
         )
