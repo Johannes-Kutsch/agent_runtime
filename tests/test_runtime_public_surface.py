@@ -359,7 +359,7 @@ def test_runtime_direct_import_rejects_removed_resumable_completed_result_names(
         exec("from agent_runtime.runtime import ResumableRuntimeMetadata", {}, {})
 
 
-def test_types_module_exposes_provider_selection_only() -> None:
+def test_types_module_hides_removed_legacy_stage_names() -> None:
     types_module = importlib.import_module("agent_runtime.types")
 
     assert types_module.ProviderSelection.__module__.startswith("agent_runtime")
