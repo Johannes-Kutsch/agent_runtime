@@ -15,19 +15,24 @@ from .errors import (
     TransientAgentError,
     UsageLimitError,
 )
-from .invocation_progress import InvocationProgress
 from .runtime import (
     AgentEvent,
+    Cancelled,
+    Completed,
     Continuation,
-    InvocationRecord,
+    NoServiceAvailable,
     ProviderSelection,
     ProviderAuth,
     ProviderUsage,
+    RetryableProviderFailure,
+    RunResult,
     RuntimeClient,
     RuntimeOutcome,
+    TimedOut,
+    UsageLimited,
 )
 from .session import RunKind
-from .types import ClaudeCodeOAuthToken
+from .types import ClaudeCodeOAuthToken, ResolvedProvider
 
 __all__ = [
     "AgentCredentialFailureError",
@@ -35,20 +40,26 @@ __all__ = [
     "AgentFailedError",
     "AgentRuntimeError",
     "AgentTimeoutError",
+    "Cancelled",
     "ClaudeCodeOAuthToken",
+    "Completed",
     "Continuation",
     "HardAgentError",
-    "InvocationProgress",
-    "InvocationRecord",
+    "NoServiceAvailable",
     "ProviderAuth",
     "ProviderSelection",
     "ProviderUsage",
+    "ResolvedProvider",
+    "RetryableProviderFailure",
+    "RunResult",
     "RuntimeClient",
     "RuntimeConfigurationError",
     "RuntimeOutcome",
     "RunKind",
+    "TimedOut",
     "ToolPolicy",
     "TransientAgentError",
+    "UsageLimited",
     "UsageLimitError",
 ]
 

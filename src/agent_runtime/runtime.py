@@ -14,25 +14,25 @@ from .errors import (
     RuntimeConfigurationError,
     UsageLimitError,
 )
-from .invocation_progress import InvocationProgress
 from ._runtime_lifecycle import (
     AgentEvent,
+    Cancelled,
+    Completed,
     Continuation,
-    EphemeralResultMetadata,
     EphemeralRunRequest,
-    EphemeralRunResult,
-    EphemeralRuntimeMetadata,
-    InvocationRecord,
     NewSessionRunRequest,
+    NoServiceAvailable,
     ProviderAuth,
     ProviderUsage,
     ResumedSessionRunRequest,
+    RetryableProviderFailure,
+    RunResult,
     RuntimeOutcome,
-    SessionRunResult,
-    SessionRuntimeMetadata,
+    TimedOut,
+    UsageLimited,
 )
 from .session import RunKind
-from .types import ProviderSelection
+from .types import ProviderSelection, ResolvedProvider
 
 if TYPE_CHECKING:
     from ._provider_invocation import ProviderInvocationAdapter
@@ -41,22 +41,23 @@ _time_module = _time
 
 __all__ = [
     "AgentEvent",
+    "Cancelled",
+    "Completed",
     "Continuation",
     "EphemeralRunRequest",
-    "EphemeralRunResult",
-    "EphemeralResultMetadata",
-    "EphemeralRuntimeMetadata",
     "NewSessionRunRequest",
-    "InvocationProgress",
-    "InvocationRecord",
+    "NoServiceAvailable",
     "ProviderAuth",
     "ProviderSelection",
     "ProviderUsage",
+    "ResolvedProvider",
     "ResumedSessionRunRequest",
+    "RetryableProviderFailure",
+    "RunResult",
     "RuntimeClient",
     "RuntimeOutcome",
-    "SessionRunResult",
-    "SessionRuntimeMetadata",
+    "TimedOut",
+    "UsageLimited",
     "ToolPolicy",
 ]
 
@@ -69,20 +70,22 @@ _REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES = {
 
 for _runtime_export in (
     AgentEvent,
+    Cancelled,
+    Completed,
     Continuation,
-    EphemeralResultMetadata,
     EphemeralRunRequest,
-    EphemeralRunResult,
-    EphemeralRuntimeMetadata,
-    InvocationRecord,
     NewSessionRunRequest,
+    NoServiceAvailable,
     ProviderAuth,
     ProviderSelection,
     ProviderUsage,
+    ResolvedProvider,
     ResumedSessionRunRequest,
+    RetryableProviderFailure,
+    RunResult,
     RuntimeOutcome,
-    SessionRunResult,
-    SessionRuntimeMetadata,
+    TimedOut,
+    UsageLimited,
 ):
     _runtime_export.__module__ = __name__
 
@@ -107,8 +110,13 @@ _run_builtin_resumed_session = (
 )
 
 
-def _exception_invocation_records(exc: object) -> tuple[InvocationRecord, ...]:
-    return tuple(getattr(exc, "_runtime_invocation_records", ()))
+def _interrupted_result(exc: Any, selected: ResolvedProvider) -> RunResult:
+    return RunResult(
+        output="",
+        usage=exc.usage,
+        continuation=exc.continuation,
+        selected=selected,
+    )
 
 
 def _parse_claude_event(line: str) -> list[Any]:
@@ -143,78 +151,48 @@ def _reduce_opencode_stream(
 def _run_builtin_session_outcome(
     call: Any,
     *,
-    service_name: str | None = None,
-    selected_model: str | None = None,
-    selected_effort: str | None = None,
+    service_name: str = "",
+    selected_model: str = "",
+    selected_effort: str = "",
 ) -> RuntimeOutcome:
+    def _selected(service: str | None = None) -> ResolvedProvider:
+        return ResolvedProvider(
+            service=service or service_name,
+            model=selected_model,
+            effort=selected_effort,
+        )
+
     try:
         return call()
     except AgentCancelledError as exc:
-        return RuntimeOutcome.cancelled(
-            output="",
-            service_name=service_name,
-            selected_model=selected_model,
-            selected_effort=selected_effort,
-            invocation_progress=exc.invocation_progress,
-            continuation=exc.continuation,
-            usage=exc.usage,
+        return RuntimeOutcome(
+            kind=Cancelled(),
+            result=_interrupted_result(exc, _selected()),
         )
     except AgentTimeoutError as exc:
-        return RuntimeOutcome.timed_out(
-            output="",
-            service_name=service_name,
-            selected_model=selected_model,
-            selected_effort=selected_effort,
-            invocation_progress=exc.invocation_progress,
-            continuation=exc.continuation,
-            usage=exc.usage,
+        return RuntimeOutcome(
+            kind=TimedOut(),
+            result=_interrupted_result(exc, _selected()),
         )
     except NoServiceAvailableError as exc:
-        return RuntimeOutcome.no_service_available(
-            output="",
-            service_name=service_name,
-            selected_model=selected_model,
-            selected_effort=selected_effort,
-            reset_time=exc.reset_time,
-            invocation_progress=exc.invocation_progress,
-            continuation=exc.continuation,
-            usage=exc.usage,
+        return RuntimeOutcome(
+            kind=NoServiceAvailable(reset_time=exc.reset_time),
+            result=_interrupted_result(exc, _selected()),
         )
     except RetryableProviderFailureError as exc:
         if getattr(exc, "_is_live_output_exception", False):
             raise
-        return RuntimeOutcome.retryable_provider_failure(
-            output="",
-            service_name=exc.service_name,
-            selected_model=selected_model,
-            selected_effort=selected_effort,
-            invocation_progress=exc.invocation_progress,
-            continuation=exc.continuation,
-            usage=exc.usage,
-            invocation_records=_exception_invocation_records(exc),
+        return RuntimeOutcome(
+            kind=RetryableProviderFailure(),
+            result=_interrupted_result(exc, _selected(exc.service_name)),
         )
     except UsageLimitError as exc:
         if getattr(exc, "_is_live_output_exception", False):
             raise
-        return RuntimeOutcome.usage_limited(
-            output="",
-            service_name=exc.service_name,
-            selected_model=selected_model,
-            selected_effort=selected_effort,
-            account_label=exc.account_label,
-            reset_time=exc.reset_time,
-            invocation_progress=exc.invocation_progress,
-            continuation=exc.continuation,
-            usage=exc.usage,
-            invocation_records=_exception_invocation_records(exc),
+        return RuntimeOutcome(
+            kind=UsageLimited(reset_time=exc.reset_time),
+            result=_interrupted_result(exc, _selected(exc.service_name)),
         )
-
-
-def _replace_request_on_live_output(
-    request: EphemeralRunRequest,
-    new_on_live_output: Callable[[AgentEvent], None],
-) -> EphemeralRunRequest:
-    return dataclasses.replace(request, on_live_output=new_on_live_output)
 
 
 class RuntimeClient:
@@ -226,79 +204,26 @@ class RuntimeClient:
             raise RuntimeConfigurationError(
                 "RuntimeClient requires at least one supported built-in service candidate."
             )
-        collected_events: list[AgentEvent] = []
-
-        def collecting_on_live_output(event: AgentEvent) -> None:
-            collected_events.append(event)
-            if request.on_live_output is not None:
-                request.on_live_output(event)
-
-        request_with_collector = _replace_request_on_live_output(
-            request, collecting_on_live_output
+        selected = ResolvedProvider(
+            service=selected_provider_selection.service,
+            model=selected_provider_selection.model,
+            effort=selected_provider_selection.effort,
         )
         try:
-            result = _run_builtin_ephemeral(request_with_collector)
+            result = _run_builtin_ephemeral(request)
         except AgentTimeoutError as exc:
-            return RuntimeOutcome.timed_out(
-                output="",
-                service_name=selected_provider_selection.service,
-                selected_model=selected_provider_selection.model,
-                selected_effort=selected_provider_selection.effort,
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-                usage=exc.usage,
+            return RuntimeOutcome(
+                kind=TimedOut(),
+                result=_interrupted_result(exc, selected),
             )
         except UsageLimitError as exc:
             if getattr(exc, "_is_live_output_exception", False):
                 raise
-            records = _exception_invocation_records(exc)
-            if not records and collected_events:
-                records = (
-                    InvocationRecord(
-                        run_kind=getattr(
-                            exc,
-                            "_runtime_run_kind",
-                            RunKind.FRESH,
-                        ),
-                        service_name=exc.service_name
-                        or selected_provider_selection.service,
-                        model=selected_provider_selection.model,
-                        effort=selected_provider_selection.effort,
-                        outcome="usage_limited",
-                        events=tuple(collected_events),
-                        usage=exc.usage,
-                    ),
-                )
-            return RuntimeOutcome.usage_limited(
-                output="",
-                service_name=exc.service_name or selected_provider_selection.service,
-                selected_model=selected_provider_selection.model,
-                selected_effort=selected_provider_selection.effort,
-                account_label=exc.account_label,
-                reset_time=exc.reset_time,
-                invocation_progress=exc.invocation_progress,
-                continuation=exc.continuation,
-                usage=exc.usage,
-                invocation_records=records,
+            return RuntimeOutcome(
+                kind=UsageLimited(reset_time=exc.reset_time),
+                result=_interrupted_result(exc, selected),
             )
-        invocation_record = InvocationRecord(
-            run_kind=RunKind.FRESH,
-            service_name=selected_provider_selection.service,
-            model=selected_provider_selection.model,
-            effort=selected_provider_selection.effort,
-            outcome="completed",
-            events=tuple(collected_events),
-            usage=result.usage,
-        )
-        return RuntimeOutcome.completed(
-            output=result.output,
-            service_name=selected_provider_selection.service,
-            selected_model=selected_provider_selection.model,
-            selected_effort=selected_provider_selection.effort,
-            result=result,
-            usage=result.usage,
-            invocation_records=(invocation_record,),
-        )
+        return RuntimeOutcome(kind=Completed(), result=result)
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
         return _run_builtin_session_outcome(
@@ -337,7 +262,7 @@ def _run_builtin_ephemeral(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     select_builtin_stage: Any = _select_builtin_stage,
-) -> EphemeralRunResult:
+) -> RunResult:
     return _builtin_runtime_client_module._run_builtin_ephemeral(
         request,
         provider_invocation_adapter=provider_invocation_adapter,

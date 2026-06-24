@@ -31,22 +31,30 @@ def test_package_exports_runtime_surface() -> None:
         "AgentFailedError",
         "AgentRuntimeError",
         "AgentTimeoutError",
+        "Cancelled",
         "ClaudeCodeOAuthToken",
+        "Completed",
         "Continuation",
         "HardAgentError",
-        "InvocationProgress",
-        "InvocationRecord",
+        "NoServiceAvailable",
         "ProviderAuth",
         "ProviderSelection",
         "ProviderUsage",
+        "ResolvedProvider",
+        "RetryableProviderFailure",
+        "RunResult",
         "RuntimeClient",
         "RuntimeConfigurationError",
         "RuntimeOutcome",
         "RunKind",
+        "TimedOut",
         "ToolPolicy",
         "TransientAgentError",
+        "UsageLimited",
         "UsageLimitError",
     ]
+    assert not hasattr(runtime, "InvocationRecord")
+    assert not hasattr(runtime, "InvocationProgress")
     assert runtime.ProviderSelection.__module__.startswith("agent_runtime")
     assert not hasattr(runtime, "StageOverride")
     assert runtime.AgentRuntimeError is AgentRuntimeError
@@ -83,32 +91,37 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
     assert {
         "AgentEvent",
+        "Cancelled",
+        "Completed",
         "Continuation",
         "EphemeralRunRequest",
         "NewSessionRunRequest",
+        "NoServiceAvailable",
         "ProviderAuth",
         "ProviderUsage",
+        "ResolvedProvider",
         "ResumedSessionRunRequest",
+        "RetryableProviderFailure",
+        "RunResult",
         "RuntimeClient",
         "RuntimeOutcome",
-        "SessionRunResult",
-        "SessionRuntimeMetadata",
+        "TimedOut",
+        "UsageLimited",
     } <= set(prompt_runtime.__all__)
     assert "ToolAccess" not in prompt_runtime.__all__
     assert "ToolPolicyProfile" not in prompt_runtime.__all__
     assert not hasattr(prompt_runtime, "ToolAccess")
     assert not hasattr(prompt_runtime, "ToolPolicyProfile")
-    assert {
-        "EphemeralRunRequest",
+    for removed in (
+        "InvocationRecord",
         "EphemeralRunResult",
         "EphemeralResultMetadata",
         "EphemeralRuntimeMetadata",
-        "Continuation",
-        "ProviderUsage",
-        "ResumedSessionRunRequest",
         "SessionRunResult",
         "SessionRuntimeMetadata",
-    } <= set(prompt_runtime.__all__)
+    ):
+        assert removed not in prompt_runtime.__all__
+        assert not hasattr(prompt_runtime, removed)
     assert "EphemeralRuntime" not in prompt_runtime.__all__
     assert "NewSessionRuntime" not in prompt_runtime.__all__
     assert "ResumedSessionRuntime" not in prompt_runtime.__all__
@@ -394,20 +407,16 @@ def test_runtime_surface_exports_agent_event_public_vocabulary() -> None:
     assert runtime.AgentEvent is prompt_runtime.AgentEvent
     assert {field.name for field in fields(runtime.AgentEvent)} == {
         "type",
-        "service_name",
+        "display_message",
         "raw_provider_output",
-        "text",
-        "tool_name",
-        "payload",
-        "descriptor",
     }
     with pytest.raises(FrozenInstanceError):
         setattr(
             runtime.AgentEvent(
-                type="agent_message", service_name="codex", raw_provider_output=""
+                type="agent_message", display_message="hi", raw_provider_output=""
             ),
-            "service_name",
-            "claude",
+            "display_message",
+            "changed",
         )
 
 
@@ -456,18 +465,20 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
 
 def test_runtime_lifecycle_values_keep_runtime_module_names_after_extraction() -> None:
     for exported_name in (
+        "Cancelled",
+        "Completed",
         "Continuation",
-        "EphemeralResultMetadata",
         "EphemeralRunRequest",
-        "EphemeralRunResult",
-        "EphemeralRuntimeMetadata",
-        "InvocationRecord",
         "NewSessionRunRequest",
+        "NoServiceAvailable",
         "ProviderAuth",
+        "ResolvedProvider",
         "ResumedSessionRunRequest",
+        "RetryableProviderFailure",
+        "RunResult",
         "RuntimeOutcome",
-        "SessionRunResult",
-        "SessionRuntimeMetadata",
+        "TimedOut",
+        "UsageLimited",
     ):
         assert getattr(prompt_runtime, exported_name).__module__ == (
             "agent_runtime.runtime"
@@ -490,33 +501,34 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_smoke_env(
     env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.write_text("invalid", encoding="utf-8")
 
-    class _FakeOutcome:
-        kind = "completed"
-        output = "ok"
-        runtime_metadata = SimpleNamespace(
-            service_name="claude",
-            selected_model="haiku",
-            selected_effort="low",
-        )
-        continuation = None
-        usage = None
-        invocation_records: tuple[object, ...] = ()
+    _fake_result = prompt_runtime.RunResult(
+        output="ok",
+        usage=None,
+        continuation=None,
+        selected=runtime.ResolvedProvider(
+            service="claude", model="haiku", effort="low"
+        ),
+    )
+    _fake_outcome = prompt_runtime.RuntimeOutcome(
+        kind=prompt_runtime.Completed(),
+        result=_fake_result,
+    )
 
     invoked = {"ephemeral": 0, "new_session": 0, "resumed_session": 0}
 
     try:
 
-        def _fake_ephemeral(*_args: object, **_kwargs: object) -> _FakeOutcome:
+        def _fake_ephemeral(*_args: object, **_kwargs: object) -> object:
             invoked["ephemeral"] += 1
-            return _FakeOutcome()
+            return _fake_result
 
-        def _fake_new_session(*_args: object, **_kwargs: object) -> _FakeOutcome:
+        def _fake_new_session(*_args: object, **_kwargs: object) -> object:
             invoked["new_session"] += 1
-            return _FakeOutcome()
+            return _fake_outcome
 
-        def _fake_resumed_session(*_args: object, **_kwargs: object) -> _FakeOutcome:
+        def _fake_resumed_session(*_args: object, **_kwargs: object) -> object:
             invoked["resumed_session"] += 1
-            return _FakeOutcome()
+            return _fake_outcome
 
         provider_selection = prompt_runtime.ProviderSelection(
             service="claude",
@@ -570,9 +582,9 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_smoke_env(
                 client.run_resumed_session(resumed_request)
             )
 
-        assert run_ephemeral.kind == "completed"
-        assert run_new_session.kind == "completed"
-        assert run_resumed_session.kind == "completed"
+        assert isinstance(run_ephemeral.kind, prompt_runtime.Completed)
+        assert isinstance(run_new_session.kind, prompt_runtime.Completed)
+        assert isinstance(run_resumed_session.kind, prompt_runtime.Completed)
         assert invoked == {
             "ephemeral": 1,
             "new_session": 1,

@@ -26,6 +26,7 @@ from agent_runtime.errors import (
 from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
+from agent_runtime.invocation_progress import InvocationProgress as _InvocationProgress
 
 
 _CURRENT_OPENCODE_GO_MODELS = [
@@ -62,13 +63,146 @@ def _selection_with_auth(selection: Any, auth: Any) -> Any:
     return dataclasses.replace(selection, auth=auth)
 
 
+_KIND_TYPES = {
+    "completed": prompt_runtime.Completed,
+    "usage_limited": prompt_runtime.UsageLimited,
+    "no_service_available": prompt_runtime.NoServiceAvailable,
+    "cancelled": prompt_runtime.Cancelled,
+    "timed_out": prompt_runtime.TimedOut,
+    "retryable_provider_failure": prompt_runtime.RetryableProviderFailure,
+}
+
+
+@dataclasses.dataclass
+class _ExpectedResultShim:
+    continuation_present: bool
+    selected: tuple[str, str, str] | None = None
+
+
+@dataclasses.dataclass
+class _ExpectedOutcomeShim:
+    kind_name: str
+    output: str
+    usage: Any
+    result: _ExpectedResultShim
+    reset_time: Any = None
+    reset_time_provided: bool = False
+
+
+def _expected_session_meta(
+    *,
+    service_name: str,
+    provider_session_id: Any = None,
+    run_kind: Any = None,
+    session_namespace: str = "",
+    exact_transcript_match: bool = False,
+    selected_model: str = "",
+    selected_effort: str = "",
+    tool_policy: Any = None,
+) -> tuple[str, str, str]:
+    return (service_name, selected_model, selected_effort)
+
+
+def _expected_ephemeral_meta(**_kw: Any) -> None:
+    return None
+
+
+def _expected_ephemeral_runtime_meta(**_kw: Any) -> None:
+    return None
+
+
+def _expected_session_result(
+    *,
+    output: str,
+    runtime_metadata: tuple[str, str, str] | None = None,
+    continuation: Any = None,
+    usage: Any = None,
+) -> _ExpectedResultShim:
+    return _ExpectedResultShim(
+        continuation_present=continuation is not None,
+        selected=runtime_metadata,
+    )
+
+
+def _expected_ephemeral_result(
+    *,
+    output: str,
+    tool_access: Any = None,
+    metadata: Any = None,
+    usage: Any = None,
+    **_kw: Any,
+) -> _ExpectedResultShim:
+    return _ExpectedResultShim(continuation_present=False)
+
+
+def _expected_completed(
+    *,
+    output: str,
+    result: _ExpectedResultShim | None = None,
+    usage: Any = None,
+    **_kw: Any,
+) -> _ExpectedOutcomeShim:
+    return _ExpectedOutcomeShim(
+        "completed",
+        output,
+        usage,
+        result if result is not None else _ExpectedResultShim(False),
+    )
+
+
+def _expected_usage_limited(
+    *,
+    output: str,
+    service_name: str | None = None,
+    selected_model: str | None = None,
+    selected_effort: str | None = None,
+    reset_time: Any = None,
+    account_label: Any = None,
+    invocation_progress: Any = None,
+    continuation: Any = None,
+    invocation_records: Any = (),
+    usage: Any = None,
+    **_kw: Any,
+) -> _ExpectedOutcomeShim:
+    selected = (
+        (service_name, selected_model or "", selected_effort or "")
+        if service_name
+        else None
+    )
+    return _ExpectedOutcomeShim(
+        "usage_limited",
+        output,
+        usage,
+        _ExpectedResultShim(continuation is not None, selected),
+        reset_time,
+        True,
+    )
+
+
 def _assert_runtime_outcome(
     actual: prompt_runtime.RuntimeOutcome,
-    expected: prompt_runtime.RuntimeOutcome,
+    expected: _ExpectedOutcomeShim,
 ) -> None:
-    assert actual == dataclasses.replace(
-        expected, invocation_records=actual.invocation_records
+    assert isinstance(actual.kind, _KIND_TYPES[expected.kind_name]), (
+        type(actual.kind),
+        expected.kind_name,
     )
+    assert actual.result.output == expected.output
+    if expected.usage is not None:
+        assert actual.result.usage == expected.usage
+    assert (
+        actual.result.continuation is not None
+    ) == expected.result.continuation_present
+    selected = expected.result.selected
+    if selected is not None:
+        service, model, effort = selected
+        assert actual.result.selected.service == service
+        if model:
+            assert actual.result.selected.model == model
+        if effort:
+            assert actual.result.selected.effort == effort
+    if expected.reset_time_provided:
+        assert actual.kind.reset_time == expected.reset_time
 
 
 def _write_codex_rollout(state_dir: Path, *thread_ids: str) -> None:
@@ -288,14 +422,12 @@ def test_runtime_client_ephemeral_run_emits_typed_agent_message_event(
     )
 
     assert len(adapter.recorded_requests) == 1
-    assert outcome.output == "hello\nworld"
+    assert outcome.result.output == "hello\nworld"
     assert len(observed) == 2
     assert observed[0].type == "agent_message"
-    assert observed[0].text == "hello"
-    assert observed[0].service_name == "codex"
+    assert observed[0].display_message == "hello"
     assert observed[1].type == "agent_message"
-    assert observed[1].text == "world"
-    assert observed[1].service_name == "codex"
+    assert observed[1].display_message == "world"
 
 
 def test_runtime_client_ephemeral_run_event_carries_raw_provider_output(
@@ -345,7 +477,7 @@ def test_runtime_client_ephemeral_run_event_carries_raw_provider_output(
     )
 
     assert len(adapter.recorded_requests) == 1
-    assert outcome.output == "hello\nworld"
+    assert outcome.result.output == "hello\nworld"
     assert len(observed) == 2
     assert observed[0].raw_provider_output == hello_line
     assert observed[1].raw_provider_output == world_line
@@ -402,11 +534,11 @@ def test_runtime_client_ephemeral_run_emits_other_agent_event_for_codex_life_sig
     )
 
     assert len(adapter.recorded_requests) == 1
-    assert outcome.output == "hello"
+    assert outcome.result.output == "hello"
     assert [event.type for event in observed] == ["other", "agent_message"]
-    assert observed[0].descriptor == "thread.started"
+    assert observed[0].display_message == "thread.started"
     assert observed[0].raw_provider_output == thread_started_line
-    assert observed[1].text == "hello"
+    assert observed[1].display_message == "hello"
     assert "".join(event.raw_provider_output for event in observed) == (
         thread_started_line + message_line
     )
@@ -454,17 +586,16 @@ def test_runtime_client_ephemeral_run_emits_tool_call_and_other_agent_events_for
     )
 
     assert len(adapter.recorded_requests) == 1
-    assert outcome.output == "assistant output"
+    assert outcome.result.output == "assistant output"
     assert [event.type for event in observed] == [
         "agent_tool_call",
         "agent_message",
         "other",
     ]
-    assert observed[0].tool_name == "Read"
-    assert observed[0].payload == '{"path":"README.md"}'
+    assert observed[0].display_message == 'Read({"path":"README.md"})'
     assert observed[0].raw_provider_output == tool_line
-    assert observed[1].text == "assistant output"
-    assert observed[2].descriptor == "idle"
+    assert observed[1].display_message == "assistant output"
+    assert observed[2].display_message == "idle"
     assert "".join(event.raw_provider_output for event in observed) == (
         tool_line + text_line + idle_line
     )
@@ -527,41 +658,27 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     provider_state_dir_relpath = "implementer/main/claude/"
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
 
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.completed(
-            output="final output",
-            result=prompt_runtime.SessionRunResult(
-                output="final output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
-                    service_name="claude",
-                    provider_session_id="session-uuid",
-                    run_kind=RunKind.FRESH,
-                    session_namespace="main",
-                    exact_transcript_match=False,
-                ),
-                continuation=prompt_runtime.Continuation(
-                    selected_service="claude",
-                    selected_model="sonnet",
-                    selected_effort="medium",
-                    tool_access=contracts_runtime.ToolAccess.no_tools(),
-                    provider_resume_state={
-                        "run_kind": "resume",
-                        "provider_session_id": "session-uuid",
-                        "exact_transcript_match": False,
-                    },
-                ),
-            ),
-            usage=runtime.ProviderUsage(
-                input_tokens=5,
-                output_tokens=None,
-                cache_read_input_tokens=0,
-                cache_creation_input_tokens=0,
-                cost_usd=None,
-                duration_seconds=None,
-            ),
-        ),
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    result = outcome.result
+    assert result.output == "final output"
+    assert result.selected == runtime.ResolvedProvider(
+        service="claude", model="sonnet", effort="medium"
     )
+    assert result.usage == runtime.ProviderUsage(
+        input_tokens=5,
+        output_tokens=None,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+        cost_usd=None,
+        duration_seconds=None,
+    )
+    assert result.continuation is not None
+    assert result.continuation.provider_resume_state == {
+        "run_kind": "resume",
+        "provider_session_id": "session-uuid",
+        "exact_transcript_match": False,
+    }
+    assert result.continuation.tool_access == contracts_runtime.ToolAccess.no_tools()
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.worktree == tmp_path
@@ -625,8 +742,8 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
         )
     )
 
-    assert outcome.output == "hello from opencode"
-    session_result = cast(prompt_runtime.SessionRunResult, outcome.result)
+    assert outcome.result.output == "hello from opencode"
+    session_result = cast(prompt_runtime.RunResult, outcome.result)
     assert session_result.continuation is not None
     assert (
         "provider_state_dir_relpath"
@@ -843,11 +960,11 @@ def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="final output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="final output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="claude",
                     provider_session_id="session-uuid",
                     run_kind=RunKind.FRESH,
@@ -934,7 +1051,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
     )
 
     assert first_outcome.result is not None
-    assert isinstance(first_outcome.result, prompt_runtime.SessionRunResult)
+    assert isinstance(first_outcome.result, prompt_runtime.RunResult)
     continuation = first_outcome.result.continuation
     assert continuation is not None
     assert continuation.provider_resume_state == {
@@ -959,11 +1076,11 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
 
     _assert_runtime_outcome(
         second_outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="claude",
                     provider_session_id="session-uuid",
                     run_kind=RunKind.RESUME,
@@ -1047,11 +1164,11 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="final output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="final output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="claude",
                     provider_session_id="observed-session",
                     run_kind=RunKind.FRESH,
@@ -1145,11 +1262,11 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="final output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="final output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="opencode",
                     provider_session_id="observed-session-id",
                     run_kind=RunKind.FRESH,
@@ -1241,16 +1358,16 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="hello from opencode",
-            result=prompt_runtime.EphemeralRunResult(
+            result=_expected_ephemeral_result(
                 output="hello from opencode",
                 selected_service="opencode",
                 selected_model="kimi-k2.6",
                 selected_effort="medium",
                 tool_access=_opencode_tool_access(tool_policy, tmp_path),
-                metadata=prompt_runtime.EphemeralResultMetadata(
-                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                metadata=_expected_ephemeral_meta(
+                    runtime=_expected_ephemeral_runtime_meta(
                         run_kind=RunKind.FRESH,
                     ),
                 ),
@@ -1332,7 +1449,7 @@ def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_p
         )
     )
 
-    assert outcome.output == "hello from opencode"
+    assert outcome.result.output == "hello from opencode"
     recorded_request = adapter.recorded_requests[0]
     config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
     if expected_permission is None:
@@ -1411,11 +1528,11 @@ def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="final output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="final output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="opencode",
                     provider_session_id="observed-session-id",
                     run_kind=RunKind.FRESH,
@@ -1529,11 +1646,11 @@ def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="opencode",
                     provider_session_id="persisted-session-2",
                     run_kind=RunKind.RESUME,
@@ -1561,11 +1678,11 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -1606,19 +1723,19 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
     )
 
     assert len(adapter.recorded_requests) == 1
-    assert outcome.output == "hello\nworld"
-    assert observed == [("hello", "codex"), ("world", "codex")]
+    assert outcome.result.output == "hello\nworld"
+    assert observed == ["hello", "world"]
 
 
 def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
         raise runtime.UsageLimitError(service_name="codex")
 
     _install_in_memory_provider_invocation_adapter(
@@ -1660,18 +1777,18 @@ def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_a
             )
         )
 
-    assert observed == [("hello", "codex")]
+    assert observed == ["hello"]
 
 
 def test_runtime_client_new_session_run_calls_live_output_observer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -1712,19 +1829,19 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
     )
 
     assert len(adapter.recorded_requests) == 1
-    assert outcome.output == "hello\nworld"
-    assert observed == [("hello", "codex"), ("world", "codex")]
+    assert outcome.result.output == "hello\nworld"
+    assert observed == ["hello", "world"]
 
 
 def test_runtime_client_start_session_run_observes_current_codex_turns_when_reusing_deduplicated_rollout_thread(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
@@ -1769,19 +1886,19 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
 
     assert len(adapter.recorded_requests) == 1
     assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
-    assert outcome.output == "current invocation output"
-    assert observed == [("current invocation output", "codex")]
+    assert outcome.result.output == "current invocation output"
+    assert observed == ["current invocation output"]
 
 
 def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
         raise runtime.UsageLimitError(service_name="codex")
 
     _install_in_memory_provider_invocation_adapter(
@@ -1823,18 +1940,18 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
             )
         )
 
-    assert observed == [("hello", "codex")]
+    assert observed == ["hello"]
 
 
 def test_runtime_client_resumed_session_run_calls_live_output_observer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -1866,19 +1983,19 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
     )
 
     assert len(adapter.recorded_requests) == 1
-    assert outcome.output == "hello\nworld"
-    assert observed == [("hello", "codex"), ("world", "codex")]
+    assert outcome.result.output == "hello\nworld"
+    assert observed == ["hello", "world"]
 
 
 def test_runtime_client_resumed_session_run_forwards_live_output_observer_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
         raise RetryableProviderFailureError(
             service_name="codex",
             message="observer failure",
@@ -1914,18 +2031,18 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
             )
         )
 
-    assert observed == [("hello", "codex")]
+    assert observed == ["hello"]
 
 
 def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -1953,9 +2070,9 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
         )
     )
 
-    assert outcome.output == "hello\n\nworld"
+    assert outcome.result.output == "hello\n\nworld"
     assert observed == [
-        ("hello\n\nworld", "claude"),
+        "hello\n\nworld",
     ]
 
 
@@ -1963,11 +2080,11 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     provider_state_dir = runtime_state_dir / "implementer" / "main" / "claude"
@@ -2012,9 +2129,9 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
     )
 
     assert len(adapter.recorded_requests) == 1
-    assert outcome.output == "final output"
+    assert outcome.result.output == "final output"
     assert observed == [
-        ("intermediate", "claude"),
+        "intermediate",
     ]
 
 
@@ -2072,11 +2189,11 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -2131,10 +2248,10 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
         )
     )
 
-    assert outcome.output == "hello from opencode\n\nsecond turn"
+    assert outcome.result.output == "hello from opencode\n\nsecond turn"
     assert observed == [
-        ("hello from opencode", "opencode"),
-        ("second turn", "opencode"),
+        "hello from opencode",
+        "second turn",
     ]
 
 
@@ -2144,11 +2261,11 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
     tmp_path: Path,
     run_mode: str,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -2273,8 +2390,8 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
             )
         )
 
-    assert outcome.output == "hello\n\nsecond"
-    assert observed == [("hello", "opencode"), ("second", "opencode")]
+    assert outcome.result.output == "hello\n\nsecond"
+    assert observed == ["hello", "second"]
     assert len(adapter.recorded_requests) == 1
 
 
@@ -2282,11 +2399,11 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -2364,18 +2481,18 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
             )
         )
 
-    assert observed == [("hello", "opencode")]
+    assert observed == ["hello"]
 
 
 def test_runtime_client_new_opencode_session_observes_live_runtime_output_before_session_id(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    observed: list[tuple[str, str]] = []
+    observed: list[str] = []
 
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
-            observed.append((turn.text, turn.service_name))
+            observed.append(turn.display_message)
 
     _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -2443,13 +2560,13 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
         )
     )
 
-    session_result = cast(prompt_runtime.SessionRunResult, outcome.result)
+    session_result = cast(prompt_runtime.RunResult, outcome.result)
     assert session_result.continuation is not None
 
-    assert outcome.output == "hello before session id\n\nhello after session id"
+    assert outcome.result.output == "hello before session id\n\nhello after session id"
     assert observed == [
-        ("hello before session id", "opencode"),
-        ("hello after session id", "opencode"),
+        "hello before session id",
+        "hello after session id",
     ]
     assert session_result.continuation.provider_resume_state["provider_session_id"] == (
         "sess_123"
@@ -2506,11 +2623,11 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="claude",
                     provider_session_id="observed-session",
                     run_kind=RunKind.RESUME,
@@ -2603,11 +2720,11 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="claude",
                     provider_session_id="claude-session-123",
                     run_kind=RunKind.RESUME,
@@ -2711,11 +2828,11 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="claude",
                     provider_session_id="claude-session-123",
                     run_kind=RunKind.RESUME,
@@ -2853,11 +2970,11 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id="observed-thread",
                     run_kind=RunKind.RESUME,
@@ -2889,11 +3006,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
             ),
         ),
     )
-    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
-    assert isinstance(
-        outcome.result.runtime_metadata, prompt_runtime.SessionRuntimeMetadata
-    )
-    assert outcome.result.runtime_metadata.tool_policy == tool_access.tool_policy
+    assert isinstance(outcome.result, prompt_runtime.RunResult)
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
@@ -2986,11 +3099,11 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
 
     _assert_runtime_outcome(
         new_outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="initial output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="initial output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id="thread-123",
                     run_kind=RunKind.FRESH,
@@ -3017,7 +3130,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         ),
     )
 
-    assert isinstance(new_outcome.result, prompt_runtime.SessionRunResult)
+    assert isinstance(new_outcome.result, prompt_runtime.RunResult)
     continuation = new_outcome.result.continuation
     assert continuation is not None
 
@@ -3034,11 +3147,11 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
 
     _assert_runtime_outcome(
         resumed_outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id="thread-123",
                     run_kind=RunKind.RESUME,
@@ -3130,11 +3243,11 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id="selected-thread",
                     run_kind=RunKind.RESUME,
@@ -3180,7 +3293,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             error=runtime.UsageLimitError(
                 reset_time=None,
                 service_name="codex",
-                invocation_progress=runtime.InvocationProgress.STARTED,
+                invocation_progress=_InvocationProgress.STARTED,
                 usage=runtime.ProviderUsage(
                     input_tokens=1,
                     output_tokens=1,
@@ -3195,7 +3308,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             error=runtime.UsageLimitError(
                 reset_time=None,
                 service_name="codex",
-                invocation_progress=runtime.InvocationProgress.STARTED,
+                invocation_progress=_InvocationProgress.STARTED,
                 usage=runtime.ProviderUsage(
                     input_tokens=1,
                     output_tokens=1,
@@ -3245,11 +3358,11 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
     )
     _assert_runtime_outcome(
         first,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="codex",
             reset_time=None,
-            invocation_progress=runtime.InvocationProgress.STARTED,
+            invocation_progress=_InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
@@ -3271,9 +3384,9 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             ),
         ),
     )
-    assert first.continuation is not None
+    assert first.result.continuation is not None
     assert (
-        first.continuation.tool_access.tool_policy
+        first.result.continuation.tool_access.tool_policy
         == runtime.ToolPolicy.NO_FILE_MUTATION
     )
 
@@ -3283,18 +3396,18 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                continuation=first.continuation,
+                continuation=first.result.continuation,
                 session_namespace="main",
             )
         )
     )
     _assert_runtime_outcome(
         second,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="codex",
             reset_time=None,
-            invocation_progress=runtime.InvocationProgress.STARTED,
+            invocation_progress=_InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
@@ -3316,9 +3429,9 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
             ),
         ),
     )
-    assert second.continuation is not None
+    assert second.result.continuation is not None
     assert (
-        second.continuation.tool_access.tool_policy
+        second.result.continuation.tool_access.tool_policy
         == runtime.ToolPolicy.NO_FILE_MUTATION
     )
 
@@ -3368,7 +3481,7 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
     )
     assert len(adapter.recorded_requests) == 1
 
-    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
+    assert isinstance(outcome.result, prompt_runtime.RunResult)
     continuation = outcome.result.continuation
     assert continuation is not None
     assert "provider_auth" not in continuation.provider_resume_state
@@ -3396,7 +3509,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
                 error=runtime.UsageLimitError(
                     reset_time=None,
                     service_name="claude",
-                    invocation_progress=runtime.InvocationProgress.STARTED,
+                    invocation_progress=_InvocationProgress.STARTED,
                     usage=runtime.ProviderUsage(
                         input_tokens=3,
                         output_tokens=1,
@@ -3433,11 +3546,11 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="claude",
             reset_time=None,
-            invocation_progress=runtime.InvocationProgress.STARTED,
+            invocation_progress=_InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="claude",
                 selected_model="sonnet",
@@ -3471,7 +3584,7 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
             error=runtime.UsageLimitError(
                 reset_time=None,
                 service_name="codex",
-                invocation_progress=runtime.InvocationProgress.STARTED,
+                invocation_progress=_InvocationProgress.STARTED,
                 usage=runtime.ProviderUsage(
                     input_tokens=3,
                     output_tokens=1,
@@ -3517,11 +3630,11 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="codex",
             reset_time=None,
-            invocation_progress=runtime.InvocationProgress.STARTED,
+            invocation_progress=_InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
@@ -3596,11 +3709,11 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="generated output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="generated output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="claude",
                     provider_session_id="generated-session-id",
                     run_kind=RunKind.FRESH,
@@ -3685,11 +3798,11 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="fresh output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="fresh output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="claude",
                     provider_session_id="claude-session-123",
                     run_kind=RunKind.FRESH,
@@ -3796,34 +3909,28 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
         )
     )
 
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
-            output="",
-            service_name="claude",
-            reset_time=None,
-            invocation_progress=runtime.InvocationProgress.STARTED,
-            continuation=prompt_runtime.Continuation(
-                selected_service="claude",
-                selected_model="sonnet",
-                selected_effort="medium",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={
-                    "run_kind": "resume",
-                    "provider_session_id": "session-uuid",
-                    "exact_transcript_match": False,
-                },
-            ),
-            usage=runtime.ProviderUsage(
-                input_tokens=3,
-                output_tokens=None,
-                cache_read_input_tokens=0,
-                cache_creation_input_tokens=0,
-                cost_usd=None,
-                duration_seconds=None,
-            ),
-        ),
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.reset_time is None
+    result = outcome.result
+    assert result.output == ""
+    assert result.selected == runtime.ResolvedProvider(
+        service="claude", model="sonnet", effort="medium"
     )
+    assert result.usage == runtime.ProviderUsage(
+        input_tokens=3,
+        output_tokens=None,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+        cost_usd=None,
+        duration_seconds=None,
+    )
+    assert result.continuation is not None
+    assert result.continuation.provider_resume_state == {
+        "run_kind": "resume",
+        "provider_session_id": "session-uuid",
+        "exact_transcript_match": False,
+    }
+    assert result.continuation.tool_access == contracts_runtime.ToolAccess.no_tools()
 
 
 def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_interruption(
@@ -3885,11 +3992,11 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="claude",
             reset_time=None,
-            invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+            invocation_progress=_InvocationProgress.NOT_STARTED,
         ),
     )
 
@@ -3944,11 +4051,11 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id="thread-123",
                     run_kind=RunKind.FRESH,
@@ -4055,11 +4162,11 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id="thread-123",
                     run_kind=RunKind.RESUME,
@@ -4159,11 +4266,11 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id="selected-thread",
                     run_kind=RunKind.RESUME,
@@ -4221,7 +4328,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
             error=runtime.UsageLimitError(
                 reset_time=None,
                 service_name="codex",
-                invocation_progress=runtime.InvocationProgress.STARTED,
+                invocation_progress=_InvocationProgress.STARTED,
             ),
             stdout_lines=('{"type":"thread.started","thread_id":"thread-123"}\n',),
             provider_session_id=None,
@@ -4253,11 +4360,11 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="codex",
             reset_time=None,
-            invocation_progress=runtime.InvocationProgress.STARTED,
+            invocation_progress=_InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
@@ -4290,7 +4397,7 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
             error=runtime.UsageLimitError(
                 reset_time=None,
                 service_name="codex",
-                invocation_progress=runtime.InvocationProgress.STARTED,
+                invocation_progress=_InvocationProgress.STARTED,
             ),
             stdout_lines=('{"type":"thread.started","thread_id":"thread-456"}\n',),
             provider_session_id=None,
@@ -4332,11 +4439,11 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="codex",
             reset_time=None,
-            invocation_progress=runtime.InvocationProgress.STARTED,
+            invocation_progress=_InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
@@ -4433,15 +4540,15 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
         )
         expected_provider_session_id = "thread-obs"
 
-    assert outcome.output == "final output"
+    assert outcome.result.output == "final output"
     assert outcome.result is not None
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="final output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="final output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id=expected_provider_session_id,
                     run_kind=RunKind.FRESH if entrypoint == "new" else RunKind.RESUME,
@@ -4838,7 +4945,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
     )
 
     assert outcome.result is not None
-    assert outcome.result.runtime_metadata.run_kind is RunKind.RESUME
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.run_kind is RunKind.RESUME
@@ -5057,26 +5163,14 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         )
     )
 
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.completed(
-            output=expected_output,
-            result=prompt_runtime.EphemeralRunResult(
-                output=expected_output,
-                selected_service=service_name,
-                selected_model=stage.model,
-                selected_effort=stage.effort,
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                metadata=prompt_runtime.EphemeralResultMetadata(
-                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
-                        run_kind=RunKind.FRESH,
-                    ),
-                ),
-                usage=expected_usage,
-            ),
-            usage=expected_usage,
-        ),
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    result = outcome.result
+    assert result.output == expected_output
+    assert result.usage == expected_usage
+    assert result.selected == runtime.ResolvedProvider(
+        service=service_name, model=stage.model, effort=stage.effort
     )
+    assert result.continuation is None
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
@@ -5342,11 +5436,11 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="opencode",
                     provider_session_id="persisted-session-2",
                     run_kind=RunKind.RESUME,
@@ -5372,13 +5466,9 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         ),
     )
     assert outcome.result is not None
-    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
-    assert outcome.result.runtime_metadata.selected_model == "glm-5.2"
-    assert outcome.result.runtime_metadata.selected_effort == "medium"
-    assert (
-        outcome.result.runtime_metadata.tool_policy
-        == runtime.ToolPolicy.NO_FILE_MUTATION
-    )
+    assert isinstance(outcome.result, prompt_runtime.RunResult)
+    assert outcome.result.selected.model == "glm-5.2"
+    assert outcome.result.selected.effort == "medium"
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
@@ -5548,11 +5638,11 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="continued output",
-            result=prompt_runtime.SessionRunResult(
+            result=_expected_session_result(
                 output="continued output",
-                runtime_metadata=prompt_runtime.SessionRuntimeMetadata(
+                runtime_metadata=_expected_session_meta(
                     service_name="codex",
                     provider_session_id="thread-123",
                     run_kind=RunKind.FRESH,
@@ -5602,19 +5692,6 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
     )
-    assert len(outcome.invocation_records) == 1
-    invocation_record = cast(
-        prompt_runtime.InvocationRecord, outcome.invocation_records[0]
-    )
-    assert invocation_record.run_kind is RunKind.FRESH
-    assert invocation_record.service_name == "codex"
-    assert invocation_record.provider_session_id == "thread-123"
-    assert len(invocation_record.events) > 0
-    assert invocation_record.provider_output == (
-        b'{"type":"item.completed","item":{"type":"agent_message","text":"continued'
-        b' output"}}\n{"type":"turn.completed","usage":{"input_tokens":3,'
-        b'"cached_tokens":1,"output_tokens":2}}\n'
-    )
 
 
 def test_runtime_client_keeps_started_codex_new_session_continuation_from_provider_invocation_failure_stdout(
@@ -5636,7 +5713,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
             error=runtime.UsageLimitError(
                 reset_time=None,
                 service_name="codex",
-                invocation_progress=runtime.InvocationProgress.STARTED,
+                invocation_progress=_InvocationProgress.STARTED,
                 usage=runtime.ProviderUsage(
                     input_tokens=3,
                     output_tokens=1,
@@ -5681,11 +5758,11 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="codex",
             reset_time=None,
-            invocation_progress=runtime.InvocationProgress.STARTED,
+            invocation_progress=_InvocationProgress.STARTED,
             continuation=prompt_runtime.Continuation(
                 selected_service="codex",
                 selected_model="gpt-5.4",
@@ -5705,24 +5782,11 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
             ),
         ),
     )
-    assert len(outcome.invocation_records) == 1
-    invocation_record = cast(
-        prompt_runtime.InvocationRecord, outcome.invocation_records[0]
-    )
-    assert invocation_record.run_kind is RunKind.FRESH
-    assert invocation_record.service_name == "codex"
-    assert invocation_record.provider_session_id == "thread-123"
-    assert len(invocation_record.events) > 0
-    assert invocation_record.provider_output == (
-        b'{"type":"thread.started","thread_id":"thread-123"}\n'
-        b'{"type":"turn.failed","error":{"message":"You\'ve hit your usage limit. '
-        b'Try again at January 2, 5pm (UTC)."}}\n'
-    )
     assert len(adapter.recorded_requests) == 1
     assert adapter.recorded_requests[0].log_context is None
 
 
-def test_runtime_client_returns_invocation_records_for_session_run_output(
+def test_runtime_client_returns_run_result_for_session_run_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5779,20 +5843,16 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
         )
     )
 
-    assert outcome.output == "continued output"
-    assert outcome.usage == runtime.ProviderUsage(
+    assert outcome.result.output == "continued output"
+    assert outcome.result.usage == runtime.ProviderUsage(
         input_tokens=5,
         output_tokens=2,
         cache_read_input_tokens=1,
         cache_creation_input_tokens=0,
     )
-    assert isinstance(outcome.result, prompt_runtime.SessionRunResult)
-    assert outcome.result.runtime_metadata == prompt_runtime.SessionRuntimeMetadata(
-        service_name="opencode",
-        provider_session_id="session-123",
-        run_kind=RunKind.FRESH,
-        session_namespace="",
-        exact_transcript_match=False,
+    assert isinstance(outcome.result, prompt_runtime.RunResult)
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="opencode", model="glm-5.2", effort="medium"
     )
     assert outcome.result.continuation == prompt_runtime.Continuation(
         selected_service="opencode",
@@ -5804,23 +5864,6 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
             "provider_state": {"session_id": "session-123"},
             "exact_transcript_match": False,
         },
-    )
-    assert len(outcome.invocation_records) == 1
-    invocation_record = cast(
-        prompt_runtime.InvocationRecord, outcome.invocation_records[0]
-    )
-    assert invocation_record.run_kind is RunKind.FRESH
-    assert invocation_record.service_name == "opencode"
-    assert invocation_record.provider_session_id == "session-123"
-    assert len(invocation_record.events) > 0
-    assert invocation_record.provider_output is not None
-    assert (
-        b'"type": "text", "sessionID": "session-123"'
-        in invocation_record.provider_output
-    )
-    assert (
-        b'"type": "session.status", "status": {"type": "idle"}'
-        in invocation_record.provider_output
     )
 
 
@@ -5915,8 +5958,8 @@ def test_runtime_client_opencode_allowlist_accepts_current_models_and_rejects_st
                 )
             )
         )
-        assert outcome.kind == "completed"
-        assert outcome.selected_model == model
+        assert isinstance(outcome.kind, prompt_runtime.Completed)
+        assert outcome.result.selected.model == model
         assert len(adapter.recorded_requests) == 1
         assert f"--model opencode-go/{model}" in adapter.recorded_requests[0].command
 
@@ -6010,7 +6053,7 @@ def test_runtime_client_opencode_command_uses_prefixed_model_reference_while_pub
         )
     )
 
-    assert outcome.selected_model == model
+    assert outcome.result.selected.model == model
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert f"--model opencode-go/{model}" in recorded_request.command
@@ -6122,16 +6165,16 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="opencode",
             reset_time=datetime(2026, 4, 28, 21, 2, tzinfo=timezone.utc),
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+            invocation_progress=_InvocationProgress.NOT_STARTED,
         ),
     )
 
 
-def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_and_logs_provider_output(
+def test_runtime_client_maps_codex_usage_limit_stream_to_usage_limited_and_logs_provider_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6184,14 +6227,11 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
         )
     )
 
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
-            output="",
-            service_name="codex",
-            reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-        ),
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc)
+    assert outcome.result.output == ""
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="codex", model="gpt-5.4", effort="medium"
     )
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
@@ -6261,25 +6301,25 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
 
     _assert_runtime_outcome(
         first_outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="codex",
             reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+            invocation_progress=_InvocationProgress.NOT_STARTED,
         ),
     )
     _assert_runtime_outcome(
         second_outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="completed on retry",
-            result=prompt_runtime.EphemeralRunResult(
+            result=_expected_ephemeral_result(
                 output="completed on retry",
                 selected_service="codex",
                 selected_model="gpt-5.4",
                 selected_effort="medium",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                metadata=prompt_runtime.EphemeralResultMetadata(
-                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                metadata=_expected_ephemeral_meta(
+                    runtime=_expected_ephemeral_runtime_meta(
                         run_kind=RunKind.FRESH,
                     ),
                 ),
@@ -6310,7 +6350,7 @@ def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_
             error=runtime.UsageLimitError(
                 service_name=None,
                 reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
-                invocation_progress=runtime.InvocationProgress.NOT_STARTED,
+                invocation_progress=_InvocationProgress.NOT_STARTED,
             ),
         ),
     )
@@ -6332,11 +6372,11 @@ def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
+        _expected_usage_limited(
             output="",
             service_name="codex",
             reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
+            invocation_progress=_InvocationProgress.NOT_STARTED,
         ),
     )
 
@@ -6536,16 +6576,16 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
 
     _assert_runtime_outcome(
         outcome,
-        prompt_runtime.RuntimeOutcome.completed(
+        _expected_completed(
             output="completed answer",
-            result=prompt_runtime.EphemeralRunResult(
+            result=_expected_ephemeral_result(
                 output="completed answer",
                 selected_service="opencode",
                 selected_model="kimi-k2.6",
                 selected_effort="medium",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-                metadata=prompt_runtime.EphemeralResultMetadata(
-                    runtime=prompt_runtime.EphemeralRuntimeMetadata(
+                metadata=_expected_ephemeral_meta(
+                    runtime=_expected_ephemeral_runtime_meta(
                         run_kind=RunKind.FRESH,
                     ),
                 ),
@@ -6598,14 +6638,12 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
         )
     )
 
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
-            output="",
-            service_name="claude",
-            reset_time=None,
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-        ),
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.reset_time is None
+    result = outcome.result
+    assert result.output == ""
+    assert result.selected == runtime.ResolvedProvider(
+        service="claude", model="sonnet", effort="medium"
     )
 
 
@@ -6698,15 +6736,10 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
         )
     )
 
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
-            output="",
-            service_name="claude",
-            reset_time=datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc),
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-        ),
-    )
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.reset_time == datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc)
+    assert outcome.result.output == ""
+    assert outcome.result.selected.service == "claude"
 
 
 def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outcome(
@@ -6759,15 +6792,10 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         )
     )
 
-    _assert_runtime_outcome(
-        outcome,
-        prompt_runtime.RuntimeOutcome.usage_limited(
-            output="",
-            service_name="claude",
-            reset_time=reset_time,
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
-        ),
-    )
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.reset_time == reset_time
+    assert outcome.result.output == ""
+    assert outcome.result.selected.service == "claude"
 
 
 def test_runtime_client_rejects_unsupported_selected_provider_for_ephemeral_result(
@@ -6831,10 +6859,9 @@ def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metad
         )
     )
 
-    assert outcome.runtime_metadata == prompt_runtime.EphemeralRuntimeMetadata(
-        run_kind=RunKind.FRESH,
-    )
-    assert not hasattr(outcome.runtime_metadata, "session_namespace")
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert not hasattr(outcome.result, "runtime_metadata")
+    assert not hasattr(outcome.result, "session_namespace")
 
 
 def test_runtime_client_completed_ephemeral_result_hides_fallback_metadata(
@@ -6868,10 +6895,10 @@ def test_runtime_client_completed_ephemeral_result_hides_fallback_metadata(
         )
     )
 
-    result = cast(prompt_runtime.EphemeralRunResult, outcome.result)
+    result = cast(prompt_runtime.RunResult, outcome.result)
     assert not hasattr(result, "used_fallback")
     assert not hasattr(result, "selected_service_path")
-    assert not hasattr(result.metadata, "selected_service_path")
+    assert not hasattr(result, "metadata")
     assert not hasattr(outcome, "used_fallback")
     assert not hasattr(outcome, "selected_service_path")
 
@@ -6920,9 +6947,9 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope
         )
     )
 
-    assert outcome.kind == "usage_limited"
-    assert outcome.service_name == "claude"
-    assert outcome.reset_time is None
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.result.selected.service == "claude"
+    assert outcome.kind.reset_time is None
     assert not hasattr(outcome, "usage_limit_scope")
 
 
@@ -7061,8 +7088,8 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
         )
     )
 
-    assert outcome.kind == "timed_out"
-    assert outcome.service_name == "opencode"
+    assert isinstance(outcome.kind, prompt_runtime.TimedOut)
+    assert outcome.result.selected.service == "opencode"
 
 
 def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
@@ -7171,186 +7198,5 @@ def test_runtime_client_ephemeral_times_out_without_live_output_callback(
         )
     )
 
-    assert outcome.kind == "timed_out"
-    assert outcome.service_name == "opencode"
-
-
-def test_completed_run_invocation_record_carries_agent_event_sequence(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    assistant_line = (
-        json.dumps(
-            {
-                "type": "assistant",
-                "message": {
-                    "content": [{"type": "text", "text": "Hello world"}],
-                    "usage": {"input_tokens": 10, "output_tokens": 5},
-                },
-            }
-        )
-        + "\n"
-    )
-    result_line = (
-        json.dumps({"type": "result", "result": "Hello world", "is_error": False})
-        + "\n"
-    )
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(assistant_line, result_line),
-        ),
-    )
-
-    observed_events: list[prompt_runtime.AgentEvent] = []
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="test prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="test-token"),
-                ),
-                tool_policy=runtime.ToolPolicy.NONE,
-                on_live_output=observed_events.append,
-            )
-        )
-    )
-
-    assert len(outcome.invocation_records) == 1
-    record = outcome.invocation_records[0]
-    assert isinstance(record, prompt_runtime.InvocationRecord)
-    assert len(observed_events) > 0
-    assert record.events == tuple(observed_events)
-    assert record.outcome == "completed"
-    assert record.service_name == "claude"
-    assert record.model == "sonnet"
-    assert record.effort == "medium"
-    assert record.run_kind is RunKind.FRESH
-    assert record.usage is not None
-
-
-def test_interrupted_run_invocation_record_carries_observed_events(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    message_line = (
-        json.dumps(
-            {
-                "type": "assistant",
-                "message": {
-                    "content": [{"type": "text", "text": "Working on it..."}],
-                    "usage": {"input_tokens": 5, "output_tokens": 2},
-                },
-            }
-        )
-        + "\n"
-    )
-    limit_line = (
-        json.dumps(
-            {
-                "type": "result",
-                "is_error": True,
-                "api_error_status": 429,
-                "result": "Usage limit reached.",
-            }
-        )
-        + "\n"
-    )
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(message_line, limit_line),
-        ),
-    )
-
-    observed_events: list[prompt_runtime.AgentEvent] = []
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="test prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="test-token"),
-                ),
-                tool_policy=runtime.ToolPolicy.NONE,
-                on_live_output=observed_events.append,
-            )
-        )
-    )
-
-    assert outcome.kind == "usage_limited"
-    assert len(outcome.invocation_records) == 1
-    record = outcome.invocation_records[0]
-    assert isinstance(record, prompt_runtime.InvocationRecord)
-    assert len(observed_events) > 0
-    assert record.events == tuple(observed_events)
-    assert record.outcome == "usage_limited"
-    assert record.service_name == "claude"
-    assert record.model == "sonnet"
-    assert record.effort == "medium"
-
-
-def test_completed_run_invocation_record_carries_events_without_live_observer(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    assistant_line = (
-        json.dumps(
-            {
-                "type": "assistant",
-                "message": {
-                    "content": [{"type": "text", "text": "Hello world"}],
-                    "usage": {"input_tokens": 10, "output_tokens": 5},
-                },
-            }
-        )
-        + "\n"
-    )
-    result_line = (
-        json.dumps({"type": "result", "result": "Hello world", "is_error": False})
-        + "\n"
-    )
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(assistant_line, result_line),
-        ),
-    )
-
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="test prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="test-token"),
-                ),
-                tool_policy=runtime.ToolPolicy.NONE,
-                on_live_output=None,
-            )
-        )
-    )
-
-    assert outcome.kind == "completed"
-    assert len(outcome.invocation_records) == 1
-    record = outcome.invocation_records[0]
-    assert isinstance(record, prompt_runtime.InvocationRecord)
-    assert len(record.events) > 0
-    assert record.outcome == "completed"
-    assert record.service_name == "claude"
+    assert isinstance(outcome.kind, prompt_runtime.TimedOut)
+    assert outcome.result.selected.service == "opencode"

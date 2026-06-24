@@ -31,6 +31,15 @@ class ProviderSelection:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class ResolvedProvider:
+    """Credential-free identity of the provider actually run."""
+
+    service: str
+    model: str
+    effort: str
+
+
 def validate_provider_selection(selection: ProviderSelection) -> None:
     _require_provider_value("service", selection.service)
     _require_provider_value("model", selection.model)
@@ -48,4 +57,4 @@ def _require_provider_value(field_name: str, value: str) -> None:
     raise ValueError(f"ProviderSelection requires a non-empty {field_name}.")
 
 
-__all__ = ["ClaudeCodeOAuthToken", "ProviderSelection"]
+__all__ = ["ClaudeCodeOAuthToken", "ProviderSelection", "ResolvedProvider"]

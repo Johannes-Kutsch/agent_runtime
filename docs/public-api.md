@@ -10,7 +10,7 @@ The runtime implementation may be split across internal modules. That internal m
 
 Ordinary consumers execute already-rendered prompts through a caller-owned `RuntimeClient`. They provide one `ProviderSelection` per invocation plus tool policy, invocation directory, and session lifecycle data as call arguments. Selection-owned credentials travel on `ProviderSelection` for ephemeral and new-session runs; resumed-session runs accept request-time auth separately because continuations do not store provider secrets. They do not construct provider services, service registries, execution adapters, provider-session adapters, command builders, provider event parsers, or provider DTO streams.
 
-The runtime executes provider work and returns data. Callers own persistence for continuations, invocation records, workflow correlation, durable logs, and usage-limit grouping policy.
+The runtime executes provider work and returns data. Callers own persistence for continuations, observed live events, workflow correlation, durable logs, and usage-limit grouping policy.
 
 ### Package Root
 
@@ -25,18 +25,20 @@ The package root exposes stable shared vocabulary and common errors:
 - `ClaudeCodeOAuthToken`
 - `Continuation`
 - `HardAgentError`
-- `InvocationProgress`
-- `InvocationRecord`
 - `ProviderAuth`
 - `ProviderSelection`
 - `ProviderUsage`
+- `ResolvedProvider`
 - `RuntimeClient`
 - `RuntimeConfigurationError`
 - `RuntimeOutcome`
 - `RunKind`
+- `RunResult`
 - `ToolPolicy`
 - `TransientAgentError`
 - `UsageLimitError`
+
+The outcome `kind` discriminator classes are also exported at the package root and from `agent_runtime.runtime`: `Completed`, `UsageLimited`, `NoServiceAvailable`, `Cancelled`, `TimedOut`, and `RetryableProviderFailure`.
 
 The following values and objects are also part of the shared import surface and are available from both `agent_runtime` and `agent_runtime.runtime`:
 
@@ -70,7 +72,7 @@ Provider selection uses one `ProviderSelection` per runtime invocation. Each sel
 | `codex` | Host Codex auth files | Only when the built-in adapter can produce and consume portable continuation data | The runtime uses host auth files rather than API-key arguments. |
 | `opencode` | `ProviderAuth(opencode_api_key=...)` on `ProviderSelection` | Only when the built-in adapter can produce and consume portable continuation data | Providers that cannot satisfy portable continuation requirements are limited to ephemeral execution. |
 
-The runtime validates built-in service, model, and effort values before provider execution. Invalid service/model/effort references are runtime configuration errors. Missing or invalid explicit credentials are credential failures for that invocation. Runtime outcomes and invocation records describe the selected provider for one invocation only. Runtime does not perform provider fallback inside a call; consuming projects that want fallback start a separate runtime invocation and own the retry path.
+The runtime validates built-in service, model, and effort values before provider execution. Invalid service/model/effort references are runtime configuration errors. Missing or invalid explicit credentials are credential failures for that invocation. Runtime outcomes describe the selected provider for one invocation only. Runtime does not perform provider fallback inside a call; consuming projects that want fallback start a separate runtime invocation and own the retry path.
 
 Supported built-in provider allowlists:
 
@@ -150,10 +152,10 @@ Resumed-session execution continues an existing provider-session continuity chai
 
 `on_live_output` publishes per-invocation `Agent Event` observations while a run is executing. Observers receive events from the current invocation only.
 
-`Agent Event` values are discriminated by type: `agent_message` (assistant message output), `agent_tool_call` (tool invocation), or `other` (agent life sign). Each event carries both a filtered/neutral view and the raw provider output it derived from, plus selected service identity.
+`Agent Event` values are discriminated by type: `agent_message` (assistant message output), `agent_tool_call` (tool invocation), or `other` (agent life sign). Each event carries both a filtered/neutral `display_message` and the raw provider output it derived from.
 
 - Live Runtime Output is `Agent Event` observation, not token-by-token streaming.
-- Events carry both filtered content (message text, tool name, payload) and raw provider output for consumers to choose which representation to use.
+- Events carry both a filtered `display_message` and raw provider output for consumers to choose which representation to use.
 - It does not replay prior events from continuations, logs, or historical transcript state.
 - Completed runtime output and `RuntimeOutcome` interruption semantics remain authoritative and unchanged.
 - `on_live_output` callbacks are synchronous and notification-only. Callback exceptions are propagated to the caller as consumer failures.
@@ -172,7 +174,7 @@ ProviderAuth(
 ) -> None
 ```
 
-`ProviderAuth` is immutable credential data carried by `ProviderSelection` for a new provider selection, or supplied directly to Resume Session Run for credentials required by the continued provider. It only needs credentials for the selected explicit-credential provider. Codex uses host auth files. Continuations and invocation records must not store provider credentials.
+`ProviderAuth` is immutable credential data carried by `ProviderSelection` for a new provider selection, or supplied directly to Resume Session Run for credentials required by the continued provider. It only needs credentials for the selected explicit-credential provider. Codex uses host auth files. Continuations must not store provider credentials.
 
 ### Outcomes and Continuations
 
@@ -180,79 +182,62 @@ ProviderAuth(
 
 ```python
 RuntimeOutcome(
-    kind: str,
-    output: str,
-    result: EphemeralRunResult | SessionRunResult | None = None,
-    service_name: str,
-    selected_model: str,
-    selected_effort: str,
-    account_label: str | None = None,
-    reset_time: datetime | None = None,
-    invocation_progress: InvocationProgress | None = None,
-    continuation: Continuation | None = None,
-    usage: ProviderUsage | None = None,
-    invocation_records: tuple[InvocationRecord, ...] = (),
+    kind: Completed | UsageLimited | NoServiceAvailable | Cancelled | TimedOut | RetryableProviderFailure,
+    result: RunResult,
 ) -> None
 ```
 
-Lifecycle entrypoints return `RuntimeOutcome` for both completed work and expected interruption outcomes. Every normal outcome, including `completed`, exposes the selected service, model, and effort at the top level. Each `RuntimeOutcome` describes exactly one invocation and never aggregates fallback attempts across providers.
+Lifecycle entrypoints return `RuntimeOutcome` for both completed work and expected interruption outcomes. `kind` is a variant object that both discriminates the outcome and carries any kind-specific data; `result` is always present and exposes the run's output, usage, continuation, and selected provider. Each `RuntimeOutcome` describes exactly one invocation and never aggregates fallback attempts across providers.
+
+Consumers branch on `kind` with `isinstance`:
+
+```python
+match outcome.kind:
+    case Completed():
+        ...
+    case UsageLimited(reset_time=reset):
+        ...
+```
 
 Outcome kinds:
 
-- `completed`: work completed and `result` is present.
-- `usage_limited`: usage limit interrupted execution.
-- `no_service_available`: the selected provider is temporarily unavailable before model work starts.
-- `cancelled`: caller- or user-initiated cancellation.
-- `timed_out`: runtime timeout.
-- `retryable_provider_failure`: provider failure classified as confidently retryable.
+- `Completed()`: work completed; `result.output` is the final output and `result.continuation` is present for session-backed runs.
+- `UsageLimited(reset_time: datetime | None)`: usage limit interrupted execution.
+- `NoServiceAvailable(reset_time: datetime | None)`: the selected provider is temporarily unavailable before model work starts.
+- `Cancelled()`: caller- or user-initiated cancellation.
+- `TimedOut()`: runtime timeout.
+- `RetryableProviderFailure()`: provider failure classified as confidently retryable.
 
 Expected interruption outcomes are normal lifecycle results. Credential failures, malformed inputs, hard provider failures, adapter/protocol bugs, unclassified provider failures, and unexpected exceptions remain errors.
 
-Expected interruption outcomes expose selected provider facts such as service, model, effort, account label, reset time, invocation progress, provider usage, and continuation state when relevant. Caller-defined usage-limit grouping is not part of the core runtime API.
+Every outcome's `result` exposes the selected provider (`result.selected`), any provider usage observed before completion or interruption, and continuation state when relevant. Reset-time facts live on the `UsageLimited`/`NoServiceAvailable` kind objects. Caller-defined usage-limit grouping is not part of the core runtime API.
 
-#### `EphemeralRunResult`
+#### `RunResult`
 
 ```python
-EphemeralRunResult(
+RunResult(
     *,
     output: str,
-    tool_policy: ToolPolicy,
-    usage: ProviderUsage | None = None,
+    usage: ProviderUsage | None,
+    continuation: Continuation | None,
+    selected: ResolvedProvider,
 ) -> None
 ```
 
-Ephemeral results report output text and ephemeral-specific metadata for one invocation. Selected provider facts live on `RuntimeOutcome`. Ephemeral results do not carry a continuation or fallback attempt path.
+`RunResult` is the single result shape for every outcome kind. `output` is the run's text output (empty for pre-output interruptions). `usage` is provider usage when reported. `continuation` is the latest resume token for session-backed runs, or `None` for ephemeral runs and pre-start interruptions. `selected` identifies the provider actually run.
 
-#### `SessionRunResult`
+#### `ResolvedProvider`
 
 ```python
-SessionRunResult(
+ResolvedProvider(
     *,
-    output: str,
-    runtime_metadata: SessionRuntimeMetadata,
-    continuation: Continuation,
-    usage: ProviderUsage | None = None,
+    service: str,
+    model: str,
+    effort: str,
 ) -> None
 ```
 
-Session-backed results contain output text and a meaningful continuation. The continuation returned on a completed run is the latest resume token for the next resumed-session call.
-
-#### `SessionRuntimeMetadata`
-
-```python
-SessionRuntimeMetadata(
-    *,
-    service_name: str,
-    provider_session_id: str | None,
-    run_kind: RunKind,
-    selected_model: str,
-    selected_effort: str,
-    tool_policy: ToolPolicy,
-    exact_transcript_match: bool,
-) -> None
-```
-
-Display and policy metadata such as selected service, model, effort, and tool policy belongs in result metadata rather than in the continuation contract.
+Credential-free identity of the provider that ran the invocation. It carries no auth, continuation, or session data — only the selected service, model, and effort.
 
 #### `Continuation`
 
@@ -264,24 +249,7 @@ Continuation(serialized: str) -> None
 
 The runtime may carry provider-owned resume data inside the continuation, including encoded provider state when needed. Provider credentials do not belong in continuations.
 
-#### `InvocationRecord`
-
-```python
-InvocationRecord(
-    *,
-    run_kind: RunKind,
-    service_name: str,
-    model: str,
-    effort: str,
-    outcome: str,
-    provider_session_id: str | None = None,
-    events: tuple[AgentEvent, ...] = (),
-    provider_output: bytes | None = None,
-    usage: ProviderUsage | None = None,
-) -> None
-```
-
-`InvocationRecord` is structured finished-run output for callers that want to persist or display execution traces. It contains the complete ordered sequence of `Agent Event` values from the invocation, terminal metadata (run kind, service, model, effort, outcome), provider session identity, raw provider output evidence, and usage metrics. The runtime returns records; callers own persistence, file layout, naming, redaction, retention, and cleanup.
+The runtime does not return structured finished-run records. Callers that want to persist or display execution traces observe `Agent Event` values through `on_live_output` during the run and own their persistence, file layout, naming, redaction, retention, and cleanup.
 
 #### `ProviderUsage`
 
@@ -343,16 +311,12 @@ Every public `ToolPolicy` is valid for every supported service/model pair. Built
 AgentEvent(
     *,
     type: Literal["agent_message", "agent_tool_call", "other"],
-    service_name: str,
+    display_message: str,
     raw_provider_output: str,
-    text: str = "",
-    tool_name: str = "",
-    payload: str = "",
-    descriptor: str = "",
 ) -> None
 ```
 
-One observed signal from Live Runtime Output, discriminated by type: `agent_message` (assistant message), `agent_tool_call` (tool invocation), or `other` (agent life sign). Each event carries both a filtered/neutral view (`text` for messages, `tool_name` and `payload` for tool calls, `descriptor` for other events) and the raw provider output it derived from. `service_name` is the selected built-in service for this event.
+One observed signal from Live Runtime Output, discriminated by type: `agent_message` (assistant message), `agent_tool_call` (tool invocation), or `other` (agent life sign). Each event carries a single filtered/neutral `display_message` (message text, a rendered `tool_name(payload)` for tool calls, or a life-sign descriptor) alongside the `raw_provider_output` it derived from. Consumers choose which representation to use.
 
 The type is shared runtime vocabulary and is importable from both `agent_runtime` and `agent_runtime.runtime`.
 

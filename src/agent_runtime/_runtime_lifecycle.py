@@ -18,24 +18,26 @@ from ._request_normalization import (
 )
 from .session import RunKind
 from .session_planning import ResumableSessionPlan
-from .types import ProviderSelection
+from .types import ProviderSelection, ResolvedProvider
 from .errors import RuntimeConfigurationError
 
 __all__ = [
     "AgentEvent",
+    "Cancelled",
+    "Completed",
     "Continuation",
     "EphemeralRunRequest",
-    "EphemeralRunResult",
-    "EphemeralResultMetadata",
-    "EphemeralRuntimeMetadata",
-    "InvocationRecord",
     "NewSessionRunRequest",
+    "NoServiceAvailable",
     "ProviderUsage",
     "ProviderAuth",
+    "ResolvedProvider",
     "ResumedSessionRunRequest",
+    "RetryableProviderFailure",
+    "RunResult",
     "RuntimeOutcome",
-    "SessionRunResult",
-    "SessionRuntimeMetadata",
+    "TimedOut",
+    "UsageLimited",
 ]
 
 if TYPE_CHECKING:
@@ -210,316 +212,64 @@ class ProviderAuth:
 @dataclasses.dataclass(frozen=True)
 class AgentEvent:
     type: Literal["agent_message", "agent_tool_call", "other"]
-    service_name: str
+    display_message: str
     raw_provider_output: str
-    text: str = ""
-    tool_name: str = ""
-    payload: str = ""
-    descriptor: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
-class InvocationRecord:
-    run_kind: RunKind
-    service_name: str
-    model: str
-    effort: str
-    outcome: str
-    provider_session_id: str | None = None
-    events: tuple[AgentEvent, ...] = ()
-    provider_output: bytes | None = None
-    usage: ProviderUsage | None = None
+class RunResult:
+    """Run facts carried by every ``RuntimeOutcome``, present even after interruption."""
+
+    output: str
+    usage: ProviderUsage | None
+    continuation: Continuation | None
+    selected: ResolvedProvider
+
+
+@dataclasses.dataclass(frozen=True)
+class Completed:
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class UsageLimited:
+    reset_time: datetime | None
+
+
+@dataclasses.dataclass(frozen=True)
+class NoServiceAvailable:
+    reset_time: datetime | None
+
+
+@dataclasses.dataclass(frozen=True)
+class Cancelled:
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class TimedOut:
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class RetryableProviderFailure:
+    pass
+
+
+OutcomeKind = (
+    Completed
+    | UsageLimited
+    | NoServiceAvailable
+    | Cancelled
+    | TimedOut
+    | RetryableProviderFailure
+)
 
 
 @dataclasses.dataclass(frozen=True)
 class RuntimeOutcome:
-    kind: str
-    output: str
-    result: EphemeralRunResult | SessionRunResult | None = None
-    service_name: str | None = dataclasses.field(default=None, compare=False)
-    _selected_model: str | None = dataclasses.field(default=None, compare=False)
-    _selected_effort: str | None = dataclasses.field(default=None, compare=False)
-    account_label: str | None = None
-    reset_time: datetime | None = None
-    invocation_progress: InvocationProgress | None = None
-    continuation: Continuation | None = None
-    usage: ProviderUsage | None = None
-    invocation_records: tuple[InvocationRecord, ...] = ()
-
-    @classmethod
-    def completed(
-        cls,
-        *,
-        output: str,
-        result: EphemeralRunResult | SessionRunResult,
-        service_name: str | None = None,
-        selected_model: str | None = None,
-        selected_effort: str | None = None,
-        invocation_records: tuple[InvocationRecord, ...] = (),
-        usage: ProviderUsage | None = None,
-    ) -> RuntimeOutcome:
-        resolved_service_name, resolved_selected_model, resolved_selected_effort = (
-            _outcome_selection_tuple(result)
-        )
-        return cls(
-            kind="completed",
-            output=output,
-            result=result,
-            service_name=service_name or resolved_service_name,
-            _selected_model=selected_model or resolved_selected_model,
-            _selected_effort=selected_effort or resolved_selected_effort,
-            usage=usage,
-            invocation_records=invocation_records,
-        )
-
-    @classmethod
-    def usage_limited(
-        cls,
-        *,
-        output: str,
-        service_name: str | None,
-        selected_model: str | None = None,
-        selected_effort: str | None = None,
-        reset_time: datetime | None,
-        account_label: str | None = None,
-        invocation_progress: InvocationProgress,
-        continuation: Continuation | None = None,
-        invocation_records: tuple[InvocationRecord, ...] = (),
-        usage: ProviderUsage | None = None,
-    ) -> RuntimeOutcome:
-        return cls(
-            kind="usage_limited",
-            output=output,
-            service_name=service_name,
-            _selected_model=selected_model,
-            _selected_effort=selected_effort,
-            account_label=account_label,
-            reset_time=reset_time,
-            invocation_progress=invocation_progress,
-            continuation=continuation,
-            usage=usage,
-            invocation_records=invocation_records,
-        )
-
-    @classmethod
-    def no_service_available(
-        cls,
-        *,
-        output: str,
-        service_name: str | None = None,
-        selected_model: str | None = None,
-        selected_effort: str | None = None,
-        reset_time: datetime | None,
-        invocation_progress: InvocationProgress,
-        continuation: Continuation | None = None,
-        invocation_records: tuple[InvocationRecord, ...] = (),
-        usage: ProviderUsage | None = None,
-    ) -> RuntimeOutcome:
-        return cls(
-            kind="no_service_available",
-            output=output,
-            service_name=service_name,
-            _selected_model=selected_model,
-            _selected_effort=selected_effort,
-            reset_time=reset_time,
-            invocation_progress=invocation_progress,
-            continuation=continuation,
-            usage=usage,
-            invocation_records=invocation_records,
-        )
-
-    @classmethod
-    def cancelled(
-        cls,
-        *,
-        output: str,
-        service_name: str | None = None,
-        selected_model: str | None = None,
-        selected_effort: str | None = None,
-        invocation_progress: InvocationProgress,
-        continuation: Continuation | None = None,
-        invocation_records: tuple[InvocationRecord, ...] = (),
-        usage: ProviderUsage | None = None,
-    ) -> RuntimeOutcome:
-        return cls(
-            kind="cancelled",
-            output=output,
-            service_name=service_name,
-            _selected_model=selected_model,
-            _selected_effort=selected_effort,
-            invocation_progress=invocation_progress,
-            continuation=continuation,
-            usage=usage,
-            invocation_records=invocation_records,
-        )
-
-    @classmethod
-    def timed_out(
-        cls,
-        *,
-        output: str,
-        service_name: str | None = None,
-        selected_model: str | None = None,
-        selected_effort: str | None = None,
-        invocation_progress: InvocationProgress,
-        continuation: Continuation | None = None,
-        invocation_records: tuple[InvocationRecord, ...] = (),
-        usage: ProviderUsage | None = None,
-    ) -> RuntimeOutcome:
-        return cls(
-            kind="timed_out",
-            output=output,
-            service_name=service_name,
-            _selected_model=selected_model,
-            _selected_effort=selected_effort,
-            invocation_progress=invocation_progress,
-            continuation=continuation,
-            usage=usage,
-            invocation_records=invocation_records,
-        )
-
-    @classmethod
-    def retryable_provider_failure(
-        cls,
-        *,
-        output: str,
-        service_name: str,
-        selected_model: str | None = None,
-        selected_effort: str | None = None,
-        invocation_progress: InvocationProgress,
-        continuation: Continuation | None = None,
-        invocation_records: tuple[InvocationRecord, ...] = (),
-        usage: ProviderUsage | None = None,
-    ) -> RuntimeOutcome:
-        return cls(
-            kind="retryable_provider_failure",
-            output=output,
-            service_name=service_name,
-            _selected_model=selected_model,
-            _selected_effort=selected_effort,
-            invocation_progress=invocation_progress,
-            continuation=continuation,
-            usage=usage,
-            invocation_records=invocation_records,
-        )
-
-    @property
-    def runtime_metadata(
-        self,
-    ) -> EphemeralRuntimeMetadata | SessionRuntimeMetadata:
-        result = self.result
-        if result is None:
-            raise AttributeError("Only completed outcomes carry runtime metadata.")
-        if isinstance(result, EphemeralRunResult):
-            return result.runtime_metadata
-        return result.runtime_metadata
-
-    @property
-    def metadata(self) -> EphemeralResultMetadata:
-        result = self.result
-        if not isinstance(result, EphemeralRunResult):
-            raise AttributeError("Completed outcome does not carry ephemeral metadata.")
-        return result.metadata
-
-    @property
-    def selected_service(self) -> str:
-        if not isinstance(self.result, EphemeralRunResult) or self.service_name is None:
-            raise AttributeError("Completed outcome does not carry selection metadata.")
-        return self.service_name
-
-    @property
-    def selected_model(self) -> str:
-        selected_model = self._selected_model
-        if selected_model is None:
-            raise AttributeError("Outcome does not carry selection metadata.")
-        return selected_model
-
-    @property
-    def selected_effort(self) -> str:
-        selected_effort = self._selected_effort
-        if selected_effort is None:
-            raise AttributeError("Outcome does not carry selection metadata.")
-        return selected_effort
-
-    @property
-    def tool_access(self) -> ToolAccess:
-        result = self.result
-        if not isinstance(result, EphemeralRunResult):
-            raise AttributeError("Completed outcome does not carry tool access.")
-        return result.tool_access
-
-    @property
-    def raw_output(self) -> str:
-        return self.output
-
-
-@dataclasses.dataclass(frozen=True)
-class EphemeralRuntimeMetadata:
-    run_kind: RunKind
-
-
-@dataclasses.dataclass(frozen=True)
-class EphemeralResultMetadata:
-    runtime: EphemeralRuntimeMetadata
-
-
-@dataclasses.dataclass(frozen=True, init=False)
-class EphemeralRunResult:
-    output: str
-    tool_access: ToolAccess
-    metadata: EphemeralResultMetadata
-    usage: ProviderUsage | None = None
-
-    def __init__(
-        self,
-        *,
-        output: str,
-        tool_access: ToolAccess,
-        metadata: EphemeralResultMetadata,
-        usage: ProviderUsage | None = None,
-        selected_service: str | None = None,
-        selected_model: str | None = None,
-        selected_effort: str | None = None,
-    ) -> None:
-        del selected_service, selected_model, selected_effort
-        object.__setattr__(self, "output", output)
-        object.__setattr__(self, "tool_access", tool_access)
-        object.__setattr__(self, "metadata", metadata)
-        object.__setattr__(self, "usage", usage)
-
-    @property
-    def runtime_metadata(self) -> EphemeralRuntimeMetadata:
-        return self.metadata.runtime
-
-    @property
-    def raw_output(self) -> str:
-        return self.output
-
-
-def _outcome_selection_tuple(
-    result: EphemeralRunResult | SessionRunResult,
-) -> tuple[str | None, str | None, str | None]:
-    from ._portable_continuation_payload import read_portable_continuation_payload
-
-    if isinstance(result, EphemeralRunResult):
-        return None, None, None
-
-    continuation = result.continuation
-    continuation_payload = (
-        None
-        if continuation is None
-        else read_portable_continuation_payload(continuation)
-    )
-    service_name = result.runtime_metadata.service_name
-    selected_model = result.runtime_metadata.selected_model or (
-        None if continuation_payload is None else continuation_payload.model
-    )
-    selected_effort = result.runtime_metadata.selected_effort or (
-        None if continuation_payload is None else continuation_payload.effort
-    )
-    if not service_name and continuation_payload is not None:
-        service_name = continuation_payload.service_name
-    return service_name, selected_model, selected_effort
+    kind: OutcomeKind
+    result: RunResult
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -688,31 +438,6 @@ class NewSessionRunRequest:
     @property
     def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
         return self.tool_access.tool_policy
-
-
-@dataclasses.dataclass(frozen=True)
-class SessionRuntimeMetadata:
-    service_name: str
-    provider_session_id: str | None
-    run_kind: RunKind
-    session_namespace: str
-    exact_transcript_match: bool
-    selected_model: str = dataclasses.field(default="", compare=False)
-    selected_effort: str = dataclasses.field(default="", compare=False)
-    tool_policy: ToolPolicy | ToolPolicyProfile = dataclasses.field(
-        default=ToolPolicy.UNRESTRICTED,
-        compare=False,
-    )
-
-
-@dataclasses.dataclass(frozen=True)
-class SessionRunResult:
-    output: str
-    runtime_metadata: SessionRuntimeMetadata
-    continuation: Continuation | None = dataclasses.field(
-        default=None,
-        compare=False,
-    )
 
 
 @dataclasses.dataclass(frozen=True, init=False)

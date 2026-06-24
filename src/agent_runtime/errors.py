@@ -74,7 +74,6 @@ class UsageLimitError(AgentRuntimeError):
         service_name: str | None = None,
         *,
         is_permanent: bool = False,
-        account_label: str | None = None,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
         usage: ProviderUsage | None = None,
@@ -88,7 +87,6 @@ class UsageLimitError(AgentRuntimeError):
             )
         self.service_name = service_name
         self.is_permanent = is_permanent
-        self.account_label = account_label
         self.invocation_progress = invocation_progress
         self.continuation = continuation
         self.usage = usage

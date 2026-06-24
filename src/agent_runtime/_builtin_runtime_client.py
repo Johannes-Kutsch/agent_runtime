@@ -30,21 +30,23 @@ from ._portable_continuation_payload import (
     read_portable_continuation_payload,
 )
 from ._runtime_lifecycle import (
+    Cancelled,
+    Completed,
     Continuation,
     AgentEvent,
-    EphemeralResultMetadata,
     EphemeralRunRequest,
-    EphemeralRunResult,
-    EphemeralRuntimeMetadata,
+    NoServiceAvailable,
     ProviderAuth,
     ProviderUsage,
-    InvocationRecord,
     ResumedSessionRunRequest,
+    RetryableProviderFailure,
+    RunResult,
     RuntimeOutcome,
-    SessionRunResult,
-    SessionRuntimeMetadata,
+    TimedOut,
+    UsageLimited,
     NewSessionRunRequest,
 )
+from .types import ResolvedProvider
 from .contracts import (
     AssistantTurn,
     CredentialFailure,
@@ -812,6 +814,36 @@ def _raw_event_payload(value: object) -> str:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
 
+def _render_tool_call_display_message(tool_name: str, payload: str) -> str:
+    if payload:
+        return f"{tool_name}({payload})"
+    return tool_name
+
+
+def _message_event(line: str, text: str) -> AgentEvent:
+    return AgentEvent(
+        type="agent_message",
+        display_message=text,
+        raw_provider_output=line,
+    )
+
+
+def _tool_call_event(line: str, tool_name: str, payload: str) -> AgentEvent:
+    return AgentEvent(
+        type="agent_tool_call",
+        display_message=_render_tool_call_display_message(tool_name, payload),
+        raw_provider_output=line,
+    )
+
+
+def _other_event(line: str, descriptor: str) -> AgentEvent:
+    return AgentEvent(
+        type="other",
+        display_message=descriptor,
+        raw_provider_output=line,
+    )
+
+
 def _codex_tool_payload(item: dict[str, object]) -> str:
     for key in ("arguments", "input", "payload"):
         value = item.get(key)
@@ -824,19 +856,9 @@ def _live_output_event_for_codex_line(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return AgentEvent(
-            type="other",
-            service_name="codex",
-            raw_provider_output=line,
-            descriptor="unparsed",
-        )
+        return _other_event(line, "unparsed")
     if not isinstance(event, dict):
-        return AgentEvent(
-            type="other",
-            service_name="codex",
-            raw_provider_output=line,
-            descriptor="non_object",
-        )
+        return _other_event(line, "non_object")
     event_type = event.get("type")
     if event_type in {"item.completed", "item.started"}:
         item = event.get("item")
@@ -847,49 +869,23 @@ def _live_output_event_for_codex_line(line: str) -> AgentEvent:
                 if content is None:
                     content = item.get("content") or ""
                 if isinstance(content, str):
-                    return AgentEvent(
-                        type="agent_message",
-                        service_name="codex",
-                        raw_provider_output=line,
-                        text=content,
-                    )
+                    return _message_event(line, content)
             if isinstance(item_type, str):
                 tool_name = item.get("name")
                 if not isinstance(tool_name, str) or not tool_name:
                     tool_name = item_type
-                return AgentEvent(
-                    type="agent_tool_call",
-                    service_name="codex",
-                    raw_provider_output=line,
-                    tool_name=tool_name,
-                    payload=_codex_tool_payload(item),
-                )
+                return _tool_call_event(line, tool_name, _codex_tool_payload(item))
     descriptor = event_type if isinstance(event_type, str) and event_type else "other"
-    return AgentEvent(
-        type="other",
-        service_name="codex",
-        raw_provider_output=line,
-        descriptor=descriptor,
-    )
+    return _other_event(line, descriptor)
 
 
 def _live_output_event_for_claude_line(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return AgentEvent(
-            type="other",
-            service_name="claude",
-            raw_provider_output=line,
-            descriptor="unparsed",
-        )
+        return _other_event(line, "unparsed")
     if not isinstance(event, dict):
-        return AgentEvent(
-            type="other",
-            service_name="claude",
-            raw_provider_output=line,
-            descriptor="non_object",
-        )
+        return _other_event(line, "non_object")
     if event.get("type") == "assistant":
         message = event.get("message")
         if isinstance(message, dict):
@@ -908,12 +904,7 @@ def _live_output_event_for_claude_line(line: str) -> AgentEvent:
                     elif block_type == "tool_use":
                         tool_blocks.append(cast(dict[str, object], block))
                 if text_parts:
-                    return AgentEvent(
-                        type="agent_message",
-                        service_name="claude",
-                        raw_provider_output=line,
-                        text="\n\n".join(text_parts),
-                    )
+                    return _message_event(line, "\n\n".join(text_parts))
                 if tool_blocks:
                     first_tool = tool_blocks[0]
                     tool_name = first_tool.get("name")
@@ -924,40 +915,21 @@ def _live_output_event_for_claude_line(line: str) -> AgentEvent:
                         if len(tool_blocks) == 1 and first_tool.get("input") is not None
                         else tool_blocks
                     )
-                    return AgentEvent(
-                        type="agent_tool_call",
-                        service_name="claude",
-                        raw_provider_output=line,
-                        tool_name=tool_name,
-                        payload=_raw_event_payload(payload_value),
+                    return _tool_call_event(
+                        line, tool_name, _raw_event_payload(payload_value)
                     )
     event_type = event.get("type")
     descriptor = event_type if isinstance(event_type, str) and event_type else "other"
-    return AgentEvent(
-        type="other",
-        service_name="claude",
-        raw_provider_output=line,
-        descriptor=descriptor,
-    )
+    return _other_event(line, descriptor)
 
 
 def _live_output_event_for_opencode_line(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return AgentEvent(
-            type="other",
-            service_name="opencode",
-            raw_provider_output=line,
-            descriptor="unparsed",
-        )
+        return _other_event(line, "unparsed")
     if not isinstance(event, dict):
-        return AgentEvent(
-            type="other",
-            service_name="opencode",
-            raw_provider_output=line,
-            descriptor="non_object",
-        )
+        return _other_event(line, "non_object")
     if event.get("type") == "text":
         part = event.get("part")
         if isinstance(part, dict):
@@ -969,12 +941,7 @@ def _live_output_event_for_opencode_line(line: str) -> AgentEvent:
                     if isinstance(text, str):
                         stripped = text.strip()
                         if stripped:
-                            return AgentEvent(
-                                type="agent_message",
-                                service_name="opencode",
-                                raw_provider_output=line,
-                                text=stripped,
-                            )
+                            return _message_event(line, stripped)
             if part_type == "tool":
                 tool_name = part.get("name")
                 if not isinstance(tool_name, str) or not tool_name:
@@ -984,12 +951,8 @@ def _live_output_event_for_opencode_line(line: str) -> AgentEvent:
                     if part.get("input") is not None
                     else part.get("text", part)
                 )
-                return AgentEvent(
-                    type="agent_tool_call",
-                    service_name="opencode",
-                    raw_provider_output=line,
-                    tool_name=tool_name,
-                    payload=_raw_event_payload(payload_value),
+                return _tool_call_event(
+                    line, tool_name, _raw_event_payload(payload_value)
                 )
     if event.get("type") == "session.status":
         status = event.get("status")
@@ -998,20 +961,10 @@ def _live_output_event_for_opencode_line(line: str) -> AgentEvent:
             status_type = status.get("type")
             if isinstance(status_type, str):
                 descriptor = status_type
-        return AgentEvent(
-            type="other",
-            service_name="opencode",
-            raw_provider_output=line,
-            descriptor=descriptor,
-        )
+        return _other_event(line, descriptor)
     event_type = event.get("type")
     descriptor = event_type if isinstance(event_type, str) and event_type else "other"
-    return AgentEvent(
-        type="other",
-        service_name="opencode",
-        raw_provider_output=line,
-        descriptor=descriptor,
-    )
+    return _other_event(line, descriptor)
 
 
 def _live_output_event_for_provider_line(service_name: str, line: str) -> AgentEvent:
@@ -1021,12 +974,7 @@ def _live_output_event_for_provider_line(service_name: str, line: str) -> AgentE
         return _live_output_event_for_codex_line(line)
     if service_name == "opencode":
         return _live_output_event_for_opencode_line(line)
-    return AgentEvent(
-        type="other",
-        service_name=service_name,
-        raw_provider_output=line,
-        descriptor="other",
-    )
+    return _other_event(line, "other")
 
 
 def _is_live_output_exception(exc: BaseException) -> bool:
@@ -1733,36 +1681,6 @@ def _extract_opencode_provider_session_id(lines: list[str]) -> str | None:
     return provider_session_id
 
 
-def _provider_invocation_records_output_lines(
-    service_name: str,
-    stdout_lines: tuple[str, ...],
-    *,
-    include_thread_started: bool = False,
-) -> list[str]:
-    if service_name != "codex":
-        return list(stdout_lines)
-    output_lines: list[str] = []
-    for line in stdout_lines:
-        has_trailing_newline = line.endswith("\n")
-        stripped_line = line[:-1] if has_trailing_newline else line
-        try:
-            event = json.loads(stripped_line)
-        except json.JSONDecodeError:
-            output_lines.append(line)
-            continue
-        if (
-            not include_thread_started
-            and isinstance(event, dict)
-            and event.get("type") == "thread.started"
-        ):
-            continue
-        output_line = json.dumps(event, separators=(",", ":"), ensure_ascii=False)
-        if has_trailing_newline:
-            output_line += "\n"
-        output_lines.append(output_line)
-    return output_lines
-
-
 def _provider_session_id_from_stdout_lines(
     service_name: str,
     stdout_lines: tuple[str, ...],
@@ -2169,104 +2087,24 @@ def _build_opencode_continuation(
     ).to_continuation()
 
 
-def _invocation_events_from_stdout_lines(
-    service_name: str,
-    stdout_lines: tuple[str, ...],
-) -> tuple[AgentEvent, ...]:
-    return tuple(
-        _live_output_event_for_provider_line(service_name, line)
-        for line in stdout_lines
-    )
-
-
-def _provider_invocation_records(
-    service_name: str,
-    run_kind: RunKind,
-    outcome: str,
+def _completed_outcome(
+    *,
+    output: str,
+    usage: ProviderUsage | None,
+    continuation: Continuation | None,
+    service: str,
     model: str,
     effort: str,
-    invocation_result: ProviderInvocationResult,
-    provider_session_id: str | None = None,
-) -> tuple[InvocationRecord]:
-    resolved_provider_session_id = (
-        invocation_result.provider_session_id or provider_session_id
-    )
-    provider_output_lines = _provider_invocation_records_output_lines(
-        service_name,
-        invocation_result.stdout_lines,
-    )
-    stdout_output = (
-        "".join(provider_output_lines).encode("utf-8")
-        if provider_output_lines
-        else None
-    )
-    events = _invocation_events_from_stdout_lines(
-        service_name, invocation_result.stdout_lines
-    )
-    return (
-        InvocationRecord(
-            run_kind=run_kind,
-            service_name=service_name,
-            model=model,
-            effort=effort,
-            outcome=outcome,
-            provider_session_id=resolved_provider_session_id,
-            events=events,
-            provider_output=stdout_output,
-            usage=invocation_result.usage,
-        ),
-    )
-
-
-def _provider_invocation_records_from_error(
-    service_name: str,
-    run_kind: RunKind,
-    model: str,
-    effort: str,
-    exc: UsageLimitError | RetryableProviderFailureError,
-) -> tuple[InvocationRecord]:
-    outcome = (
-        "usage_limited"
-        if isinstance(exc, UsageLimitError)
-        else "retryable_provider_failure"
-    )
-    stdout_lines = provider_invocation_failure_stdout_lines(exc)
-    usage = getattr(exc, "usage", None)
-    provider_session_id = _provider_session_id_from_error(
-        service_name,
-        exc,
-    )
-    provider_output_lines = _provider_invocation_records_output_lines(
-        service_name,
-        stdout_lines,
-        include_thread_started=True,
-    )
-    provider_output = (
-        "".join(provider_output_lines).encode("utf-8")
-        if provider_output_lines
-        else None
-    )
-    events = _invocation_events_from_stdout_lines(service_name, stdout_lines)
-    return (
-        InvocationRecord(
-            run_kind=run_kind,
-            service_name=service_name,
-            model=model,
-            effort=effort,
-            outcome=outcome,
-            provider_session_id=provider_session_id,
-            events=events,
-            provider_output=provider_output,
+) -> RuntimeOutcome:
+    return RuntimeOutcome(
+        kind=Completed(),
+        result=RunResult(
+            output=output,
             usage=usage,
+            continuation=continuation,
+            selected=ResolvedProvider(service=service, model=model, effort=effort),
         ),
     )
-
-
-def _attach_runtime_invocation_records(
-    exc: UsageLimitError | RetryableProviderFailureError,
-    invocation_records: tuple[InvocationRecord, ...],
-) -> None:
-    setattr(exc, "_runtime_invocation_records", invocation_records)
 
 
 def _default_provider_invocation_adapter() -> ProviderInvocationAdapter:
@@ -2561,7 +2399,7 @@ def _run_builtin_ephemeral(
         str,
     ] = _reduce_opencode_stream,
     validate_codex_auth: Callable[[], None] = _validate_codex_auth,
-) -> EphemeralRunResult:
+) -> RunResult:
     invocation_adapter = (
         _default_provider_invocation_adapter()
         if provider_invocation_adapter is None
@@ -2696,15 +2534,15 @@ def _run_builtin_ephemeral(
             )
         result_text = invocation_result.output
         usage = invocation_result.usage
-        return EphemeralRunResult(
+        return RunResult(
             output=result_text,
-            tool_access=request.tool_access,
-            metadata=EphemeralResultMetadata(
-                runtime=EphemeralRuntimeMetadata(
-                    run_kind=RunKind.FRESH,
-                ),
-            ),
             usage=usage,
+            continuation=None,
+            selected=ResolvedProvider(
+                service=selected_stage.service,
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+            ),
         )
     finally:
         if timeout_watchdog is not None:
@@ -2775,7 +2613,6 @@ def _run_builtin_new_session(
         if provider_invocation_adapter is None
         else provider_invocation_adapter
     )
-    invocation_records: tuple[InvocationRecord, ...] = ()
     runtime_state_dir, cleanup_runtime_state_dir, is_caller_managed_runtime_state = (
         _new_session_runtime_state_dir(
             request,
@@ -2839,7 +2676,6 @@ def _run_builtin_new_session(
                     provider_invocation_adapter=invocation_adapter,
                 )
             provider_session_id: str | None = None
-            invocation_records = ()
             try:
                 invocation_result = _invoke_codex_new_session_provider(
                     provider_invocation_adapter=invocation_adapter,
@@ -2852,31 +2688,12 @@ def _run_builtin_new_session(
                     invocation_result,
                     fallback_provider_session_id=provider_session_id,
                 )
-                invocation_records = _provider_invocation_records(
-                    service_name="codex",
-                    run_kind=RunKind.FRESH,
-                    outcome="completed",
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    invocation_result=invocation_result,
-                    provider_session_id=provider_session_id,
-                )
                 result_text = invocation_result.output
                 usage = invocation_result.usage
             except (UsageLimitError, RetryableProviderFailureError) as exc:
                 provider_session_id = _active_codex_provider_session_id_from_failure(
                     exc,
                     fallback_provider_session_id=provider_session_id,
-                )
-                _attach_runtime_invocation_records(
-                    exc,
-                    _provider_invocation_records_from_error(
-                        service_name="codex",
-                        run_kind=RunKind.FRESH,
-                        model=selected_stage.model,
-                        effort=selected_stage.effort,
-                        exc=exc,
-                    ),
                 )
                 exc.continuation = (
                     _build_codex_continuation(
@@ -2893,38 +2710,27 @@ def _run_builtin_new_session(
                     else None
                 )
                 raise
-            return RuntimeOutcome.completed(
+            return _completed_outcome(
                 output=result_text,
-                result=SessionRunResult(
-                    output=result_text,
-                    runtime_metadata=SessionRuntimeMetadata(
-                        service_name="codex",
-                        provider_session_id=provider_session_id,
-                        run_kind=RunKind.FRESH,
-                        session_namespace=request._session_namespace,
-                        exact_transcript_match=False,
-                        selected_model=selected_stage.model,
-                        selected_effort=selected_stage.effort,
-                        tool_policy=request.tool_access.tool_policy,
-                    ),
-                    continuation=(
-                        _build_codex_continuation(
-                            model=selected_stage.model,
-                            effort=selected_stage.effort,
-                            tool_access=request.tool_access,
-                            provider_session_id=provider_session_id,
-                            provider_state_dir_relpath=(
-                                _portable_codex_state_dir_relpath(
-                                    provider_state_dir_relpath
-                                )
-                            ),
-                        )
-                        if provider_session_id is not None
-                        else None
-                    ),
-                ),
                 usage=usage,
-                invocation_records=invocation_records,
+                continuation=(
+                    _build_codex_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=provider_session_id,
+                        provider_state_dir_relpath=(
+                            _portable_codex_state_dir_relpath(
+                                provider_state_dir_relpath
+                            )
+                        ),
+                    )
+                    if provider_session_id is not None
+                    else None
+                ),
+                service="codex",
+                model=selected_stage.model,
+                effort=selected_stage.effort,
             )
         elif selected_stage.service == "claude":
             provider_state_dir_relpath, provider_state_dir = (
@@ -2998,15 +2804,6 @@ def _run_builtin_new_session(
                     provider_session_id=provider_session_id,
                     on_live_output=_on_live_output,
                 )
-                invocation_records = _provider_invocation_records(
-                    service_name=selected_stage.service,
-                    run_kind=run_kind,
-                    outcome="completed",
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    invocation_result=invocation_result,
-                    provider_session_id=provider_session_id,
-                )
             else:
                 assert provider_session_id is not None
                 invocation_result, provider_session_id = (
@@ -3020,27 +2817,8 @@ def _run_builtin_new_session(
                         on_live_output=_on_live_output,
                     )
                 )
-                invocation_records = _provider_invocation_records(
-                    service_name=selected_stage.service,
-                    run_kind=run_kind,
-                    outcome="completed",
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    invocation_result=invocation_result,
-                    provider_session_id=provider_session_id,
-                )
                 _persist_opencode_session_id(provider_state_dir, provider_session_id)
         except (UsageLimitError, RetryableProviderFailureError) as exc:
-            _attach_runtime_invocation_records(
-                exc,
-                _provider_invocation_records_from_error(
-                    service_name=selected_stage.service,
-                    run_kind=run_kind,
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    exc=exc,
-                ),
-            )
             provider_session_id = _provider_session_id_from_error(
                 selected_stage.service,
                 exc,
@@ -3076,40 +2854,29 @@ def _run_builtin_new_session(
         assert provider_session_id is not None
         result_text = invocation_result.output
         usage = invocation_result.usage
-        return RuntimeOutcome.completed(
+        return _completed_outcome(
             output=result_text,
-            result=SessionRunResult(
-                output=result_text,
-                runtime_metadata=SessionRuntimeMetadata(
-                    service_name=selected_stage.service,
-                    provider_session_id=provider_session_id,
-                    run_kind=run_kind,
-                    session_namespace=request._session_namespace,
-                    exact_transcript_match=exact_transcript_match,
-                    selected_model=selected_stage.model,
-                    selected_effort=selected_stage.effort,
-                    tool_policy=request.tool_access.tool_policy,
-                ),
-                continuation=(
-                    _build_claude_continuation(
-                        model=selected_stage.model,
-                        effort=selected_stage.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=provider_session_id,
-                    )
-                    if selected_stage.service == "claude"
-                    else _build_opencode_continuation(
-                        model=selected_stage.model,
-                        effort=selected_stage.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=provider_session_id,
-                        provider_state_dir=provider_state_dir,
-                        exact_transcript_match=exact_transcript_match,
-                    )
-                ),
-            ),
             usage=usage,
-            invocation_records=invocation_records,
+            continuation=(
+                _build_claude_continuation(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                )
+                if selected_stage.service == "claude"
+                else _build_opencode_continuation(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                    provider_state_dir=provider_state_dir,
+                    exact_transcript_match=exact_transcript_match,
+                )
+            ),
+            service=selected_stage.service,
+            model=selected_stage.model,
+            effort=selected_stage.effort,
         )
     finally:
         cleanup_runtime_state_dir()
@@ -3147,7 +2914,6 @@ def _run_builtin_resumed_session(
     provider_session_id: str | None
     provider_state_dir_relpath: str | None = None
     provider_state_dir: Path | None = None
-    invocation_records: tuple[InvocationRecord, ...] = ()
 
     def _no_cleanup() -> None:
         return None
@@ -3196,28 +2962,9 @@ def _run_builtin_resumed_session(
                 invocation_result,
                 fallback_provider_session_id=provider_session_id,
             )
-            invocation_records = _provider_invocation_records(
-                service_name="codex",
-                run_kind=run_kind,
-                outcome="completed",
-                model=request.model,
-                effort=request.effort,
-                invocation_result=invocation_result,
-                provider_session_id=active_provider_session_id,
-            )
             result_text = invocation_result.output
             usage = invocation_result.usage
         except (UsageLimitError, RetryableProviderFailureError) as exc:
-            _attach_runtime_invocation_records(
-                exc,
-                _provider_invocation_records_from_error(
-                    service_name="codex",
-                    run_kind=run_kind,
-                    model=request.model,
-                    effort=request.effort,
-                    exc=exc,
-                ),
-            )
             active_provider_session_id = _active_codex_provider_session_id_from_failure(
                 exc,
                 fallback_provider_session_id=active_provider_session_id,
@@ -3235,34 +2982,23 @@ def _run_builtin_resumed_session(
                 else None
             )
             raise
-        return RuntimeOutcome.completed(
+        return _completed_outcome(
             output=result_text,
-            result=SessionRunResult(
-                output=result_text,
-                runtime_metadata=SessionRuntimeMetadata(
-                    service_name="codex",
-                    provider_session_id=active_provider_session_id,
-                    run_kind=run_kind,
-                    session_namespace=request._session_namespace,
-                    exact_transcript_match=False,
-                    selected_model=request.model,
-                    selected_effort=request.effort,
-                    tool_policy=request.tool_access.tool_policy,
-                ),
-                continuation=(
-                    _build_codex_continuation(
-                        model=request.model,
-                        effort=request.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=active_provider_session_id,
-                        provider_state_dir_relpath=provider_state_dir_relpath,
-                    )
-                    if active_provider_session_id is not None
-                    else None
-                ),
-            ),
             usage=usage,
-            invocation_records=invocation_records,
+            continuation=(
+                _build_codex_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=active_provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                )
+                if active_provider_session_id is not None
+                else None
+            ),
+            service="codex",
+            model=request.model,
+            effort=request.effort,
         )
     if continuation_service not in {"claude", "opencode"}:
         raise RuntimeConfigurationError(
@@ -3397,15 +3133,6 @@ def _run_builtin_resumed_session(
             extract_provider_session_id=extract_provider_session_id,
         )
         if continuation_service == "opencode":
-            invocation_records = _provider_invocation_records(
-                service_name="opencode",
-                run_kind=run_kind,
-                outcome="completed",
-                model=request.model,
-                effort=request.effort,
-                invocation_result=invocation_result,
-                provider_session_id=provider_session_id,
-            )
             provider_session_id = invocation_result.provider_session_id
             assert provider_session_id is not None
             assert provider_state_dir is not None
@@ -3416,16 +3143,6 @@ def _run_builtin_resumed_session(
             )
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
     except (UsageLimitError, RetryableProviderFailureError) as exc:
-        _attach_runtime_invocation_records(
-            exc,
-            _provider_invocation_records_from_error(
-                service_name=continuation_service,
-                run_kind=run_kind,
-                model=request.model,
-                effort=request.effort,
-                exc=exc,
-            ),
-        )
         provider_session_id = _provider_session_id_from_error(
             continuation_service,
             exc,
@@ -3462,15 +3179,6 @@ def _run_builtin_resumed_session(
         cleanup_opencode_state_dir()
         raise
     if continuation_service == "claude":
-        invocation_records = _provider_invocation_records(
-            service_name="claude",
-            run_kind=run_kind,
-            outcome="completed",
-            model=request.model,
-            effort=request.effort,
-            invocation_result=invocation_result,
-            provider_session_id=provider_session_id,
-        )
         provider_session_id = (
             invocation_result.provider_session_id or provider_session_id
         )
@@ -3494,22 +3202,11 @@ def _run_builtin_resumed_session(
             exact_transcript_match=exact_transcript_match,
         )
     cleanup_opencode_state_dir()
-    return RuntimeOutcome.completed(
+    return _completed_outcome(
         output=result_text,
-        result=SessionRunResult(
-            output=result_text,
-            runtime_metadata=SessionRuntimeMetadata(
-                service_name=continuation_service,
-                provider_session_id=provider_session_id,
-                run_kind=run_kind,
-                session_namespace=request._session_namespace,
-                exact_transcript_match=exact_transcript_match,
-                selected_model=request.model,
-                selected_effort=request.effort,
-                tool_policy=request.tool_access.tool_policy,
-            ),
-            continuation=result_continuation,
-        ),
         usage=usage,
-        invocation_records=invocation_records,
+        continuation=result_continuation,
+        service=continuation_service,
+        model=request.model,
+        effort=request.effort,
     )

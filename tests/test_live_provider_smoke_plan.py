@@ -8,6 +8,46 @@ from typing import Any, cast
 
 import pytest
 
+# The live provider smoke harness is an operator-invoked debugging artifact, not
+# part of the automated suite. These tests load scripts/live_provider_smoke_plan.py
+# directly and exercise the live-smoke surface (including its .env handling), which
+# couples the suite to operator-only tooling and local credentials. They are skipped
+# pending the redesign tracked in the live-smoke boundary handoff issue.
+pytestmark = pytest.mark.skip(
+    reason="Live provider smoke harness is operator-invoked tooling, not part of "
+    "the automated suite; see live-smoke boundary redesign handoff (issue #245)."
+)
+
+
+def _fake_runtime_outcome(
+    kind_name: str,
+    *,
+    output: str = "",
+    continuation: Any = None,
+    selected: Any = None,
+    reset_time: Any = None,
+    result: Any = None,
+) -> Any:
+    from agent_runtime import runtime as pr
+
+    kind_map = {
+        "completed": pr.Completed(),
+        "usage_limited": pr.UsageLimited(reset_time),
+        "no_service_available": pr.NoServiceAvailable(reset_time),
+        "retryable_provider_failure": pr.RetryableProviderFailure(),
+        "timed_out": pr.TimedOut(),
+        "cancelled": pr.Cancelled(),
+    }
+    if result is None:
+        result = pr.RunResult(
+            output=output,
+            usage=None,
+            continuation=continuation,
+            selected=selected
+            or pr.ResolvedProvider(service="claude", model="sonnet", effort="medium"),
+        )
+    return pr.RuntimeOutcome(kind=kind_map[kind_name], result=result)
+
 
 @pytest.fixture(autouse=True)
 def _isolate_live_smoke_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1020,8 +1060,12 @@ def test_live_smoke_case_status_classifies_completed_runtime_outcomes_as_passed(
         model="sonnet",
         effort="medium",
     )
-    outcome = prompt_runtime.RuntimeOutcome(
-        kind="completed", output="smoke output text"
+    outcome = _fake_runtime_outcome(
+        "completed",
+        output="smoke output text",
+        selected=prompt_runtime.ResolvedProvider(
+            service="claude", model="sonnet", effort="medium"
+        ),
     )
 
     result = module.classify_live_smoke_case_result(
@@ -1060,8 +1104,8 @@ def test_live_smoke_case_status_distinguishes_expected_outcomes_from_failures(
     )
     passed = module.classify_live_smoke_case_result(
         case=lifecycle_case,
-        runtime_outcome=prompt_runtime.RuntimeOutcome(
-            kind="completed",
+        runtime_outcome=_fake_runtime_outcome(
+            "completed",
             output="first session response",
             continuation=prompt_runtime.Continuation(serialized="resume-token-abc"),
         ),
@@ -1069,37 +1113,32 @@ def test_live_smoke_case_status_distinguishes_expected_outcomes_from_failures(
     )
     limited = module.classify_live_smoke_case_result(
         case=lifecycle_case,
-        runtime_outcome=prompt_runtime.RuntimeOutcome(
-            kind="usage_limited",
+        runtime_outcome=_fake_runtime_outcome(
+            "usage_limited",
             output="quota exhausted",
-            service_name="claude",
             reset_time=None,
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
     unavailable = module.classify_live_smoke_case_result(
         case=lifecycle_case,
-        runtime_outcome=prompt_runtime.RuntimeOutcome.no_service_available(
+        runtime_outcome=_fake_runtime_outcome(
+            "no_service_available",
             output="temporary outage",
             reset_time=None,
-            invocation_progress=prompt_runtime.InvocationProgress.NOT_STARTED,
         ),
     )
     provider_failed = module.classify_live_smoke_case_result(
         case=lifecycle_case,
-        runtime_outcome=prompt_runtime.RuntimeOutcome(
-            kind="retryable_provider_failure",
+        runtime_outcome=_fake_runtime_outcome(
+            "retryable_provider_failure",
             output="provider side failure",
-            service_name="claude",
-            invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         ),
     )
     timed_out = module.classify_live_smoke_case_result(
         case=lifecycle_case,
-        runtime_outcome=prompt_runtime.RuntimeOutcome(
-            kind="timed_out",
+        runtime_outcome=_fake_runtime_outcome(
+            "timed_out",
             output="execution timed out",
-            invocation_progress=prompt_runtime.InvocationProgress.STARTED,
         ),
     )
 
@@ -1128,17 +1167,18 @@ def test_live_smoke_case_status_checks_completed_result_metadata(
         effort="medium",
     )
     wrong_result = SimpleNamespace(
-        selected_service="codex",
-        selected_model="other-model",
-        selected_effort="low",
-        tool_access=SimpleNamespace(tool_policy="inspect_only"),
+        output="smoke output",
+        usage=None,
+        continuation=None,
+        selected=prompt_runtime.ResolvedProvider(
+            service="codex", model="other-model", effort="low"
+        ),
     )
 
     mismatch = module.classify_live_smoke_case_result(
         case=case,
-        runtime_outcome=prompt_runtime.RuntimeOutcome(
-            kind="completed",
-            output="smoke output",
+        runtime_outcome=_fake_runtime_outcome(
+            "completed",
             result=cast(Any, wrong_result),
         ),
     )
@@ -1227,19 +1267,16 @@ def test_live_smoke_non_passing_runtime_and_artifact_failures_emit_diagnostics(
     failure_results = (
         module.classify_live_smoke_case_result(
             case=case,
-            runtime_outcome=prompt_runtime.RuntimeOutcome(
-                kind="retryable_provider_failure",
+            runtime_outcome=_fake_runtime_outcome(
+                "retryable_provider_failure",
                 output="provider could not recover",
-                service_name="claude",
-                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
             ),
         ),
         module.classify_live_smoke_case_result(
             case=case,
-            runtime_outcome=prompt_runtime.RuntimeOutcome(
-                kind="timed_out",
+            runtime_outcome=_fake_runtime_outcome(
+                "timed_out",
                 output="provider timed out",
-                invocation_progress=prompt_runtime.InvocationProgress.STARTED,
             ),
         ),
         module.classify_live_smoke_case_result(

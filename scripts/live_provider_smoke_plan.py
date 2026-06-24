@@ -50,6 +50,33 @@ def _runtime_outcome_continuation(runtime_outcome: Any) -> Any | None:
     return getattr(getattr(runtime_outcome, "result", None), "continuation", None)
 
 
+_OUTCOME_KIND_NAMES = {
+    "Completed": "completed",
+    "UsageLimited": "usage_limited",
+    "NoServiceAvailable": "no_service_available",
+    "Cancelled": "cancelled",
+    "TimedOut": "timed_out",
+    "RetryableProviderFailure": "retryable_provider_failure",
+}
+
+
+def _outcome_kind_name(runtime_outcome: Any) -> str | None:
+    kind = getattr(runtime_outcome, "kind", None)
+    if kind is None:
+        return None
+    if isinstance(kind, str):
+        return kind
+    return _OUTCOME_KIND_NAMES.get(type(kind).__name__)
+
+
+def _outcome_output(runtime_outcome: Any) -> str:
+    result = getattr(runtime_outcome, "result", None)
+    output = getattr(result, "output", None)
+    if output is None:
+        output = getattr(runtime_outcome, "output", "")
+    return output or ""
+
+
 SUPPORTED_PROVIDERS: tuple[str, ...] = ("claude", "codex", "opencode")
 LIVE_SMOKE_CLAUDE_MODEL_ENV = "LIVE_SMOKE_CLAUDE_MODEL"
 LIVE_SMOKE_CLAUDE_EFFORT_ENV = "LIVE_SMOKE_CLAUDE_EFFORT"
@@ -167,7 +194,7 @@ def classify_live_smoke_case_result(
             required=required,
         )
 
-    outcome_kind = getattr(runtime_outcome, "kind", None)
+    outcome_kind = _outcome_kind_name(runtime_outcome)
     if outcome_kind == "completed":
         metadata_mismatch = _completed_outcome_metadata_mismatch(
             case=case,
@@ -184,7 +211,7 @@ def classify_live_smoke_case_result(
                 required=required,
             )
         if required_output_non_empty and not str(
-            getattr(runtime_outcome, "output", "")
+            _outcome_output(runtime_outcome)
         ):
             return LiveSmokeCaseResult(
                 service=case.service,
@@ -237,7 +264,7 @@ def classify_live_smoke_case_result(
             policy=case.policy,
             status=LiveSmokeCaseStatus.USAGE_LIMITED,
             required=required,
-            diagnostic=getattr(runtime_outcome, "output", None),
+            diagnostic=_outcome_output(runtime_outcome) or None,
         )
 
     if outcome_kind == "no_service_available":
@@ -247,7 +274,7 @@ def classify_live_smoke_case_result(
             policy=case.policy,
             status=LiveSmokeCaseStatus.NO_SERVICE_AVAILABLE,
             required=required,
-            diagnostic=getattr(runtime_outcome, "output", None),
+            diagnostic=_outcome_output(runtime_outcome) or None,
         )
 
     if outcome_kind == "retryable_provider_failure":
@@ -257,7 +284,7 @@ def classify_live_smoke_case_result(
             policy=case.policy,
             status=LiveSmokeCaseStatus.FAILED,
             required=required,
-            diagnostic=getattr(runtime_outcome, "output", None),
+            diagnostic=_outcome_output(runtime_outcome) or None,
         )
 
     if outcome_kind == "timed_out":
@@ -267,7 +294,7 @@ def classify_live_smoke_case_result(
             policy=case.policy,
             status=LiveSmokeCaseStatus.FAILED,
             required=required,
-            diagnostic=getattr(runtime_outcome, "output", None),
+            diagnostic=_outcome_output(runtime_outcome) or None,
         )
 
     return LiveSmokeCaseResult(
@@ -276,7 +303,7 @@ def classify_live_smoke_case_result(
         policy=case.policy,
         status=LiveSmokeCaseStatus.FAILED,
         required=required,
-        diagnostic=getattr(runtime_outcome, "output", None),
+        diagnostic=_outcome_output(runtime_outcome) or None,
     )
 
 
@@ -321,26 +348,13 @@ def _extract_completed_outcome_metadata(
     result = getattr(runtime_outcome, "result", None)
     if result is None:
         return {}
-    if case.mode == "ephemeral":
-        tool_access = getattr(result, "tool_access", None)
-        tool_policy = _normalize_tool_policy(getattr(tool_access, "tool_policy", None))
-        return {
-            "service": getattr(result, "selected_service", None),
-            "model": getattr(result, "selected_model", None),
-            "effort": getattr(result, "selected_effort", None),
-            "tool_policy": tool_policy,
-        }
-    if case.mode in {"new_session", "resumed_session"}:
-        runtime_metadata = getattr(result, "runtime_metadata", None)
-        return {
-            "service": getattr(runtime_metadata, "service_name", None),
-            "model": getattr(runtime_metadata, "selected_model", None),
-            "effort": getattr(runtime_metadata, "selected_effort", None),
-            "tool_policy": _normalize_tool_policy(
-                getattr(runtime_metadata, "tool_policy", None)
-            ),
-        }
-    return {}
+    selected = getattr(result, "selected", None)
+    return {
+        "service": getattr(selected, "service", None),
+        "model": getattr(selected, "model", None),
+        "effort": getattr(selected, "effort", None),
+        "tool_policy": None,
+    }
 
 
 def _tool_policy_from_case_policy(policy: str) -> ToolPolicy | str:

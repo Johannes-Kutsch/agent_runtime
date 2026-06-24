@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 import agent_runtime as runtime
+from agent_runtime.invocation_progress import InvocationProgress as _InvocationProgress
 from agent_runtime.contracts import (
     AssistantTurn,
     CredentialFailure,
@@ -89,7 +90,7 @@ def test_provider_output_reduction_accepts_explicit_model_activity_for_usage_lim
             provider="codex",
         )
 
-    assert exc_info.value.invocation_progress is runtime.InvocationProgress.STARTED
+    assert exc_info.value.invocation_progress is _InvocationProgress.STARTED
 
 
 def test_provider_output_reduction_keeps_unknown_activity_usage_limits_not_started() -> (
@@ -106,7 +107,7 @@ def test_provider_output_reduction_keeps_unknown_activity_usage_limits_not_start
             provider="codex",
         )
 
-    assert exc_info.value.invocation_progress is runtime.InvocationProgress.NOT_STARTED
+    assert exc_info.value.invocation_progress is _InvocationProgress.NOT_STARTED
 
 
 def test_provider_output_reduction_maps_transient_error() -> None:
@@ -137,7 +138,7 @@ def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
 
     assert exc_info.value.service_name == "codex"
     assert exc_info.value.status_code == 503
-    assert exc_info.value.invocation_progress is runtime.InvocationProgress.NOT_STARTED
+    assert exc_info.value.invocation_progress is _InvocationProgress.NOT_STARTED
     assert str(exc_info.value) == "retry"
 
 
@@ -158,7 +159,7 @@ def test_provider_output_reduction_reports_started_progress_for_retryable_provid
             provider="codex",
         )
 
-    assert exc_info.value.invocation_progress is runtime.InvocationProgress.STARTED
+    assert exc_info.value.invocation_progress is _InvocationProgress.STARTED
 
 
 def test_provider_output_reduction_accepts_explicit_model_activity_for_retryable_provider_failure() -> (
@@ -178,7 +179,7 @@ def test_provider_output_reduction_accepts_explicit_model_activity_for_retryable
             provider="codex",
         )
 
-    assert exc_info.value.invocation_progress is runtime.InvocationProgress.STARTED
+    assert exc_info.value.invocation_progress is _InvocationProgress.STARTED
 
 
 def test_provider_output_reduction_maps_hard_error(

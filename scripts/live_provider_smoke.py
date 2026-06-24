@@ -256,7 +256,6 @@ class _StubOutcome:
     kind: str = "completed"
     output: str = ""
     live_turns: tuple[Any, ...] = ()
-    invocation_records: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -264,12 +263,9 @@ class _ObservedRuntimeOutcome:
     kind: str
     output: str = ""
     live_turns: tuple[Any, ...] = ()
-    invocation_records: tuple[Any, ...] = ()
     result: Any | None = None
     service_name: str | None = None
-    account_label: str | None = None
     reset_time: Any | None = None
-    invocation_progress: Any | None = None
     continuation: Any | None = None
     usage: Any | None = None
 
@@ -286,18 +282,21 @@ def _as_observed_runtime_outcome(
     *,
     live_turns: tuple[Any, ...] = (),
 ) -> _ObservedRuntimeOutcome:
+    result = getattr(runtime_outcome, "result", None)
+    selected = getattr(result, "selected", None)
+    kind = getattr(runtime_outcome, "kind", None)
+    output = getattr(result, "output", None)
+    if output is None:
+        output = getattr(runtime_outcome, "output", "")
     return _ObservedRuntimeOutcome(
-        kind=str(getattr(runtime_outcome, "kind", "failed")),
-        output=str(getattr(runtime_outcome, "output", "")),
+        kind=live_provider_smoke_plan._outcome_kind_name(runtime_outcome) or "failed",
+        output=str(output or ""),
         live_turns=live_turns,
-        invocation_records=tuple(getattr(runtime_outcome, "invocation_records", ())),
-        result=getattr(runtime_outcome, "result", None),
-        service_name=getattr(runtime_outcome, "service_name", None),
-        account_label=getattr(runtime_outcome, "account_label", None),
-        reset_time=getattr(runtime_outcome, "reset_time", None),
-        invocation_progress=getattr(runtime_outcome, "invocation_progress", None),
+        result=result,
+        service_name=getattr(selected, "service", None),
+        reset_time=getattr(kind, "reset_time", None),
         continuation=_runtime_outcome_continuation(runtime_outcome),
-        usage=getattr(runtime_outcome, "usage", None),
+        usage=getattr(result, "usage", None),
     )
 
 
@@ -926,31 +925,13 @@ def _resolve_runtime_outcome(runtime_outcome: Any) -> Any:
     return runtime_outcome
 
 
-def _serialize_case_invocation_records(invocation_records: Any) -> list[dict[str, Any]]:
-    if invocation_records is None:
-        return []
-    serialized: list[dict[str, Any]] = []
-    for record in invocation_records:
-        serialized.append(
-            {
-                "run_kind": getattr(record, "run_kind", None),
-                "service_name": getattr(record, "service_name", None),
-                "provider_session_id": getattr(record, "provider_session_id", None),
-                "prompt": getattr(record, "prompt", None),
-                "provider_output": getattr(record, "provider_output", None),
-                "usage": getattr(record, "usage", None),
-            }
-        )
-    return serialized
-
-
 def _serialize_live_turns(case_outcome: Any) -> list[dict[str, str]]:
     live_turns: list[dict[str, str]] = []
     for turn in getattr(case_outcome, "live_turns", ()):  # pragma: no branch
         live_turns.append(
             {
-                "text": str(getattr(turn, "text", "")),
-                "service_name": str(getattr(turn, "service_name", "")),
+                "type": str(getattr(turn, "type", "")),
+                "display_message": str(getattr(turn, "display_message", "")),
             }
         )
     return live_turns
@@ -966,10 +947,6 @@ def _serialize_case_output(planned_case: Any, case_outcome: Any) -> dict[str, An
         "kind": getattr(case_outcome, "kind", "unknown"),
         "output": getattr(case_outcome, "output", ""),
         "service_name": getattr(case_outcome, "service_name", None),
-        "account_label": getattr(case_outcome, "account_label", None),
-        "invocation_records": _serialize_case_invocation_records(
-            getattr(case_outcome, "invocation_records", ())
-        ),
     }
 
 
@@ -999,12 +976,6 @@ def _write_optional_case_artifacts(
     _write_json(
         artifact_dir / "outcome.json",
         _serialize_case_output(planned_case, case_outcome),
-    )
-    _write_json(
-        artifact_dir / "invocation_records.json",
-        _serialize_case_invocation_records(
-            getattr(case_outcome, "invocation_records", ())
-        ),
     )
     _write_json(
         artifact_dir / "timings.json",
