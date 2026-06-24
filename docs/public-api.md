@@ -28,18 +28,19 @@ The package root exposes stable shared vocabulary and common errors:
 - `InvocationProgress`
 - `InvocationRecord`
 - `ProviderAuth`
+- `ProviderSelection`
 - `ProviderUsage`
+- `RuntimeClient`
 - `RuntimeConfigurationError`
 - `RuntimeOutcome`
 - `RunKind`
-- `ProviderSelection`
 - `ToolPolicy`
 - `TransientAgentError`
 - `UsageLimitError`
 
 The following values and objects are also part of the shared import surface and are available from both `agent_runtime` and `agent_runtime.runtime`:
 
-- `AgentMessageTurn`
+- `AgentEvent`
 
 Behaviorful lifecycle entrypoints live in `agent_runtime.runtime`, not at the package root.
 
@@ -100,13 +101,14 @@ EphemeralRunRequest(
     invocation_dir: Path,
     provider_selection: ProviderSelection,
     tool_policy: ToolPolicy,
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    timeout_seconds: int = 300,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
     token: CancellationToken | None = None,
 ) -> None
 ```
 
-Ephemeral execution runs an already-rendered prompt without intentionally preparing provider-session continuity. It does not require session storage inputs and does not return a continuation.
-`on_live_output` can observe provider-observed assistant turns for this invocation.
+Ephemeral execution runs an already-rendered prompt without intentionally preparing provider-session continuity. It does not require session storage inputs and does not return a continuation. `timeout_seconds` specifies the idle timeout (maximum seconds without an observed `Agent Event` before runtime aborts); default is 300 seconds.
+`on_live_output` can observe `Agent Event` values from this invocation.
 
 #### `NewSessionRunRequest`
 
@@ -117,12 +119,13 @@ NewSessionRunRequest(
     invocation_dir: Path,
     provider_selection: ProviderSelection,
     tool_policy: ToolPolicy,
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    timeout_seconds: int = 300,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
     token: CancellationToken | None = None,
 ) -> None
 ```
 
-New-session execution selects a built-in provider, starts provider transcript continuity, and returns a portable opaque continuation for later resumed execution. A completed session-backed run must include meaningful continuation data; if a provider cannot produce resume data, the runtime must not report a successful session-backed result.
+New-session execution selects a built-in provider, starts provider transcript continuity, and returns a portable opaque continuation for later resumed execution. A completed session-backed run must include meaningful continuation data; if a provider cannot produce resume data, the runtime must not report a successful session-backed result. `timeout_seconds` specifies the idle timeout (maximum seconds without an observed `Agent Event` before runtime aborts); default is 300 seconds.
 `on_live_output` is also available for Start Session Run.
 
 #### `ResumedSessionRunRequest`
@@ -133,28 +136,29 @@ ResumedSessionRunRequest(
     prompt: str,
     invocation_dir: Path,
     continuation: Continuation,
-    auth: ProviderAuth | None = None,
-    on_live_output: Callable[[AgentMessageTurn], None] | None = None,
+    provider_auth: ProviderAuth | None = None,
+    timeout_seconds: int = 300,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
     token: CancellationToken | None = None,
 ) -> None
 ```
 
-Resumed-session execution continues an existing provider-session continuity chain. The continuation fixes service, model, effort, and tool policy. Resumed execution accepts request-time credentials because continuations do not store provider secrets, but it does not perform fallback, reselection, or tool-policy replacement.
+Resumed-session execution continues an existing provider-session continuity chain. The continuation fixes service, model, effort, and tool policy. Resumed execution accepts request-time credentials because continuations do not store provider secrets, but it does not perform fallback, reselection, or tool-policy replacement. `timeout_seconds` specifies the idle timeout (maximum seconds without an observed `Agent Event` before runtime aborts); default is 300 seconds.
 `on_live_output` is also available for Resume Session Run.
 
 ### Live Runtime Output
 
-`on_live_output` publishes per-invocation `AgentMessageTurn` observations while a run is executing. Observers receive turns from the current invocation only.
+`on_live_output` publishes per-invocation `Agent Event` observations while a run is executing. Observers receive events from the current invocation only.
 
-- Live Runtime Output is agent-message-turn observation, not token-by-token streaming.
-- It is provider-neutral and does not expose raw provider stdout, raw JSON, or provider DTO events.
-- It does not replay prior turns from continuations, logs, or historical transcript state.
+`Agent Event` values are discriminated by type: `agent_message` (assistant message output), `agent_tool_call` (tool invocation), or `other` (agent life sign). Each event carries both a filtered/neutral view and the raw provider output it derived from, plus selected service identity.
+
+- Live Runtime Output is `Agent Event` observation, not token-by-token streaming.
+- Events carry both filtered content (message text, tool name, payload) and raw provider output for consumers to choose which representation to use.
+- It does not replay prior events from continuations, logs, or historical transcript state.
 - Completed runtime output and `RuntimeOutcome` interruption semantics remain authoritative and unchanged.
 - `on_live_output` callbacks are synchronous and notification-only. Callback exceptions are propagated to the caller as consumer failures.
-- Consumers own backpressure policy, queueing, display formatting, redaction, and persistence for observed turns.
+- Consumers own backpressure policy, queueing, display formatting, redaction, and persistence for observed events.
 - Live Runtime Output observers are for display/telemetry only and do not control runtime flow.
-
-Runtime-provided `AgentMessageTurn` data is intentionally minimal and requires consumers to apply their own protocol parsing and downstream policy.
 
 ### Auth
 
@@ -267,14 +271,17 @@ InvocationRecord(
     *,
     run_kind: RunKind,
     service_name: str,
-    provider_session_id: str | None,
-    prompt: str,
+    model: str,
+    effort: str,
+    outcome: str,
+    provider_session_id: str | None = None,
+    events: tuple[AgentEvent, ...] = (),
     provider_output: bytes | None = None,
     usage: ProviderUsage | None = None,
 ) -> None
 ```
 
-`InvocationRecord` is structured runtime output for callers that want to persist or display execution traces. The runtime returns records; callers own persistence, file layout, naming, redaction, retention, and cleanup.
+`InvocationRecord` is structured finished-run output for callers that want to persist or display execution traces. It contains the complete ordered sequence of `Agent Event` values from the invocation, terminal metadata (run kind, service, model, effort, outcome), provider session identity, raw provider output evidence, and usage metrics. The runtime returns records; callers own persistence, file layout, naming, redaction, retention, and cleanup.
 
 #### `ProviderUsage`
 
@@ -330,16 +337,22 @@ Policy meanings:
 
 Every public `ToolPolicy` is valid for every supported service/model pair. Built-in Provider Adapters enforce each policy with the strongest provider-supported mechanism, so enforcement strength may vary by provider. A provider-session continuity chain keeps the same `ToolPolicy` for its lifetime.
 
-#### `AgentMessageTurn`
+#### `AgentEvent`
 
 ```python
-AgentMessageTurn(
-    text: str,
+AgentEvent(
+    *,
+    type: Literal["agent_message", "agent_tool_call", "other"],
     service_name: str,
+    raw_provider_output: str,
+    text: str = "",
+    tool_name: str = "",
+    payload: str = "",
+    descriptor: str = "",
 ) -> None
 ```
 
-Provider-observable output unit for Live Runtime Output. `text` is the assistant-message content and `service_name` is the selected built-in service for that emitted turn.
+One observed signal from Live Runtime Output, discriminated by type: `agent_message` (assistant message), `agent_tool_call` (tool invocation), or `other` (agent life sign). Each event carries both a filtered/neutral view (`text` for messages, `tool_name` and `payload` for tool calls, `descriptor` for other events) and the raw provider output it derived from. `service_name` is the selected built-in service for this event.
 
 The type is shared runtime vocabulary and is importable from both `agent_runtime` and `agent_runtime.runtime`.
 
