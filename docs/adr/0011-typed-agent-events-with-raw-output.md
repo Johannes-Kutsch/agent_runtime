@@ -1,6 +1,6 @@
 # Typed Agent Events with raw output, shared by live and finished-run log
 
-Status: Accepted. Supersedes the earlier message-only live-output decision (ADR 0007, since removed).
+Status: Accepted, partially superseded by ADR 0012 (finished-run log / `InvocationRecord` removed, `Agent Event` collapsed to a single display message, live feed is the only channel). Supersedes the earlier message-only live-output decision (ADR 0007, since removed).
 
 The earlier Live Runtime Output decision made it a message-only channel: observers received `AgentMessageTurn` values and explicitly never raw provider stdout, JSON, or provider DTOs. The intended runtime scope is broader. Consumers need to observe not just agent message text but also agent tool calls and other agent life signs (to tell an agent is alive and working while silent), and need the raw provider output available alongside the filtered view when the neutral view is insufficient. They also need the finished-run log and the live channel to share one vocabulary, rather than the live channel being typed turns while the at-rest record is a raw blob the consumer must re-parse.
 

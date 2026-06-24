@@ -25,11 +25,12 @@
 | `Resume Session Run` | Invocation that continues an existing continuity chain without fallback or reselection. |
 | `Session-backed Provider` | Built-in provider that can produce and consume portable continuation data. |
 | `Continuation` | Opaque portable resume token callers persist and pass back to resume a continuity chain. |
-| `InvocationRecord` | Structured finished-run output for caller persistence or display: the complete ordered Agent Event sequence plus terminal metadata and raw provider output evidence. |
-| `Live Runtime Output` | Provider-neutral stream of typed `Agent Event` observations emitted during invocation. |
-| `Agent Event` | One observed signal, discriminated by type (agent message, agent tool call, or other agent life sign), carrying both the filtered/neutral interpretation and the raw provider output it derived from, plus selected service identity. |
+| `Live Runtime Output` | Provider-neutral live feed of typed `Agent Event` observations emitted during invocation; the runtime's only output-observation channel — no stored, compiled, or finished-run log. |
+| `Agent Event` | One observed signal in Live Runtime Output, discriminated by a closed type (agent message, agent tool call, or other agent life sign), carrying a single human-readable display message and the raw provider output it derived from. |
 | `RuntimeClient` | Caller-owned runtime object executing requests without durable provider session storage or cross-call provider availability policy. |
-| `RuntimeOutcome` | Canonical result category for one invocation: completion, usage limits, cancellation, timeout, selected-provider temporary unavailability, or retryable provider failure. |
+| `RuntimeOutcome` | One invocation's outcome: a discriminated `kind` plus a `RunResult`. `kind` is a closed variant set — completion, usage limits (reset time), selected-provider temporary unavailability (reset time), cancellation, timeout, or retryable provider failure; bad credentials are not a kind but an exception. |
+| `RunResult` | The run facts carried by every `RuntimeOutcome`, present even after interruption: final output, provider usage, resume continuation (none for ephemeral), and the `ResolvedProvider`. |
+| `ResolvedProvider` | Credential-free identity of the provider actually run: service, model, effort. Distinct from `ProviderSelection` (the request value carrying auth); canonical wherever that triple appears — result, continuation, session metadata. |
 | `Live Provider Smoke Test` | Opt-in validation run outside default tests exercising real built-in providers through Runtime Public Surface. |
 | `Full Live Smoke Matrix` | Maintainer confidence scope for Live Provider Smoke Tests: all lifecycle modes plus every public `ToolPolicy` for each selected configured provider. |
 | `Live Smoke Default` | Cost-first runtime-supported provider/model/effort tuple used by Live Provider Smoke Tests absent CLI or environment override. |
@@ -39,7 +40,7 @@
 
 - Runtime package must import without application modules.
 - Application prompt rendering, CLI wiring, issue orchestration, output parsing, display, redaction, durable trace persistence, and retention belong outside the runtime boundary.
-- Runtime Consumer Surface uses `RuntimeClient`, lifecycle requests, public outcome/result values, `ProviderSelection`, `ProviderAuth`, `Continuation`, `InvocationRecord`, and `ToolPolicy`.
+- Runtime Consumer Surface uses `RuntimeClient`, lifecycle requests, public outcome/result values, `ProviderSelection`, `ProviderAuth`, `Continuation`, and `ToolPolicy`.
 - Consumers import `ToolPolicy` from public runtime/root modules, not adapter contract modules.
 - Ordinary consumers select built-in providers through runtime call arguments, not provider services, registries, execution adapters, provider-session adapters, command builders, event parsers, or DTO streams.
 - Consumer-defined provider services are not supported runtime functionality.
@@ -59,9 +60,7 @@
 - Unsupported service, model, or effort selections are configuration errors, not `no_service_available` outcomes.
 - Normal RuntimeOutcome values identify the selected provider service, model, and effort.
 - Runtime results report selected provider facts for one invocation, not Consumer Fallback attempt paths.
-- Invocation records describe one invocation and do not carry Consumer Fallback group or attempt identifiers.
-- Absence of `InvocationRecord` values means runtime has no provider invocation evidence for that outcome.
-- Runtime returns an `InvocationRecord` for each provider dispatch that starts, including interrupted outcomes.
+- Runtime exposes no finished-run log, stored Agent Event sequence, or raw provider-output dump; the only output observation is the live `Agent Event` feed.
 - Built-in provider credentials are part of `ProviderSelection`; missing explicit credentials are credential failures and do not trigger Consumer Fallback inside runtime.
 - Runtime-owned selection, availability, resumability, failure classification, path-safety validation, and provider parsing stay inside the runtime boundary.
 - Runtime classifies provider failures but never acts on the classification: no waiting, retry scheduling, or in-runtime fallback. Provider-specific detection (e.g. subscription-denial recognition) stays internal; surfaced outcomes carry a neutral category plus the raw provider error.
@@ -74,9 +73,9 @@
 - Public provider failure diagnostics may expose provider observations; consumers own storage, display, and redaction.
 - Live Runtime Output is per-request observation of typed `Agent Event` values, not arbitrary provider chunks, token streaming, replay, logs, or alternate lifecycle entrypoints.
 - Agent Events are discriminated by a closed type set — agent message, agent tool call, other agent life sign; consumers branch on type.
-- Each Agent Event carries both a filtered/neutral view (typed content, e.g. tool identity and neutral payload, not per-tool structured schemas) and the raw provider output it derived from; consumers choose which to read.
-- Exposing raw provider output on Agent Events intentionally supersedes the earlier rule that live output hides raw provider stdout/JSON; raw is now a carried payload, while provider DTO objects, command rendering, and stream parsing remain internal.
-- The finished-run log and Live Runtime Output share one Agent Event vocabulary: live emits events incrementally, the finished-run log is their complete ordered sequence plus terminal metadata; runtime owns no durable storage of either.
+- Each Agent Event carries a single human-readable display message and the raw provider output it derived from; structured detail (e.g. tool identity) is available only by reading the raw output.
+- Exposing raw provider output on Agent Events intentionally supersedes the earlier rule that live output hides raw provider stdout/JSON; raw is a carried payload, while provider DTO objects, command rendering, and stream parsing remain internal.
+- Live Runtime Output is the sole Agent Event channel: events are emitted incrementally during the run and never accumulated, stored, or returned as a finished sequence; runtime owns no durable storage.
 - Live Runtime Output is independent of session lifecycle and `ToolPolicy`; completed runtime output remains authoritative.
 - Live Runtime Output observers are synchronous, notification-only, at-most-once per provider attempt, and consumer-owned for async bridging and backpressure.
 - Live Runtime Output callback failures propagate as exceptional consumer failures.
@@ -85,14 +84,14 @@
 - Start Session Run returns continuation state; callers own persistence and retention.
 - Resume Session Run continues an existing continuity chain without Consumer Fallback or reselection.
 - Continuations are opaque, portable, semantically immutable, and may carry provider-owned serializable resume state.
-- Continuations and invocation records must not intentionally persist ProviderAuth values.
+- Continuations and run results must not intentionally persist ProviderAuth values (`ResolvedProvider` is credential-free).
 - Runtime does not guarantee redaction of arbitrary prompt text, provider output, or diagnostics; consumers own durable redaction policy.
 - Continuations may carry provider identity and resume state, but not ProviderSelection objects.
 - Session-backed execution is limited to built-in providers that produce and consume portable continuation data.
 - Runtime must not own durable provider-session storage, durable invocation-log storage, or cleanup policy.
 - All resume state round-trips through the opaque Continuation: per session run the runtime may capture provider on-disk session state into the continuation and restore it into an ephemeral, self-cleaned working directory; it keeps no cross-call SessionStore, session-id persistence, or durable state directory between calls.
 - Resumed-session availability or usage-limit failures do not invalidate continuations and must not trigger automatic Consumer Fallback inside runtime.
-- Session-backed interruptions report invocation progress so callers can choose retry or continuation prompts.
+- Session-backed interruptions surface a continuation only when provider work started; callers infer resumability from continuation presence, not a separate public progress signal (progress remains an internal continuation-gating detail).
 - Usage limits, cancellation, timeout, temporary unavailability, and confidently retryable provider failures are normal `RuntimeOutcome` values.
 - Credential failures, runtime configuration errors, hard provider failures, adapter/protocol bugs, unclassified provider failures, invalid service references, and unexpected exceptions remain exceptional failures.
 - Provider-reported usage belongs on runtime outcomes whenever observed, including interrupted outcomes.
