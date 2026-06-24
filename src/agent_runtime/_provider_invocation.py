@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import subprocess
 import shlex
+import threading
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
 from pathlib import Path
@@ -190,6 +191,22 @@ class ProductionProviderInvocationAdapter:
                         process_stdin.write(request.prompt.content)
                         process_stdin.close()
                 stdout_lines: list[str] = []
+                stderr_lines: list[str] = []
+
+                # Some providers (notably codex) emit usage-limit / error
+                # notices on stderr while leaving stdout empty. Drain stderr on
+                # a side thread so it is merged into the reduced line stream
+                # without risking a pipe-buffer deadlock against stdout.
+                stderr_stream = getattr(process, "stderr", None)
+
+                def _drain_stderr() -> None:
+                    if stderr_stream is not None:
+                        for line in stderr_stream:
+                            stderr_lines.append(line)
+
+                stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+                stderr_thread.start()
+
                 if process.stdout is not None:
                     for line in process.stdout:
                         stdout_lines.append(line)
@@ -197,6 +214,13 @@ class ProductionProviderInvocationAdapter:
                             request.output_hooks.reduce_output, [line]
                         )
                 process.wait()
+                stderr_thread.join()
+
+                if stderr_lines:
+                    _consume_new_stdout_lines(
+                        request.output_hooks.reduce_output, stderr_lines
+                    )
+                    stdout_lines.extend(stderr_lines)
 
                 def _observed_provider_session_id() -> str | None:
                     provider_session_id = request.provider_session_id

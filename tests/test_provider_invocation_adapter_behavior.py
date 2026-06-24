@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,9 @@ import pytest
 
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
+from agent_runtime._builtin_runtime_client import _reduce_codex_stream
 from agent_runtime.agent_log import AgentInvocationLog
+from agent_runtime.errors import UsageLimitError
 from agent_runtime.provider_usage import ProviderUsage
 from agent_runtime.session import RunKind
 
@@ -571,6 +574,131 @@ def test_production_adapter_cleans_up_prompt_file_on_failures(
         )
 
     assert not prompt_path.exists()
+
+
+def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Codex prints its usage-limit notice to stderr with empty stdout.
+
+    The adapter must merge stderr into the line stream it reduces, otherwise the
+    usage-limit signal is lost and the run is misclassified as a clean
+    completion. See the codex stderr-only path in ADR 0013's probe.
+    """
+
+    usage_limit_line = (
+        json.dumps(
+            {
+                "type": "turn.failed",
+                "error": {
+                    "message": (
+                        "You've hit your usage limit. "
+                        "Try again at January 2, 5pm (UTC)."
+                    )
+                },
+            }
+        )
+        + "\n"
+    )
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(())
+            self.stderr = iter([usage_limit_line])
+            self.returncode = 1
+
+        def wait(self) -> int:
+            return 1
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="codex exec --json",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: _reduce_codex_stream(lines),
+        ),
+    )
+
+    with pytest.raises(UsageLimitError):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+
+def test_production_adapter_streams_stderr_lines_to_live_output_and_reduction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Merged stderr must reach the live-output hook and the final reduction.
+
+    A provider's stderr is part of its output stream: it should appear on the
+    live feed (via ``consume_stdout_lines``), in the reduced line list, and in
+    the returned ``stdout_lines`` alongside stdout.
+    """
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(["out 1\n"])
+            self.stderr = iter(["err 1\n", "err 2\n"])
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    class _ObservedReducer:
+        def __init__(self) -> None:
+            self.consumed_lines: list[str] = []
+            self.reduced_lines: list[str] | None = None
+
+        def consume_stdout_lines(self, new_lines: list[str]) -> None:
+            self.consumed_lines.extend(new_lines)
+
+        def __call__(self, lines: list[str]) -> tuple[str, ProviderUsage | None]:
+            self.reduced_lines = list(lines)
+            return ("normalized output", None)
+
+    reducer = _ObservedReducer()
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=reducer,
+        ),
+    )
+
+    result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        request
+    )
+
+    assert reducer.consumed_lines == ["out 1\n", "err 1\n", "err 2\n"]
+    assert reducer.reduced_lines == ["out 1\n", "err 1\n", "err 2\n"]
+    assert result.stdout_lines == ("out 1\n", "err 1\n", "err 2\n")
 
 
 def test_provider_invocation_request_requires_command_or_argv() -> None:
