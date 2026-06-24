@@ -13,7 +13,8 @@ from agent_runtime.errors import (
     AgentCredentialFailureError,
     AgentTimeoutError,
     HardAgentError,
-    RetryableProviderFailureError,
+    ProviderUnavailableError,
+    ProviderUnavailableReason,
     TransientAgentError,
     UsageLimitError,
 )
@@ -158,7 +159,11 @@ def test_hard_agent_error_exposes_service_name_metadata() -> None:
 
 
 def test_retryable_provider_failure_error_omits_provider_diagnostic_metadata() -> None:
-    retryable = RetryableProviderFailureError("retry", service_name="codex")
+    retryable = ProviderUnavailableError(
+        "retry",
+        reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
+        service_name="codex",
+    )
 
     assert not hasattr(retryable, "status_code")
     assert not hasattr(retryable, "observations")

@@ -18,7 +18,8 @@ from agent_runtime.contracts import (
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     HardAgentError,
-    RetryableProviderFailureError,
+    ProviderUnavailableError,
+    ProviderUnavailableReason,
     TransientAgentError,
     UsageLimitError,
 )
@@ -112,7 +113,7 @@ def test_provider_output_reduction_maps_transient_error() -> None:
 
 
 def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
-    with pytest.raises(RetryableProviderFailureError) as exc_info:
+    with pytest.raises(ProviderUnavailableError) as exc_info:
         reduce_text_output_events(
             [
                 TransientError(
@@ -126,6 +127,7 @@ def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
         )
 
     assert exc_info.value.service_name == "codex"
+    assert exc_info.value.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
     assert exc_info.value.invocation_progress is _InvocationProgress.NOT_STARTED
     assert str(exc_info.value) == "retry"
     assert not hasattr(exc_info.value, "status_code")
@@ -135,7 +137,7 @@ def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
 def test_provider_output_reduction_reports_started_progress_for_retryable_provider_failure() -> (
     None
 ):
-    with pytest.raises(RetryableProviderFailureError) as exc_info:
+    with pytest.raises(ProviderUnavailableError) as exc_info:
         reduce_text_output_events(
             [
                 AssistantTurn("hello"),
@@ -155,7 +157,7 @@ def test_provider_output_reduction_reports_started_progress_for_retryable_provid
 def test_provider_output_reduction_accepts_explicit_model_activity_for_retryable_provider_failure() -> (
     None
 ):
-    with pytest.raises(RetryableProviderFailureError) as exc_info:
+    with pytest.raises(ProviderUnavailableError) as exc_info:
         reduce_text_output_events(
             [
                 ModelActivity(),

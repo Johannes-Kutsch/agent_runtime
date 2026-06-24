@@ -14,7 +14,8 @@ from agent_runtime._builtin_runtime_client import _reduce_codex_stream
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime.errors import (
     HardAgentError,
-    RetryableProviderFailureError,
+    ProviderUnavailableError,
+    ProviderUnavailableReason,
     UsageLimitError,
 )
 from agent_runtime.provider_usage import ProviderUsage
@@ -833,8 +834,9 @@ def test_production_adapter_raises_hard_error_on_nonzero_exit_with_empty_output(
     "classified_failure",
     [
         UsageLimitError(),
-        RetryableProviderFailureError(
+        ProviderUnavailableError(
             "temporary provider failure",
+            reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
             service_name="codex",
         ),
     ],
@@ -842,7 +844,7 @@ def test_production_adapter_raises_hard_error_on_nonzero_exit_with_empty_output(
 def test_production_adapter_preserves_reducer_classification_on_nonzero_exit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    classified_failure: UsageLimitError | RetryableProviderFailureError,
+    classified_failure: UsageLimitError | ProviderUnavailableError,
 ) -> None:
     class _Process:
         def __init__(self) -> None:

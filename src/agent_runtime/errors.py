@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -49,20 +50,32 @@ class AgentTimeoutError(AgentRuntimeError, TimeoutError):
         super().__init__(message)
 
 
-class NoServiceAvailableError(AgentRuntimeError):
+class ProviderUnavailableReason(str, Enum):
+    SERVICE_NOT_AVAILABLE = "SERVICE_NOT_AVAILABLE"
+    TRANSIENT_API_ERROR = "TRANSIENT_API_ERROR"
+
+
+class ProviderUnavailableError(AgentRuntimeError):
     def __init__(
         self,
+        message: str = "",
         *,
-        reset_time: datetime | None = None,
+        reason: ProviderUnavailableReason,
+        service_name: str,
         invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
         continuation: Any | None = None,
         usage: ProviderUsage | None = None,
     ) -> None:
-        self.reset_time = reset_time
+        validate_runtime_identity_label(
+            service_name,
+            kind="ProviderUnavailableError service name",
+        )
+        self.reason = reason
+        self.service_name = service_name
         self.invocation_progress = invocation_progress
         self.continuation = continuation
         self.usage = usage
-        super().__init__("No configured service candidates are currently available.")
+        super().__init__(message)
 
 
 class UsageLimitError(AgentRuntimeError):
@@ -97,29 +110,6 @@ class UsageLimitError(AgentRuntimeError):
 class TransientAgentError(AgentRuntimeError):
     def __init__(self, message: str = "", status_code: int | None = None) -> None:
         self.status_code = status_code
-        super().__init__(message)
-
-
-class RetryableProviderFailureError(AgentRuntimeError):
-    def __init__(
-        self,
-        message: str = "",
-        *,
-        service_name: str,
-        classification: str | None = None,
-        invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
-        continuation: Any | None = None,
-        usage: ProviderUsage | None = None,
-    ) -> None:
-        validate_runtime_identity_label(
-            service_name,
-            kind="RetryableProviderFailureError service name",
-        )
-        self.service_name = service_name
-        self.classification = classification
-        self.invocation_progress = invocation_progress
-        self.continuation = continuation
-        self.usage = usage
         super().__init__(message)
 
 
@@ -203,8 +193,8 @@ __all__ = [
     "AgentRuntimeError",
     "AgentTimeoutError",
     "HardAgentError",
-    "NoServiceAvailableError",
-    "RetryableProviderFailureError",
+    "ProviderUnavailableError",
+    "ProviderUnavailableReason",
     "RuntimeConfigurationError",
     "TransientAgentError",
     "UsageLimitError",

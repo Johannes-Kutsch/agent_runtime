@@ -17,7 +17,7 @@ from ._request_normalization import (
 )
 from .session_planning import ResumableSessionPlan
 from .types import ProviderSelection, ResolvedProvider
-from .errors import RuntimeConfigurationError
+from .errors import ProviderUnavailableReason, RuntimeConfigurationError
 
 __all__ = [
     "AgentEvent",
@@ -26,12 +26,11 @@ __all__ = [
     "Continuation",
     "EphemeralRunRequest",
     "NewSessionRunRequest",
-    "NoServiceAvailable",
+    "ProviderUnavailable",
     "ProviderUsage",
     "ProviderAuth",
     "ResolvedProvider",
     "ResumedSessionRunRequest",
-    "RetryableProviderFailure",
     "RunResult",
     "RuntimeOutcome",
     "TimedOut",
@@ -235,8 +234,9 @@ class UsageLimited:
 
 
 @dataclasses.dataclass(frozen=True)
-class NoServiceAvailable:
-    reset_time: datetime | None
+class ProviderUnavailable:
+    reason: ProviderUnavailableReason
+    detail: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -249,19 +249,7 @@ class TimedOut:
     pass
 
 
-@dataclasses.dataclass(frozen=True)
-class RetryableProviderFailure:
-    pass
-
-
-OutcomeKind = (
-    Completed
-    | UsageLimited
-    | NoServiceAvailable
-    | Cancelled
-    | TimedOut
-    | RetryableProviderFailure
-)
+OutcomeKind = Completed | UsageLimited | ProviderUnavailable | Cancelled | TimedOut
 
 
 @dataclasses.dataclass(frozen=True)

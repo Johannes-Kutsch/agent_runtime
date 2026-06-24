@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .agent_log import LogicalAgentInvocationLog, WorkInvocationLog
-from .errors import HardAgentError, RetryableProviderFailureError, UsageLimitError
+from .errors import HardAgentError, ProviderUnavailableError, UsageLimitError
 from .provider_usage import ProviderUsage
 from .session import RunKind
 
@@ -93,7 +93,7 @@ class ProviderInvocationPreparedStream:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationFailure:
-    error: UsageLimitError | RetryableProviderFailureError
+    error: UsageLimitError | ProviderUnavailableError
     stdout_lines: tuple[str, ...] = ()
     provider_session_id: str | None = None
 
@@ -106,7 +106,7 @@ class ProviderInvocationAdapter(Protocol):
 
 
 def record_provider_invocation_failure_facts(
-    error: UsageLimitError | RetryableProviderFailureError,
+    error: UsageLimitError | ProviderUnavailableError,
     *,
     stdout_lines: tuple[str, ...] = (),
     provider_session_id: str | None = None,
@@ -116,13 +116,13 @@ def record_provider_invocation_failure_facts(
 
 
 def provider_invocation_failure_stdout_lines(
-    error: UsageLimitError | RetryableProviderFailureError,
+    error: UsageLimitError | ProviderUnavailableError,
 ) -> tuple[str, ...]:
     return tuple(getattr(error, _FAILURE_STDOUT_LINES_ATTR, ()))
 
 
 def provider_invocation_failure_provider_session_id(
-    error: UsageLimitError | RetryableProviderFailureError,
+    error: UsageLimitError | ProviderUnavailableError,
 ) -> str | None:
     return getattr(error, _FAILURE_PROVIDER_SESSION_ID_ATTR, None)
 
@@ -241,9 +241,7 @@ class ProductionProviderInvocationAdapter:
                         setattr(
                             exc, "provider_session_id", observed_provider_session_id
                         )
-                        if isinstance(
-                            exc, (UsageLimitError, RetryableProviderFailureError)
-                        ):
+                        if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
                             record_provider_invocation_failure_facts(
                                 exc,
                                 stdout_lines=tuple(stdout_lines),
@@ -266,9 +264,7 @@ class ProductionProviderInvocationAdapter:
                         setattr(
                             exc, "provider_session_id", observed_provider_session_id
                         )
-                        if isinstance(
-                            exc, (UsageLimitError, RetryableProviderFailureError)
-                        ):
+                        if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
                             record_provider_invocation_failure_facts(
                                 exc,
                                 stdout_lines=tuple(stdout_lines),
@@ -377,9 +373,7 @@ class InMemoryProviderInvocationAdapter:
                 except Exception as exc:
                     observed_provider_session_id = _observed_provider_session_id()
                     setattr(exc, "provider_session_id", observed_provider_session_id)
-                    if isinstance(
-                        exc, (UsageLimitError, RetryableProviderFailureError)
-                    ):
+                    if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
                         record_provider_invocation_failure_facts(
                             exc,
                             stdout_lines=tuple(stdout_lines),

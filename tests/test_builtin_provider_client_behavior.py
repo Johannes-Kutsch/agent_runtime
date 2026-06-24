@@ -19,7 +19,8 @@ import agent_runtime.runtime as prompt_runtime
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     HardAgentError,
-    RetryableProviderFailureError,
+    ProviderUnavailableError,
+    ProviderUnavailableReason,
     RuntimeConfigurationError,
     TransientAgentError,
 )
@@ -1779,9 +1780,10 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
     def on_live_output(turn: runtime.AgentEvent) -> None:
         if turn.type == "agent_message":
             observed.append(turn.display_message)
-        raise RetryableProviderFailureError(
+        raise ProviderUnavailableError(
             service_name="codex",
             message="observer failure",
+            reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
         )
 
     _install_in_memory_provider_invocation_adapter(
@@ -1802,7 +1804,7 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
         provider_resume_state={"provider_session_id": "resume-session"},
     )
 
-    with pytest.raises(RetryableProviderFailureError):
+    with pytest.raises(ProviderUnavailableError):
         asyncio.run(
             runtime.RuntimeClient().run_resumed_session(
                 prompt_runtime.ResumedSessionRunRequest(

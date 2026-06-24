@@ -56,7 +56,7 @@ from .contracts import (
 )
 from .errors import (
     AgentCredentialFailureError,
-    RetryableProviderFailureError,
+    ProviderUnavailableError,
     RuntimeConfigurationError,
     UsageLimitError,
 )
@@ -1064,7 +1064,7 @@ def _reduce_claude_stream_with_dependencies(
             lambda _turn, _raw: None,
             provider="claude",
         )
-    except (RetryableProviderFailureError, UsageLimitError) as exc:
+    except (ProviderUnavailableError, UsageLimitError) as exc:
         if _is_live_output_exception(exc):
             raise
         if exc.usage is None:
@@ -1174,7 +1174,7 @@ def _reduce_codex_stream(
             lambda _turn, _raw: None,
             provider="codex",
         )
-    except (RetryableProviderFailureError, UsageLimitError) as exc:
+    except (ProviderUnavailableError, UsageLimitError) as exc:
         if _is_live_output_exception(exc):
             raise
         if exc.usage is None:
@@ -1606,7 +1606,7 @@ def _provider_session_id_from_stdout_lines(
 
 def _provider_session_id_from_error(
     service_name: str,
-    error: UsageLimitError | RetryableProviderFailureError,
+    error: UsageLimitError | ProviderUnavailableError,
     *,
     fallback_provider_session_id: str | None = None,
 ) -> str | None:
@@ -2198,7 +2198,7 @@ def _active_codex_provider_session_id_from_result(
 
 
 def _active_codex_provider_session_id_from_failure(
-    error: UsageLimitError | RetryableProviderFailureError,
+    error: UsageLimitError | ProviderUnavailableError,
     *,
     fallback_provider_session_id: str | None,
 ) -> str | None:
@@ -2582,7 +2582,7 @@ def _run_builtin_new_session(
                 )
                 result_text = invocation_result.output
                 usage = invocation_result.usage
-            except (UsageLimitError, RetryableProviderFailureError) as exc:
+            except (UsageLimitError, ProviderUnavailableError) as exc:
                 provider_session_id = _active_codex_provider_session_id_from_failure(
                     exc,
                     fallback_provider_session_id=provider_session_id,
@@ -2710,7 +2710,7 @@ def _run_builtin_new_session(
                     )
                 )
                 _persist_opencode_session_id(provider_state_dir, provider_session_id)
-        except (UsageLimitError, RetryableProviderFailureError) as exc:
+        except (UsageLimitError, ProviderUnavailableError) as exc:
             provider_session_id = _provider_session_id_from_error(
                 selected_stage.service,
                 exc,
@@ -2856,7 +2856,7 @@ def _run_builtin_resumed_session(
             )
             result_text = invocation_result.output
             usage = invocation_result.usage
-        except (UsageLimitError, RetryableProviderFailureError) as exc:
+        except (UsageLimitError, ProviderUnavailableError) as exc:
             active_provider_session_id = _active_codex_provider_session_id_from_failure(
                 exc,
                 fallback_provider_session_id=active_provider_session_id,
@@ -3034,7 +3034,7 @@ def _run_builtin_resumed_session(
                 state_dir_session_id=state_dir_session_id,
             )
             _persist_opencode_session_id(provider_state_dir, provider_session_id)
-    except (UsageLimitError, RetryableProviderFailureError) as exc:
+    except (UsageLimitError, ProviderUnavailableError) as exc:
         provider_session_id = _provider_session_id_from_error(
             continuation_service,
             exc,

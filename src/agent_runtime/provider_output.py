@@ -17,7 +17,8 @@ from .contracts import (
 from .errors import (
     AgentCredentialFailureError,
     HardAgentError,
-    RetryableProviderFailureError,
+    ProviderUnavailableError,
+    ProviderUnavailableReason,
     TransientAgentError,
     UsageLimitError,
 )
@@ -45,10 +46,10 @@ def reduce_text_output_events(
             )
         if isinstance(event, TransientError):
             if event.classification == "retryable":
-                raise RetryableProviderFailureError(
+                raise ProviderUnavailableError(
                     message=event.raw_message,
+                    reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
                     service_name=provider,
-                    classification=event.classification,
                     invocation_progress=invocation_progress,
                 )
             raise TransientAgentError(

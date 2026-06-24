@@ -15,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from agent_runtime.errors import RuntimeConfigurationError
+from agent_runtime.errors import ProviderUnavailableReason, RuntimeConfigurationError
 from agent_runtime.runtime import (
     ProviderAuth,
     ProviderSelection as RuntimeProviderSelection,
@@ -56,9 +56,7 @@ SUCCESS_CATEGORY = "success"
 _OUTCOME_CATEGORY_BY_KIND: dict[str, str] = {
     "Completed": SUCCESS_CATEGORY,
     "UsageLimited": "usage_limited",
-    "NoServiceAvailable": "no_service_available",
     "TimedOut": "timed_out",
-    "RetryableProviderFailure": "retryable_failure",
     "Cancelled": "cancelled",
 }
 
@@ -67,6 +65,12 @@ def outcome_category(runtime_outcome: Any) -> str:
     """Map a ``RuntimeOutcome`` to its probe verdict category."""
 
     kind = getattr(runtime_outcome, "kind", None)
+    if type(kind).__name__ == "ProviderUnavailable":
+        reason = getattr(kind, "reason", None)
+        if reason is ProviderUnavailableReason.SERVICE_NOT_AVAILABLE:
+            return "no_service_available"
+        if reason is ProviderUnavailableReason.TRANSIENT_API_ERROR:
+            return "retryable_failure"
     return _OUTCOME_CATEGORY_BY_KIND.get(type(kind).__name__, "error")
 
 

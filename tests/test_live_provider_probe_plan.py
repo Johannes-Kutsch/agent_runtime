@@ -37,22 +37,28 @@ def plan() -> Any:
 
 
 def _runtime_outcome(kind_name: str, **result_kwargs: Any) -> Any:
+    from agent_runtime.errors import ProviderUnavailableReason
     from agent_runtime import runtime as pr
 
     kinds: dict[
         str,
         pr.Completed
         | pr.UsageLimited
-        | pr.NoServiceAvailable
+        | pr.ProviderUnavailable
         | pr.Cancelled
-        | pr.TimedOut
-        | pr.RetryableProviderFailure,
+        | pr.TimedOut,
     ] = {
         "completed": pr.Completed(),
         "usage_limited": pr.UsageLimited(None),
-        "no_service_available": pr.NoServiceAvailable(None),
+        "no_service_available": pr.ProviderUnavailable(
+            reason=ProviderUnavailableReason.SERVICE_NOT_AVAILABLE,
+            detail="service unavailable",
+        ),
         "timed_out": pr.TimedOut(),
-        "retryable_provider_failure": pr.RetryableProviderFailure(),
+        "retryable_provider_failure": pr.ProviderUnavailable(
+            reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
+            detail="transient api error",
+        ),
         "cancelled": pr.Cancelled(),
     }
     result = pr.RunResult(
@@ -69,10 +75,7 @@ def _runtime_outcome(kind_name: str, **result_kwargs: Any) -> Any:
 
 def test_env_example_contains_only_placeholder_keys() -> None:
     example = (
-        Path(__file__).resolve().parents[1]
-        / "scripts"
-        / "live-probe"
-        / ".env.example"
+        Path(__file__).resolve().parents[1] / "scripts" / "live-probe" / ".env.example"
     )
     assert example.exists()
 
@@ -139,9 +142,7 @@ def test_configured_providers_resolve_cost_first_defaults(plan: Any) -> None:
         codex_auth_present=True,
     )
     by_service = {p.service: p for p in planned}
-    assert all(
-        p.status is plan.ProviderConfigStatus.RUNNABLE for p in planned
-    )
+    assert all(p.status is plan.ProviderConfigStatus.RUNNABLE for p in planned)
     assert (by_service["claude"].model, by_service["claude"].effort) == ("haiku", "low")
     assert (by_service["codex"].model, by_service["codex"].effort) == (
         "gpt-5.4-mini",

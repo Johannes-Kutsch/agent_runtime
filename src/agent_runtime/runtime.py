@@ -8,8 +8,7 @@ from .contracts import ToolPolicy
 from .errors import (
     AgentCancelledError,
     AgentTimeoutError,
-    NoServiceAvailableError,
-    RetryableProviderFailureError,
+    ProviderUnavailableError,
     RuntimeConfigurationError,
     UsageLimitError,
 )
@@ -20,11 +19,10 @@ from ._runtime_lifecycle import (
     Continuation,
     EphemeralRunRequest,
     NewSessionRunRequest,
-    NoServiceAvailable,
+    ProviderUnavailable,
     ProviderAuth,
     ProviderUsage,
     ResumedSessionRunRequest,
-    RetryableProviderFailure,
     RunResult,
     RuntimeOutcome,
     TimedOut,
@@ -44,13 +42,12 @@ __all__ = [
     "Continuation",
     "EphemeralRunRequest",
     "NewSessionRunRequest",
-    "NoServiceAvailable",
+    "ProviderUnavailable",
     "ProviderAuth",
     "ProviderSelection",
     "ProviderUsage",
     "ResolvedProvider",
     "ResumedSessionRunRequest",
-    "RetryableProviderFailure",
     "RunResult",
     "RuntimeClient",
     "RuntimeOutcome",
@@ -73,13 +70,12 @@ for _runtime_export in (
     Continuation,
     EphemeralRunRequest,
     NewSessionRunRequest,
-    NoServiceAvailable,
+    ProviderUnavailable,
     ProviderAuth,
     ProviderSelection,
     ProviderUsage,
     ResolvedProvider,
     ResumedSessionRunRequest,
-    RetryableProviderFailure,
     RunResult,
     RuntimeOutcome,
     TimedOut,
@@ -172,16 +168,11 @@ def _run_builtin_session_outcome(
             kind=TimedOut(),
             result=_interrupted_result(exc, _selected()),
         )
-    except NoServiceAvailableError as exc:
-        return RuntimeOutcome(
-            kind=NoServiceAvailable(reset_time=exc.reset_time),
-            result=_interrupted_result(exc, _selected()),
-        )
-    except RetryableProviderFailureError as exc:
+    except ProviderUnavailableError as exc:
         if getattr(exc, "_is_live_output_exception", False):
             raise
         return RuntimeOutcome(
-            kind=RetryableProviderFailure(),
+            kind=ProviderUnavailable(reason=exc.reason, detail=str(exc)),
             result=_interrupted_result(exc, _selected(exc.service_name)),
         )
     except UsageLimitError as exc:
