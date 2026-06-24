@@ -71,8 +71,6 @@ def test_production_adapter_executes_prepared_invocation_and_returns_reduced_res
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("implementer"),
         log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
@@ -169,8 +167,6 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("implementer"),
         log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
@@ -296,8 +292,6 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("implementer"),
         log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
@@ -376,12 +370,8 @@ def test_production_adapter_records_provider_chunks_and_session_id_when_log_cont
             cleanup_path=True,
         ),
         run_kind=RunKind.RESUME,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("implementer"),
         log_context=provider_invocation_runtime.ProviderInvocationLogContext(
             invocation_log=invocation_log,
-            role=InvocationRole("implementer"),
-            usage_limit_scope=UsageLimitScope("implementer"),
         ),
         provider_session_id="existing-session",
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
@@ -489,8 +479,6 @@ def test_provider_invocation_seam_consumes_stdout_lines_before_final_reduction(
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("implementer"),
         log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
@@ -559,8 +547,6 @@ def test_production_adapter_cleans_up_prompt_file_on_failures(
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("implementer"),
         log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
@@ -598,8 +584,6 @@ def test_provider_invocation_request_requires_command_or_argv() -> None:
                 content="rendered prompt"
             ),
             run_kind=RunKind.FRESH,
-            role=InvocationRole("implementer"),
-            usage_limit_scope=None,
             log_context=None,
             provider_session_id=None,
             output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(

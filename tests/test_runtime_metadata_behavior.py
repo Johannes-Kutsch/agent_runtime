@@ -18,18 +18,6 @@ from agent_runtime.errors import (
 from agent_runtime.session import RunKind
 
 
-@pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
-def test_invocation_role_rejects_unsafe_labels(label: str) -> None:
-    with pytest.raises(ValueError):
-        InvocationRole(label)
-
-
-@pytest.mark.parametrize("label", ["", "has space", "a/b", "../escape"])
-def test_usage_limit_scope_rejects_unsafe_labels(label: str) -> None:
-    with pytest.raises(ValueError):
-        UsageLimitScope(label)
-
-
 def test_agent_failed_error_rejects_unsafe_session_namespace_before_building_diagnostics() -> (
     None
 ):
@@ -94,44 +82,12 @@ def test_agent_failed_error_builds_session_dir_from_namespace_and_service_name_m
     assert failed.session_dir == "reviewer/main/codex"
 
 
-def test_usage_limit_error_exposes_usage_limit_scope_metadata() -> None:
-    error = UsageLimitError(
-        reset_time=None,
-        usage_limit_scope=UsageLimitScope("quota-review"),
-    )
-
-    assert error.usage_limit_scope == UsageLimitScope("quota-review")
-
-
 @pytest.mark.parametrize("service_name", [" ", "a/b", "../escape"])
 def test_hard_agent_error_rejects_unsafe_runtime_service_labels_before_recording_diagnostics(
     service_name: str,
 ) -> None:
     with pytest.raises(ValueError):
         HardAgentError("hard", service_name=service_name)
-
-
-def test_agent_invocation_log_uses_invocation_role_header_key(
-    tmp_path: Path,
-) -> None:
-    log_path = tmp_path / "agent.log"
-    invocation_log = AgentInvocationLog(
-        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
-    )
-
-    with invocation_log.open_work_invocation(
-        log_path=log_path,
-        role=InvocationRole("implementer"),
-        run_kind=RunKind.FRESH,
-        session_uuid=None,
-        prompt="already rendered prompt",
-    ):
-        pass
-
-    header = json.loads(log_path.read_text().splitlines()[0])
-
-    assert header["invocation_role"] == "implementer"
-    assert "role" not in header
 
 
 def test_agent_invocation_log_uses_log_name_and_logs_dir_parameters(
@@ -154,53 +110,6 @@ def test_agent_invocation_log_uses_log_name_and_logs_dir_parameters(
     assert logical_log.log_path.name == "issue-51-review-20260101T0000-2.log"
 
 
-def test_agent_invocation_log_omits_default_usage_limit_scope(
-    tmp_path: Path,
-) -> None:
-    log_path = tmp_path / "agent.log"
-    invocation_log = AgentInvocationLog(
-        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
-    )
-
-    with invocation_log.open_work_invocation(
-        log_path=log_path,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("implementer"),
-        run_kind=RunKind.FRESH,
-        session_uuid=None,
-        prompt="same scope as role",
-    ):
-        pass
-
-    header = json.loads(log_path.read_text().splitlines()[0])
-
-    assert "usage_limit_scope" not in header
-
-
-def test_agent_invocation_log_records_non_default_usage_limit_scope(
-    tmp_path: Path,
-) -> None:
-    log_path = tmp_path / "agent.log"
-    invocation_log = AgentInvocationLog(
-        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
-    )
-
-    with invocation_log.open_work_invocation(
-        log_path=log_path,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("repo-write"),
-        run_kind=RunKind.RESUME,
-        session_uuid=None,
-        prompt="different scope from role",
-    ):
-        pass
-
-    header = json.loads(log_path.read_text().splitlines()[0])
-
-    assert header["invocation_role"] == "implementer"
-    assert header["usage_limit_scope"] == "repo-write"
-
-
 def test_agent_invocation_log_records_provider_session_id_in_header(
     tmp_path: Path,
 ) -> None:
@@ -211,8 +120,6 @@ def test_agent_invocation_log_records_provider_session_id_in_header(
 
     with invocation_log.open_work_invocation(
         log_path=log_path,
-        role=InvocationRole("implementer"),
-        usage_limit_scope=UsageLimitScope("repo-write"),
         run_kind=RunKind.RESUME,
         session_uuid=None,
         prompt="different scope from role",

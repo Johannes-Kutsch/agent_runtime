@@ -65,7 +65,6 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
     assert (
         ProviderSessionPlanningRequest(
             worktree=Path("."),
-            role=InvocationRole("implementer"),
             namespace="",
         ).namespace
         == ""
@@ -73,7 +72,6 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
     assert (
         ResumableSessionPlanRequest(
             worktree=Path("."),
-            role=InvocationRole("implementer"),
             namespace="",
             service=execution_service_factory(),
             provider_session_adapter=resident_provider_session_adapter,
@@ -84,14 +82,12 @@ def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsa
     with pytest.raises(ValueError):
         ProviderSessionPlanningRequest(
             worktree=Path("."),
-            role=InvocationRole("implementer"),
             namespace=label,
         )
 
     with pytest.raises(ValueError):
         ResumableSessionPlanRequest(
             worktree=Path("."),
-            role=InvocationRole("implementer"),
             namespace=label,
             service=execution_service_factory(),
             provider_session_adapter=resident_provider_session_adapter,
@@ -105,7 +101,6 @@ def test_provider_session_planning_returns_immutable_decision_value(
     provider_session_decision = session_planning_runtime.plan_provider_session(
         session_planning_runtime.ProviderSessionPlanRequest(
             worktree=Path("."),
-            role=InvocationRole("implementer"),
             namespace="main",
             resumability_service=cast(
                 ResumabilityProvider,
@@ -139,14 +134,12 @@ def test_resumable_session_plan_exposes_public_value_fields_only(
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=Path("."),
-            role=InvocationRole("implementer"),
             namespace="main",
             service=service,
             provider_session_adapter=resident_provider_session_adapter,
         )
     )
 
-    assert session_plan.role == InvocationRole("implementer")
     assert session_plan.worktree == Path(".")
     assert session_plan.namespace == "main"
     assert session_plan.service is service
@@ -154,7 +147,6 @@ def test_resumable_session_plan_exposes_public_value_fields_only(
     assert session_plan.provider_state_dir == Path("state")
     assert session_plan.provider_session_id == "recovered-session"
     assert session_plan.exact_transcript_match is False
-    assert session_plan.usage_limit_scope is None
     with pytest.raises(FrozenInstanceError):
         setattr(session_plan, "provider_state_dir", Path("other-state"))
 
@@ -168,7 +160,6 @@ def test_resumable_session_plan_hides_container_state_selection_metadata(
     session_plan = plan_resumable_session(
         ResumableSessionPlanRequest(
             worktree=Path("."),
-            role=InvocationRole("implementer"),
             namespace="main",
             service=service,
             provider_session_adapter=resident_provider_session_adapter,
@@ -185,14 +176,12 @@ def test_resumable_session_plan_hides_container_state_selection_metadata(
 def test_provider_state_path_helpers_reject_unsafe_runtime_service_labels(
     service_name: str,
 ) -> None:
-    role = InvocationRole("implementer")
-
     with pytest.raises(ValueError):
-        provider_state_relpath(role, service_name, namespace="main")
+        provider_state_relpath("implementer", service_name, namespace="main")
 
     with pytest.raises(ValueError):
         normalize_state_dir_relpath(
-            role,
+            "implementer",
             "main",
             service_name,
             ".runtime-session/implementer/main/codex/",
@@ -352,7 +341,7 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
 
     assert (
         provider_state_relpath(
-            InvocationRole("implementer"),
+            "implementer",
             "codex",
             session_root=".runtime-session",
         )
@@ -360,7 +349,7 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
     )
     assert (
         normalize_state_dir_relpath(
-            InvocationRole("implementer"),
+            "implementer",
             "main",
             "codex",
             legacy,

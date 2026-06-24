@@ -30,9 +30,7 @@ class SelectionServiceFake:
         if reset_time is not None:
             self._wake_time = reset_time
 
-    def state_dir_relpath(
-        self, role: str, namespace: str = ""
-    ) -> str | None:
+    def state_dir_relpath(self, role: str, namespace: str = "") -> str | None:
         del role, namespace
         return None
 
@@ -82,9 +80,7 @@ class ExecutionServiceFake:
         del lines, on_provider_session_id
         return iter(())
 
-    def state_dir_relpath(
-        self, role: str, namespace: str = ""
-    ) -> str | None:
+    def state_dir_relpath(self, role: str, namespace: str = "") -> str | None:
         del role, namespace
         return None
 

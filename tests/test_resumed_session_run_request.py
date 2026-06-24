@@ -20,7 +20,6 @@ from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionServi
 
 def _session_plan(*, worktree: Path = Path("/repo")) -> ResumableSessionPlan:
     return ResumableSessionPlan(
-        role=InvocationRole("reviewer"),
         worktree=worktree,
         namespace="main",
         service=cast(ExecutionProvider, _ExecutionService("codex")),
@@ -58,16 +57,6 @@ def test_resumed_session_run_request_from_continuation_rejects_tool_access_overr
             continuation=_continuation(),
             tool_access=contracts_runtime.ToolAccess.workspace_backed(Path("/repo")),
         )
-
-
-def test_resumed_session_run_request_from_continuation_defaults_role() -> None:
-    request = prompt_runtime.ResumedSessionRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=Path("/repo"),
-        continuation=_continuation(),
-    )
-
-    assert request.role == InvocationRole("implementer")
 
 
 def test_resumed_session_run_request_from_continuation_accepts_minimal_fields() -> None:
@@ -125,7 +114,6 @@ def test_resumed_session_run_request_from_continuation_preserves_empty_internal_
         request = prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
-            role=InvocationRole("implementer"),
             _session_namespace=label,
             continuation=_continuation(),
         )
@@ -137,7 +125,6 @@ def test_resumed_session_run_request_from_continuation_preserves_empty_internal_
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
-            role=InvocationRole("implementer"),
             _session_namespace=label,
             continuation=_continuation(),
         )
@@ -149,7 +136,6 @@ def test_resumed_session_run_request_from_opaque_continuation_defaults_model_eff
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        role=InvocationRole("implementer"),
         continuation=_continuation(
             tool_access=contracts_runtime.ToolAccess.workspace_backed(
                 Path("/repo"),
@@ -183,7 +169,6 @@ def test_resumed_session_run_request_rejects_conflicting_continuation_and_sessio
             effort="medium",
             session_plan=_session_plan(),
             continuation=_continuation(),
-            role=InvocationRole("implementer"),
             tool_policy=runtime.ToolPolicy.UNRESTRICTED,
         )
 
@@ -275,28 +260,12 @@ def test_resumed_session_run_request_from_continuation_rejects_workspace_backed_
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/other"),
-            role=InvocationRole("implementer"),
             continuation=_continuation(
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     Path("/repo"),
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
                 )
             ),
-        )
-
-
-def test_resumed_session_run_request_rejects_request_level_invocation_role_for_session_plan() -> (
-    None
-):
-    with pytest.raises(TypeError):
-        prompt_runtime.ResumedSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("."),
-            model="gpt-5.4",
-            effort="medium",
-            session_plan=_session_plan(worktree=Path(".")),
-            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
-            role=InvocationRole("implementer"),
         )
 
 

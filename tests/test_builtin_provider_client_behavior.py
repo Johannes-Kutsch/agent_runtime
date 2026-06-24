@@ -509,7 +509,6 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -683,7 +682,6 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
                         ),
                         runtime.ProviderAuth(opencode_api_key="root-only-key"),
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
@@ -827,7 +825,6 @@ def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=tool_access,
             )
@@ -922,7 +919,6 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -945,7 +941,6 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -1032,7 +1027,6 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
             ),
             runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         ),
-        role=InvocationRole("implementer"),
         session_namespace="main",
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
@@ -1078,8 +1072,6 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
     assert recorded_request.run_kind is RunKind.FRESH
-    assert recorded_request.role == InvocationRole("implementer")
-    assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id == "session-uuid"
 
 
@@ -1133,7 +1125,6 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
             ),
             runtime.ProviderAuth(opencode_api_key="opencode-key"),
         ),
-        role=InvocationRole("implementer"),
         session_namespace="main",
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
@@ -1179,8 +1170,6 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
     assert recorded_request.run_kind is RunKind.FRESH
-    assert recorded_request.role == InvocationRole("implementer")
-    assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id == "prepared-session-id"
     provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
@@ -1402,7 +1391,6 @@ def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
                     ),
                     runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=_opencode_tool_access(tool_policy, tmp_path),
             )
@@ -1521,7 +1509,6 @@ def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
                 invocation_dir=worktree,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
@@ -1702,7 +1689,6 @@ def test_runtime_client_new_session_run_calls_live_output_observer(
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
@@ -1758,7 +1744,6 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
@@ -1816,7 +1801,6 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
                         ),
                         runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
                 )
@@ -2002,7 +1986,6 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
@@ -2057,7 +2040,6 @@ def test_runtime_client_new_session_run_propagates_claude_live_output_observer_f
                         ),
                         runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
-                    role=InvocationRole("implementer"),
                     session_namespace="main",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
@@ -2247,7 +2229,6 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
                         ),
                         runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
-                    role=InvocationRole("implementer"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
                 )
@@ -2434,7 +2415,6 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
                     ),
                     runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
@@ -2494,7 +2474,6 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -2541,8 +2520,6 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
-    assert recorded_request.role == InvocationRole("implementer")
-    assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id == "claude-session-123"
     assert recorded_request.environment == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
     assert "--resume claude-session-123" in recorded_request.command
@@ -2594,7 +2571,6 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -2703,7 +2679,6 @@ def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_polic
                         "exact_transcript_match": False,
                     },
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -2849,7 +2824,6 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
             )
         )
@@ -2905,8 +2879,6 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
-    assert recorded_request.role == InvocationRole("implementer")
-    assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id == "selected-thread"
     assert recorded_request.environment == {
         "TZ": "UTC",
@@ -2984,7 +2956,6 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -3034,7 +3005,6 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
             )
         )
@@ -3131,7 +3101,6 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
             )
         )
@@ -3248,7 +3217,6 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
             )
         )
@@ -3294,7 +3262,6 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=first.continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
             )
         )
@@ -3372,7 +3339,6 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -3436,7 +3402,6 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             ),
@@ -3523,7 +3488,6 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
             )
         )
@@ -3600,7 +3564,6 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -3690,7 +3653,6 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -3806,7 +3768,6 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -3894,7 +3855,6 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -3948,7 +3908,6 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     tmp_path,
@@ -4066,7 +4025,6 @@ def test_runtime_client_runs_codex_new_session_as_resume_for_deduplicated_rollou
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -4172,7 +4130,6 @@ def test_runtime_client_runs_codex_resumed_session_for_selected_continuation_thr
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
             )
         )
@@ -4266,7 +4223,6 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_when_output
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -4347,7 +4303,6 @@ def test_runtime_client_keeps_started_codex_resumed_session_continuation_when_ou
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
             )
         )
@@ -4434,7 +4389,6 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
                         ),
                         runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
-                    role=InvocationRole("implementer"),
                     session_namespace="main",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
@@ -4451,7 +4405,6 @@ def test_runtime_client_session_backed_codex_outcome_includes_output_and_continu
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     continuation=continuation,
-                    role=InvocationRole("implementer"),
                     session_namespace="main",
                 )
             )
@@ -4539,7 +4492,6 @@ def test_runtime_client_rejects_codex_resumed_session_for_ambiguous_rollout_stat
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     continuation=continuation,
-                    role=InvocationRole("implementer"),
                     session_namespace="main",
                 )
             )
@@ -4604,7 +4556,6 @@ def test_runtime_client_rejects_codex_resumed_session_for_malformed_rollout_stat
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     continuation=continuation,
-                    role=InvocationRole("implementer"),
                     session_namespace="main",
                 )
             )
@@ -4639,7 +4590,6 @@ def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_se
                             "exact_transcript_match": False,
                         },
                     ),
-                    role=InvocationRole("implementer"),
                     session_namespace="main",
                 )
             )
@@ -4668,7 +4618,6 @@ def test_runtime_client_rejects_resumed_session_with_non_object_portable_continu
                         tool_access=contracts_runtime.ToolAccess.no_tools(),
                         provider_resume_state=["resume"],
                     ),
-                    role=InvocationRole("implementer"),
                 )
             )
         )
@@ -4704,7 +4653,6 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
                         ),
                         runtime.ProviderAuth(opencode_api_key="api-key"),
                     ),
-                    role=InvocationRole("implementer"),
                     session_namespace="main",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
@@ -4742,7 +4690,6 @@ def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_p
                             "exact_transcript_match": False,
                         },
                     ),
-                    role=InvocationRole("implementer"),
                     session_namespace="main",
                 )
             )
@@ -4778,7 +4725,6 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
                             model="gpt-5.4",
                             effort="medium",
                         ),
-                        role=InvocationRole("implementer"),
                         session_namespace="main",
                         tool_access=contracts_runtime.ToolAccess.no_tools(),
                     )
@@ -4803,7 +4749,6 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
                                 "exact_transcript_match": False,
                             },
                         ),
-                        role=InvocationRole("implementer"),
                         session_namespace="main",
                     )
                 )
@@ -4864,7 +4809,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -5116,8 +5060,6 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
-    assert recorded_request.role == InvocationRole("implementer")
-    assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id is None
     assert recorded_request.log_context is None
     for key, value in expected_env.items():
@@ -5364,7 +5306,6 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
                 invocation_dir=worktree,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
@@ -5417,8 +5358,6 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == worktree
     assert recorded_request.run_kind is RunKind.RESUME
-    assert recorded_request.role == InvocationRole("implementer")
-    assert recorded_request.usage_limit_scope is None
     assert recorded_request.provider_session_id == "persisted-session-1"
     assert Path(recorded_request.environment["OPENCODE_HOME"]).name == "opencode"
     assert recorded_request.environment["OPENCODE_GO_API_KEY"] == "go-key"
@@ -5562,7 +5501,6 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=(
                     tool_access
@@ -5624,7 +5562,6 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
-    assert recorded_request.role == InvocationRole("implementer")
     assert recorded_request.provider_session_id is None
     assert recorded_request.log_context is None
     assert recorded_request.environment == {
@@ -5706,7 +5643,6 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                role=InvocationRole("implementer"),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
@@ -5808,7 +5744,6 @@ def test_runtime_client_returns_invocation_records_for_session_run_output(
                     ),
                     runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                role=InvocationRole("implementer"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -6969,6 +6904,7 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
         ),
     )
 
+
 def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7083,7 +7019,6 @@ def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
             ),
             runtime.ProviderAuth(claude_code_oauth_token="tok"),
         ),
-        role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.NONE,
     )
     assert new_session.timeout_seconds == 300
@@ -7162,7 +7097,6 @@ def test_runtime_client_ephemeral_times_out_without_live_output_callback(
 
     assert outcome.kind == "timed_out"
     assert outcome.service_name == "opencode"
-
 
 
 def test_completed_run_invocation_record_carries_agent_event_sequence(

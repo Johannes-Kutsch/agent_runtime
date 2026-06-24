@@ -24,7 +24,6 @@ from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionServi
 
 def _session_plan(*, worktree: Path = Path("/repo")) -> ResumableSessionPlan:
     return ResumableSessionPlan(
-        role=InvocationRole("reviewer"),
         worktree=worktree,
         namespace="main",
         service=cast(ExecutionProvider, _ExecutionService("codex")),
@@ -119,7 +118,6 @@ def test_new_invocation_requests_take_provider_auth_from_provider_selection() ->
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
         provider_selection=provider_selection,
-        role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.NONE,
     )
 
@@ -176,7 +174,6 @@ def test_provider_value_objects_redact_credential_values_in_textual_representati
                 prompt="already rendered prompt",
                 invocation_dir=Path("/repo"),
                 provider_selection=provider_selection,
-                role=InvocationRole("implementer"),
                 tool_policy=runtime.ToolPolicy.NONE,
             ),
             prompt_runtime.NewSessionRunRequest,
@@ -219,7 +216,6 @@ def test_runtime_lifecycle_requests_use_provider_selection_public_field(
                     invocation_dir=tmp_path,
                     provider_selection=provider_selection_factory(service="codex"),
                     on_live_output=on_live_output,
-                    role=InvocationRole("implementer"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             ),
@@ -283,8 +279,6 @@ def test_public_lifecycle_requests_reject_removed_request_selection_names(
                 effort="medium",
             ),
         }
-        if request_name == "NewSessionRunRequest":
-            kwargs["role"] = InvocationRole("implementer")
         cast(Any, request_factory)(**kwargs)
 
 
@@ -317,7 +311,6 @@ def test_public_lifecycle_requests_reject_removed_request_selection_names(
                         model="gpt-5.4",
                         effort="medium",
                     ),
-                    role=InvocationRole("implementer"),
                     tool_policy=runtime.ToolPolicy.NONE,
                     **{unexpected_name: unexpected_value},
                 )
@@ -382,7 +375,6 @@ def test_lifecycle_requests_derive_workspace_backed_tool_access_from_tool_policy
             model="gpt-5.4",
             effort="medium",
         ),
-        role=InvocationRole("implementer"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     ).tool_access == contracts_runtime.ToolAccess.workspace_backed(
         Path("/repo"),
@@ -413,7 +405,6 @@ def test_lifecycle_requests_keep_runtime_managed_compatibility_fields_internal_t
             model="gpt-5.4",
             effort="high",
         ),
-        role=InvocationRole("implementer"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         runtime_state_dir=Path("/state"),
         session_namespace="main",
@@ -422,7 +413,6 @@ def test_lifecycle_requests_keep_runtime_managed_compatibility_fields_internal_t
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
         continuation=_continuation(),
-        role=InvocationRole("implementer"),
         runtime_state_dir=Path("/state"),
         session_namespace="main",
     )
@@ -469,7 +459,6 @@ def test_lifecycle_request_construction_requires_explicit_tool_policy() -> None:
                 model="gpt-5.4",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
         )
 
 
@@ -532,7 +521,6 @@ def test_resumed_session_run_request_keeps_path_invocation_dir() -> None:
                 model="gpt-5.4",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
         lambda: prompt_runtime.ResumedSessionRunRequest(
@@ -576,7 +564,6 @@ def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_publ
                 model="gpt-5.4",
                 effort="medium",
             ),
-            role=InvocationRole("implementer"),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         ),
         lambda: prompt_runtime.ResumedSessionRunRequest(
