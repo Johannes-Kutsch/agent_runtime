@@ -602,14 +602,16 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
 
     assert outcome.result.output == "hello from opencode"
     session_result = cast(prompt_runtime.RunResult, outcome.result)
-    assert session_result.continuation is not None
-    assert (
-        "provider_state_dir_relpath"
-        not in session_result.continuation.provider_resume_state
-    )
-    assert (
-        session_result.continuation.provider_resume_state["provider_session_id"]
-        == "provider-session-777"
+    assert session_result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "provider-session-777",
+            "provider_state": {"session_id": "provider-session-777"},
+            "exact_transcript_match": False,
+        },
     )
 
 
@@ -2343,16 +2345,23 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
     )
 
     session_result = cast(prompt_runtime.RunResult, outcome.result)
-    assert session_result.continuation is not None
+    assert session_result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="kimi-k2.6",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "sess_123",
+            "provider_state": {"session_id": "sess_123"},
+            "exact_transcript_match": False,
+        },
+    )
 
     assert outcome.result.output == "hello before session id\n\nhello after session id"
     assert observed == [
         "hello before session id",
         "hello after session id",
     ]
-    assert session_result.continuation.provider_resume_state["provider_session_id"] == (
-        "sess_123"
-    )
 
 
 def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_invocation_seam(
@@ -3181,7 +3190,18 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
 
     assert isinstance(outcome.result, prompt_runtime.RunResult)
     continuation = outcome.result.continuation
-    assert continuation is not None
+    assert continuation == prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "thread-123",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+            "exact_transcript_match": False,
+        },
+    )
     assert "provider_auth" not in continuation.provider_resume_state
     assert "auth" not in continuation.provider_resume_state
     assert "provider_secret" not in continuation.provider_resume_state
