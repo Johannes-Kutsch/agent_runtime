@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 from .identity import validate_runtime_identity_label
 
 if TYPE_CHECKING:
     from ._runtime_lifecycle import ProviderAuth
+
+ClaudeCodeOAuthToken = NewType("ClaudeCodeOAuthToken", str)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -46,4 +48,4 @@ def _require_provider_value(field_name: str, value: str) -> None:
     raise ValueError(f"ProviderSelection requires a non-empty {field_name}.")
 
 
-__all__ = ["ProviderSelection"]
+__all__ = ["ClaudeCodeOAuthToken", "ProviderSelection"]

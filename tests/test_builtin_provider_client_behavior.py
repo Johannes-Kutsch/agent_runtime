@@ -268,20 +268,22 @@ def test_runtime_client_ephemeral_run_emits_typed_agent_message_event(
         lambda: host_home,
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            on_live_output=on_live_output,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
         )
     )
 
@@ -323,20 +325,22 @@ def test_runtime_client_ephemeral_run_event_carries_raw_provider_output(
         lambda: host_home,
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            on_live_output=on_live_output,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
         )
     )
 
@@ -378,20 +382,22 @@ def test_runtime_client_ephemeral_run_emits_other_agent_event_for_codex_life_sig
         lambda: host_home,
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            on_live_output=on_live_output,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
         )
     )
 
@@ -428,20 +434,22 @@ def test_runtime_client_ephemeral_run_emits_tool_call_and_other_agent_events_for
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="go-key"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            on_live_output=on_live_output,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
         )
     )
 
@@ -1213,19 +1221,21 @@ def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="opencode-key"),
-            ),
-            tool_access=_opencode_tool_access(tool_policy, tmp_path),
+                tool_access=_opencode_tool_access(tool_policy, tmp_path),
+            )
         )
     )
 
@@ -1304,19 +1314,21 @@ def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_p
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="opencode-key"),
-            ),
-            tool_access=_opencode_tool_access(tool_policy, tmp_path),
+                tool_access=_opencode_tool_access(tool_policy, tmp_path),
+            )
         )
     )
 
@@ -1574,20 +1586,22 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
         lambda: host_home,
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="codex",
-                    model="gpt-5.4",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            on_live_output=on_live_output,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
         )
     )
 
@@ -1627,20 +1641,22 @@ def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_a
     )
 
     with pytest.raises(runtime.UsageLimitError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="codex",
+                            model="gpt-5.4",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                on_live_output=on_live_output,
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    on_live_output=on_live_output,
+                )
             )
         )
 
@@ -1918,20 +1934,22 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            on_live_output=on_live_output,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
         )
     )
 
@@ -2199,20 +2217,22 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
 
     client = runtime.RuntimeClient()
     if run_mode == "ephemeral":
-        outcome = client.run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
+        outcome = asyncio.run(
+            client.run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model="kimi-k2.6",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                on_live_output=on_live_output,
-                tool_policy=runtime.ToolPolicy.NONE,
+                    on_live_output=on_live_output,
+                    tool_policy=runtime.ToolPolicy.NONE,
+                )
             )
         )
     elif run_mode == "new_session":
@@ -2325,20 +2345,22 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
     )
 
     with pytest.raises(TransientAgentError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model="kimi-k2.6",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                on_live_output=on_live_output,
-                tool_policy=runtime.ToolPolicy.NONE,
+                    on_live_output=on_live_output,
+                    tool_policy=runtime.ToolPolicy.NONE,
+                )
             )
         )
 
@@ -5021,15 +5043,17 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
             lambda: host_home,
         )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                stage,
-                auth,
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    stage,
+                    auth,
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -5200,15 +5224,17 @@ def test_runtime_client_ephemeral_non_claude_invocation_prefers_argv_prompt_tran
             lambda: host_home,
         )
 
-    runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                stage,
-                auth,
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+    asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    stage,
+                    auth,
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -5237,16 +5263,18 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
     )
 
     with pytest.raises(RuntimeConfigurationError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="missing",
-                    model="placeholder",
-                    effort="placeholder",
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=InternalStageSelection(
+                        service="missing",
+                        model="placeholder",
+                        effort="placeholder",
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
     assert len(adapter.recorded_requests) == 0
@@ -5398,19 +5426,21 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
 
     monkeypatch.setattr(subprocess, "Popen", _fake_popen)
 
-    runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -5823,19 +5853,21 @@ def test_runtime_client_preserves_opencode_invalid_api_key_observations(
     )
 
     with pytest.raises(AgentCredentialFailureError) as exc_info:
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model="kimi-k2.6",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
 
@@ -5866,31 +5898,7 @@ def test_runtime_client_opencode_allowlist_accepts_current_models_and_rejects_st
                 output=f"hello from {model}"
             ),
         )
-        outcome = runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model=model,
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-        assert outcome.kind == "completed"
-        assert outcome.selected_model == model
-        assert len(adapter.recorded_requests) == 1
-        assert f"--model opencode-go/{model}" in adapter.recorded_requests[0].command
-
-    for model in _STALE_OPENCODE_GO_MODELS:
-        adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
-        with pytest.raises(
-            RuntimeConfigurationError, match="Unsupported OpenCode model"
-        ):
+        outcome = asyncio.run(
             runtime.RuntimeClient().run_ephemeral(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
@@ -5904,6 +5912,34 @@ def test_runtime_client_opencode_allowlist_accepts_current_models_and_rejects_st
                         runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+        assert outcome.kind == "completed"
+        assert outcome.selected_model == model
+        assert len(adapter.recorded_requests) == 1
+        assert f"--model opencode-go/{model}" in adapter.recorded_requests[0].command
+
+    for model in _STALE_OPENCODE_GO_MODELS:
+        adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+        with pytest.raises(
+            RuntimeConfigurationError, match="Unsupported OpenCode model"
+        ):
+            asyncio.run(
+                runtime.RuntimeClient().run_ephemeral(
+                    prompt_runtime.EphemeralRunRequest(
+                        prompt="already rendered prompt",
+                        worktree=tmp_path,
+                        provider_selection=_selection_with_auth(
+                            InternalStageSelection(
+                                service="opencode",
+                                model=model,
+                                effort="medium",
+                            ),
+                            runtime.ProviderAuth(opencode_api_key="go-key"),
+                        ),
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    )
                 )
             )
         assert adapter.recorded_requests == []
@@ -5920,19 +5956,21 @@ def test_runtime_client_opencode_config_exposes_current_subscription_models(
         provider_invocation_runtime.ProviderInvocationResult(output="hello"),
     )
 
-    runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model="deepseek-v4-flash",
-                    effort="medium",
+    asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="deepseek-v4-flash",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="go-key"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -5954,19 +5992,21 @@ def test_runtime_client_opencode_command_uses_prefixed_model_reference_while_pub
         provider_invocation_runtime.ProviderInvocationResult(output="hello"),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            worktree=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model=model,
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                worktree=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model=model,
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="go-key"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -5992,19 +6032,21 @@ def test_runtime_client_validates_opencode_model_allowlist_and_medium_effort(
     expected_message: str,
 ) -> None:
     with pytest.raises(RuntimeConfigurationError, match=expected_message):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model=model,
-                        effort=effort,
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model=model,
+                            effort=effort,
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
 
@@ -6060,19 +6102,21 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="go-key"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6125,16 +6169,18 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_no_service_available_an
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6210,8 +6256,8 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
     )
 
     client = runtime.RuntimeClient()
-    first_outcome = client.run_ephemeral(request)
-    second_outcome = client.run_ephemeral(request)
+    first_outcome = asyncio.run(client.run_ephemeral(request))
+    second_outcome = asyncio.run(client.run_ephemeral(request))
 
     _assert_runtime_outcome(
         first_outcome,
@@ -6269,16 +6315,18 @@ def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6338,19 +6386,21 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
     )
 
     with pytest.raises(HardAgentError) as exc_info:
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model="kimi-k2.6",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
 
@@ -6391,19 +6441,21 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
     )
 
     with pytest.raises(TransientAgentError) as exc_info:
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="opencode",
+                            model="kimi-k2.6",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
 
@@ -6464,19 +6516,21 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="go-key"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6526,19 +6580,21 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
         lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6575,19 +6631,21 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
     )
 
     with pytest.raises(TransientAgentError) as exc_info:
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="claude",
+                            model="sonnet",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
 
@@ -6622,19 +6680,21 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
         lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6681,19 +6741,21 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         lambda _text: reset_time,
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6722,16 +6784,18 @@ def test_runtime_client_rejects_unsupported_selected_provider_for_ephemeral_resu
     )
 
     with pytest.raises(RuntimeConfigurationError):
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="missing",
-                    model="ignored",
-                    effort="low",
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=InternalStageSelection(
+                        service="missing",
+                        model="ignored",
+                        effort="low",
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
 
@@ -6749,19 +6813,21 @@ def test_runtime_client_completed_ephemeral_result_hides_session_namespace_metad
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6784,19 +6850,21 @@ def test_runtime_client_completed_ephemeral_result_hides_fallback_metadata(
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6834,19 +6902,21 @@ def test_runtime_client_ephemeral_usage_limit_outcome_hides_caller_defined_scope
         lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -6879,19 +6949,21 @@ def test_runtime_client_preserves_claude_credential_failure_observations(
     )
 
     with pytest.raises(AgentCredentialFailureError) as exc_info:
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="claude",
+                            model="sonnet",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                     ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
 
@@ -6969,21 +7041,23 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
         lambda: adapter,
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="go-key"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            timeout_seconds=1,
-            on_live_output=collect_events,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                timeout_seconds=1,
+                on_live_output=collect_events,
+            )
         )
     )
 
@@ -7078,20 +7152,22 @@ def test_runtime_client_ephemeral_times_out_without_live_output_callback(
         lambda: adapter,
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="opencode",
-                    model="kimi-k2.6",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                runtime.ProviderAuth(opencode_api_key="go-key"),
-            ),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            timeout_seconds=1,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                timeout_seconds=1,
+            )
         )
     )
 
@@ -7127,20 +7203,22 @@ def test_completed_run_invocation_record_carries_agent_event_sequence(
     )
 
     observed_events: list[prompt_runtime.AgentEvent] = []
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="test prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="test prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="test-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="test-token"),
-            ),
-            tool_policy=runtime.ToolPolicy.NONE,
-            on_live_output=observed_events.append,
+                tool_policy=runtime.ToolPolicy.NONE,
+                on_live_output=observed_events.append,
+            )
         )
     )
 
@@ -7192,20 +7270,22 @@ def test_interrupted_run_invocation_record_carries_observed_events(
     )
 
     observed_events: list[prompt_runtime.AgentEvent] = []
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="test prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="test prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="test-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="test-token"),
-            ),
-            tool_policy=runtime.ToolPolicy.NONE,
-            on_live_output=observed_events.append,
+                tool_policy=runtime.ToolPolicy.NONE,
+                on_live_output=observed_events.append,
+            )
         )
     )
 
@@ -7248,20 +7328,22 @@ def test_completed_run_invocation_record_carries_events_without_live_observer(
         ),
     )
 
-    outcome = runtime.RuntimeClient().run_ephemeral(
-        prompt_runtime.EphemeralRunRequest(
-            prompt="test prompt",
-            invocation_dir=tmp_path,
-            provider_selection=_selection_with_auth(
-                InternalStageSelection(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="test prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="test-token"),
                 ),
-                runtime.ProviderAuth(claude_code_oauth_token="test-token"),
-            ),
-            tool_policy=runtime.ToolPolicy.NONE,
-            on_live_output=None,
+                tool_policy=runtime.ToolPolicy.NONE,
+                on_live_output=None,
+            )
         )
     )
 

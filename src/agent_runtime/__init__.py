@@ -19,6 +19,7 @@ from .invocation_progress import InvocationProgress
 from .runtime import (
     AgentEvent,
     Continuation,
+    InvocationRecord,
     ProviderSelection,
     ProviderAuth,
     ProviderUsage,
@@ -26,6 +27,7 @@ from .runtime import (
     RuntimeOutcome,
 )
 from .session import RunKind
+from .types import ClaudeCodeOAuthToken
 
 __all__ = [
     "AgentCredentialFailureError",
@@ -33,9 +35,11 @@ __all__ = [
     "AgentFailedError",
     "AgentRuntimeError",
     "AgentTimeoutError",
+    "ClaudeCodeOAuthToken",
     "Continuation",
     "HardAgentError",
     "InvocationProgress",
+    "InvocationRecord",
     "ProviderAuth",
     "ProviderSelection",
     "ProviderUsage",

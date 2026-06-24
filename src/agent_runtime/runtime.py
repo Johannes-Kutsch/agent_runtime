@@ -218,7 +218,7 @@ def _replace_request_on_live_output(
 
 
 class RuntimeClient:
-    def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
+    async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         selected_provider_selection = _supported_builtin_provider_selection(
             request.provider_selection
         )

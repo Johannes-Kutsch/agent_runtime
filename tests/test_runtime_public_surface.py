@@ -31,9 +31,11 @@ def test_package_exports_runtime_surface() -> None:
         "AgentFailedError",
         "AgentRuntimeError",
         "AgentTimeoutError",
+        "ClaudeCodeOAuthToken",
         "Continuation",
         "HardAgentError",
         "InvocationProgress",
+        "InvocationRecord",
         "ProviderAuth",
         "ProviderSelection",
         "ProviderUsage",
@@ -562,7 +564,7 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_smoke_env(
                 prompt_runtime, "_run_builtin_resumed_session", _fake_resumed_session
             ),
         ):
-            run_ephemeral = client.run_ephemeral(ephemeral_request)
+            run_ephemeral = asyncio.run(client.run_ephemeral(ephemeral_request))
             run_new_session = asyncio.run(client.run_new_session(new_session_request))
             run_resumed_session = asyncio.run(
                 client.run_resumed_session(resumed_request)
