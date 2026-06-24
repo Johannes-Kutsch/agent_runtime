@@ -28,7 +28,8 @@
 | `Live Runtime Output` | Provider-neutral live feed of typed `Agent Event` observations emitted during invocation; the runtime's only output-observation channel — no stored, compiled, or finished-run log. |
 | `Agent Event` | One observed signal in Live Runtime Output, discriminated by a closed type (agent message, agent tool call, or other agent life sign), carrying a single human-readable display message and the raw provider output it derived from. |
 | `RuntimeClient` | Caller-owned runtime object executing requests without durable provider session storage or cross-call provider availability policy. |
-| `RuntimeOutcome` | One invocation's outcome: a discriminated `kind` plus a `RunResult`. `kind` is a closed variant set — completion, usage limits (reset time), selected-provider temporary unavailability (reset time), cancellation, timeout, or retryable provider failure; bad credentials are not a kind but an exception. |
+| `RuntimeOutcome` | One invocation's outcome: a discriminated `kind` plus a `RunResult`. `kind` is a closed variant set — completion, usage limits, provider unavailability (with closed reason), cancellation, or timeout; credential and hard provider failures are not a kind but an exception. |
+| `ProviderUnavailable` | RuntimeOutcome kind for temporary provider failures: carries a closed reason (`SERVICE_NOT_AVAILABLE`, `TRANSIENT_API_ERROR`) and a raw detail string. |
 | `RunResult` | The run facts carried by every `RuntimeOutcome`, present even after interruption: final output, provider usage, resume continuation (none for ephemeral), and the `ResolvedProvider`. |
 | `ResolvedProvider` | Credential-free identity of the provider actually run: service, model, effort. Distinct from `ProviderSelection` (the request value carrying auth); canonical wherever that triple appears — result, continuation, session metadata. |
 | `Live Provider Probe` | Opt-in manual debugging tool (not CI, not default tests, not Runtime Public Surface) exercising real built-in providers through Runtime Public Surface; streams agent messages and tool calls live to the terminal and writes per-case JSON artifacts, wiping a service's artifacts on rerun. |
@@ -56,21 +57,22 @@
 - Resume Session Run derives provider identity from the continuation and accepts request-time ProviderAuth only for credentials.
 - Runtime performs no provider fallback inside a single invocation; fallback is Consumer Fallback across separate invocations.
 - Runtime outcomes and exceptions describe one invocation only and do not classify Consumer Fallback eligibility.
-- `no_service_available` describes temporary unavailability of the selected provider before model work starts, not exhaustion of a provider chain.
-- Unsupported service, model, or effort selections are configuration errors, not `no_service_available` outcomes.
+- `ProviderUnavailable` describes temporary provider unavailability — either pre-invocation (`SERVICE_NOT_AVAILABLE`) or during invocation (`TRANSIENT_API_ERROR`) — not exhaustion of a provider chain.
+- Unsupported service, model, or effort selections are configuration errors, not `ProviderUnavailable` outcomes.
 - Normal RuntimeOutcome values identify the selected provider service, model, and effort.
 - Runtime results report selected provider facts for one invocation, not Consumer Fallback attempt paths.
 - Runtime exposes no finished-run log, stored Agent Event sequence, or raw provider-output dump; the only output observation is the live `Agent Event` feed.
 - Built-in provider credentials are part of `ProviderSelection`; missing explicit credentials are credential failures and do not trigger Consumer Fallback inside runtime.
 - Runtime-owned selection, availability, resumability, failure classification, path-safety validation, and provider parsing stay inside the runtime boundary.
-- Runtime classifies provider failures but never acts on the classification: no waiting, retry scheduling, or in-runtime fallback. Provider-specific detection (e.g. subscription-denial recognition) stays internal; surfaced outcomes carry a neutral category plus the raw provider error.
+- Runtime classifies provider failures but never acts on the classification: no waiting, retry scheduling, or in-runtime fallback. Provider-specific detection (e.g. subscription-denial recognition) stays internal; surfaced outcomes carry a closed reason plus the raw provider error.
+- Expected provider failures (temporary unavailability, transient API errors) are normal return values through the invocation adapter, not exceptions. Exceptional failures (hard errors, credential failures) remain exceptions.
 - Built-in Provider Invocation is internal and must not become a consumer-defined adapter extension or request-time injection point.
 - WorkInvocation and execution adapter seams are internal and must not be consumer-accessible.
 - Public-looking internal modules should be moved behind underscore-prefixed names before release where practical.
 - Retiring a concept means deleting obsolete code where feasible; any internal survival requires a current built-in runtime purpose and must not reappear on documented/root/runtime surfaces.
 - Built-in Provider Invocation must use runtime-neutral internal artifact names, not pycastle-specific prompt or session naming.
 - Provider event DTOs, provider-specific session details, command rendering, stream parsing, and provider flag profiles are internal.
-- Public provider failure diagnostics may expose provider observations; consumers own storage, display, and redaction.
+- Provider failure diagnostics carry raw error messages; structured provider error observations are not a runtime concept. Consumers own storage, display, and redaction.
 - Live Runtime Output is per-request observation of typed `Agent Event` values, not arbitrary provider chunks, token streaming, replay, logs, or alternate lifecycle entrypoints.
 - Agent Events are discriminated by a closed type set — agent message, agent tool call, other agent life sign; consumers branch on type.
 - Each Agent Event carries a single human-readable display message and the raw provider output it derived from; structured detail (e.g. tool identity) is available only by reading the raw output.
@@ -92,8 +94,8 @@
 - All resume state round-trips through the opaque Continuation: per session run the runtime may capture provider on-disk session state into the continuation and restore it into an ephemeral, self-cleaned working directory; it keeps no cross-call SessionStore, session-id persistence, or durable state directory between calls.
 - Resumed-session availability or usage-limit failures do not invalidate continuations and must not trigger automatic Consumer Fallback inside runtime.
 - Session-backed interruptions surface a continuation only when provider work started; callers infer resumability from continuation presence, not a separate public progress signal (progress remains an internal continuation-gating detail).
-- Usage limits, cancellation, timeout, temporary unavailability, and confidently retryable provider failures are normal `RuntimeOutcome` values.
-- Credential failures, runtime configuration errors, hard provider failures, adapter/protocol bugs, unclassified provider failures, invalid service references, and unexpected exceptions remain exceptional failures.
+- Usage limits, cancellation, timeout, and provider unavailability are normal `RuntimeOutcome` values.
+- Credential failures, runtime configuration errors, hard provider failures (including process-level failures: non-zero exit or empty output), adapter/protocol bugs, unclassified provider failures, invalid service references, and unexpected exceptions remain exceptional failures.
 - Provider-reported usage belongs on runtime outcomes whenever observed, including interrupted outcomes.
 - Cancellation and timeout outcomes report only usage observed before interruption; runtime performs no provider-specific post-kill usage recovery.
 - `timed_out` is an Idle Timeout: a heartbeat watchdog reset by every observed Agent Event, not a total wall-clock budget.
@@ -125,3 +127,6 @@
 - `ToolPolicyProfile`: use **ToolPolicy** in consumer-facing language; provider flag profiles are internal.
 - `InvocationRole`, `UsageLimitScope`, `SessionNamespace`: caller labels and grouping policy belong outside the Runtime Consumer Surface.
 - `ToolPolicy.RESTRICTED`, `ToolPolicy.PARTIAL`, `ToolPolicy.FULL`: use `ToolPolicy.INSPECT_ONLY`, `ToolPolicy.NO_FILE_MUTATION`, `ToolPolicy.UNRESTRICTED`.
+- `RetryableProviderFailure`, `RetryableProviderFailureError`: use **ProviderUnavailable** outcome kind and `ProviderUnavailableError` internally.
+- `NoServiceAvailable`, `NoServiceAvailableError`: use **ProviderUnavailable** with reason `SERVICE_NOT_AVAILABLE`.
+- `ProviderErrorObservation`, `observations`: retired; provider failure diagnostics use raw error messages only.
