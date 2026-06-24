@@ -112,7 +112,7 @@ def test_provider_output_reduction_maps_transient_error() -> None:
     assert str(exc_info.value) == "retry"
 
 
-def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
+def test_provider_output_reduction_maps_provider_unavailable() -> None:
     with pytest.raises(ProviderUnavailableError) as exc_info:
         reduce_text_output_events(
             [
@@ -134,7 +134,7 @@ def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
     assert not hasattr(exc_info.value, "observations")
 
 
-def test_provider_output_reduction_reports_started_progress_for_retryable_provider_failure() -> (
+def test_provider_output_reduction_reports_started_progress_for_provider_unavailable() -> (
     None
 ):
     with pytest.raises(ProviderUnavailableError) as exc_info:
@@ -154,7 +154,7 @@ def test_provider_output_reduction_reports_started_progress_for_retryable_provid
     assert exc_info.value.invocation_progress is _InvocationProgress.STARTED
 
 
-def test_provider_output_reduction_accepts_explicit_model_activity_for_retryable_provider_failure() -> (
+def test_provider_output_reduction_accepts_explicit_model_activity_for_provider_unavailable() -> (
     None
 ):
     with pytest.raises(ProviderUnavailableError) as exc_info:

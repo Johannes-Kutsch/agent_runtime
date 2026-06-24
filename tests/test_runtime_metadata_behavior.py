@@ -158,15 +158,17 @@ def test_hard_agent_error_exposes_service_name_metadata() -> None:
     assert hard.service_name == "codex"
 
 
-def test_retryable_provider_failure_error_omits_provider_diagnostic_metadata() -> None:
-    retryable = ProviderUnavailableError(
+def test_provider_unavailable_error_omits_provider_diagnostic_metadata() -> None:
+    provider_unavailable = ProviderUnavailableError(
         "retry",
         reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
         service_name="codex",
     )
 
-    assert not hasattr(retryable, "status_code")
-    assert not hasattr(retryable, "observations")
+    assert not hasattr(provider_unavailable, "status_code")
+    assert not hasattr(provider_unavailable, "observations")
+    assert not hasattr(provider_unavailable, "reset_time")
+    assert not hasattr(provider_unavailable, "classification")
 
 
 def test_hard_agent_error_omits_provider_diagnostic_metadata() -> None:

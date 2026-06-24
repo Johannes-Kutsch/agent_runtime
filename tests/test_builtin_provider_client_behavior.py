@@ -1819,6 +1819,70 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
     assert observed == ["hello"]
 
 
+@pytest.mark.parametrize(
+    ("reason", "detail"),
+    [
+        (
+            ProviderUnavailableReason.SERVICE_NOT_AVAILABLE,
+            "No configured service candidates are currently available.",
+        ),
+        (
+            ProviderUnavailableReason.TRANSIENT_API_ERROR,
+            "temporary provider failure",
+        ),
+    ],
+)
+def test_runtime_client_new_session_maps_provider_unavailable_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reason: ProviderUnavailableReason,
+    detail: str,
+) -> None:
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationFailure(
+            error=ProviderUnavailableError(
+                detail,
+                reason=reason,
+                service_name="claude",
+            )
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                session_namespace="main",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome.kind == prompt_runtime.ProviderUnavailable(
+        reason=reason,
+        detail=detail,
+    )
+    assert outcome.result.output == ""
+    assert outcome.result.usage is None
+    assert outcome.result.continuation is None
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="claude",
+        model="sonnet",
+        effort="medium",
+    )
+
+
 def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
