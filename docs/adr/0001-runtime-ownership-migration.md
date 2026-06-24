@@ -1,17 +1,15 @@
 # Runtime ownership migration
 
-The reusable runtime layer owns shared execution contracts and lifecycle behavior: service selection, provider selection, session planning, provider state contracts, work invocation, result/error vocabulary, and importable runtime modules.
-
-The runtime package is not the application. It receives prepared inputs from an adapter boundary and returns execution results or runtime-owned failures. Application prompt rendering, command wiring, issue orchestration, UI, and presentation stay outside the package.
+Reusable runtime layer owns shared execution contracts and lifecycle behavior: service selection, provider selection, session planning, provider state contracts, work invocation, result/error vocabulary, importable runtime modules. Not the application — receives prepared inputs, returns results or runtime-owned failures.
 
 ## Decision
 
 - Runtime package owns reusable execution contracts and lifecycle behavior.
-- Keep the public surface narrow and adapter-driven.
-- Runtime must import without application modules.
-- Keep application orchestration out of the runtime distribution.
-- Keep provider-specific policy behind runtime adapter contracts.
-- Built artifact must match the editable-source boundary.
+- Narrow, adapter-driven public surface.
+- Must import without application modules.
+- Application orchestration outside runtime distribution.
+- Provider-specific policy behind runtime adapter contracts.
+- Built artifact matches editable-source boundary.
 
 ## Consequences
 
