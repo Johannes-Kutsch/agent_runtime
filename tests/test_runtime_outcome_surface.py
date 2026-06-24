@@ -72,9 +72,7 @@ def _run_completed_codex_ephemeral(monkeypatch, tmp_path: Path):
 
 
 def test_resolved_provider_is_credential_free_triple() -> None:
-    selected = runtime.ResolvedProvider(
-        service="claude", model="haiku", effort="low"
-    )
+    selected = runtime.ResolvedProvider(service="claude", model="haiku", effort="low")
 
     assert selected.service == "claude"
     assert selected.model == "haiku"
@@ -118,9 +116,7 @@ def _claude_tool_line(name: str, tool_input: dict[str, object]) -> str:
             {
                 "type": "assistant",
                 "message": {
-                    "content": [
-                        {"type": "tool_use", "name": name, "input": tool_input}
-                    ]
+                    "content": [{"type": "tool_use", "name": name, "input": tool_input}]
                 },
             }
         )
@@ -140,7 +136,10 @@ def _codex_message_line(text: str) -> str:
 def _opencode_tool_line(name: str, tool_input: dict[str, object]) -> str:
     return (
         json.dumps(
-            {"type": "text", "part": {"type": "tool", "name": name, "input": tool_input}}
+            {
+                "type": "text",
+                "part": {"type": "tool", "name": name, "input": tool_input},
+            }
         )
         + "\n"
     )
@@ -195,6 +194,14 @@ def test_completed_ephemeral_run_is_completed_kind_with_run_result(
     # No finished-run log on the outcome.
     assert not hasattr(outcome, "invocation_records")
     assert not hasattr(outcome, "account_label")
+    assert not hasattr(result, "runtime_metadata")
+    assert not hasattr(result, "session_namespace")
+    assert not hasattr(result, "used_fallback")
+    assert not hasattr(result, "selected_service_path")
+    assert not hasattr(result, "metadata")
+    assert not hasattr(outcome, "used_fallback")
+    assert not hasattr(outcome, "selected_service_path")
+    assert not hasattr(outcome, "usage_limit_scope")
 
 
 def test_run_result_has_unified_field_set() -> None:
@@ -211,6 +218,20 @@ def test_runtime_outcome_is_kind_plus_result_only() -> None:
         "kind",
         "result",
     }
+    outcome = runtime.RuntimeOutcome(
+        kind=runtime.UsageLimited(reset_time=None),
+        result=runtime.RunResult(
+            output="",
+            usage=None,
+            continuation=None,
+            selected=runtime.ResolvedProvider(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+        ),
+    )
+    assert not hasattr(outcome, "usage_limit_scope")
 
 
 def test_outcome_kind_variants_carry_only_their_own_data() -> None:
