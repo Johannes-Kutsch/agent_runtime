@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .agent_log import LogicalAgentInvocationLog, WorkInvocationLog
-from .errors import RetryableProviderFailureError, UsageLimitError
+from .errors import HardAgentError, RetryableProviderFailureError, UsageLimitError
 from .provider_usage import ProviderUsage
 from .session import RunKind
 
@@ -275,11 +275,25 @@ class ProductionProviderInvocationAdapter:
                                 provider_session_id=observed_provider_session_id,
                             )
                         raise
+                returncode = process.returncode
+                observed_provider_session_id = _observed_provider_session_id()
+                if returncode != 0:
+                    error = HardAgentError(
+                        f"Provider subprocess exited with exit code {returncode}.",
+                    )
+                    setattr(error, "provider_session_id", observed_provider_session_id)
+                    raise error
+                if not output.strip():
+                    error = HardAgentError(
+                        "Provider subprocess completed without producing output.",
+                    )
+                    setattr(error, "provider_session_id", observed_provider_session_id)
+                    raise error
                 return ProviderInvocationResult(
                     output=output,
                     usage=usage,
                     stdout_lines=tuple(stdout_lines),
-                    provider_session_id=_observed_provider_session_id(),
+                    provider_session_id=observed_provider_session_id,
                 )
         finally:
             if (

@@ -11,7 +11,7 @@ import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime._builtin_runtime_client import _reduce_codex_stream
 from agent_runtime.agent_log import AgentInvocationLog
-from agent_runtime.errors import UsageLimitError
+from agent_runtime.errors import HardAgentError, UsageLimitError
 from agent_runtime.provider_usage import ProviderUsage
 from agent_runtime.session import RunKind
 
@@ -699,6 +699,129 @@ def test_production_adapter_streams_stderr_lines_to_live_output_and_reduction(
     assert reducer.consumed_lines == ["out 1\n", "err 1\n", "err 2\n"]
     assert reducer.reduced_lines == ["out 1\n", "err 1\n", "err 2\n"]
     assert result.stdout_lines == ("out 1\n", "err 1\n", "err 2\n")
+
+
+def test_production_adapter_raises_hard_error_on_nonzero_exit_even_with_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(["partial output\n"])
+            self.stderr = iter(())
+            self.returncode = 23
+
+        def wait(self) -> int:
+            return 23
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+    )
+
+    with pytest.raises(HardAgentError, match="exit code 23"):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+
+def test_production_adapter_raises_hard_error_on_zero_exit_with_empty_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(["provider event with no final text\n"])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda _lines: ("", None),
+        ),
+    )
+
+    with pytest.raises(
+        HardAgentError,
+        match="without producing output",
+    ):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+
+def test_production_adapter_raises_hard_error_on_nonzero_exit_with_empty_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(())
+            self.stderr = iter(())
+            self.returncode = 17
+
+        def wait(self) -> int:
+            return 17
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda _lines: ("", None),
+        ),
+    )
+
+    with pytest.raises(HardAgentError, match="exit code 17"):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
 
 
 def test_provider_invocation_request_requires_command_or_argv() -> None:
