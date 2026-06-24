@@ -150,7 +150,7 @@ def test_transient_agent_error_exposes_status_code_metadata() -> None:
 
 
 def test_hard_agent_error_exposes_service_name_metadata() -> None:
-    hard = HardAgentError("hard", status_code=400, service_name="codex")
+    hard = HardAgentError("hard", service_name="codex")
 
     assert hard.service_name == "codex"
 

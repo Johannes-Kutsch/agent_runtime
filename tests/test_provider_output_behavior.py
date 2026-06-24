@@ -22,17 +22,7 @@ from agent_runtime.errors import (
     TransientAgentError,
     UsageLimitError,
 )
-from agent_runtime.provider_errors import ProviderErrorObservation
 from agent_runtime.provider_output import reduce_text_output_events
-
-
-@pytest.fixture
-def provider_error_observation() -> ProviderErrorObservation:
-    return ProviderErrorObservation(
-        service_name="codex",
-        raw_provider_text="bad credential",
-        source_stream="stderr",
-    )
 
 
 def test_provider_output_reduction_returns_result() -> None:
@@ -136,7 +126,6 @@ def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
         )
 
     assert exc_info.value.service_name == "codex"
-    assert exc_info.value.status_code == 503
     assert exc_info.value.invocation_progress is _InvocationProgress.NOT_STARTED
     assert str(exc_info.value) == "retry"
 
@@ -181,46 +170,27 @@ def test_provider_output_reduction_accepts_explicit_model_activity_for_retryable
     assert exc_info.value.invocation_progress is _InvocationProgress.STARTED
 
 
-def test_provider_output_reduction_maps_hard_error(
-    provider_error_observation: ProviderErrorObservation,
-) -> None:
+def test_provider_output_reduction_maps_hard_error() -> None:
     with pytest.raises(HardAgentError) as exc_info:
         reduce_text_output_events(
-            [
-                HardError(
-                    status_code=400,
-                    raw_message="bad",
-                    observations=(provider_error_observation,),
-                )
-            ],
+            [HardError(status_code=400, raw_message="bad")],
             lambda _turn, _raw: None,
             provider="codex",
         )
 
     assert exc_info.value.service_name == "codex"
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.observations == (provider_error_observation,)
 
 
-def test_provider_output_reduction_maps_credential_failure(
-    provider_error_observation: ProviderErrorObservation,
-) -> None:
+def test_provider_output_reduction_maps_credential_failure() -> None:
     with pytest.raises(AgentCredentialFailureError) as exc_info:
         reduce_text_output_events(
-            [
-                CredentialFailure(
-                    raw_message="missing auth",
-                    service_name="codex",
-                    source_observations=(provider_error_observation,),
-                )
-            ],
+            [CredentialFailure(raw_message="missing auth", service_name="codex")],
             lambda _turn, _raw: None,
             provider="codex",
         )
 
     assert exc_info.value.service_name == "codex"
     assert str(exc_info.value) == "missing auth"
-    assert exc_info.value.observations == (provider_error_observation,)
 
 
 def test_provider_output_reduction_joins_assistant_turns_without_result() -> None:

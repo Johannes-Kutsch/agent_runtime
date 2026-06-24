@@ -146,7 +146,9 @@ def test_live_feed_is_json_lines_with_full_raw_output(
     )
 
     feed_path = root / "codex" / "ephemeral_UNRESTRICTED" / probe.LIVE_FEED_FILENAME
-    lines = [line for line in feed_path.read_text(encoding="utf-8").splitlines() if line]
+    lines = [
+        line for line in feed_path.read_text(encoding="utf-8").splitlines() if line
+    ]
     records = [json.loads(line) for line in lines]
     assert records == [
         {
@@ -277,9 +279,7 @@ def test_credential_failure_is_wrong_credentials_with_traceback(
     probe: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     def handler(method: str, request: Any) -> Any:
-        raise AgentCredentialFailureError(
-            "bad token", service_name="codex", observations=()
-        )
+        raise AgentCredentialFailureError("bad token", service_name="codex")
 
     _install_client(probe, monkeypatch, handler)
 

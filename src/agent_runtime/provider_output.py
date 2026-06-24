@@ -47,10 +47,8 @@ def reduce_text_output_events(
             if event.classification == "retryable":
                 raise RetryableProviderFailureError(
                     message=event.raw_message,
-                    status_code=event.status_code,
                     service_name=provider,
                     classification=event.classification,
-                    observations=event.observations,
                     invocation_progress=invocation_progress,
                 )
             raise TransientAgentError(
@@ -60,18 +58,14 @@ def reduce_text_output_events(
         if isinstance(event, HardError):
             raise HardAgentError(
                 message=event.raw_message,
-                status_code=event.status_code,
                 service_name=provider,
                 classification=event.classification,
-                observations=event.observations,
             )
         if isinstance(event, CredentialFailure):
             raise AgentCredentialFailureError(
                 message=event.raw_message,
-                status_code=event.status_code,
                 service_name=event.service_name,
                 classification=event.classification,
-                observations=event.source_observations,
             )
         if isinstance(event, PromptTokens):
             if on_tokens is not None:

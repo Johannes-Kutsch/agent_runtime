@@ -61,7 +61,6 @@ from .errors import (
     UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
-from .provider_errors import ProviderErrorObservation
 from .provider_output import reduce_text_output_events
 from .session import RunKind, provider_state_relpath
 from .types import ProviderSelection
@@ -544,26 +543,8 @@ def _is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
     )
 
 
-def _provider_error_observation(
-    *,
-    raw_provider_text: str,
-    source_stream: str,
-    status_code: int | None = None,
-    provider_code: str | None = None,
-) -> ProviderErrorObservation:
-    return ProviderErrorObservation(
-        service_name="codex",
-        raw_provider_text=raw_provider_text,
-        source_stream=source_stream,
-        status_code=status_code,
-        provider_code=provider_code,
-    )
-
-
 def _classify_codex_error_message(
     message: str,
-    *,
-    source_stream: str,
 ) -> CredentialFailure | HardError | TransientError | None:
     lowered_message = message.lower()
     if "refresh_token_reused" in message:
@@ -572,14 +553,6 @@ def _classify_codex_error_message(
             service_name="codex",
             status_code=401,
             classification="codex_auth_lineage_exhausted",
-            source_observations=(
-                _provider_error_observation(
-                    raw_provider_text=message,
-                    source_stream=source_stream,
-                    status_code=401,
-                    provider_code="refresh_token_reused",
-                ),
-            ),
         )
     if (
         "access token could not be refreshed" in lowered_message
@@ -590,46 +563,25 @@ def _classify_codex_error_message(
             service_name="codex",
             status_code=401,
             classification="codex_auth_lineage_exhausted",
-            source_observations=(
-                _provider_error_observation(
-                    raw_provider_text=message,
-                    source_stream=source_stream,
-                    status_code=401,
-                ),
-            ),
         )
     if _CODEX_GENERIC_AUTH_RE.search(message):
         return HardError(
             status_code=401,
             raw_message=message,
-            observations=(
-                _provider_error_observation(
-                    raw_provider_text=message,
-                    source_stream=source_stream,
-                    status_code=401,
-                ),
-            ),
         )
     match = _CODEX_HTTP_STATUS_RE.search(message)
     if match is None:
         return None
     status = int(match.group("status"))
-    observation = _provider_error_observation(
-        raw_provider_text=message,
-        source_stream=source_stream,
-        status_code=status,
-    )
     if status >= 500:
         return TransientError(
             status_code=status,
             raw_message=message,
-            observations=(observation,),
         )
     if 400 <= status < 500:
         return HardError(
             status_code=status,
             raw_message=message,
-            observations=(observation,),
         )
     return None
 
@@ -673,21 +625,10 @@ def _parse_claude_event_with_dependencies(
             )
         ]
     if is_claude_subscription_access_denial(event):
-        denial_message = event.get("result")
         return [
             CredentialFailure(
                 raw_message=line,
                 service_name="claude",
-                source_observations=(
-                    ProviderErrorObservation(
-                        service_name="claude",
-                        raw_provider_text=(
-                            denial_message if isinstance(denial_message, str) else line
-                        ),
-                        source_stream="json_event.result",
-                        status_code=403,
-                    ),
-                ),
                 status_code=403,
             )
         ]
@@ -1194,10 +1135,7 @@ def _parse_codex_event(line: str) -> list[Any]:
         limit = _extract_codex_usage_limit(message)
         if limit is not None:
             return [limit]
-        classified = _classify_codex_error_message(
-            message,
-            source_stream="json_event.turn_failed",
-        )
+        classified = _classify_codex_error_message(message)
         if classified is not None:
             _log.warning("codex turn.failed: %s", message)
             return [classified]
@@ -1207,10 +1145,7 @@ def _parse_codex_event(line: str) -> list[Any]:
         limit = _extract_codex_usage_limit(message)
         if limit is not None:
             return [limit]
-        classified = _classify_codex_error_message(
-            message,
-            source_stream="json_event.error",
-        )
+        classified = _classify_codex_error_message(message)
         if classified is not None:
             _log.warning("codex error: %s", message)
             return [classified]
@@ -1431,15 +1366,6 @@ def _missing_codex_auth_error() -> AgentCredentialFailureError:
     return AgentCredentialFailureError(
         message=message,
         service_name="codex",
-        status_code=401,
-        observations=(
-            ProviderErrorObservation(
-                service_name="codex",
-                raw_provider_text=message,
-                source_stream="pre-dispatch host check",
-                status_code=401,
-            ),
-        ),
     )
 
 
@@ -1487,15 +1413,6 @@ def _extract_opencode_credential_failure(
             raw_message=message,
             service_name="opencode",
             classification="operator_actionable_agent_credential_failure",
-            source_observations=(
-                ProviderErrorObservation(
-                    service_name="opencode",
-                    raw_provider_text=message,
-                    source_stream="json_event.error",
-                    status_code=401,
-                    error_name="AuthenticationError",
-                ),
-            ),
             status_code=401,
         )
     return None
@@ -2421,15 +2338,6 @@ def _run_builtin_ephemeral(
                     message=message,
                     service_name="opencode",
                     classification="operator_actionable_agent_credential_failure",
-                    observations=(
-                        ProviderErrorObservation(
-                            service_name="opencode",
-                            raw_provider_text=message,
-                            source_stream="pre-dispatch auth check",
-                            status_code=401,
-                        ),
-                    ),
-                    status_code=401,
                 )
             prompt_path = _builtin_provider_temp_prompt_path()
         else:
@@ -2441,7 +2349,6 @@ def _run_builtin_ephemeral(
                 raise AgentCredentialFailureError(
                     message="Missing Claude Code OAuth token.",
                     service_name="claude",
-                    observations=(),
                 )
             prompt_path = _builtin_provider_prompt_path(request.invocation_dir)
         if selected_stage.service == "codex":
@@ -2562,7 +2469,6 @@ def _require_claude_auth(auth: ProviderAuth | None) -> None:
     raise AgentCredentialFailureError(
         message="Missing Claude Code OAuth token.",
         service_name="claude",
-        observations=(),
     )
 
 
@@ -2574,15 +2480,6 @@ def _require_opencode_auth(auth: ProviderAuth | None) -> None:
         message=message,
         service_name="opencode",
         classification="operator_actionable_agent_credential_failure",
-        observations=(
-            ProviderErrorObservation(
-                service_name="opencode",
-                raw_provider_text=message,
-                source_stream="pre-dispatch auth check",
-                status_code=401,
-            ),
-        ),
-        status_code=401,
     )
 
 
