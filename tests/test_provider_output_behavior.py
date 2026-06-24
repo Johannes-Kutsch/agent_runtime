@@ -128,6 +128,8 @@ def test_provider_output_reduction_maps_retryable_provider_failure() -> None:
     assert exc_info.value.service_name == "codex"
     assert exc_info.value.invocation_progress is _InvocationProgress.NOT_STARTED
     assert str(exc_info.value) == "retry"
+    assert not hasattr(exc_info.value, "status_code")
+    assert not hasattr(exc_info.value, "observations")
 
 
 def test_provider_output_reduction_reports_started_progress_for_retryable_provider_failure() -> (
@@ -179,18 +181,32 @@ def test_provider_output_reduction_maps_hard_error() -> None:
         )
 
     assert exc_info.value.service_name == "codex"
+    assert str(exc_info.value) == "bad"
+    assert not hasattr(exc_info.value, "status_code")
+    assert not hasattr(exc_info.value, "observations")
 
 
 def test_provider_output_reduction_maps_credential_failure() -> None:
     with pytest.raises(AgentCredentialFailureError) as exc_info:
         reduce_text_output_events(
-            [CredentialFailure(raw_message="missing auth", service_name="codex")],
+            [
+                CredentialFailure(
+                    raw_message="missing auth",
+                    service_name="codex",
+                    classification="operator_actionable_agent_credential_failure",
+                )
+            ],
             lambda _turn, _raw: None,
             provider="codex",
         )
 
     assert exc_info.value.service_name == "codex"
+    assert exc_info.value.classification == (
+        "operator_actionable_agent_credential_failure"
+    )
     assert str(exc_info.value) == "missing auth"
+    assert not hasattr(exc_info.value, "status_code")
+    assert not hasattr(exc_info.value, "observations")
 
 
 def test_provider_output_reduction_joins_assistant_turns_without_result() -> None:

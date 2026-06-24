@@ -5510,6 +5510,9 @@ def test_runtime_client_preserves_opencode_invalid_api_key_classification(
     assert exc_info.value.classification == (
         "operator_actionable_agent_credential_failure"
     )
+    assert str(exc_info.value) == "invalid api key"
+    assert not hasattr(exc_info.value, "status_code")
+    assert not hasattr(exc_info.value, "observations")
 
 
 def test_runtime_client_opencode_allowlist_accepts_current_models_and_rejects_stale_models(
@@ -6222,7 +6225,7 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
         ),
     )
 
-    with pytest.raises(TransientAgentError):
+    with pytest.raises(TransientAgentError) as exc_info:
         asyncio.run(
             runtime.RuntimeClient().run_ephemeral(
                 prompt_runtime.EphemeralRunRequest(
@@ -6240,6 +6243,9 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
                 )
             )
         )
+
+    assert "temporary Claude failure" in str(exc_info.value)
+    assert exc_info.value.status_code == 500
 
 
 def test_runtime_client_parses_claude_usage_limit_reset_time(
@@ -6402,7 +6408,7 @@ def test_runtime_client_preserves_claude_credential_failure_message(
         ),
     )
 
-    with pytest.raises(AgentCredentialFailureError):
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
         asyncio.run(
             runtime.RuntimeClient().run_ephemeral(
                 prompt_runtime.EphemeralRunRequest(
@@ -6420,6 +6426,12 @@ def test_runtime_client_preserves_claude_credential_failure_message(
                 )
             )
         )
+
+    assert denial_message in str(exc_info.value)
+    assert exc_info.value.service_name == "claude"
+    assert exc_info.value.classification is None
+    assert not hasattr(exc_info.value, "status_code")
+    assert not hasattr(exc_info.value, "observations")
 
 
 def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
