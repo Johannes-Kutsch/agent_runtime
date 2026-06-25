@@ -10,9 +10,6 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
-from . import (
-    _live_runtime_output_timeout_context as _live_runtime_output_timeout_context_module,
-)
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
     resolve_built_in_provider_session_id,
@@ -331,16 +328,15 @@ def _with_session_timeout_state(
     consume_stdout_lines = getattr(
         stream_interpretation.reduce_output, "consume_stdout_lines", None
     )
-    if not callable(consume_stdout_lines):
-        return stream_interpretation, timeout_state
 
     def _consume_with_timeout_state(lines: list[str]) -> None:
         timeout_state.record(lines)
-        try:
-            consume_stdout_lines(lines)
-        except AgentTimeoutError as exc:
-            timeout_state.apply_to_timeout(exc)
-            raise
+        if callable(consume_stdout_lines):
+            try:
+                consume_stdout_lines(lines)
+            except AgentTimeoutError as exc:
+                timeout_state.apply_to_timeout(exc)
+                raise
 
     return (
         _with_reduce_output(
@@ -936,67 +932,57 @@ def _run_builtin_ephemeral(
         if provider_invocation_adapter is None
         else provider_invocation_adapter
     )
-
-    def _run_once(
-        wrapped_on_live_output: Callable[[AgentEvent], None] | None,
-    ) -> RunResult:
-        selected_stage = select_builtin_stage(request.provider_selection)
-        rendered = _render_ephemeral_provider_invocation(request, selected_stage)
-        stream_interpretation: BuiltInProviderStreamInterpretation
-        if selected_stage.service == "codex":
-            stream_interpretation = _with_observed_output(
-                _with_reduce_output(
-                    _codex_stream_interpretation(),
-                    lambda lines: reduce_codex_stream(lines, None),
-                ),
-                wrapped_on_live_output,
-            )
-        elif selected_stage.service == "opencode":
-            stream_interpretation = _opencode_stream_interpretation(
-                on_live_output=wrapped_on_live_output,
-                reduce_output=lambda lines: reduce_opencode_stream(lines, None),
-            )
-        else:
-            stream_interpretation = _with_observed_output(
-                _with_reduce_output(
-                    _claude_stream_interpretation(),
-                    lambda lines: reduce_claude_stream(lines, None),
-                ),
-                wrapped_on_live_output,
-            )
-        invocation_result = _execute_rendered_provider_invocation(
-            provider_invocation_adapter=invocation_adapter,
-            rendered=rendered,
-            invocation_dir=request.invocation_dir,
-            prompt=request.prompt,
-            run_kind=RunKind.FRESH,
-            provider_session_id=rendered.provider_session_id,
-            stream_interpretation=stream_interpretation,
-            normalize_prompt_file_command_for_argv=True,
-            timeout_seconds=request.timeout_seconds,
-        )
-        if isinstance(invocation_result, ProviderInvocationFailure):
-            raise _provider_invocation_error_from_failure(
-                selected_stage.service,
-                invocation_result,
-            )
-        result_text = invocation_result.output
-        usage = invocation_result.usage
-        return RunResult(
-            output=result_text,
-            usage=usage,
-            continuation=None,
-            selected=ResolvedProvider(
-                service=selected_stage.service,
-                model=selected_stage.model,
-                effort=selected_stage.effort,
+    selected_stage = select_builtin_stage(request.provider_selection)
+    rendered = _render_ephemeral_provider_invocation(request, selected_stage)
+    stream_interpretation: BuiltInProviderStreamInterpretation
+    if selected_stage.service == "codex":
+        stream_interpretation = _with_observed_output(
+            _with_reduce_output(
+                _codex_stream_interpretation(),
+                lambda lines: reduce_codex_stream(lines, None),
             ),
+            request.on_live_output,
         )
-
-    return _live_runtime_output_timeout_context_module._run_with_live_runtime_output_timeout_context(
-        request.on_live_output,
-        request.timeout_seconds,
-        _run_once,
+    elif selected_stage.service == "opencode":
+        stream_interpretation = _opencode_stream_interpretation(
+            on_live_output=request.on_live_output,
+            reduce_output=lambda lines: reduce_opencode_stream(lines, None),
+        )
+    else:
+        stream_interpretation = _with_observed_output(
+            _with_reduce_output(
+                _claude_stream_interpretation(),
+                lambda lines: reduce_claude_stream(lines, None),
+            ),
+            request.on_live_output,
+        )
+    invocation_result = _execute_rendered_provider_invocation(
+        provider_invocation_adapter=invocation_adapter,
+        rendered=rendered,
+        invocation_dir=request.invocation_dir,
+        prompt=request.prompt,
+        run_kind=RunKind.FRESH,
+        provider_session_id=rendered.provider_session_id,
+        stream_interpretation=stream_interpretation,
+        normalize_prompt_file_command_for_argv=True,
+        timeout_seconds=request.timeout_seconds,
+    )
+    if isinstance(invocation_result, ProviderInvocationFailure):
+        raise _provider_invocation_error_from_failure(
+            selected_stage.service,
+            invocation_result,
+        )
+    result_text = invocation_result.output
+    usage = invocation_result.usage
+    return RunResult(
+        output=result_text,
+        usage=usage,
+        continuation=None,
+        selected=ResolvedProvider(
+            service=selected_stage.service,
+            model=selected_stage.model,
+            effort=selected_stage.effort,
+        ),
     )
 
 

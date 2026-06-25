@@ -651,30 +651,14 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
         ),
     ],
 )
-def test_runtime_client_session_entrypoints_delegate_through_live_runtime_output_timeout_context(
+def test_runtime_client_session_entrypoints_delegate_directly_to_execution(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     entrypoint_name: str,
     request_factory: Any,
     delegate_name: str,
 ) -> None:
-    wrapped_live_runtime_output = object()
     delegated_calls: list[tuple[Any, Any]] = []
-    timeout_context_calls: list[tuple[Any, int]] = []
-
-    def _run_with_timeout_context(
-        on_live_output: Any,
-        timeout_seconds: int,
-        run_once: Any,
-    ) -> Any:
-        timeout_context_calls.append((on_live_output, timeout_seconds))
-        return run_once(wrapped_live_runtime_output)
-
-    monkeypatch.setattr(
-        prompt_runtime._live_runtime_output_timeout_context_module,
-        "_run_with_live_runtime_output_timeout_context",
-        _run_with_timeout_context,
-    )
 
     def _delegate(request: Any, *, on_live_output: Any) -> prompt_runtime.RunResult:
         delegated_calls.append((request, on_live_output))
@@ -697,8 +681,7 @@ def test_runtime_client_session_entrypoints_delegate_through_live_runtime_output
 
     assert isinstance(outcome.kind, prompt_runtime.Completed)
     assert outcome.result.output == "delegated output"
-    assert timeout_context_calls == [(request.on_live_output, request.timeout_seconds)]
-    assert delegated_calls == [(request, wrapped_live_runtime_output)]
+    assert delegated_calls == [(request, request.on_live_output)]
 
 
 @pytest.mark.parametrize(
@@ -739,29 +722,13 @@ def test_runtime_client_session_entrypoints_delegate_through_live_runtime_output
         ),
     ],
 )
-def test_runtime_client_session_entrypoints_propagate_delegated_execution_errors_through_live_runtime_output_timeout_context(
+def test_runtime_client_session_entrypoints_propagate_delegated_execution_errors_directly(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     entrypoint_name: str,
     request_factory: Any,
     delegate_name: str,
 ) -> None:
-    timeout_context_calls: list[tuple[Any, int]] = []
-
-    def _run_with_timeout_context(
-        on_live_output: Any,
-        timeout_seconds: int,
-        run_once: Any,
-    ) -> Any:
-        timeout_context_calls.append((on_live_output, timeout_seconds))
-        return run_once(on_live_output)
-
-    monkeypatch.setattr(
-        prompt_runtime._live_runtime_output_timeout_context_module,
-        "_run_with_live_runtime_output_timeout_context",
-        _run_with_timeout_context,
-    )
-
     def _raise_delegate(
         request: Any, *, on_live_output: Any
     ) -> prompt_runtime.RunResult:
@@ -776,8 +743,6 @@ def test_runtime_client_session_entrypoints_propagate_delegated_execution_errors
         prompt_runtime.RuntimeConfigurationError, match="delegated failure"
     ):
         asyncio.run(getattr(client, f"run_{entrypoint_name}")(request))
-
-    assert timeout_context_calls == [(request.on_live_output, request.timeout_seconds)]
 
 
 def test_session_planning_surface_uses_resumable_vocabulary() -> None:
