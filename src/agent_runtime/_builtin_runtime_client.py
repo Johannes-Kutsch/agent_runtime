@@ -9,8 +9,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
 
-from . import _time as _time_module
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
+from . import (
+    _live_runtime_output_timeout_context as _live_runtime_output_timeout_context_module,
+)
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
     classify_built_in_provider_invocation_progress,
@@ -194,52 +196,6 @@ def _validate_opencode_stage(stage: ProviderSelection) -> None:
     )
 
 
-class _IdleTimeoutWatchdog:
-    def __init__(self, timeout_seconds: int) -> None:
-        self.timeout_seconds = timeout_seconds
-        self._lock = threading.Lock()
-        self._start_time: datetime | None = None
-        self._last_event_time: datetime | None = None
-        self._stop_event = threading.Event()
-        self._timeout_occurred = False
-
-    def reset_timer(self) -> None:
-        with self._lock:
-            self._last_event_time = _time_module.now_local()
-
-    def start_monitoring(self) -> None:
-        with self._lock:
-            self._start_time = _time_module.now_local()
-            self._last_event_time = self._start_time
-        self._stop_event.clear()
-        thread = threading.Thread(target=self._monitor_loop, daemon=True)
-        thread.start()
-
-    def stop_monitoring(self) -> None:
-        self._stop_event.set()
-
-    def _monitor_loop(self) -> None:
-        while not self._stop_event.is_set():
-            with self._lock:
-                if self._last_event_time is not None:
-                    elapsed = (
-                        _time_module.now_local() - self._last_event_time
-                    ).total_seconds()
-                    if elapsed > self.timeout_seconds:
-                        self._timeout_occurred = True
-                        return
-            self._stop_event.wait(timeout=0.1)
-
-    def check_timeout(self) -> None:
-        with self._lock:
-            if self._timeout_occurred:
-                from .errors import AgentTimeoutError
-
-                raise AgentTimeoutError(
-                    "Idle timeout: no Agent Event within configured window"
-                )
-
-
 class _ObservedOutputReducer:
     __slots__ = ("reduce_output", "consume_stdout_lines")
 
@@ -273,20 +229,16 @@ def _observe_output_lines(
 def _wrap_on_live_output_with_timeout(
     on_live_output: Callable[[AgentEvent], None] | None,
     timeout_seconds: int,
-) -> tuple[Callable[[AgentEvent], None] | None, _IdleTimeoutWatchdog | None]:
-    if timeout_seconds <= 0:
-        return on_live_output, None
-
-    watchdog = _IdleTimeoutWatchdog(timeout_seconds)
-    watchdog.start_monitoring()
-
-    def wrapper(event: AgentEvent) -> None:
-        watchdog.reset_timer()
-        if on_live_output is not None:
-            on_live_output(event)
-        watchdog.check_timeout()
-
-    return wrapper, watchdog
+) -> tuple[
+    Callable[[AgentEvent], None] | None,
+    _live_runtime_output_timeout_context_module._LiveRuntimeOutputTimeoutContext | None,
+]:
+    return (
+        _live_runtime_output_timeout_context_module._wrap_on_live_output_with_timeout(
+            on_live_output,
+            timeout_seconds,
+        )
+    )
 
 
 def _observe_output_reducer(
