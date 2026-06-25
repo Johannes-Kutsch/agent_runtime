@@ -1184,3 +1184,30 @@ def test_live_probe_resumed_session_case_reaches_classified_outcome_when_session
     assert payload["category"] == "success"
     assert payload["kind"] == "Completed"
     assert len(calls) == 6
+
+
+def test_live_probe_uses_one_per_session_store_for_new_and_resumed_session_cases(
+    probe: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _install_client(probe, monkeypatch, _default_handler)
+
+    root = probe.run_probe(
+        ("codex",),
+        env={},
+        codex_auth_present=True,
+        artifact_root=tmp_path / "artifacts",
+        stream=io.StringIO(),
+    )
+
+    new_session_request = next(
+        request for method, request in calls if method == "run_new_session"
+    )
+    resumed_session_request = next(
+        request for method, request in calls if method == "run_resumed_session"
+    )
+    expected_session_store = (
+        root / "codex" / "new_session_UNRESTRICTED" / "_session_store"
+    )
+
+    assert new_session_request.session_store == expected_session_store
+    assert resumed_session_request.session_store == expected_session_store
