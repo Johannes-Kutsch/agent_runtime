@@ -19,21 +19,7 @@ from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 
 
 def _install_adapter(monkeypatch, *prepared):
-    harness = RuntimeClientExecutionHarness.install(monkeypatch)
-    for prepared_invocation in prepared:
-        if isinstance(
-            prepared_invocation,
-            provider_invocation_runtime.ProviderInvocationResult,
-        ):
-            harness.prepare_result(prepared_invocation)
-        elif isinstance(
-            prepared_invocation,
-            provider_invocation_runtime.ProviderInvocationFailure,
-        ):
-            harness.prepare_failure(prepared_invocation)
-        else:
-            harness.prepare_prepared_stream(prepared_invocation)
-    return harness
+    return RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(*prepared)
 
 
 def _codex_message_output_line(text: str) -> str:

@@ -50,21 +50,9 @@ def _install_in_memory_provider_invocation_adapter(
         | provider_invocation_runtime.ProviderInvocationPreparedStream
     ),
 ) -> RuntimeClientExecutionHarness:
-    harness = RuntimeClientExecutionHarness.install(monkeypatch)
-    for prepared_invocation in prepared_invocations:
-        if isinstance(
-            prepared_invocation,
-            provider_invocation_runtime.ProviderInvocationResult,
-        ):
-            harness.prepare_result(prepared_invocation)
-        elif isinstance(
-            prepared_invocation,
-            provider_invocation_runtime.ProviderInvocationFailure,
-        ):
-            harness.prepare_failure(prepared_invocation)
-        else:
-            harness.prepare_prepared_stream(prepared_invocation)
-    return harness
+    return RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        *prepared_invocations
+    )
 
 
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])

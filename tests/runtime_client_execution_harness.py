@@ -26,41 +26,51 @@ class RuntimeClientExecutionHarness:
         return cls(_adapter=adapter)
 
     @property
-    def adapter(self) -> provider_invocation_runtime.InMemoryProviderInvocationAdapter:
-        return self._adapter
-
-    @property
     def recorded_requests(
         self,
     ) -> list[provider_invocation_runtime.ProviderInvocationRequest]:
         return self._adapter.recorded_requests
 
+    def prepare(
+        self,
+        prepared_invocation: (
+            provider_invocation_runtime.ProviderInvocationResult
+            | provider_invocation_runtime.ProviderInvocationFailure
+            | provider_invocation_runtime.ProviderInvocationPreparedStream
+        ),
+    ) -> RuntimeClientExecutionHarness:
+        self._adapter.prepared_invocations.append(prepared_invocation)
+        return self
+
+    def prepare_all(
+        self,
+        *prepared_invocations: (
+            provider_invocation_runtime.ProviderInvocationResult
+            | provider_invocation_runtime.ProviderInvocationFailure
+            | provider_invocation_runtime.ProviderInvocationPreparedStream
+        ),
+    ) -> RuntimeClientExecutionHarness:
+        for prepared_invocation in prepared_invocations:
+            self.prepare(prepared_invocation)
+        return self
+
     def prepare_result(
         self,
         result: provider_invocation_runtime.ProviderInvocationResult,
     ) -> provider_invocation_runtime.ProviderInvocationResult:
-        self._adapter.prepared_invocations.append(result)
+        self.prepare(result)
         return result
 
     def prepare_failure(
         self,
         failure: provider_invocation_runtime.ProviderInvocationFailure,
     ) -> provider_invocation_runtime.ProviderInvocationFailure:
-        self._adapter.prepared_invocations.append(failure)
+        self.prepare(failure)
         return failure
 
     def prepare_prepared_stream(
         self,
         prepared_stream: provider_invocation_runtime.ProviderInvocationPreparedStream,
     ) -> provider_invocation_runtime.ProviderInvocationPreparedStream:
-        self._adapter.prepared_invocations.append(prepared_stream)
+        self.prepare(prepared_stream)
         return prepared_stream
-
-    def execute(
-        self,
-        request: provider_invocation_runtime.ProviderInvocationRequest,
-    ) -> (
-        provider_invocation_runtime.ProviderInvocationResult
-        | provider_invocation_runtime.ProviderInvocationFailure
-    ):
-        return self._adapter.execute(request)
