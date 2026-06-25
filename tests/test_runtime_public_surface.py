@@ -612,6 +612,175 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
         exec("from agent_runtime import ExecutionProvider", {}, {})
 
 
+@pytest.mark.parametrize(
+    ("entrypoint_name", "request_factory", "delegate_name"),
+    [
+        (
+            "new_session",
+            lambda tmp_path: prompt_runtime.NewSessionRunRequest(
+                prompt="hello",
+                invocation_dir=tmp_path / "new-session",
+                provider_selection=runtime.ProviderSelection(
+                    service="claude",
+                    model="haiku",
+                    effort="low",
+                ),
+                tool_policy=prompt_runtime.ToolPolicy.NONE,
+                timeout_seconds=7,
+            ),
+            "_run_builtin_new_session",
+        ),
+        (
+            "resumed_session",
+            lambda tmp_path: prompt_runtime.ResumedSessionRunRequest(
+                prompt="hello",
+                invocation_dir=tmp_path / "resumed-session",
+                continuation=prompt_runtime.Continuation(
+                    serialized=continuation_payload_module.create_portable_continuation_payload(
+                        service_name="claude",
+                        model="haiku",
+                        effort="low",
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
+                        provider_resume_state={},
+                    ).serialized
+                ),
+                timeout_seconds=7,
+            ),
+            "_run_builtin_resumed_session",
+        ),
+    ],
+)
+def test_runtime_client_session_entrypoints_delegate_wrapped_live_runtime_output_and_stop_idle_timeout_watchdog(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint_name: str,
+    request_factory: Any,
+    delegate_name: str,
+) -> None:
+    wrapped_live_runtime_output = object()
+
+    class _Watchdog:
+        def __init__(self) -> None:
+            self.stop_calls = 0
+
+        def stop_monitoring(self) -> None:
+            self.stop_calls += 1
+
+    watchdog = _Watchdog()
+    delegated_calls: list[tuple[Any, Any]] = []
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_wrap_on_live_output_with_timeout",
+        lambda on_live_output, timeout_seconds: (
+            wrapped_live_runtime_output,
+            watchdog,
+        ),
+    )
+
+    def _delegate(request: Any, *, on_live_output: Any) -> prompt_runtime.RunResult:
+        delegated_calls.append((request, on_live_output))
+        return prompt_runtime.RunResult(
+            output="delegated output",
+            usage=None,
+            continuation=None,
+            selected=prompt_runtime.ResolvedProvider(
+                service="claude",
+                model="haiku",
+                effort="low",
+            ),
+        )
+
+    monkeypatch.setattr(prompt_runtime, delegate_name, _delegate)
+
+    client = prompt_runtime.RuntimeClient()
+    request = request_factory(tmp_path)
+    outcome = asyncio.run(getattr(client, f"run_{entrypoint_name}")(request))
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "delegated output"
+    assert delegated_calls == [(request, wrapped_live_runtime_output)]
+    assert watchdog.stop_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("entrypoint_name", "request_factory", "delegate_name"),
+    [
+        (
+            "new_session",
+            lambda tmp_path: prompt_runtime.NewSessionRunRequest(
+                prompt="hello",
+                invocation_dir=tmp_path / "new-session",
+                provider_selection=runtime.ProviderSelection(
+                    service="claude",
+                    model="haiku",
+                    effort="low",
+                ),
+                tool_policy=prompt_runtime.ToolPolicy.NONE,
+                timeout_seconds=7,
+            ),
+            "_run_builtin_new_session",
+        ),
+        (
+            "resumed_session",
+            lambda tmp_path: prompt_runtime.ResumedSessionRunRequest(
+                prompt="hello",
+                invocation_dir=tmp_path / "resumed-session",
+                continuation=prompt_runtime.Continuation(
+                    serialized=continuation_payload_module.create_portable_continuation_payload(
+                        service_name="claude",
+                        model="haiku",
+                        effort="low",
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
+                        provider_resume_state={},
+                    ).serialized
+                ),
+                timeout_seconds=7,
+            ),
+            "_run_builtin_resumed_session",
+        ),
+    ],
+)
+def test_runtime_client_session_entrypoints_stop_idle_timeout_watchdog_when_delegated_execution_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint_name: str,
+    request_factory: Any,
+    delegate_name: str,
+) -> None:
+    class _Watchdog:
+        def __init__(self) -> None:
+            self.stop_calls = 0
+
+        def stop_monitoring(self) -> None:
+            self.stop_calls += 1
+
+    watchdog = _Watchdog()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_wrap_on_live_output_with_timeout",
+        lambda on_live_output, timeout_seconds: (on_live_output, watchdog),
+    )
+
+    def _raise_delegate(
+        request: Any, *, on_live_output: Any
+    ) -> prompt_runtime.RunResult:
+        raise prompt_runtime.RuntimeConfigurationError("delegated failure")
+
+    monkeypatch.setattr(prompt_runtime, delegate_name, _raise_delegate)
+
+    client = prompt_runtime.RuntimeClient()
+    request = request_factory(tmp_path)
+
+    with pytest.raises(
+        prompt_runtime.RuntimeConfigurationError, match="delegated failure"
+    ):
+        asyncio.run(getattr(client, f"run_{entrypoint_name}")(request))
+
+    assert watchdog.stop_calls == 1
+
+
 def test_session_planning_surface_uses_resumable_vocabulary() -> None:
     assert not hasattr(session_planning_runtime, "ResidentSessionPlan")
     assert not hasattr(session_planning_runtime, "ResidentSessionPlanRequest")
