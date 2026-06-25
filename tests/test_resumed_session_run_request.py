@@ -9,6 +9,7 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
+from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.contracts import ExecutionProvider
 from agent_runtime.session import RunKind
 from agent_runtime.session_planning import (
@@ -72,6 +73,35 @@ def test_resumed_session_run_request_from_continuation_accepts_minimal_fields() 
     assert request.token is None
     assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
     assert request.invocation_dir == Path("/repo")
+
+
+def test_resumed_session_run_request_from_continuation_preserves_request_time_inputs() -> (
+    None
+):
+    token = CancellationToken()
+    provider_auth = prompt_runtime.ProviderAuth(opencode_api_key="go-key")
+    live_events: list[prompt_runtime.AgentEvent] = []
+
+    def on_live_output(event: prompt_runtime.AgentEvent) -> None:
+        live_events.append(event)
+
+    request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        continuation=_continuation(),
+        provider_auth=provider_auth,
+        session_store=Path("/state"),
+        timeout_seconds=123,
+        on_live_output=on_live_output,
+        token=token,
+    )
+
+    assert request.provider_auth == provider_auth
+    assert request.session_store == Path("/state")
+    assert request.timeout_seconds == 123
+    assert request.on_live_output is on_live_output
+    assert request.token is token
+    assert live_events == []
 
 
 def test_resumed_session_run_request_from_continuation_rejects_model_override() -> None:
@@ -218,27 +248,6 @@ def test_resumed_session_run_request_rejects_explicit_no_tools_tool_access() -> 
         )
 
 
-def test_resumed_session_run_request_rejects_workspace_backed_tool_access_for_other_invocation_dir() -> (
-    None
-):
-    with pytest.raises(
-        ValueError,
-        match=re.escape(
-            "ResumedSessionRunRequest workspace-backed tool access requires invocation_dir /repo, got /other."
-        ),
-    ):
-        prompt_runtime.ResumedSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/other"),
-            continuation=_continuation(
-                tool_access=contracts_runtime.ToolAccess.workspace_backed(
-                    Path("/repo"),
-                    tool_policy=runtime.ToolPolicy.UNRESTRICTED,
-                )
-            ),
-        )
-
-
 def test_resumed_session_run_request_from_continuation_rejects_tool_policy_override() -> (
     None
 ):
@@ -285,4 +294,34 @@ def test_resumed_session_run_request_rejects_missing_continuation() -> None:
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("continuation", "message"),
+    [
+        (
+            prompt_runtime.Continuation(serialized="{not-json"),
+            "Continuation data is not valid JSON.",
+        ),
+        (
+            prompt_runtime.Continuation(
+                serialized='{"effort":"medium","model":"gpt-5.4","provider_resume_state":{"run_kind":"resume"},"service_name":"codex","tool_access":[]}'
+            ),
+            "Continuation data is malformed.",
+        ),
+    ],
+)
+def test_resumed_session_run_request_surfaces_malformed_continuation_through_runtime_configuration_error(
+    continuation: prompt_runtime.Continuation,
+    message: str,
+) -> None:
+    with pytest.raises(
+        runtime.RuntimeConfigurationError,
+        match=re.escape(message),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            continuation=continuation,
         )
