@@ -158,6 +158,15 @@ def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surfa
         exec("from agent_runtime.runtime import ProviderInvocationAdapter", {}, {})
 
 
+def test_session_backed_provider_execution_module_stays_private_to_runtime_public_surface() -> (
+    None
+):
+    assert not hasattr(prompt_runtime, "_session_backed_provider_execution_module")
+    assert not hasattr(prompt_runtime, "_session_backed_provider_execution")
+    assert "_session_backed_provider_execution_module" not in runtime.__all__
+    assert "_session_backed_provider_execution_module" not in prompt_runtime.__all__
+
+
 @pytest.mark.parametrize(
     "module_name",
     [

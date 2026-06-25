@@ -5,9 +5,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from . import _time
 from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
-from . import (
-    _session_backed_provider_execution as _session_backed_provider_execution_module,
-)
 from .contracts import ToolPolicy
 from .errors import (
     AgentCancelledError,
@@ -102,11 +99,9 @@ _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
 _supported_builtin_provider_selection = (
     _builtin_runtime_client_module.supported_builtin_provider_selection
 )
-_run_builtin_new_session = (
-    _session_backed_provider_execution_module._run_builtin_new_session
-)
+_run_builtin_new_session = _builtin_runtime_client_module._run_builtin_new_session
 _run_builtin_resumed_session = (
-    _session_backed_provider_execution_module._run_builtin_resumed_session
+    _builtin_runtime_client_module._run_builtin_resumed_session
 )
 
 
