@@ -4789,6 +4789,23 @@ def test_runtime_client_rejects_resumed_session_with_non_object_portable_continu
     )
 
 
+def test_runtime_client_rejects_resumed_session_with_malformed_continuation_data(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    continuation=prompt_runtime.Continuation(serialized="{not-json"),
+                )
+            )
+        )
+
+    assert str(exc_info.value) == "Continuation data is not valid JSON."
+
+
 def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
