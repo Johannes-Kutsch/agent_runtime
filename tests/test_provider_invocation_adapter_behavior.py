@@ -13,7 +13,6 @@ import pytest
 import agent_runtime._builtin_provider_stream_interpretation as builtin_provider_stream_interpretation
 import agent_runtime._provider_invocation as provider_invocation_runtime
 from agent_runtime._builtin_provider_stream_interpretation import reduce_codex_stream
-from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime.errors import (
     HardAgentError,
     ProviderUnavailableError,
@@ -82,7 +81,6 @@ def test_production_adapter_executes_prepared_invocation_and_returns_reduced_res
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=_reduce_output,
@@ -179,7 +177,6 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines), None),
@@ -305,7 +302,6 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines), None),
@@ -404,7 +400,6 @@ def test_production_adapter_resolves_argv_executable_against_path_before_spawnin
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines), None),
@@ -461,7 +456,6 @@ def test_production_adapter_falls_back_to_bare_argv_when_executable_unresolved(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines), None),
@@ -475,7 +469,7 @@ def test_production_adapter_falls_back_to_bare_argv_when_executable_unresolved(
     assert captured["command"] == ["claude", "--model", "sonnet"]
 
 
-def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplied(
+def test_production_adapter_uses_live_output_reducer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -497,11 +491,6 @@ def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplie
         lambda *args, **kwargs: _Process(),
     )
 
-    logs_dir = tmp_path / "logs"
-    invocation_log = AgentInvocationLog().start_logical_session(
-        log_name="implementer",
-        logs_dir=logs_dir,
-    )
     observed = {"live_reducer_calls": 0}
 
     def _reduce_output(lines: list[str]) -> tuple[str, ProviderUsage | None]:
@@ -518,9 +507,6 @@ def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplie
             cleanup_path=True,
         ),
         run_kind=RunKind.RESUME,
-        log_context=provider_invocation_runtime.ProviderInvocationLogContext(
-            invocation_log=invocation_log,
-        ),
         provider_session_id="existing-session",
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=_reduce_output,
@@ -541,15 +527,10 @@ def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplie
     assert observed["live_reducer_calls"] == 1
 
 
-def test_in_memory_prepared_stream_uses_live_output_reducer_when_log_context_is_supplied(
+def test_in_memory_prepared_stream_uses_live_output_reducer(
     tmp_path: Path,
 ) -> None:
     process_lines = ['{"session":"provider-session-123"}\n', "final line\n"]
-    logs_dir = tmp_path / "logs"
-    invocation_log = AgentInvocationLog().start_logical_session(
-        log_name="implementer",
-        logs_dir=logs_dir,
-    )
     observed = {"live_reducer_calls": 0}
 
     def _reduce_output(lines: list[str]) -> tuple[str, ProviderUsage | None]:
@@ -572,9 +553,6 @@ def test_in_memory_prepared_stream_uses_live_output_reducer_when_log_context_is_
             content="rendered prompt",
         ),
         run_kind=RunKind.RESUME,
-        log_context=provider_invocation_runtime.ProviderInvocationLogContext(
-            invocation_log=invocation_log,
-        ),
         provider_session_id="existing-session",
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=_reduce_output,
@@ -613,7 +591,6 @@ def test_in_memory_prepared_stream_preserves_live_reducer_failure_with_extracted
             content="rendered prompt",
         ),
         run_kind=RunKind.RESUME,
-        log_context=None,
         provider_session_id="existing-session",
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=(
@@ -707,7 +684,6 @@ def test_provider_invocation_seam_consumes_stdout_lines_before_final_reduction(
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=reducer,
@@ -775,7 +751,6 @@ def test_production_adapter_cleans_up_prompt_file_on_failures(
             cleanup_path=True,
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=(
@@ -857,7 +832,6 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=reduce_codex_stream,
@@ -933,7 +907,6 @@ def test_production_adapter_streams_stderr_lines_to_live_output_and_reduction(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=reducer,
@@ -976,7 +949,6 @@ def test_production_adapter_surfaces_provider_stderr_text_in_nonzero_shell_exit(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines), None),
@@ -1032,7 +1004,6 @@ def test_production_adapter_surfaces_provider_stderr_text_in_nonzero_argv_exit(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines), None),
@@ -1079,7 +1050,6 @@ def test_production_adapter_raises_hard_error_on_nonzero_exit_even_with_output(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines), None),
@@ -1119,7 +1089,6 @@ def test_production_adapter_raises_hard_error_on_zero_exit_with_empty_output(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda _lines: ("", None),
@@ -1162,7 +1131,6 @@ def test_production_adapter_raises_hard_error_on_nonzero_exit_with_empty_output(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda _lines: ("", None),
@@ -1202,7 +1170,6 @@ def test_production_adapter_preserves_exit_code_only_message_for_whitespace_stde
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda _lines: ("", None),
@@ -1256,7 +1223,6 @@ def test_production_adapter_preserves_reducer_classification_on_nonzero_exit(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda _lines: (_ for _ in ()).throw(classified_failure),
@@ -1300,7 +1266,6 @@ def test_provider_invocation_request_requires_command_or_argv() -> None:
                 content="rendered prompt"
             ),
             run_kind=RunKind.FRESH,
-            log_context=None,
             provider_session_id=None,
             output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
                 reduce_output=lambda lines: ("".join(lines), None)
@@ -1341,7 +1306,6 @@ def test_production_adapter_terminates_silent_subprocess_after_idle_timeout(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id="provider-session-123",
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines), None),
@@ -1413,7 +1377,6 @@ def test_provider_invocation_request_layers_windows_host_process_allowlist_for_b
                 content="rendered prompt",
             ),
             run_kind=RunKind.FRESH,
-            log_context=None,
             provider_session_id=None,
             output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
                 reduce_output=lambda lines: ("".join(lines), None)
@@ -1484,7 +1447,6 @@ def test_provider_invocation_request_keeps_provider_environment_values_when_wind
                 content="rendered prompt",
             ),
             run_kind=RunKind.FRESH,
-            log_context=None,
             provider_session_id=None,
             output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
                 reduce_output=lambda lines: ("".join(lines), None)
@@ -1544,7 +1506,6 @@ def test_provider_invocation_request_keeps_provider_environment_unchanged_on_pos
                 content="rendered prompt",
             ),
             run_kind=RunKind.FRESH,
-            log_context=None,
             provider_session_id=None,
             output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
                 reduce_output=lambda lines: ("".join(lines), None)
@@ -1583,7 +1544,6 @@ def test_production_adapter_resets_idle_timeout_on_stderr_activity(
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda _lines: ("normalized output", None),
@@ -1630,7 +1590,6 @@ def test_production_adapter_disables_idle_timeout_for_non_positive_timeout_value
             content="rendered prompt",
         ),
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=lambda lines: ("".join(lines).strip(), None),

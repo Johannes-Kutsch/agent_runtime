@@ -4111,7 +4111,6 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id is None
-    assert recorded_request.log_context is None
     assert recorded_request.command
     assert recorded_request.argv
     assert list((tmp_path / "logs").glob("*.log")) == []
@@ -4669,7 +4668,6 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id is None
-    assert recorded_request.log_context is None
     assert recorded_request.command
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
@@ -4752,7 +4750,6 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
         },
     )
     assert len(harness.recorded_requests) == 1
-    assert harness.recorded_request().log_context is None
 
 
 def test_runtime_client_preserves_opencode_invalid_api_key_classification(

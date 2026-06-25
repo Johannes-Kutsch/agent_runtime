@@ -256,7 +256,6 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         environment={"PATH": "/usr/bin"},
         prompt=prompt,
         run_kind=RunKind.FRESH,
-        log_context=None,
         provider_session_id="session-123",
         output_hooks=hooks,
     )
@@ -281,7 +280,6 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         "environment",
         "prompt",
         "run_kind",
-        "log_context",
         "provider_session_id",
         "output_hooks",
         "command",

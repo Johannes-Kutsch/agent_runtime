@@ -503,7 +503,6 @@ def _invoke_provider(
                 cleanup_path=cleanup_prompt_path,
             ),
             run_kind=run_kind,
-            log_context=None,
             provider_session_id=provider_session_id,
             output_hooks=ProviderOutputReductionHooks(
                 reduce_output=stream_interpretation.reduce_output,
@@ -550,7 +549,6 @@ def _provider_invocation_request_from_rendered_invocation(
             ),
         ),
         run_kind=run_kind,
-        log_context=None,
         provider_session_id=provider_session_id,
         output_hooks=ProviderOutputReductionHooks(
             reduce_output=stream_interpretation.reduce_output,

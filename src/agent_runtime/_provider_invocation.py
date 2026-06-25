@@ -13,7 +13,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
-from .agent_log import LogicalAgentInvocationLog
 from .errors import (
     AgentTimeoutError,
     HardAgentError,
@@ -50,17 +49,11 @@ class ProviderOutputReductionHooks:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class ProviderInvocationLogContext:
-    invocation_log: LogicalAgentInvocationLog
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationRequest:
     worktree: Path
     environment: Mapping[str, str]
     prompt: ProviderInvocationPrompt
     run_kind: RunKind
-    log_context: ProviderInvocationLogContext | None
     provider_session_id: str | None
     output_hooks: ProviderOutputReductionHooks
     command: str = ""
