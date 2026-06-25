@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -60,6 +61,173 @@ def _codex_prepare_runtime_state(
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     return provider_state_dir_relpath, provider_state_dir
+
+
+def _opencode_provider_state_dir_relpath(
+    *,
+    role: Any,
+    session_namespace: str,
+) -> str:
+    return cast(
+        str,
+        _builtin_runtime_client_module.provider_state_relpath(
+            role,
+            "opencode",
+            session_namespace,
+        ),
+    )
+
+
+def _opencode_prepare_runtime_state(
+    runtime_state_dir: Path,
+    *,
+    role: Any,
+    session_namespace: str,
+) -> tuple[str, Path]:
+    provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
+        role=role,
+        session_namespace=session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    return provider_state_dir_relpath, provider_state_dir
+
+
+def _load_opencode_state_dir_session_id(state_dir: Path | None) -> str | None:
+    if state_dir is None:
+        return None
+    path = state_dir / _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value or None
+
+
+def _opencode_is_resumable(state_dir: Path) -> bool:
+    return (state_dir / "resume.jsonl").is_file() or (
+        state_dir / _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME
+    ).is_file()
+
+
+def _opencode_provider_state_from_runtime_dir(
+    state_dir: Path | None,
+) -> dict[str, Any]:
+    if state_dir is None:
+        return {}
+    provider_state: dict[str, Any] = {}
+    session_id = _load_opencode_state_dir_session_id(state_dir)
+    if session_id is not None:
+        provider_state["session_id"] = session_id
+    resume_jsonl_path = state_dir / "resume.jsonl"
+    if resume_jsonl_path.is_file():
+        try:
+            provider_state["resume_jsonl"] = resume_jsonl_path.read_text(
+                encoding="utf-8"
+            )
+        except OSError:
+            pass
+    return provider_state
+
+
+def _build_opencode_continuation(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    provider_session_id: str,
+    provider_state: dict[str, Any] | None = None,
+    provider_state_dir: Path | None = None,
+    exact_transcript_match: bool | None = None,
+) -> Continuation:
+    if provider_state is None and provider_state_dir is not None:
+        provider_state = _opencode_provider_state_from_runtime_dir(provider_state_dir)
+    if provider_state is None:
+        provider_state = {}
+    provider_resume_state: dict[str, Any] = {
+        "provider_session_id": provider_session_id,
+        "provider_state": provider_state,
+    }
+    if exact_transcript_match is not None:
+        provider_resume_state["exact_transcript_match"] = exact_transcript_match
+    return create_portable_continuation_payload(
+        service_name="opencode",
+        model=model,
+        effort=effort,
+        tool_access=tool_access,
+        provider_resume_state=provider_resume_state,
+    ).to_continuation()
+
+
+def _persist_opencode_session_id(state_dir: Path, provider_session_id: str) -> None:
+    (
+        state_dir / _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME
+    ).write_text(
+        f"{provider_session_id}\n",
+        encoding="utf-8",
+    )
+
+
+def _seed_opencode_provider_state_dir(
+    state_dir: Path,
+    provider_state: dict[str, Any] | None,
+) -> None:
+    for state_filename in (
+        _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME,
+        "resume.jsonl",
+    ):
+        state_path = state_dir / state_filename
+        if state_path.exists():
+            state_path.unlink()
+    if not isinstance(provider_state, dict):
+        return
+    provider_session_id = provider_state.get("session_id")
+    if isinstance(provider_session_id, str) and provider_session_id:
+        _persist_opencode_session_id(state_dir, provider_session_id)
+    resume_jsonl = provider_state.get("resume_jsonl")
+    if isinstance(resume_jsonl, str) and resume_jsonl:
+        (state_dir / "resume.jsonl").write_text(
+            resume_jsonl,
+            encoding="utf-8",
+        )
+
+
+def _restore_opencode_state_dir(
+    request: ResumedSessionRunRequest,
+    continuation_provider_state: dict[str, Any] | None,
+) -> tuple[Path, Callable[[], None]]:
+    if request._runtime_state_dir is None:
+        temp_dir = tempfile.TemporaryDirectory(prefix="opencode-provider-state-")
+
+        def cleanup() -> None:
+            temp_dir.cleanup()
+
+        state_dir = Path(temp_dir.name)
+        _seed_opencode_provider_state_dir(state_dir, continuation_provider_state)
+        return state_dir, cleanup
+    provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
+        role="implementer",
+        session_namespace=request._session_namespace,
+    )
+    state_dir = request._runtime_state_dir / provider_state_dir_relpath
+    state_dir.mkdir(parents=True, exist_ok=True)
+    _seed_opencode_provider_state_dir(state_dir, continuation_provider_state)
+    return state_dir, lambda: None
+
+
+def _opencode_exact_transcript_match(
+    *,
+    saved_exact_transcript_match: bool,
+    provider_session_id: str | None,
+    state_dir_session_id: str | None,
+) -> bool:
+    return (
+        saved_exact_transcript_match
+        and provider_session_id is not None
+        and state_dir_session_id == provider_session_id
+    )
 
 
 def _read_codex_rollout_thread_ids(rollout_path: Path) -> set[str]:
@@ -407,7 +575,7 @@ def _run_builtin_new_session(
             exact_transcript_match = False
         elif selected_stage.service == "opencode":
             provider_state_dir_relpath, provider_state_dir = (
-                _builtin_runtime_client_module._opencode_prepare_runtime_state(
+                _opencode_prepare_runtime_state(
                     runtime_state_dir,
                     role="implementer",
                     session_namespace=request._session_namespace,
@@ -415,15 +583,11 @@ def _run_builtin_new_session(
             )
             _builtin_runtime_client_module._validate_opencode_stage(selected_stage)
             _builtin_runtime_client_module._require_opencode_auth(selected_stage_auth)
-            recovered_state_dir_session_id = (
-                _builtin_runtime_client_module._load_opencode_state_dir_session_id(
-                    provider_state_dir
-                )
+            recovered_state_dir_session_id = _load_opencode_state_dir_session_id(
+                provider_state_dir
             )
             if (
-                _builtin_runtime_client_module._opencode_is_resumable(
-                    provider_state_dir
-                )
+                _opencode_is_resumable(provider_state_dir)
                 and recovered_state_dir_session_id
             ):
                 provider_session_id = recovered_state_dir_session_id
@@ -477,9 +641,7 @@ def _run_builtin_new_session(
                 prepared_or_continuation_provider_session_id=provider_session_id,
             )
             if selected_stage.service == "opencode" and provider_session_id is not None:
-                _builtin_runtime_client_module._persist_opencode_session_id(
-                    provider_state_dir, provider_session_id
-                )
+                _persist_opencode_session_id(provider_state_dir, provider_session_id)
             failure_error = (
                 _builtin_runtime_client_module._provider_invocation_error_from_failure(
                     selected_stage.service,
@@ -499,7 +661,7 @@ def _run_builtin_new_session(
                         provider_session_id=active_provider_session_id,
                     )
                     if selected_stage.service == "claude"
-                    else _builtin_runtime_client_module._build_opencode_continuation(
+                    else _build_opencode_continuation(
                         model=selected_stage.model,
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
@@ -516,9 +678,7 @@ def _run_builtin_new_session(
             prepared_or_continuation_provider_session_id=provider_session_id,
         )
         if selected_stage.service == "opencode" and provider_session_id is not None:
-            _builtin_runtime_client_module._persist_opencode_session_id(
-                provider_state_dir, provider_session_id
-            )
+            _persist_opencode_session_id(provider_state_dir, provider_session_id)
         assert provider_session_id is not None
         result_text = invocation_result.output
         usage = invocation_result.usage
@@ -533,7 +693,7 @@ def _run_builtin_new_session(
                     provider_session_id=provider_session_id,
                 )
                 if selected_stage.service == "claude"
-                else _builtin_runtime_client_module._build_opencode_continuation(
+                else _build_opencode_continuation(
                     model=selected_stage.model,
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
@@ -726,17 +886,11 @@ def _run_builtin_resumed_session(
         continuation_provider_state = provider_resume_state.get("provider_state")
         if not isinstance(continuation_provider_state, dict):
             continuation_provider_state = None
-        provider_state_dir, cleanup_opencode_state_dir = (
-            _builtin_runtime_client_module._restore_opencode_state_dir(
-                request=request,
-                continuation_provider_state=continuation_provider_state,
-            )
+        provider_state_dir, cleanup_opencode_state_dir = _restore_opencode_state_dir(
+            request=request,
+            continuation_provider_state=continuation_provider_state,
         )
-        state_dir_session_id = (
-            _builtin_runtime_client_module._load_opencode_state_dir_session_id(
-                provider_state_dir
-            )
-        )
+        state_dir_session_id = _load_opencode_state_dir_session_id(provider_state_dir)
         saved_exact_transcript_match = bool(
             provider_resume_state.get("exact_transcript_match", False)
         )
@@ -746,12 +900,10 @@ def _run_builtin_resumed_session(
             provider_session_id = (
                 _builtin_runtime_client_module._new_provider_session_id()
             )
-        exact_transcript_match = (
-            _builtin_runtime_client_module._opencode_exact_transcript_match(
-                saved_exact_transcript_match=saved_exact_transcript_match,
-                provider_session_id=provider_session_id,
-                state_dir_session_id=state_dir_session_id,
-            )
+        exact_transcript_match = _opencode_exact_transcript_match(
+            saved_exact_transcript_match=saved_exact_transcript_match,
+            provider_session_id=provider_session_id,
+            state_dir_session_id=state_dir_session_id,
         )
         run_kind = RunKind.RESUME
     prompt_path = _builtin_runtime_client_module._builtin_provider_prompt_path(
@@ -836,15 +988,11 @@ def _run_builtin_resumed_session(
         if continuation_service == "opencode":
             if provider_session_id is not None:
                 assert provider_state_dir is not None
-                _builtin_runtime_client_module._persist_opencode_session_id(
-                    provider_state_dir, provider_session_id
-                )
-            exact_transcript_match = (
-                _builtin_runtime_client_module._opencode_exact_transcript_match(
-                    saved_exact_transcript_match=saved_exact_transcript_match,
-                    provider_session_id=provider_session_id,
-                    state_dir_session_id=state_dir_session_id,
-                )
+                _persist_opencode_session_id(provider_state_dir, provider_session_id)
+            exact_transcript_match = _opencode_exact_transcript_match(
+                saved_exact_transcript_match=saved_exact_transcript_match,
+                provider_session_id=provider_session_id,
+                state_dir_session_id=state_dir_session_id,
             )
         failure_error = (
             _builtin_runtime_client_module._provider_invocation_error_from_failure(
@@ -868,7 +1016,7 @@ def _run_builtin_resumed_session(
                 )
                 if continuation_service == "claude"
                 else (
-                    _builtin_runtime_client_module._build_opencode_continuation(
+                    _build_opencode_continuation(
                         model=request.model,
                         effort=request.effort,
                         tool_access=request.tool_access,
@@ -889,16 +1037,12 @@ def _run_builtin_resumed_session(
     if continuation_service == "opencode":
         assert provider_session_id is not None
         assert provider_state_dir is not None
-        exact_transcript_match = (
-            _builtin_runtime_client_module._opencode_exact_transcript_match(
-                saved_exact_transcript_match=saved_exact_transcript_match,
-                provider_session_id=provider_session_id,
-                state_dir_session_id=state_dir_session_id,
-            )
+        exact_transcript_match = _opencode_exact_transcript_match(
+            saved_exact_transcript_match=saved_exact_transcript_match,
+            provider_session_id=provider_session_id,
+            state_dir_session_id=state_dir_session_id,
         )
-        _builtin_runtime_client_module._persist_opencode_session_id(
-            provider_state_dir, provider_session_id
-        )
+        _persist_opencode_session_id(provider_state_dir, provider_session_id)
     assert provider_session_id is not None
     result_text = invocation_result.output
     usage = invocation_result.usage
@@ -910,15 +1054,13 @@ def _run_builtin_resumed_session(
             provider_session_id=provider_session_id,
         )
     else:
-        result_continuation = (
-            _builtin_runtime_client_module._build_opencode_continuation(
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                provider_session_id=provider_session_id,
-                provider_state_dir=provider_state_dir,
-                exact_transcript_match=exact_transcript_match,
-            )
+        result_continuation = _build_opencode_continuation(
+            model=request.model,
+            effort=request.effort,
+            tool_access=request.tool_access,
+            provider_session_id=provider_session_id,
+            provider_state_dir=provider_state_dir,
+            exact_transcript_match=exact_transcript_match,
         )
     cleanup_opencode_state_dir()
     return _completed_outcome(
