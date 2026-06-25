@@ -239,7 +239,6 @@ def _write_result_json(
 def run_case(
     request: ProbeCaseRunRequest,
     *,
-    outcome_category: Callable[[Any], str] | None = None,
     runtime_client_factory: Callable[[], _RuntimeInvocationPort] = RuntimeClient,
 ) -> ProbeCaseRunResult:
     request.case_dir.mkdir(parents=True, exist_ok=True)
@@ -303,11 +302,7 @@ def run_case(
             )
         else:
             raise ValueError(f"unsupported probe mode: {request.case.mode!r}")
-        category = (
-            outcome_category(outcome)
-            if outcome_category is not None
-            else _outcome_category(outcome)
-        )
+        category = _outcome_category(outcome)
     except AgentCredentialFailureError:
         category = "wrong_credentials"
         traceback = format_exc()

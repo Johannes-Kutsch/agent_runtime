@@ -535,7 +535,6 @@ def test_live_probe_case_runner_writes_feed_and_projects_case_result_facts(
             continuation=None,
             output=output,
         ),
-        outcome_category=probe.plan.outcome_category,
         runtime_client_factory=_FakeClient,
     )
 
@@ -553,6 +552,33 @@ def test_live_probe_case_runner_writes_feed_and_projects_case_result_facts(
     assert result.traceback is None
     assert output.lines == ["  hello"]
     assert (tmp_path / "workspace").exists()
+    assert json.loads(
+        (tmp_path / case.label / case_runner.RESULT_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    ) == {
+        "category": "success",
+        "continuation": _continuation().serialized,
+        "kind": "Completed",
+        "mode": "new_session",
+        "output": "new session output",
+        "selected": {
+            "service": "codex",
+            "model": "gpt-5.4-mini",
+            "effort": "low",
+        },
+        "service": "codex",
+        "tool_policy": "UNRESTRICTED",
+        "traceback": None,
+        "usage": {
+            "cache_creation_input_tokens": None,
+            "cache_read_input_tokens": None,
+            "cost_usd": 0.01,
+            "duration_seconds": None,
+            "input_tokens": 10,
+            "output_tokens": 3,
+        },
+    }
 
     records = [
         json.loads(line)
@@ -621,7 +647,6 @@ def test_live_probe_case_runner_streams_tool_call_display_messages_and_persists_
             continuation=None,
             output=output,
         ),
-        outcome_category=probe.plan.outcome_category,
         runtime_client_factory=_FakeClient,
     )
 
@@ -630,6 +655,15 @@ def test_live_probe_case_runner_streams_tool_call_display_messages_and_persists_
     assert result.traceback is not None
     assert "RuntimeError: boom" in result.traceback
     assert output.lines == ["  hello", "  tool call"]
+    payload = json.loads(
+        (tmp_path / case.label / case_runner.RESULT_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["category"] == "error"
+    assert payload["kind"] is None
+    assert payload["traceback"] is not None
+    assert "RuntimeError: boom" in payload["traceback"]
     records = [
         json.loads(line)
         for line in (tmp_path / case.label / case_runner.LIVE_FEED_FILENAME)
@@ -722,7 +756,6 @@ def test_live_probe_case_runner_flushes_each_observed_event(
             continuation=None,
             output=output,
         ),
-        outcome_category=probe.plan.outcome_category,
         runtime_client_factory=_FakeClient,
     )
 
@@ -772,7 +805,6 @@ def test_live_probe_case_runner_passes_continuation_and_default_provider_auth_fo
             continuation=_continuation(),
             output=output,
         ),
-        outcome_category=probe.plan.outcome_category,
         runtime_client_factory=_FakeClient,
     )
 
@@ -809,7 +841,6 @@ def test_live_probe_case_runner_reports_wrong_credentials_with_traceback(
             continuation=None,
             output=output,
         ),
-        outcome_category=probe.plan.outcome_category,
         runtime_client_factory=_FakeClient,
     )
 
@@ -822,6 +853,15 @@ def test_live_probe_case_runner_reports_wrong_credentials_with_traceback(
     assert result.traceback is not None
     assert "AgentCredentialFailureError" in result.traceback
     assert output.lines == []
+    payload = json.loads(
+        (tmp_path / case.label / case_runner.RESULT_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["category"] == "wrong_credentials"
+    assert payload["kind"] is None
+    assert payload["traceback"] is not None
+    assert "AgentCredentialFailureError" in payload["traceback"]
     assert (tmp_path / case.label / case_runner.LIVE_FEED_FILENAME).read_text(
         encoding="utf-8"
     ) == ""
@@ -888,7 +928,6 @@ def test_live_probe_case_runner_in_memory_runtime_invocation_adapter_records_req
                 continuation=case_continuation,
                 output=output,
             ),
-            outcome_category=probe.plan.outcome_category,
             runtime_client_factory=lambda: adapter,
         )
         assert result.category == "success"
