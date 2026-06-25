@@ -35,11 +35,7 @@ from ._provider_invocation import (
     ProviderInvocationResult,
     ProviderOutputReductionHooks,
 )
-from ._portable_continuation_payload import (
-    create_portable_continuation_payload,
-)
 from ._runtime_lifecycle import (
-    Continuation,
     AgentEvent,
     EphemeralRunRequest,
     ProviderAuth,
@@ -744,65 +740,12 @@ def _new_provider_session_id() -> str:
     return str(uuid.uuid4())
 
 
-def _claude_provider_state_dir_relpath(
-    *,
-    role: Any,
-    session_namespace: str,
-) -> str:
-    return cast(str, provider_state_relpath(role, "claude", session_namespace))
-
-
 def _opencode_provider_state_dir_relpath(
     *,
     role: Any,
     session_namespace: str,
 ) -> str:
     return cast(str, provider_state_relpath(role, "opencode", session_namespace))
-
-
-def _claude_is_resumable(state_dir: Path) -> bool:
-    return state_dir.is_dir() and any(path.is_file() for path in state_dir.rglob("*"))
-
-
-def _claude_prepare_runtime_state(
-    runtime_state_dir: Path,
-    *,
-    role: Any,
-    session_namespace: str,
-) -> tuple[str, Path]:
-    provider_state_dir_relpath = _claude_provider_state_dir_relpath(
-        role=role,
-        session_namespace=session_namespace,
-    )
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    return provider_state_dir_relpath, provider_state_dir
-
-
-def _claude_run_kind_for_state_dir(state_dir: Path) -> RunKind:
-    if _claude_is_resumable(state_dir):
-        return RunKind.RESUME
-    return RunKind.FRESH
-
-
-def _build_claude_continuation(
-    *,
-    model: str,
-    effort: str,
-    tool_access: ToolAccess,
-    provider_session_id: str,
-) -> Continuation:
-    return create_portable_continuation_payload(
-        service_name="claude",
-        model=model,
-        effort=effort,
-        tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": RunKind.RESUME.value,
-            "provider_session_id": provider_session_id,
-            "exact_transcript_match": False,
-        },
-    ).to_continuation()
 
 
 def _default_provider_invocation_adapter() -> ProviderInvocationAdapter:
@@ -1203,15 +1146,6 @@ def _new_session_runtime_state_dir(
         return runtime_state_dir, lambda: None, True
     temp_dir = tempfile.TemporaryDirectory(prefix=f"{context}-provider-state-")
     return Path(temp_dir.name), temp_dir.cleanup, False
-
-
-def _require_claude_auth(auth: ProviderAuth | None) -> None:
-    if auth is not None and auth.claude_code_oauth_token:
-        return
-    raise AgentCredentialFailureError(
-        message="Missing Claude Code OAuth token.",
-        service_name="claude",
-    )
 
 
 def _require_opencode_auth(auth: ProviderAuth | None) -> None:

@@ -21,14 +21,15 @@ from ._runtime_lifecycle import (
     Completed,
     Continuation,
     NewSessionRunRequest,
+    ProviderAuth,
     ProviderUsage,
     ResumedSessionRunRequest,
     RunResult,
     RuntimeOutcome,
 )
-from .errors import RuntimeConfigurationError
+from .errors import AgentCredentialFailureError, RuntimeConfigurationError
 from .invocation_progress import InvocationProgress
-from .session import RunKind
+from .session import RunKind, provider_state_relpath
 from .contracts import ToolAccess
 from .types import ProviderSelection, ResolvedProvider
 
@@ -324,6 +325,70 @@ def _build_codex_continuation(
     ).to_continuation()
 
 
+def _claude_provider_state_dir_relpath(
+    *,
+    role: Any,
+    session_namespace: str,
+) -> str:
+    return cast(str, provider_state_relpath(role, "claude", session_namespace))
+
+
+def _claude_is_resumable(state_dir: Path) -> bool:
+    return state_dir.is_dir() and any(path.is_file() for path in state_dir.rglob("*"))
+
+
+def _claude_prepare_runtime_state(
+    runtime_state_dir: Path,
+    *,
+    role: Any,
+    session_namespace: str,
+) -> tuple[str, Path]:
+    provider_state_dir_relpath = _claude_provider_state_dir_relpath(
+        role=role,
+        session_namespace=session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    return provider_state_dir_relpath, provider_state_dir
+
+
+def _claude_run_kind_for_state_dir(state_dir: Path | None) -> RunKind:
+    if state_dir is None:
+        return RunKind.RESUME
+    if _claude_is_resumable(state_dir):
+        return RunKind.RESUME
+    return RunKind.FRESH
+
+
+def _build_claude_continuation(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    provider_session_id: str,
+) -> Continuation:
+    return create_portable_continuation_payload(
+        service_name="claude",
+        model=model,
+        effort=effort,
+        tool_access=tool_access,
+        provider_resume_state={
+            "run_kind": RunKind.RESUME.value,
+            "provider_session_id": provider_session_id,
+            "exact_transcript_match": False,
+        },
+    ).to_continuation()
+
+
+def _require_claude_auth(auth: ProviderAuth | None) -> None:
+    if auth is not None and auth.claude_code_oauth_token:
+        return
+    raise AgentCredentialFailureError(
+        message="Missing Claude Code OAuth token.",
+        service_name="claude",
+    )
+
+
 def _session_backed_service_name(request: ResumedSessionRunRequest) -> str:
     if request.continuation is not None:
         continuation_payload = read_portable_continuation_payload(request.continuation)
@@ -541,13 +606,13 @@ def _run_builtin_new_session(
             )
         elif selected_stage.service == "claude":
             provider_state_dir_relpath, provider_state_dir = (
-                _builtin_runtime_client_module._claude_prepare_runtime_state(
+                _claude_prepare_runtime_state(
                     runtime_state_dir,
                     role="implementer",
                     session_namespace=request._session_namespace,
                 )
             )
-            if _builtin_runtime_client_module._claude_is_resumable(provider_state_dir):
+            if _claude_is_resumable(provider_state_dir):
                 return _run_builtin_resumed_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
                         prompt=request.prompt,
@@ -555,7 +620,7 @@ def _run_builtin_new_session(
                         _runtime_state_dir=runtime_state_dir,
                         on_live_output=_on_live_output,
                         timeout_seconds=0,
-                        continuation=_builtin_runtime_client_module._build_claude_continuation(
+                        continuation=_build_claude_continuation(
                             model=selected_stage.model,
                             effort=selected_stage.effort,
                             tool_access=request.tool_access,
@@ -567,7 +632,7 @@ def _run_builtin_new_session(
                     provider_invocation_adapter=invocation_adapter,
                 )
             _builtin_runtime_client_module._validate_claude_stage(selected_stage)
-            _builtin_runtime_client_module._require_claude_auth(selected_stage_auth)
+            _require_claude_auth(selected_stage_auth)
             provider_session_id = (
                 _builtin_runtime_client_module._new_provider_session_id()
             )
@@ -654,7 +719,7 @@ def _run_builtin_new_session(
                 ),
                 provider_session_id=provider_session_id,
                 build_continuation=lambda active_provider_session_id: (
-                    _builtin_runtime_client_module._build_claude_continuation(
+                    _build_claude_continuation(
                         model=selected_stage.model,
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
@@ -686,7 +751,7 @@ def _run_builtin_new_session(
             output=result_text,
             usage=usage,
             continuation=(
-                _builtin_runtime_client_module._build_claude_continuation(
+                _build_claude_continuation(
                     model=selected_stage.model,
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
@@ -859,7 +924,7 @@ def _run_builtin_resumed_session(
         provider_resume_state.get("provider_session_id"),
     )
     if continuation_service == "claude":
-        _builtin_runtime_client_module._require_claude_auth(request.provider_auth)
+        _require_claude_auth(request.provider_auth)
         provider_state_dir_relpath = cast(
             str | None,
             provider_resume_state.get("provider_state_dir_relpath"),
@@ -868,13 +933,7 @@ def _run_builtin_resumed_session(
             provider_state_dir = request._runtime_state_dir / provider_state_dir_relpath
             provider_state_dir.mkdir(parents=True, exist_ok=True)
         state_dir_session_id = None
-        run_kind = (
-            _builtin_runtime_client_module._claude_run_kind_for_state_dir(
-                provider_state_dir
-            )
-            if provider_state_dir is not None
-            else RunKind.RESUME
-        )
+        run_kind = _claude_run_kind_for_state_dir(provider_state_dir)
         exact_transcript_match = False
         if not provider_session_id:
             provider_session_id = (
@@ -1007,7 +1066,7 @@ def _run_builtin_resumed_session(
             provider_session_id=provider_session_id,
             build_continuation=lambda active_provider_session_id: (
                 (
-                    _builtin_runtime_client_module._build_claude_continuation(
+                    _build_claude_continuation(
                         model=request.model,
                         effort=request.effort,
                         tool_access=request.tool_access,
@@ -1047,7 +1106,7 @@ def _run_builtin_resumed_session(
     result_text = invocation_result.output
     usage = invocation_result.usage
     if continuation_service == "claude":
-        result_continuation = _builtin_runtime_client_module._build_claude_continuation(
+        result_continuation = _build_claude_continuation(
             model=request.model,
             effort=request.effort,
             tool_access=request.tool_access,
