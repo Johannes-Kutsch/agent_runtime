@@ -598,6 +598,116 @@ def test_session_backed_opencode_completion_restores_portable_provider_state_thr
 
 
 @pytest.mark.parametrize(
+    ("entrypoint", "run_kind", "provider_session_id"),
+    [
+        ("new", RunKind.FRESH, "prepared-session-id"),
+        ("resumed", RunKind.RESUME, "persisted-session-1"),
+    ],
+)
+def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_facts_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint: str,
+    run_kind: RunKind,
+    provider_session_id: str,
+) -> None:
+    if entrypoint == "new":
+        monkeypatch.setattr(
+            prompt_runtime._builtin_runtime_client_module,
+            "_new_provider_session_id",
+            lambda: "prepared-session-id",
+        )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="final output",
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
+            ),
+            provider_session_id="provider-session-obs",
+            stdout_lines=(),
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
+    if entrypoint == "new":
+        session_backed_execution._run_builtin_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                session_namespace="main",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    else:
+        continuation = prompt_runtime.Continuation(
+            selected_service="opencode",
+            selected_model="glm-5.2",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "provider_session_id": "persisted-session-1",
+                "provider_state": {
+                    "session_id": "persisted-session-1",
+                    "resume_jsonl": "[]",
+                },
+                "exact_transcript_match": True,
+            },
+        )
+        session_backed_execution._run_builtin_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+            )
+        )
+
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    rendered = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="opencode",
+                model="glm-5.2",
+                effort="medium",
+            ),
+            run_kind=run_kind,
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+            invocation_dir=tmp_path,
+            provider_state_dir=provider_state_dir,
+            provider_session_id=provider_session_id,
+        )
+    )
+
+    assert recorded_request.command == rendered.legacy_command_text
+    assert recorded_request.argv == rendered.canonical_argv
+    assert recorded_request.prefer_argv is rendered.prefer_argv
+    assert recorded_request.environment == dict(rendered.environment)
+    assert recorded_request.prompt.path == rendered.prompt_path
+    assert recorded_request.prompt.cleanup_path is (
+        rendered.prompt_cleanup_choice
+        is built_in_provider_rendering.PromptCleanupChoice.DELETE_AFTER_INVOCATION
+    )
+    assert recorded_request.provider_session_id == rendered.provider_session_id
+    assert recorded_request.run_kind is run_kind
+
+
+@pytest.mark.parametrize(
     (
         "entrypoint",
         "expected_provider_session_id",
