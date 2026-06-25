@@ -963,39 +963,20 @@ def _run_builtin_resumed_session(
             )
         )
     else:
-        prompt_path = _builtin_runtime_client_module._builtin_provider_prompt_path(
-            request.invocation_dir
-        )
-        command_argv = _builtin_runtime_client_module._opencode_command(
-            model=request.model,
-            effort=request.effort,
-            run_kind=run_kind,
-            session_uuid=provider_session_id,
-        )
-        environment = _builtin_runtime_client_module._opencode_env(
-            auth=request.provider_auth,
-            state_dir_container_path=str(provider_state_dir),
-            tool_policy=request.tool_access.tool_policy,
-        )
-        stream_interpretation = (
-            _builtin_runtime_client_module._opencode_stream_interpretation(
+        invocation_result = (
+            _builtin_runtime_client_module._invoke_opencode_session_provider(
+                provider_invocation_adapter=invocation_adapter,
+                invocation_dir=request.invocation_dir,
+                prompt=request.prompt,
+                model=request.model,
+                effort=request.effort,
+                tool_access=request.tool_access,
+                auth=request.provider_auth,
+                provider_state_dir=provider_state_dir,
+                run_kind=run_kind,
+                provider_session_id=provider_session_id,
                 on_live_output=on_live_output,
-                fallback_provider_session_id=provider_session_id,
             )
-        )
-        invocation_result = _builtin_runtime_client_module._invoke_provider(
-            provider_invocation_adapter=invocation_adapter,
-            command="",
-            command_argv=command_argv,
-            prefer_argv=True,
-            worktree=request.invocation_dir,
-            environment=environment,
-            prompt_content=request.prompt,
-            prompt_path=prompt_path,
-            cleanup_prompt_path=True,
-            run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            stream_interpretation=stream_interpretation,
         )
     active_provider_session_interpretation = (
         _builtin_runtime_client_module._stream_interpretation_for_service(
