@@ -307,17 +307,21 @@ def _build_claude_continuation(
     effort: str,
     tool_access: ToolAccess,
     provider_session_id: str,
+    provider_state_dir_relpath: str | None = None,
 ) -> Continuation:
+    provider_resume_state: dict[str, Any] = {
+        "run_kind": RunKind.RESUME.value,
+        "provider_session_id": provider_session_id,
+        "exact_transcript_match": False,
+    }
+    if provider_state_dir_relpath is not None:
+        provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
     return create_portable_continuation_payload(
         service_name="claude",
         model=model,
         effort=effort,
         tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": RunKind.RESUME.value,
-            "provider_session_id": provider_session_id,
-            "exact_transcript_match": False,
-        },
+        provider_resume_state=provider_resume_state,
     ).to_continuation()
 
 
@@ -472,6 +476,13 @@ def _run_builtin_new_session(
                 return provider_state_dir_relpath
             return None
 
+        def _portable_claude_state_dir_relpath(
+            provider_state_dir_relpath: str | None,
+        ) -> str | None:
+            if is_caller_managed_runtime_state:
+                return provider_state_dir_relpath
+            return None
+
         if selected_stage.service == "codex":
             _builtin_runtime_client_module._validate_codex_stage(selected_stage)
             provider_state_dir_relpath, provider_state_dir = (
@@ -618,6 +629,9 @@ def _run_builtin_new_session(
                             effort=selected_stage.effort,
                             tool_access=request.tool_access,
                             provider_session_id=_builtin_runtime_client_module._new_provider_session_id(),
+                            provider_state_dir_relpath=_portable_claude_state_dir_relpath(
+                                provider_state_dir_relpath
+                            ),
                         ),
                         provider_auth=selected_stage_auth,
                         _session_namespace=request._session_namespace,
@@ -683,6 +697,9 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
+                        provider_state_dir_relpath=_portable_claude_state_dir_relpath(
+                            provider_state_dir_relpath
+                        ),
                     )
                 ),
             )
@@ -741,6 +758,9 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
+                        provider_state_dir_relpath=_portable_claude_state_dir_relpath(
+                            provider_state_dir_relpath
+                        ),
                     )
                     if selected_stage.service == "claude"
                     else _build_opencode_continuation(
@@ -772,6 +792,9 @@ def _run_builtin_new_session(
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=_portable_claude_state_dir_relpath(
+                        provider_state_dir_relpath
+                    ),
                 )
                 if selected_stage.service == "claude"
                 else _build_opencode_continuation(
@@ -1011,6 +1034,7 @@ def _run_builtin_resumed_session(
                     effort=request.effort,
                     tool_access=request.tool_access,
                     provider_session_id=resumed_provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
                 )
             ),
             fallback_continuation=request.continuation,
@@ -1083,6 +1107,7 @@ def _run_builtin_resumed_session(
                         effort=request.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
+                        provider_state_dir_relpath=provider_state_dir_relpath,
                     )
                 )
                 if continuation_service == "claude"
@@ -1122,6 +1147,7 @@ def _run_builtin_resumed_session(
             effort=request.effort,
             tool_access=request.tool_access,
             provider_session_id=provider_session_id,
+            provider_state_dir_relpath=provider_state_dir_relpath,
         )
     else:
         result_continuation = _build_opencode_continuation(

@@ -425,6 +425,110 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
     assert harness.recorded_request_count == 0
 
 
+def test_session_backed_claude_completion_returns_pointer_to_provider_state_dir_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    continuation_provider_state_dir_relpath = "implementer/main/claude/"
+    expected_provider_session_id = "observed-session-id"
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="final output",
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
+            ),
+            provider_session_id=expected_provider_session_id,
+            stdout_lines=(),
+        ),
+    )
+
+    result = session_backed_execution._run_builtin_new_session(
+        RuntimeClientExecutionHarness.start_session_run_request(
+            invocation_dir=tmp_path,
+            runtime_state_dir=runtime_state_dir,
+            provider_selection=InternalStageSelection(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+    )
+
+    assert result.output == "final output"
+    assert result.continuation == RuntimeClientExecutionHarness.claude_continuation(
+        provider_state_dir_relpath=continuation_provider_state_dir_relpath,
+        provider_session_id=expected_provider_session_id,
+    )
+
+
+def test_session_backed_claude_resumed_session_reads_provider_state_dir_from_continuation_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _SnapshottingClaudeAdapter:
+        def __init__(self) -> None:
+            self.recorded_request_count = 0
+            self.provider_state_dir: Path | None = None
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.recorded_request_count += 1
+            self.provider_state_dir = Path(request.environment["CLAUDE_CONFIG_DIR"])
+            assert request.run_kind is RunKind.RESUME
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output="continued output",
+                provider_session_id="resumed-session-1",
+                usage=runtime.ProviderUsage(input_tokens=1, output_tokens=1),
+                stdout_lines=(),
+            )
+
+    adapter = _SnapshottingClaudeAdapter()
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="claude",
+    )
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "session_file").write_text(
+        "continuation state", encoding="utf-8"
+    )
+    continuation = RuntimeClientExecutionHarness.claude_continuation(
+        provider_session_id="resumed-session-1",
+        provider_state_dir_relpath="implementer/main/claude/",
+    )
+
+    result = session_backed_execution._run_builtin_resumed_session(
+        RuntimeClientExecutionHarness.resume_session_run_request(
+            invocation_dir=tmp_path,
+            runtime_state_dir=runtime_state_dir,
+            continuation=continuation,
+            provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+    )
+
+    assert result.continuation == RuntimeClientExecutionHarness.claude_continuation(
+        provider_session_id="resumed-session-1",
+        provider_state_dir_relpath="implementer/main/claude/",
+    )
+    assert adapter.recorded_request_count == 1
+    assert adapter.provider_state_dir == provider_state_dir
+
+
 def test_session_backed_opencode_completion_restores_portable_provider_state_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

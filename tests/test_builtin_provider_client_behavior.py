@@ -454,6 +454,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
         "run_kind": "resume",
         "provider_session_id": "session-uuid",
         "exact_transcript_match": False,
+        "provider_state_dir_relpath": provider_state_dir_relpath,
     }
     assert result.continuation.tool_access == contracts_runtime.ToolAccess.no_tools()
     assert len(harness.recorded_requests) == 1
@@ -695,6 +696,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
         "run_kind": "resume",
         "provider_session_id": "session-uuid",
         "exact_transcript_match": False,
+        "provider_state_dir_relpath": "implementer/main/claude/",
     }
     runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
 
@@ -725,6 +727,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
             "run_kind": "resume",
             "provider_session_id": "session-uuid",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/claude/",
         },
     )
     assert harness.recorded_request_count == 2
@@ -794,6 +797,7 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
             "run_kind": "resume",
             "provider_session_id": "observed-session",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/claude/",
         },
     )
     assert harness.recorded_request_count == 1
@@ -2885,6 +2889,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
             "run_kind": "resume",
             "provider_session_id": "observed-session",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/claude/",
         },
     )
 
@@ -2936,6 +2941,7 @@ def test_runtime_client_keeps_claude_continuation_when_provider_invocation_failu
             "run_kind": "resume",
             "provider_session_id": "observed-session",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/claude/",
         },
     )
 
@@ -3114,6 +3120,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
             "run_kind": "resume",
             "provider_session_id": "generated-session-id",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/claude/",
         },
     )
     assert adapter.recorded_request_count == 1
@@ -3230,6 +3237,7 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
             "run_kind": "resume",
             "provider_session_id": "claude-session-123",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/claude/",
         },
     )
     assert adapter.recorded_request_count == 1
@@ -3372,6 +3380,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
         "run_kind": "resume",
         "provider_session_id": "session-uuid",
         "exact_transcript_match": False,
+        "provider_state_dir_relpath": "implementer/main/claude/",
     }
     assert result.continuation.tool_access == contracts_runtime.ToolAccess.no_tools()
 
