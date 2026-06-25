@@ -3639,9 +3639,71 @@ def test_runtime_client_keeps_claude_continuation_when_provider_invocation_failu
     )
 
 
-def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocation_seam_has_no_observed_session_id(
+@pytest.mark.parametrize(
+    ("entrypoint", "failure", "expected_kind"),
+    [
+        (
+            "new",
+            provider_invocation_runtime.ProviderInvocationFailure(
+                kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+                detail="Usage limit reached (reset_time=None)",
+                usage=runtime.ProviderUsage(
+                    input_tokens=3,
+                    output_tokens=1,
+                ),
+                stdout_lines=(),
+                provider_session_id=None,
+            ),
+            prompt_runtime.UsageLimited(reset_time=None),
+        ),
+        (
+            "resumed",
+            provider_invocation_runtime.ProviderInvocationFailure(
+                kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+                detail="Usage limit reached (reset_time=None)",
+                usage=runtime.ProviderUsage(
+                    input_tokens=3,
+                    output_tokens=1,
+                ),
+                stdout_lines=(),
+                provider_session_id=None,
+            ),
+            prompt_runtime.UsageLimited(reset_time=None),
+        ),
+        (
+            "new",
+            provider_invocation_runtime.ProviderInvocationFailure(
+                kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
+                detail="temporary provider failure",
+                stdout_lines=(),
+                provider_session_id=None,
+            ),
+            prompt_runtime.ProviderUnavailable(
+                reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
+                detail="temporary provider failure",
+            ),
+        ),
+        (
+            "resumed",
+            provider_invocation_runtime.ProviderInvocationFailure(
+                kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
+                detail="temporary provider failure",
+                stdout_lines=(),
+                provider_session_id=None,
+            ),
+            prompt_runtime.ProviderUnavailable(
+                reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
+                detail="temporary provider failure",
+            ),
+        ),
+    ],
+)
+def test_runtime_client_omits_codex_continuation_for_pre_start_session_backed_interruption(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    entrypoint: str,
+    failure: provider_invocation_runtime.ProviderInvocationFailure,
+    expected_kind: prompt_runtime.UsageLimited | prompt_runtime.ProviderUnavailable,
 ) -> None:
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
@@ -3649,16 +3711,7 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
-        provider_invocation_runtime.ProviderInvocationFailure(
-            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
-            detail="Usage limit reached (reset_time=None)",
-            usage=runtime.ProviderUsage(
-                input_tokens=3,
-                output_tokens=1,
-            ),
-            stdout_lines=(),
-            provider_session_id=None,
-        ),
+        failure,
     )
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
@@ -3669,58 +3722,63 @@ def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocati
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     provider_state_dir = runtime_state_dir / "implementer/main/codex"
     _write_codex_rollout(provider_state_dir, "recovered-thread")
-    continuation = prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "selected-thread",
-            "provider_state_dir_relpath": "implementer/main/codex/",
-            "exact_transcript_match": False,
-        },
-    )
-
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                runtime_state_dir=runtime_state_dir,
-                continuation=continuation,
-                session_namespace="main",
+    if entrypoint == "new":
+        outcome = asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    session_namespace="main",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
-    )
+        expected_recorded_provider_session_id = "recovered-thread"
+    else:
+        continuation = prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "selected-thread",
+                "provider_state_dir_relpath": "implementer/main/codex/",
+                "exact_transcript_match": False,
+            },
+        )
 
-    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
-    assert outcome.kind.reset_time is None
+        outcome = asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=continuation,
+                    session_namespace="main",
+                )
+            )
+        )
+        expected_recorded_provider_session_id = "selected-thread"
+
+    assert outcome.kind == expected_kind
     assert outcome.result.output == ""
-    assert outcome.result.usage == runtime.ProviderUsage(
-        input_tokens=3,
-        output_tokens=1,
-    )
+    assert outcome.result.usage == failure.usage
     assert outcome.result.selected == runtime.ResolvedProvider(
         service="codex", model="gpt-5.4", effort="medium"
     )
-    assert outcome.result.continuation == prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "selected-thread",
-            "provider_state_dir_relpath": "implementer/main/codex/",
-            "exact_transcript_match": False,
-        },
-    )
+    assert outcome.result.continuation is None
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
     assert recorded_request.prompt.cleanup_path is True
-    assert recorded_request.provider_session_id == "selected-thread"
+    assert recorded_request.provider_session_id == expected_recorded_provider_session_id
 
 
 def test_runtime_client_runs_claude_resumed_session_with_generated_provider_session_id(

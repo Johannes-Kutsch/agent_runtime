@@ -190,7 +190,6 @@ def _run_builtin_new_session(
                 failure_error.continuation = _interruption_continuation(
                     provider_work_started=(
                         failure_error.invocation_progress is InvocationProgress.STARTED
-                        or provider_session_id is not None
                     ),
                     provider_session_id=provider_session_id,
                     build_continuation=lambda active_provider_session_id: (
@@ -518,7 +517,6 @@ def _run_builtin_resumed_session(
             failure_error.continuation = _interruption_continuation(
                 provider_work_started=(
                     failure_error.invocation_progress is InvocationProgress.STARTED
-                    or active_provider_session_id is not None
                 ),
                 provider_session_id=active_provider_session_id,
                 build_continuation=lambda resumed_provider_session_id: (
