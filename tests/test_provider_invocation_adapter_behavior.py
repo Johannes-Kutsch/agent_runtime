@@ -551,6 +551,112 @@ def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplie
     assert observed["live_reducer_calls"] == 1
 
 
+def test_in_memory_prepared_stream_uses_live_output_reducer_when_log_context_is_supplied(
+    tmp_path: Path,
+) -> None:
+    process_lines = ['{"session":"provider-session-123"}\n', "final line\n"]
+    logs_dir = tmp_path / "logs"
+    invocation_log = AgentInvocationLog().start_logical_session(
+        log_name="implementer",
+        logs_dir=logs_dir,
+    )
+    observed = {"logged_reducer_calls": 0, "live_reducer_calls": 0}
+
+    def _reduce_logged_output(
+        lines: list[str],
+        work_invocation_log: Any,
+    ) -> tuple[str, ProviderUsage | None]:
+        observed["logged_reducer_calls"] += 1
+        work_invocation_log.record_provider_session_id("provider-session-123")
+        return ("logged-output", ProviderUsage(output_tokens=999))
+
+    def _reduce_output(lines: list[str]) -> tuple[str, ProviderUsage | None]:
+        observed["live_reducer_calls"] += 1
+        return ("normalized output", ProviderUsage(output_tokens=7))
+
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationPreparedStream(
+                stdout_lines=tuple(process_lines),
+                provider_session_id="prepared-session",
+            )
+        ]
+    )
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={"PROVIDER_TOKEN": "secret"},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.RESUME,
+        log_context=provider_invocation_runtime.ProviderInvocationLogContext(
+            invocation_log=invocation_log,
+        ),
+        provider_session_id="existing-session",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=_reduce_output,
+            reduce_logged_output=_reduce_logged_output,
+            extract_provider_session_id=lambda _lines: "provider-session-123",
+        ),
+    )
+
+    result = adapter.execute(request)
+
+    assert result == provider_invocation_runtime.ProviderInvocationResult(
+        output="normalized output",
+        usage=ProviderUsage(output_tokens=7),
+        stdout_lines=tuple(process_lines),
+        provider_session_id="provider-session-123",
+    )
+    assert observed["logged_reducer_calls"] == 0
+    assert observed["live_reducer_calls"] == 1
+
+
+def test_in_memory_prepared_stream_preserves_live_reducer_failure_with_extracted_provider_session_id(
+    tmp_path: Path,
+) -> None:
+    output_line = '{"session":"provider-session-123"}\n'
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationPreparedStream(
+                stdout_lines=(output_line,),
+                provider_session_id="prepared-session",
+            )
+        ]
+    )
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.RESUME,
+        log_context=None,
+        provider_session_id="existing-session",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=(
+                lambda _lines: (_ for _ in ()).throw(
+                    UsageLimitError(raw_message="usage limited")
+                )
+            ),
+            extract_provider_session_id=lambda _lines: "provider-session-123",
+        ),
+    )
+
+    result = adapter.execute(request)
+
+    assert result == provider_invocation_runtime.ProviderInvocationFailure(
+        kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+        detail="usage limited",
+        stdout_lines=(output_line,),
+        provider_session_id="provider-session-123",
+        usage=None,
+        reset_time=None,
+    )
+
+
 @pytest.mark.parametrize(
     ("adapter_factory", "needs_monkeypatch"),
     [
