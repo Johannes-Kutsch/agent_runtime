@@ -12,11 +12,39 @@ from ._provider_invocation import (
     ProviderInvocationAdapter,
     ProviderInvocationFailure,
 )
-from ._runtime_lifecycle import NewSessionRunRequest, ResumedSessionRunRequest
+from ._runtime_lifecycle import (
+    Completed,
+    Continuation,
+    NewSessionRunRequest,
+    ProviderUsage,
+    ResumedSessionRunRequest,
+    RunResult,
+    RuntimeOutcome,
+)
 from .errors import RuntimeConfigurationError
 from .invocation_progress import InvocationProgress
 from .session import RunKind
-from .types import ProviderSelection
+from .types import ProviderSelection, ResolvedProvider
+
+
+def _completed_outcome(
+    *,
+    output: str,
+    usage: ProviderUsage | None,
+    continuation: Continuation | None,
+    service: str,
+    model: str,
+    effort: str,
+) -> RuntimeOutcome:
+    return RuntimeOutcome(
+        kind=Completed(),
+        result=RunResult(
+            output=output,
+            usage=usage,
+            continuation=continuation,
+            selected=ResolvedProvider(service=service, model=model, effort=effort),
+        ),
+    )
 
 
 def _run_builtin_new_session(
@@ -155,7 +183,7 @@ def _run_builtin_new_session(
                 )
                 result_text = invocation_result.output
                 usage = invocation_result.usage
-            return _builtin_runtime_client_module._completed_outcome(
+            return _completed_outcome(
                 output=result_text,
                 usage=usage,
                 continuation=(
@@ -324,7 +352,7 @@ def _run_builtin_new_session(
         assert provider_session_id is not None
         result_text = invocation_result.output
         usage = invocation_result.usage
-        return _builtin_runtime_client_module._completed_outcome(
+        return _completed_outcome(
             output=result_text,
             usage=usage,
             continuation=(
@@ -471,7 +499,7 @@ def _run_builtin_resumed_session(
             )
             result_text = invocation_result.output
             usage = invocation_result.usage
-        return _builtin_runtime_client_module._completed_outcome(
+        return _completed_outcome(
             output=result_text,
             usage=usage,
             continuation=(
@@ -710,7 +738,7 @@ def _run_builtin_resumed_session(
             )
         )
     cleanup_opencode_state_dir()
-    return _builtin_runtime_client_module._completed_outcome(
+    return _completed_outcome(
         output=result_text,
         usage=usage,
         continuation=result_continuation,

@@ -40,7 +40,6 @@ from ._portable_continuation_payload import (
     create_portable_continuation_payload,
 )
 from ._runtime_lifecycle import (
-    Completed,
     Continuation,
     AgentEvent,
     EphemeralRunRequest,
@@ -1067,26 +1066,6 @@ def _build_opencode_continuation(
         tool_access=tool_access,
         provider_resume_state=provider_resume_state,
     ).to_continuation()
-
-
-def _completed_outcome(
-    *,
-    output: str,
-    usage: ProviderUsage | None,
-    continuation: Continuation | None,
-    service: str,
-    model: str,
-    effort: str,
-) -> RuntimeOutcome:
-    return RuntimeOutcome(
-        kind=Completed(),
-        result=RunResult(
-            output=output,
-            usage=usage,
-            continuation=continuation,
-            selected=ResolvedProvider(service=service, model=model, effort=effort),
-        ),
-    )
 
 
 def _default_provider_invocation_adapter() -> ProviderInvocationAdapter:
