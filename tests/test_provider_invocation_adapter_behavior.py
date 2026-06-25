@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import agent_runtime._builtin_provider_stream_interpretation as builtin_provider_stream_interpretation
 import agent_runtime._provider_invocation as provider_invocation_runtime
 from agent_runtime._builtin_provider_stream_interpretation import reduce_codex_stream
 from agent_runtime.agent_log import AgentInvocationLog
@@ -748,6 +749,13 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
         "Popen",
         lambda *args, **kwargs: _Process(),
     )
+    fixed_local_tz = timezone(timedelta(hours=2))
+    fixed_now_local = datetime(2027, 1, 2, 12, 0, tzinfo=fixed_local_tz)
+    monkeypatch.setattr(
+        builtin_provider_stream_interpretation._time_module,
+        "now_local",
+        lambda: fixed_now_local,
+    )
 
     request = provider_invocation_runtime.ProviderInvocationRequest(
         command="codex exec --json",
@@ -767,14 +775,22 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
     result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
         request
     )
+    expected_reset_time = datetime(
+        2027,
+        1,
+        2,
+        17,
+        0,
+        tzinfo=timezone.utc,
+    ).astimezone(fixed_local_tz)
 
     assert result == provider_invocation_runtime.ProviderInvocationFailure(
         kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
-        detail="Usage limit reached (reset_time=2027-01-02T17:00:00+00:00)",
+        detail=f"Usage limit reached (reset_time={expected_reset_time.isoformat()})",
         stdout_lines=(usage_limit_line,),
         provider_session_id=None,
         usage=None,
-        reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
+        reset_time=expected_reset_time,
     )
 
 
