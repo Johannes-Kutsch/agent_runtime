@@ -5,6 +5,11 @@ from typing import TYPE_CHECKING, Any, Callable
 from . import _time
 from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
+from ._session_backed_provider_execution import (
+    _run_builtin_new_session,
+    _run_builtin_resumed_session,
+    _session_backed_service_name,
+)
 from .contracts import ToolPolicy
 from .errors import (
     AgentCancelledError,
@@ -98,10 +103,6 @@ _parse_opencode_reset_time = _stream_interpretation_module.parse_opencode_reset_
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
 _supported_builtin_provider_selection = (
     _builtin_runtime_client_module.supported_builtin_provider_selection
-)
-_run_builtin_new_session = _builtin_runtime_client_module._run_builtin_new_session
-_run_builtin_resumed_session = (
-    _builtin_runtime_client_module._run_builtin_resumed_session
 )
 
 
@@ -227,21 +228,9 @@ class RuntimeClient:
         self,
         request: ResumedSessionRunRequest,
     ) -> RuntimeOutcome:
-        if request.continuation is not None:
-            from ._portable_continuation_payload import (
-                read_portable_continuation_payload,
-            )
-
-            continuation_payload = read_portable_continuation_payload(
-                request.continuation
-            )
-            service_name = continuation_payload.service_name
-        else:
-            assert request.session_plan is not None
-            service_name = request.session_plan.service.name
         return _run_builtin_session_outcome(
             lambda: _run_builtin_resumed_session(request),
-            service_name=service_name,
+            service_name=_session_backed_service_name(request),
             selected_model=request.model,
             selected_effort=request.effort,
         )

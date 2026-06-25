@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import json
+import shutil
 from pathlib import Path
-from typing import Callable, cast
+from typing import Any, Callable, cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from ._builtin_provider_stream_interpretation import BuiltInProviderStreamInterpretation
-from ._portable_continuation_payload import read_portable_continuation_payload
+from ._portable_continuation_payload import (
+    create_portable_continuation_payload,
+    read_portable_continuation_payload,
+)
 from ._provider_invocation import (
     ProviderInvocationAdapter,
     ProviderInvocationFailure,
@@ -23,7 +28,140 @@ from ._runtime_lifecycle import (
 from .errors import RuntimeConfigurationError
 from .invocation_progress import InvocationProgress
 from .session import RunKind
+from .contracts import ToolAccess
 from .types import ProviderSelection, ResolvedProvider
+
+
+def _codex_provider_state_dir_relpath(
+    *,
+    role: Any,
+    session_namespace: str,
+) -> str:
+    return cast(
+        str,
+        _builtin_runtime_client_module.provider_state_relpath(
+            role,
+            "codex",
+            session_namespace,
+        ),
+    )
+
+
+def _codex_prepare_runtime_state(
+    runtime_state_dir: Path,
+    *,
+    role: Any,
+    session_namespace: str,
+) -> tuple[str, Path]:
+    provider_state_dir_relpath = _codex_provider_state_dir_relpath(
+        role=role,
+        session_namespace=session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    return provider_state_dir_relpath, provider_state_dir
+
+
+def _read_codex_rollout_thread_ids(rollout_path: Path) -> set[str]:
+    thread_ids: set[str] = set()
+    if not rollout_path.is_file():
+        return thread_ids
+    try:
+        for line in rollout_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "thread.started":
+                continue
+            thread_id = event.get("thread_id")
+            if isinstance(thread_id, str):
+                stripped = thread_id.strip()
+                if stripped:
+                    thread_ids.add(stripped)
+    except (OSError, UnicodeDecodeError):
+        return set()
+    return thread_ids
+
+
+def _recover_codex_rollout_thread_id(state_dir: Path | None) -> str | None:
+    if state_dir is None:
+        return None
+    sessions_dir = state_dir / "sessions"
+    if not sessions_dir.is_dir():
+        return None
+    thread_ids: set[str] = set()
+    for rollout_path in sessions_dir.rglob("rollout-*.jsonl"):
+        thread_ids.update(_read_codex_rollout_thread_ids(rollout_path))
+        if len(thread_ids) > 1:
+            return None
+    if len(thread_ids) != 1:
+        return None
+    return next(iter(thread_ids))
+
+
+def _codex_is_resumable(state_dir: Path) -> bool:
+    sessions_dir = state_dir / "sessions"
+    if not sessions_dir.is_dir():
+        return False
+    return any(sessions_dir.rglob("rollout-*.jsonl"))
+
+
+def _resolve_recoverable_codex_session_id(
+    *,
+    provider_state_dir: Path,
+    provider_session_id: str | None,
+) -> str:
+    recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
+    if not _codex_is_resumable(provider_state_dir) or recovered_thread_id is None:
+        raise RuntimeConfigurationError(
+            "Codex continuation is not recoverable from provider state."
+        )
+    if provider_session_id:
+        return provider_session_id
+    return recovered_thread_id
+
+
+def _codex_seed_auth(provider_state_dir: Path) -> None:
+    provider_auth_path = provider_state_dir / "auth.json"
+    if provider_auth_path.exists():
+        return
+    host_auth_path = _builtin_runtime_client_module._codex_host_auth_path()
+    if not host_auth_path.exists():
+        raise _builtin_runtime_client_module._missing_codex_auth_error()
+    shutil.copyfile(host_auth_path, provider_auth_path)
+
+
+def _build_codex_continuation(
+    *,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    provider_session_id: str,
+    provider_state_dir_relpath: str | None = None,
+) -> Continuation:
+    provider_resume_state: dict[str, Any] = {
+        "run_kind": RunKind.RESUME.value,
+        "provider_session_id": provider_session_id,
+        "exact_transcript_match": False,
+    }
+    if provider_state_dir_relpath is not None:
+        provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
+    return create_portable_continuation_payload(
+        service_name="codex",
+        model=model,
+        effort=effort,
+        tool_access=tool_access,
+        provider_resume_state=provider_resume_state,
+    ).to_continuation()
+
+
+def _session_backed_service_name(request: ResumedSessionRunRequest) -> str:
+    if request.continuation is not None:
+        continuation_payload = read_portable_continuation_payload(request.continuation)
+        return continuation_payload.service_name
+    assert request.session_plan is not None
+    return request.session_plan.service.name
 
 
 def _resolve_active_provider_session_id(
@@ -128,20 +266,16 @@ def _run_builtin_new_session(
         if selected_stage.service == "codex":
             _builtin_runtime_client_module._validate_codex_stage(selected_stage)
             provider_state_dir_relpath, provider_state_dir = (
-                _builtin_runtime_client_module._codex_prepare_runtime_state(
+                _codex_prepare_runtime_state(
                     runtime_state_dir,
                     role="implementer",
                     session_namespace=request._session_namespace,
                 )
             )
-            _builtin_runtime_client_module._codex_seed_auth(provider_state_dir)
-            recovered_thread_id = (
-                _builtin_runtime_client_module._recover_codex_rollout_thread_id(
-                    provider_state_dir
-                )
-            )
+            _codex_seed_auth(provider_state_dir)
+            recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
             if (
-                _builtin_runtime_client_module._codex_is_resumable(provider_state_dir)
+                _codex_is_resumable(provider_state_dir)
                 and recovered_thread_id is not None
             ):
                 return _run_builtin_resumed_session(
@@ -149,7 +283,7 @@ def _run_builtin_new_session(
                         prompt=request.prompt,
                         invocation_dir=request.invocation_dir,
                         _runtime_state_dir=runtime_state_dir,
-                        continuation=_builtin_runtime_client_module._build_codex_continuation(
+                        continuation=_build_codex_continuation(
                             model=selected_stage.model,
                             effort=selected_stage.effort,
                             tool_access=request.tool_access,
@@ -193,7 +327,7 @@ def _run_builtin_new_session(
                     ),
                     provider_session_id=provider_session_id,
                     build_continuation=lambda active_provider_session_id: (
-                        _builtin_runtime_client_module._build_codex_continuation(
+                        _build_codex_continuation(
                             model=selected_stage.model,
                             effort=selected_stage.effort,
                             tool_access=request.tool_access,
@@ -221,7 +355,7 @@ def _run_builtin_new_session(
                 output=result_text,
                 usage=usage,
                 continuation=(
-                    _builtin_runtime_client_module._build_codex_continuation(
+                    _build_codex_continuation(
                         model=selected_stage.model,
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
@@ -477,12 +611,10 @@ def _run_builtin_resumed_session(
         if runtime_state_dir is not None and provider_state_dir_relpath:
             provider_state_dir = runtime_state_dir / provider_state_dir_relpath
             provider_state_dir.mkdir(parents=True, exist_ok=True)
-            _builtin_runtime_client_module._codex_seed_auth(provider_state_dir)
-            provider_session_id = (
-                _builtin_runtime_client_module._resolve_recoverable_codex_session_id(
-                    provider_state_dir=provider_state_dir,
-                    provider_session_id=provider_session_id,
-                )
+            _codex_seed_auth(provider_state_dir)
+            provider_session_id = _resolve_recoverable_codex_session_id(
+                provider_state_dir=provider_state_dir,
+                provider_session_id=provider_session_id,
             )
         elif provider_session_id is None:
             raise RuntimeConfigurationError(
@@ -520,7 +652,7 @@ def _run_builtin_resumed_session(
                 ),
                 provider_session_id=active_provider_session_id,
                 build_continuation=lambda resumed_provider_session_id: (
-                    _builtin_runtime_client_module._build_codex_continuation(
+                    _build_codex_continuation(
                         model=request.model,
                         effort=request.effort,
                         tool_access=request.tool_access,
@@ -544,7 +676,7 @@ def _run_builtin_resumed_session(
             output=result_text,
             usage=usage,
             continuation=(
-                _builtin_runtime_client_module._build_codex_continuation(
+                _build_codex_continuation(
                     model=request.model,
                     effort=request.effort,
                     tool_access=request.tool_access,
