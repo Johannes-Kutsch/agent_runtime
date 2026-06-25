@@ -123,6 +123,22 @@ class RuntimeClientExecutionHarness:
         return runtime_state_dir / "implementer" / session_namespace / service
 
     @classmethod
+    def prepare_provider_state_dir(
+        cls,
+        runtime_state_dir: Path,
+        *,
+        session_namespace: str = "main",
+        service: str,
+    ) -> Path:
+        provider_state_dir = cls.provider_state_dir(
+            runtime_state_dir,
+            session_namespace=session_namespace,
+            service=service,
+        )
+        provider_state_dir.mkdir(parents=True, exist_ok=True)
+        return provider_state_dir
+
+    @classmethod
     def start_session_run_request(
         cls,
         *,

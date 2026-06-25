@@ -468,7 +468,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -490,28 +490,24 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
             ),
         ),
     )
-
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
                 ),
-                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     )
-    assert len(adapter.recorded_requests) == 1
 
     provider_state_dir_relpath = "implementer/main/claude/"
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
@@ -537,8 +533,8 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
         "exact_transcript_match": False,
     }
     assert result.continuation.tool_access == contracts_runtime.ToolAccess.no_tools()
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
+    assert len(harness.recorded_requests) == 1
+    recorded_request = harness.recorded_request()
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "session-uuid"
@@ -747,7 +743,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -763,19 +759,17 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
 
     first_outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
-                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
                 ),
-                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -821,8 +815,8 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
             "exact_transcript_match": False,
         },
     )
-    assert len(adapter.recorded_requests) == 2
-    resumed_request = adapter.recorded_requests[1]
+    assert len(harness.recorded_requests) == 2
+    resumed_request = harness.recorded_request(1)
     assert resumed_request.provider_session_id == "session-uuid"
 
 
@@ -835,41 +829,32 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
-        prepared_invocations=[
-            provider_invocation_runtime.ProviderInvocationResult(
-                output="final output",
-                usage=runtime.ProviderUsage(
-                    input_tokens=5,
-                    output_tokens=2,
-                ),
-                stdout_lines=(
-                    '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}\n',
-                ),
-                provider_session_id="observed-session",
-            )
-        ]
-    )
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: adapter,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    adapter = harness._adapter
+    harness.prepare_result(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="final output",
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
+            ),
+            stdout_lines=(
+                '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}\n',
+            ),
+            provider_session_id="observed-session",
+        )
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    request = prompt_runtime.NewSessionRunRequest(
-        prompt="already rendered prompt",
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+    request = harness.start_session_run_request(
         invocation_dir=tmp_path,
         runtime_state_dir=runtime_state_dir,
-        provider_selection=_selection_with_auth(
-            InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="medium",
-            ),
-            runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        provider_selection=InternalStageSelection(
+            service="claude",
+            model="sonnet",
+            effort="medium",
         ),
-        session_namespace="main",
+        provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     outcome = prompt_runtime._run_builtin_session_outcome(
@@ -899,8 +884,8 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
             "exact_transcript_match": False,
         },
     )
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
+    assert len(harness.recorded_requests) == 1
+    recorded_request = harness.recorded_request()
     assert recorded_request.prompt.content == "already rendered prompt"
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "session-uuid"
@@ -1227,7 +1212,7 @@ def test_runtime_client_start_session_run_calls_live_output_observer(
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1240,16 +1225,12 @@ def test_runtime_client_start_session_run_calls_live_output_observer(
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
@@ -1257,7 +1238,7 @@ def test_runtime_client_start_session_run_calls_live_output_observer(
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "hello\nworld"
     assert observed == ["hello", "world"]
 
@@ -1273,7 +1254,7 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
             observed.append(turn.display_message)
 
     _install_local_codex_host_auth(monkeypatch, tmp_path)
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1283,14 +1264,16 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer/main/codex"
-    _write_codex_rollout(provider_state_dir, "thread-123", "thread-123")
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+    provider_state_dir = harness.prepare_provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
+    harness.prepare_codex_rollout_state(provider_state_dir, "thread-123", "thread-123")
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
@@ -1298,15 +1281,14 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
-    assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
+    assert len(harness.recorded_requests) == 1
+    assert harness.recorded_request().run_kind is RunKind.RESUME
     assert outcome.result.output == "current invocation output"
     assert observed == ["current invocation output"]
 
@@ -1322,7 +1304,7 @@ def test_runtime_client_start_session_run_forwards_live_output_observer_exceptio
             observed.append(turn.display_message)
         raise runtime.UsageLimitError(service_name="codex")
 
-    _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1331,29 +1313,17 @@ def test_runtime_client_start_session_run_forwards_live_output_observer_exceptio
             ),
         ),
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
 
     with pytest.raises(runtime.UsageLimitError):
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="codex",
-                            model="gpt-5.4",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
@@ -1376,7 +1346,7 @@ def test_runtime_client_start_session_run_propagates_live_output_observer_timeou
             observed.append(turn.display_message)
         raise observer_failure
 
-    _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1385,29 +1355,17 @@ def test_runtime_client_start_session_run_propagates_live_output_observer_timeou
             ),
         ),
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
 
     with pytest.raises(runtime.AgentTimeoutError, match="observer timeout") as excinfo:
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="codex",
-                            model="gpt-5.4",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
@@ -1431,7 +1389,7 @@ def test_runtime_client_start_session_run_propagates_live_output_observer_cancel
             observed.append(turn.display_message)
         raise observer_failure
 
-    _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1440,29 +1398,17 @@ def test_runtime_client_start_session_run_propagates_live_output_observer_cancel
             ),
         ),
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
 
     with pytest.raises(AgentCancelledError) as excinfo:
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="codex",
-                            model="gpt-5.4",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
@@ -1631,7 +1577,7 @@ def test_runtime_client_new_session_maps_provider_unavailable_outcomes(
     reason: ProviderUnavailableReason,
     detail: str,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
@@ -1641,19 +1587,17 @@ def test_runtime_client_new_session_maps_provider_unavailable_outcomes(
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
-                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
                 ),
-                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -1725,12 +1669,7 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer" / "main" / "claude"
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    (provider_state_dir / "session-state.json").write_text("{}", encoding="utf-8")
-
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1739,6 +1678,12 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
             ),
         ),
     )
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+    provider_state_dir = harness.prepare_provider_state_dir(
+        runtime_state_dir,
+        service="claude",
+    )
+    (provider_state_dir / "session-state.json").write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
@@ -1748,26 +1693,24 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
                 ),
-                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "final output"
     assert observed == [
         "intermediate",
@@ -1836,7 +1779,7 @@ def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantic
     assistant_line = _claude_assistant_output_line("intermediate")
     tool_line = _claude_tool_output_line("Read", {"path": "README.md"})
     result_line = _claude_result_output_line("final output")
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(assistant_line, tool_line, result_line),
@@ -1871,19 +1814,17 @@ def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantic
         )
         outcome = asyncio.run(
             client.run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
-                    runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="claude",
-                            model="sonnet",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
+                    provider_selection=InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
                     ),
-                    session_namespace="main",
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
                     on_live_output=on_live_output,
                     tool_policy=runtime.ToolPolicy.NONE,
                 )
@@ -1930,24 +1871,25 @@ def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantic
         tool_line,
         result_line,
     ]
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
 
 
 def test_runtime_client_new_session_run_propagates_claude_live_output_observer_failure_for_resumed_claude(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer" / "main" / "claude"
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    (provider_state_dir / "session-state.json").write_text("{}", encoding="utf-8")
-
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(_claude_assistant_output_line("intermediate"),),
         ),
     )
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+    provider_state_dir = harness.prepare_provider_state_dir(
+        runtime_state_dir,
+        service="claude",
+    )
+    (provider_state_dir / "session-state.json").write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
@@ -1961,26 +1903,24 @@ def test_runtime_client_new_session_run_propagates_claude_live_output_observer_f
     with pytest.raises(RuntimeError, match="observer failed"):
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="claude",
-                            model="sonnet",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    provider_selection=InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
                     ),
-                    session_namespace="main",
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
                 )
             )
         )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
 
 
 def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_once_per_turn(
@@ -3650,22 +3590,22 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
         lambda *args, **kwargs: _ClaudeProcess(),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
                 ),
-                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -3734,19 +3674,19 @@ def test_runtime_client_omits_continuation_for_pre_start_claude_new_session_inte
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.start_session_run_request(
                 invocation_dir=tmp_path,
-                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                    tmp_path
                 ),
-                session_namespace="main",
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -3765,16 +3705,12 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -3785,11 +3721,10 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
@@ -3797,7 +3732,6 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     tmp_path,
                     tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
@@ -3829,8 +3763,8 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
             "exact_transcript_match": False,
         },
     )
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
+    assert len(harness.recorded_requests) == 1
+    recorded_request = harness.recorded_request()
     assert recorded_request.prompt.content == "already rendered prompt"
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
@@ -4449,7 +4383,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -4479,11 +4413,10 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
@@ -4491,7 +4424,6 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                session_namespace="main",
                 tool_access=(
                     tool_access
                     if tool_access.kind == "none"
@@ -4534,8 +4466,8 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
             "exact_transcript_match": False,
         },
     )
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
+    assert len(harness.recorded_requests) == 1
+    recorded_request = harness.recorded_request()
     assert recorded_request.prompt.content == "already rendered prompt"
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
@@ -4551,16 +4483,12 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
@@ -4588,11 +4516,10 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
@@ -4600,7 +4527,6 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -4629,8 +4555,8 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
             "exact_transcript_match": False,
         },
     )
-    assert len(adapter.recorded_requests) == 1
-    assert adapter.recorded_requests[0].log_context is None
+    assert len(harness.recorded_requests) == 1
+    assert harness.recorded_request().log_context is None
 
 
 def test_runtime_client_preserves_opencode_invalid_api_key_classification(
@@ -5556,7 +5482,7 @@ def test_runtime_client_new_session_times_out_after_agent_event_and_preserves_ob
         monkeypatch,
         timeout_check_numbers=(2,),
     )
-    _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -5581,16 +5507,15 @@ def test_runtime_client_new_session_times_out_after_agent_event_and_preserves_ob
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 timeout_seconds=1,
@@ -5633,14 +5558,10 @@ def test_runtime_client_codex_new_session_timeout_preserves_observed_usage_and_c
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
 
     observed_events: list[prompt_runtime.AgentEvent] = []
@@ -5648,7 +5569,7 @@ def test_runtime_client_codex_new_session_timeout_preserves_observed_usage_and_c
         monkeypatch,
         timeout_check_numbers=(3,),
     )
-    _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -5672,16 +5593,14 @@ def test_runtime_client_codex_new_session_timeout_preserves_observed_usage_and_c
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
-                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                 provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 timeout_seconds=1,
                 on_live_output=observed_events.append,
