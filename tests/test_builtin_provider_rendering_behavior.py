@@ -511,6 +511,33 @@ def test_render_codex_fresh_invocation_returns_canonical_argv_environment_and_pr
     )
 
 
+def test_render_codex_without_provider_state_dir_keeps_utc_environment_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(tmp_path),
+            auth=None,
+            invocation_dir=tmp_path,
+        )
+    )
+
+    assert rendered_invocation.environment == {"TZ": "UTC"}
+
+
 def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
