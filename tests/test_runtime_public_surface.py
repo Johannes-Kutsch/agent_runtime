@@ -650,7 +650,7 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
         ),
     ],
 )
-def test_runtime_client_session_entrypoints_delegate_wrapped_live_runtime_output_and_stop_idle_timeout_watchdog(
+def test_runtime_client_session_entrypoints_delegate_through_live_runtime_output_timeout_context(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     entrypoint_name: str,
@@ -738,7 +738,7 @@ def test_runtime_client_session_entrypoints_delegate_wrapped_live_runtime_output
         ),
     ],
 )
-def test_runtime_client_session_entrypoints_stop_idle_timeout_watchdog_when_delegated_execution_raises(
+def test_runtime_client_session_entrypoints_propagate_delegated_execution_errors_through_live_runtime_output_timeout_context(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     entrypoint_name: str,

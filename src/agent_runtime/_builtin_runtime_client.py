@@ -269,21 +269,6 @@ def _observe_output_lines(
         )
 
 
-def _wrap_on_live_output_with_timeout(
-    on_live_output: Callable[[AgentEvent], None] | None,
-    timeout_seconds: int,
-) -> tuple[
-    Callable[[AgentEvent], None] | None,
-    _live_runtime_output_timeout_context_module._LiveRuntimeOutputTimeoutContext | None,
-]:
-    return (
-        _live_runtime_output_timeout_context_module._wrap_on_live_output_with_timeout(
-            on_live_output,
-            timeout_seconds,
-        )
-    )
-
-
 def _observe_output_reducer(
     stream_interpretation: BuiltInProviderStreamInterpretation,
     on_live_output: Callable[[AgentEvent], None] | None,
