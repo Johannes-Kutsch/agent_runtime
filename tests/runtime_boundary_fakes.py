@@ -4,11 +4,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import agent_runtime.session as session_runtime
-from agent_runtime._provider_session_adapter import (
-    ProviderSessionPlanningFacts,
-    ProviderSessionPlanningRequest,
-)
 from agent_runtime.session import RunKind
 
 
@@ -93,67 +88,3 @@ class ExecutionServiceFake:
 
     def valid_efforts(self) -> frozenset[str]:
         return frozenset()
-
-
-class ResidentPlanningProviderSessionAdapterFake:
-    @property
-    def service_name(self) -> str:
-        return "codex"
-
-    def provider_session_planning_facts(
-        self,
-        request: ProviderSessionPlanningRequest,
-    ) -> ProviderSessionPlanningFacts:
-        del request
-        return ProviderSessionPlanningFacts(
-            state_dir_relpath="state/",
-            provider_state_dir=Path("state"),
-            has_resumable_provider_state=True,
-        )
-
-    def provider_session_state(self, request: Any) -> Any:
-        del request
-        return session_runtime.ProviderSessionState(
-            run_kind=RunKind.RESUME,
-            provider_session_id="recovered-session",
-            state_dir_relpath="state/",
-            state_dir_path=Path("state"),
-        )
-
-    def prepare_local_provider_run_state(
-        self,
-        provider_state_dir: Path | None,
-    ) -> None:
-        del provider_state_dir
-
-
-class ExternalStateResidentPlanningProviderSessionAdapterFake:
-    @property
-    def service_name(self) -> str:
-        return "codex"
-
-    def provider_session_planning_facts(
-        self,
-        request: ProviderSessionPlanningRequest,
-    ) -> ProviderSessionPlanningFacts:
-        del request
-        return ProviderSessionPlanningFacts(
-            state_dir_relpath="runtime-state/",
-            provider_state_dir=Path("/host/runtime-state"),
-            has_resumable_provider_state=True,
-        )
-
-    def provider_session_state(self, request: Any) -> Any:
-        del request
-        return session_runtime.ProviderSessionState(
-            run_kind=RunKind.RESUME,
-            provider_session_id="recovered-session",
-            state_dir_relpath="runtime-state/",
-            state_dir_path=Path("/host/runtime-state"),
-        )
-
-    def prepare_local_provider_run_state(
-        self,
-        provider_state_dir: Path | None,
-    ) -> None:
-        del provider_state_dir

@@ -16,8 +16,6 @@ from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 from tests.runtime_boundary_fakes import (
     ExecutionServiceFake,
-    ExternalStateResidentPlanningProviderSessionAdapterFake,
-    ResidentPlanningProviderSessionAdapterFake,
     SelectionServiceFake,
 )
 
@@ -66,18 +64,6 @@ def execution_service_factory() -> Callable[[str], ExecutionProvider]:
         return cast(ExecutionProvider, ExecutionServiceFake(service_name))
 
     return _factory
-
-
-@pytest.fixture
-def resident_provider_session_adapter() -> ResidentPlanningProviderSessionAdapterFake:
-    return ResidentPlanningProviderSessionAdapterFake()
-
-
-@pytest.fixture
-def external_state_provider_session_adapter() -> (
-    ExternalStateResidentPlanningProviderSessionAdapterFake
-):
-    return ExternalStateResidentPlanningProviderSessionAdapterFake()
 
 
 @pytest.fixture

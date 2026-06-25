@@ -13,7 +13,6 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
-import agent_runtime._provider_session_adapter as internal_provider_session_adapter_runtime
 import agent_runtime._portable_continuation_payload as continuation_payload_module
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
@@ -818,26 +817,8 @@ def test_provider_session_adapter_public_seam_stays_narrow() -> None:
             {},
         )
 
-    assert internal_provider_session_adapter_runtime.__all__ == [
-        "ProviderSessionAdapter",
-        "ProviderSessionPlanningFacts",
-        "ProviderSessionPlanningRequest",
-    ]
-    adapter_members = (
-        internal_provider_session_adapter_runtime.ProviderSessionAdapter.__dict__
-    )
-
-    assert "provider_session_planning_facts" in adapter_members
-    assert "provider_session_state" in adapter_members
-    assert "prepare_local_provider_run_state" in adapter_members
-    assert "record_provider_session_id" not in adapter_members
-    assert "provider_session_preferences" not in adapter_members
-    assert "recover_provider_session_id" not in adapter_members
-    assert "is_exact_resumable_provider_session" not in adapter_members
-    assert not hasattr(
-        internal_provider_session_adapter_runtime,
-        "ProviderSessionService",
-    )
+    internal_module = importlib.import_module("agent_runtime._provider_session_adapter")
+    assert not hasattr(internal_module, "ProviderSessionAdapter")
 
 
 def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> None:
