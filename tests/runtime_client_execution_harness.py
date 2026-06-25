@@ -231,20 +231,52 @@ class RuntimeClientExecutionHarness:
         effort: str = "medium",
         tool_access: contracts_runtime.ToolAccess | None = None,
         provider_session_id: str = "selected-thread",
-        provider_state_dir_relpath: str = "implementer/main/codex/",
+        provider_state_dir_relpath: str | None = "implementer/main/codex/",
         exact_transcript_match: bool = False,
     ) -> prompt_runtime.Continuation:
+        provider_resume_state: dict[str, Any] = {
+            "run_kind": "resume",
+            "provider_session_id": provider_session_id,
+            "exact_transcript_match": exact_transcript_match,
+        }
+        if provider_state_dir_relpath is not None:
+            provider_resume_state["provider_state_dir_relpath"] = (
+                provider_state_dir_relpath
+            )
         return prompt_runtime.Continuation(
             selected_service="codex",
             selected_model=model,
             selected_effort=effort,
             tool_access=tool_access or contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": provider_session_id,
-                "provider_state_dir_relpath": provider_state_dir_relpath,
-                "exact_transcript_match": exact_transcript_match,
-            },
+            provider_resume_state=provider_resume_state,
+        )
+
+    @staticmethod
+    def claude_continuation(
+        *,
+        model: str = "sonnet",
+        effort: str = "medium",
+        tool_access: contracts_runtime.ToolAccess | None = None,
+        provider_session_id: str | None = "claude-session-123",
+        provider_state_dir_relpath: str | None = None,
+        exact_transcript_match: bool = False,
+    ) -> prompt_runtime.Continuation:
+        provider_resume_state: dict[str, Any] = {
+            "run_kind": "resume",
+            "exact_transcript_match": exact_transcript_match,
+        }
+        if provider_session_id is not None:
+            provider_resume_state["provider_session_id"] = provider_session_id
+        if provider_state_dir_relpath is not None:
+            provider_resume_state["provider_state_dir_relpath"] = (
+                provider_state_dir_relpath
+            )
+        return prompt_runtime.Continuation(
+            selected_service="claude",
+            selected_model=model,
+            selected_effort=effort,
+            tool_access=tool_access or contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state=provider_resume_state,
         )
 
     @staticmethod
@@ -311,6 +343,23 @@ class RuntimeClientExecutionHarness:
         rollout_path = rollout_dir / filename
         rollout_path.write_text(content, encoding="utf-8")
         return rollout_path
+
+    @staticmethod
+    def prepare_opencode_provider_state(
+        provider_state_dir: Path,
+        *,
+        session_id: str,
+        resume_jsonl: str = "[]",
+    ) -> None:
+        provider_state_dir.mkdir(parents=True, exist_ok=True)
+        (provider_state_dir / "resume.jsonl").write_text(
+            resume_jsonl,
+            encoding="utf-8",
+        )
+        (provider_state_dir / "session_id").write_text(
+            f"{session_id}\n",
+            encoding="utf-8",
+        )
 
     @staticmethod
     def install_local_codex_host_auth(
