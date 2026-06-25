@@ -878,6 +878,7 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
         provider_resume_state={
             "provider_session_id": "observed-session-id",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/opencode/",
         },
     )
     assert harness.recorded_request_count == 1
@@ -952,6 +953,7 @@ def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_p
         provider_resume_state={
             "provider_session_id": "observed-session-id",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/opencode/",
         },
     )
     assert harness.recorded_request().provider_session_id == "prepared-session-id"
@@ -2185,6 +2187,7 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
         provider_resume_state={
             "provider_session_id": "sess_123",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/opencode/",
         },
     )
 
@@ -4487,6 +4490,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         provider_resume_state={
             "provider_session_id": "persisted-session-2",
             "exact_transcript_match": False,
+            "provider_state_dir_relpath": "implementer/main/opencode/",
         },
     )
     assert outcome.result is not None

@@ -403,16 +403,14 @@ def test_runtime_client_execution_harness_installs_local_codex_host_auth(
     )
 
 
-def test_runtime_client_execution_harness_opencode_continuation_preserves_explicit_provider_state() -> (
+def test_runtime_client_execution_harness_opencode_continuation_no_provider_state() -> (
     None
 ):
     continuation = RuntimeClientExecutionHarness.opencode_continuation(
         provider_session_id="persisted-session-1",
-        provider_state={},
     )
 
     assert continuation.provider_resume_state == {
         "provider_session_id": "persisted-session-1",
-        "provider_state": {},
         "exact_transcript_match": True,
     }

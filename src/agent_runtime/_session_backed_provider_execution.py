@@ -118,11 +118,14 @@ def _build_opencode_continuation(
     effort: str,
     tool_access: ToolAccess,
     provider_session_id: str,
+    provider_state_dir_relpath: str | None = None,
     exact_transcript_match: bool | None = None,
 ) -> Continuation:
     provider_resume_state: dict[str, Any] = {
         "provider_session_id": provider_session_id,
     }
+    if provider_state_dir_relpath is not None:
+        provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
     if exact_transcript_match is not None:
         provider_resume_state["exact_transcript_match"] = exact_transcript_match
     return create_portable_continuation_payload(
@@ -145,18 +148,20 @@ def _persist_opencode_session_id(state_dir: Path, provider_session_id: str) -> N
 
 def _restore_opencode_state_dir(
     request: ResumedSessionRunRequest,
-) -> tuple[Path, Callable[[], None]]:
+    provider_state_dir_relpath: str | None,
+) -> tuple[Path, str, Callable[[], None]]:
     if request.session_store is None:
         raise RuntimeConfigurationError(
             "RuntimeClient Resume Session Run requires a `session_store`."
         )
-    provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
-        role="implementer",
-        session_namespace=request._session_namespace,
-    )
+    if provider_state_dir_relpath is None:
+        provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
+            role="implementer",
+            session_namespace=request._session_namespace,
+        )
     state_dir = request.session_store / provider_state_dir_relpath
     state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir, lambda: None
+    return state_dir, provider_state_dir_relpath, lambda: None
 
 
 def _opencode_exact_transcript_match(
@@ -483,6 +488,13 @@ def _run_builtin_new_session(
                 return provider_state_dir_relpath
             return None
 
+        def _portable_opencode_state_dir_relpath(
+            provider_state_dir_relpath: str | None,
+        ) -> str | None:
+            if is_caller_managed_runtime_state:
+                return provider_state_dir_relpath
+            return None
+
         if selected_stage.service == "codex":
             _builtin_runtime_client_module._validate_codex_stage(selected_stage)
             provider_state_dir_relpath, provider_state_dir = (
@@ -724,6 +736,9 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
+                        provider_state_dir_relpath=_portable_opencode_state_dir_relpath(
+                            provider_state_dir_relpath
+                        ),
                         exact_transcript_match=exact_transcript_match,
                     )
                 ),
@@ -768,6 +783,9 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
+                        provider_state_dir_relpath=_portable_opencode_state_dir_relpath(
+                            provider_state_dir_relpath
+                        ),
                         exact_transcript_match=exact_transcript_match,
                     )
                 ),
@@ -802,6 +820,9 @@ def _run_builtin_new_session(
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
+                    provider_state_dir_relpath=_portable_opencode_state_dir_relpath(
+                        provider_state_dir_relpath
+                    ),
                     exact_transcript_match=exact_transcript_match,
                 )
             ),
@@ -990,8 +1011,15 @@ def _run_builtin_resumed_session(
         cleanup_opencode_state_dir = _no_cleanup
     else:
         _builtin_runtime_client_module._require_opencode_auth(request.provider_auth)
-        provider_state_dir, cleanup_opencode_state_dir = _restore_opencode_state_dir(
-            request=request,
+        provider_state_dir_relpath = cast(
+            str | None,
+            provider_resume_state.get("provider_state_dir_relpath"),
+        )
+        provider_state_dir, provider_state_dir_relpath, cleanup_opencode_state_dir = (
+            _restore_opencode_state_dir(
+                request=request,
+                provider_state_dir_relpath=provider_state_dir_relpath,
+            )
         )
         state_dir_session_id = _load_opencode_state_dir_session_id(provider_state_dir)
         saved_exact_transcript_match = bool(
@@ -1064,6 +1092,7 @@ def _run_builtin_resumed_session(
                     effort=request.effort,
                     tool_access=request.tool_access,
                     provider_session_id=resumed_provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
                     exact_transcript_match=exact_transcript_match,
                 )
             ),
@@ -1117,6 +1146,7 @@ def _run_builtin_resumed_session(
                         effort=request.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
+                        provider_state_dir_relpath=provider_state_dir_relpath,
                         exact_transcript_match=exact_transcript_match,
                     )
                 )
@@ -1155,6 +1185,7 @@ def _run_builtin_resumed_session(
             effort=request.effort,
             tool_access=request.tool_access,
             provider_session_id=provider_session_id,
+            provider_state_dir_relpath=provider_state_dir_relpath,
             exact_transcript_match=exact_transcript_match,
         )
     cleanup_opencode_state_dir()

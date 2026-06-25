@@ -286,24 +286,23 @@ class RuntimeClientExecutionHarness:
         effort: str = "medium",
         tool_access: contracts_runtime.ToolAccess | None = None,
         provider_session_id: str = "persisted-session-1",
-        provider_state: dict[str, str] | None = None,
+        provider_state_dir_relpath: str | None = None,
         exact_transcript_match: bool = True,
     ) -> prompt_runtime.Continuation:
+        provider_resume_state: dict[str, Any] = {
+            "provider_session_id": provider_session_id,
+            "exact_transcript_match": exact_transcript_match,
+        }
+        if provider_state_dir_relpath is not None:
+            provider_resume_state["provider_state_dir_relpath"] = (
+                provider_state_dir_relpath
+            )
         return prompt_runtime.Continuation(
             selected_service="opencode",
             selected_model=model,
             selected_effort=effort,
             tool_access=tool_access or contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "provider_session_id": provider_session_id,
-                "provider_state": provider_state
-                if provider_state is not None
-                else {
-                    "session_id": provider_session_id,
-                    "resume_jsonl": "[]",
-                },
-                "exact_transcript_match": exact_transcript_match,
-            },
+            provider_resume_state=provider_resume_state,
         )
 
     @staticmethod
