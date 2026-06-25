@@ -293,6 +293,35 @@ def test_resumed_session_receives_new_session_continuation(
     )
 
 
+def test_full_run_invokes_live_probe_case_matrix_in_order(
+    probe: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _install_client(probe, monkeypatch, _default_handler)
+
+    probe.run_probe(
+        ("codex",),
+        env={},
+        codex_auth_present=True,
+        artifact_root=tmp_path / "artifacts",
+        stream=io.StringIO(),
+    )
+
+    assert [
+        (
+            method,
+            request.invocation_dir.relative_to(tmp_path / "artifacts" / "codex"),
+        )
+        for method, request in calls
+    ] == [
+        ("run_ephemeral", Path("ephemeral_UNRESTRICTED")),
+        ("run_new_session", Path("new_session_UNRESTRICTED")),
+        ("run_resumed_session", Path("new_session_UNRESTRICTED")),
+        ("run_ephemeral", Path("ephemeral_NONE")),
+        ("run_ephemeral", Path("ephemeral_INSPECT_ONLY")),
+        ("run_ephemeral", Path("ephemeral_NO_FILE_MUTATION")),
+    ]
+
+
 def test_non_success_category_prints_red_and_records_category(
     probe: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
