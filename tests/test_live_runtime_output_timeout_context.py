@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import weakref
+from typing import Callable
 
 import pytest
 
@@ -161,3 +162,78 @@ def test_live_runtime_output_timeout_context_keeps_live_runtime_output_live_only
 
     assert observed_messages == ["heartbeat"]
     assert event_reference() is None
+
+
+def test_live_runtime_output_timeout_context_stops_idle_timeout_monitoring_after_one_invocation(
+    watchdog_probe_factory: list[_WatchdogProbe],
+) -> None:
+    observed_events: list[prompt_runtime.AgentEvent] = []
+
+    result = timeout_context_module._run_with_live_runtime_output_timeout_context(
+        observed_events.append,
+        7,
+        lambda on_live_output: (
+            on_live_output(_event("heartbeat")) if on_live_output is not None else None
+        ),
+    )
+
+    assert result is None
+    assert observed_events == [_event("heartbeat")]
+    assert watchdog_probe_factory[0].events == [
+        "start_monitoring",
+        "reset_timer",
+        "check_timeout",
+        "stop_monitoring",
+    ]
+
+
+def test_live_runtime_output_timeout_context_stops_idle_timeout_monitoring_when_one_invocation_raises(
+    watchdog_probe_factory: list[_WatchdogProbe],
+) -> None:
+    invocation_failure = RuntimeError("invocation failed")
+
+    def run_once(
+        on_live_output: Callable[[prompt_runtime.AgentEvent], None] | None,
+    ) -> None:
+        if on_live_output is not None:
+            on_live_output(_event("heartbeat"))
+        raise invocation_failure
+
+    with pytest.raises(RuntimeError, match="invocation failed") as excinfo:
+        timeout_context_module._run_with_live_runtime_output_timeout_context(
+            None,
+            7,
+            run_once,
+        )
+
+    assert excinfo.value is invocation_failure
+    assert watchdog_probe_factory[0].events == [
+        "start_monitoring",
+        "reset_timer",
+        "check_timeout",
+        "stop_monitoring",
+    ]
+
+
+@pytest.mark.parametrize("timeout_seconds", [0, -1])
+def test_live_runtime_output_timeout_context_leaves_one_invocation_unwrapped_when_idle_timeout_is_disabled(
+    timeout_seconds: int,
+) -> None:
+    observed_events: list[prompt_runtime.AgentEvent] = []
+    observer = observed_events.append
+
+    def run_once(
+        on_live_output: Callable[[prompt_runtime.AgentEvent], None] | None,
+    ) -> str:
+        assert on_live_output is observer
+        on_live_output(_event("heartbeat"))
+        return "completed"
+
+    result = timeout_context_module._run_with_live_runtime_output_timeout_context(
+        observer,
+        timeout_seconds,
+        run_once,
+    )
+
+    assert result == "completed"
+    assert observed_events == [_event("heartbeat")]
