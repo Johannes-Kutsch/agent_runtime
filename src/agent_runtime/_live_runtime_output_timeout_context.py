@@ -77,9 +77,14 @@ class _LiveRuntimeOutputTimeoutContext:
         def wrapper(event: AgentEvent) -> None:
             watchdog.reset_timer()
             if self._on_live_output is not None:
-                self._on_live_output(event)
+                try:
+                    self._on_live_output(event)
+                except Exception as exc:
+                    setattr(exc, "_is_live_output_exception", True)
+                    raise
             watchdog.check_timeout()
 
+        setattr(wrapper, "_is_live_output_timeout_wrapper", True)
         return wrapper
 
     def stop_monitoring(self) -> None:

@@ -143,6 +143,11 @@ def _reduce_opencode_stream(
     )
 
 
+def _raise_if_live_output_exception(exc: BaseException) -> None:
+    if getattr(exc, "_is_live_output_exception", False):
+        raise exc
+
+
 def _run_builtin_session_outcome(
     call: Any,
     *,
@@ -160,25 +165,25 @@ def _run_builtin_session_outcome(
     try:
         return RuntimeOutcome(kind=Completed(), result=call())
     except AgentCancelledError as exc:
+        _raise_if_live_output_exception(exc)
         return RuntimeOutcome(
             kind=Cancelled(),
             result=_interrupted_result(exc, _selected()),
         )
     except AgentTimeoutError as exc:
+        _raise_if_live_output_exception(exc)
         return RuntimeOutcome(
             kind=TimedOut(),
             result=_interrupted_result(exc, _selected()),
         )
     except ProviderUnavailableError as exc:
-        if getattr(exc, "_is_live_output_exception", False):
-            raise
+        _raise_if_live_output_exception(exc)
         return RuntimeOutcome(
             kind=ProviderUnavailable(reason=exc.reason, detail=str(exc)),
             result=_interrupted_result(exc, _selected(exc.service_name)),
         )
     except UsageLimitError as exc:
-        if getattr(exc, "_is_live_output_exception", False):
-            raise
+        _raise_if_live_output_exception(exc)
         return RuntimeOutcome(
             kind=UsageLimited(reset_time=exc.reset_time),
             result=_interrupted_result(exc, _selected(exc.service_name)),
@@ -202,13 +207,13 @@ class RuntimeClient:
         try:
             result = _run_builtin_ephemeral(request)
         except AgentTimeoutError as exc:
+            _raise_if_live_output_exception(exc)
             return RuntimeOutcome(
                 kind=TimedOut(),
                 result=_interrupted_result(exc, selected),
             )
         except UsageLimitError as exc:
-            if getattr(exc, "_is_live_output_exception", False):
-                raise
+            _raise_if_live_output_exception(exc)
             return RuntimeOutcome(
                 kind=UsageLimited(reset_time=exc.reset_time),
                 result=_interrupted_result(exc, selected),

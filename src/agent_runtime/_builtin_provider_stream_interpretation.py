@@ -63,7 +63,10 @@ def emit_built_in_provider_live_output_event(
     try:
         on_live_output(event)
     except Exception as exc:
-        setattr(exc, "_is_live_output_exception", True)
+        if not getattr(
+            on_live_output, "_is_live_output_timeout_wrapper", False
+        ) and not getattr(exc, "_is_live_output_exception", False):
+            setattr(exc, "_is_live_output_exception", True)
         raise
 
 
