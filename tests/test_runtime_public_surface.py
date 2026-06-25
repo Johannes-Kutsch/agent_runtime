@@ -790,14 +790,6 @@ def test_runtime_client_session_entrypoints_propagate_delegated_execution_errors
         asyncio.run(getattr(client, f"run_{entrypoint_name}")(request))
 
 
-def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
-    assert session_runtime.ProviderSessionState.__module__ == "agent_runtime.session"
-    assert (
-        session_runtime.ProviderSessionStateRequest.__module__
-        == "agent_runtime.session"
-    )
-
-
 def test_provider_session_seams_consolidate_public_session_store_vocabulary() -> None:
     assert "SessionStore" not in session_runtime.__all__
     assert not hasattr(session_runtime, "ServiceResumeIdentityStore")
@@ -831,25 +823,6 @@ def test_provider_session_adapter_public_seam_stays_narrow() -> None:
         "provider_session_planning_facts",
     ):
         assert not hasattr(internal_module, removed_name)
-
-
-def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> None:
-    assert [
-        field.name for field in fields(session_runtime.ProviderSessionStateRequest)
-    ] == [
-        "provider_state_dir",
-        "has_resumable_provider_state",
-        "state_dir_relpath",
-        "require_exact_transcript_match",
-    ]
-    assert [field.name for field in fields(session_runtime.ProviderSessionState)] == [
-        "run_kind",
-        "provider_session_id",
-        "state_dir_relpath",
-        "state_dir_path",
-        "exact_transcript_match",
-        "use_service_state_dir_for_container",
-    ]
 
 
 def test_tool_policy_inspect_only_resolves_to_provider_neutral_profile() -> None:

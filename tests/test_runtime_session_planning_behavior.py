@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Callable, cast
 
 import pytest
@@ -11,9 +10,7 @@ from agent_runtime.contracts import (
 )
 from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import (
-    normalize_state_dir_relpath,
     provider_state_relpath,
-    provider_state_session_id_path,
 )
 from agent_runtime.types import ProviderSelection as InternalStageSelection
 from tests.runtime_boundary_fakes import (
@@ -51,14 +48,6 @@ def test_provider_state_path_helpers_reject_unsafe_runtime_service_labels(
 ) -> None:
     with pytest.raises(ValueError):
         provider_state_relpath("implementer", service_name, namespace="main")
-
-    with pytest.raises(ValueError):
-        normalize_state_dir_relpath(
-            "implementer",
-            "main",
-            service_name,
-            ".runtime-session/implementer/main/codex/",
-        )
 
 
 def test_public_provider_selection_requires_non_empty_candidate_configuration() -> None:
@@ -207,11 +196,7 @@ def test_service_registry_scopes_availability_to_selected_provider(
     )
 
 
-def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_path() -> (
-    None
-):
-    legacy = ".runtime-session/implementer/main/codex/"
-
+def test_provider_state_relpath_supports_session_root_layout() -> None:
     assert (
         provider_state_relpath(
             "implementer",
@@ -219,16 +204,4 @@ def test_provider_state_helpers_normalize_legacy_layout_and_build_session_id_pat
             session_root=".runtime-session",
         )
         == ".runtime-session/implementer/codex/"
-    )
-    assert (
-        normalize_state_dir_relpath(
-            "implementer",
-            "main",
-            "codex",
-            legacy,
-        )
-        == ".runtime-session/implementer/main/codex/"
-    )
-    assert provider_state_session_id_path(Path("state"), "codex") == Path(
-        "state/thread_id"
     )
