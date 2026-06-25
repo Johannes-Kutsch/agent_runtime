@@ -24,7 +24,9 @@ from agent_runtime.errors import (
 from agent_runtime.invocation_progress import InvocationProgress
 
 
-def test_codex_built_in_provider_stream_interpretation_maps_error_usage_limit_with_dateless_reset_time(
+@pytest.mark.parametrize("event_type", ["error", "turn.failed"])
+def test_codex_built_in_provider_stream_interpretation_maps_usage_limit_with_dateless_reset_time(
+    event_type: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -38,12 +40,23 @@ def test_codex_built_in_provider_stream_interpretation_maps_error_usage_limit_wi
         interpretation.reduce_output(
             [
                 json.dumps(
-                    {
-                        "type": "error",
-                        "message": (
-                            "You've hit your usage limit. Try again at 5pm (UTC)."
-                        ),
-                    }
+                    {"type": event_type}
+                    | (
+                        {
+                            "message": (
+                                "You've hit your usage limit. Try again at 5pm (UTC)."
+                            )
+                        }
+                        if event_type == "error"
+                        else {
+                            "error": {
+                                "message": (
+                                    "You've hit your usage limit. "
+                                    "Try again at 5pm (UTC)."
+                                )
+                            }
+                        }
+                    )
                 )
                 + "\n"
             ]
@@ -54,15 +67,26 @@ def test_codex_built_in_provider_stream_interpretation_maps_error_usage_limit_wi
     assert exc_info.value.invocation_progress is InvocationProgress.NOT_STARTED
 
 
-def test_codex_built_in_provider_stream_interpretation_maps_selected_model_at_capacity_to_retryable_failure() -> (
-    None
-):
+@pytest.mark.parametrize("event_type", ["error", "turn.failed"])
+def test_codex_built_in_provider_stream_interpretation_maps_selected_model_at_capacity_to_retryable_failure(
+    event_type: str,
+) -> None:
     interpretation = codex_built_in_provider_stream_interpretation()
     message = "Selected model is at capacity. Please try a different model."
 
     with pytest.raises(ProviderUnavailableError) as exc_info:
         interpretation.reduce_output(
-            [json.dumps({"type": "error", "message": message}) + "\n"]
+            [
+                json.dumps(
+                    {"type": event_type}
+                    | (
+                        {"message": message}
+                        if event_type == "error"
+                        else {"error": {"message": message}}
+                    )
+                )
+                + "\n"
+            ]
         )
 
     assert exc_info.value.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
@@ -104,15 +128,26 @@ def test_codex_built_in_provider_stream_interpretation_preserves_error_classific
         assert exc_info.value.service_name == "codex"
 
 
-def test_codex_built_in_provider_stream_interpretation_treats_unrecognized_message_as_hard_failure() -> (
-    None
-):
+@pytest.mark.parametrize("event_type", ["error", "turn.failed"])
+def test_codex_built_in_provider_stream_interpretation_treats_unrecognized_message_as_hard_failure(
+    event_type: str,
+) -> None:
     interpretation = codex_built_in_provider_stream_interpretation()
     message = "The codex model service is temporarily in maintenance mode."
 
     with pytest.raises(HardAgentError) as exc_info:
         interpretation.reduce_output(
-            [json.dumps({"type": "error", "message": message}) + "\n"]
+            [
+                json.dumps(
+                    {"type": event_type}
+                    | (
+                        {"message": message}
+                        if event_type == "error"
+                        else {"error": {"message": message}}
+                    )
+                )
+                + "\n"
+            ]
         )
 
     assert exc_info.value.service_name == "codex"
