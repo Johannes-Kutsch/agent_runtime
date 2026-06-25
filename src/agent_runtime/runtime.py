@@ -91,10 +91,6 @@ for _runtime_export in (
 
 _validate_claude_stage = _builtin_runtime_client_module._validate_claude_stage
 _validate_opencode_stage = _builtin_runtime_client_module._validate_opencode_stage
-_claude_command = _builtin_runtime_client_module._claude_command
-_claude_env = _builtin_runtime_client_module._claude_env
-_opencode_command = _builtin_runtime_client_module._opencode_command
-_opencode_env = _builtin_runtime_client_module._opencode_env
 _is_claude_subscription_access_denial = (
     _stream_interpretation_module.is_claude_subscription_access_denial
 )

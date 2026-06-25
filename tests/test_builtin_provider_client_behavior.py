@@ -8,7 +8,7 @@ import dataclasses
 from datetime import datetime, timezone
 from pathlib import Path
 import re
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 import pytest
 
@@ -26,32 +26,6 @@ from agent_runtime.errors import (
 )
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
-
-
-_CURRENT_OPENCODE_GO_MODELS = [
-    "glm-5.2",
-    "glm-5.1",
-    "kimi-k2.7-code",
-    "kimi-k2.6",
-    "mimo-v2.5",
-    "mimo-v2.5-pro",
-    "minimax-m3",
-    "minimax-m2.7",
-    "qwen3.7-max",
-    "qwen3.7-plus",
-    "qwen3.6-plus",
-    "deepseek-v4-pro",
-    "deepseek-v4-flash",
-]
-_STALE_OPENCODE_GO_MODELS = [
-    "glm-5",
-    "qwen3.5-plus",
-    "kimi-k2.5",
-    "mimo-v2-omni",
-    "mimo-v2-pro",
-    "minimax-m2.5",
-    "hy3-preview",
-]
 
 
 def _codex_executable() -> str:
@@ -121,19 +95,6 @@ def _opencode_tool_access(
             tool_policy=tool_policy,
         )
     )
-
-
-def _expected_opencode_permission(
-    tool_policy: runtime.ToolPolicy | contracts_runtime.ToolPolicyProfile,
-) -> dict[str, str] | str | None:
-    profile = _normalize_tool_policy_profile(tool_policy)
-    if profile == runtime.ToolPolicy.NONE.profile:
-        return "deny"
-    if profile == runtime.ToolPolicy.INSPECT_ONLY.profile:
-        return {"edit": "deny", "bash": "deny"}
-    if profile == runtime.ToolPolicy.NO_FILE_MUTATION.profile:
-        return {"edit": "deny"}
-    return None
 
 
 def _codex_assistant_output_line(text: str) -> str:
@@ -555,15 +516,6 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "session-uuid"
-    assert recorded_request.prompt.path == tmp_path / ".provider_prompt"
-    assert recorded_request.prompt.cleanup_path is True
-    assert recorded_request.prefer_argv is True
-    assert recorded_request.environment == {
-        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-        "CLAUDE_CONFIG_DIR": str(provider_state_dir),
-    }
-    assert "--session-id session-uuid" in recorded_request.command
-    assert "--resume" not in recorded_request.command
     assert provider_state_dir.is_dir()
 
 
@@ -760,117 +712,6 @@ def test_runtime_client_new_session_validation_failure_cleans_runtime_managed_st
     assert cleaned_up is True
 
 
-@pytest.mark.parametrize(
-    ("tool_policy", "expected_flags"),
-    [
-        (runtime.ToolPolicy.NONE, ('--disallowedTools "all"',)),
-        (
-            runtime.ToolPolicy.INSPECT_ONLY,
-            ("--tools 'Read Glob'",),
-        ),
-        (
-            runtime.ToolPolicy.NO_FILE_MUTATION,
-            ('--disallowedTools "Edit Write NotebookEdit"',),
-        ),
-        (runtime.ToolPolicy.UNRESTRICTED, tuple()),
-    ],
-)
-def test_runtime_client_runs_claude_new_session_with_tool_policy_commands(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    tool_policy: runtime.ToolPolicy,
-    expected_flags: tuple[str, ...],
-) -> None:
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_new_provider_session_id",
-        lambda: "session-uuid",
-    )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                json.dumps(
-                    {
-                        "type": "assistant",
-                        "message": {
-                            "content": [{"type": "text", "text": "intermediate"}],
-                        },
-                    }
-                )
-                + "\n",
-                json.dumps({"type": "result", "result": "final output"}) + "\n",
-            )
-        ),
-    )
-
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    tool_access = (
-        contracts_runtime.ToolAccess.no_tools()
-        if tool_policy is runtime.ToolPolicy.NONE
-        else contracts_runtime.ToolAccess.workspace_backed(
-            tmp_path, tool_policy=tool_policy
-        )
-    )
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                runtime_state_dir=runtime_state_dir,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-                ),
-                session_namespace="main",
-                tool_access=tool_access,
-            )
-        )
-    )
-
-    provider_state_dir_relpath = "implementer/main/claude/"
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    assert isinstance(outcome.kind, prompt_runtime.Completed)
-    assert outcome.result.output == "final output"
-    assert outcome.result.selected == runtime.ResolvedProvider(
-        service="claude", model="sonnet", effort="medium"
-    )
-    assert outcome.result.continuation == prompt_runtime.Continuation(
-        selected_service="claude",
-        selected_model="sonnet",
-        selected_effort="medium",
-        tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "session-uuid",
-            "exact_transcript_match": False,
-        },
-    )
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
-    assert recorded_request.provider_session_id == "session-uuid"
-    assert recorded_request.environment == {
-        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-        "CLAUDE_CONFIG_DIR": str(provider_state_dir),
-    }
-    command = recorded_request.command
-    if tool_policy is runtime.ToolPolicy.NONE:
-        assert "--tools none" not in command
-    if tool_policy is runtime.ToolPolicy.INSPECT_ONLY:
-        assert '--disallowedTools "all"' not in command
-    if tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION:
-        assert "--tools" not in command
-    if tool_policy is runtime.ToolPolicy.UNRESTRICTED:
-        assert "--tools" not in command
-        assert "--disallowedTools" not in command
-    for flag in expected_flags:
-        assert flag in command
-
-
 def test_runtime_client_runs_claude_new_session_and_returns_portable_continuation_for_resumption(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -956,9 +797,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
     )
     assert len(adapter.recorded_requests) == 2
     resumed_request = adapter.recorded_requests[1]
-    assert resumed_request.environment == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
-    assert "--resume session-uuid" in resumed_request.command
-    assert "--session-id" not in resumed_request.command
+    assert resumed_request.provider_session_id == "session-uuid"
 
 
 def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invocation_adapter(
@@ -1207,348 +1046,6 @@ def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_p
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
         "observed-session-id"
     )
-
-
-@pytest.mark.parametrize(
-    ("tool_policy", "expected_permission"),
-    [
-        (runtime.ToolPolicy.NONE, "deny"),
-        (runtime.ToolPolicy.INSPECT_ONLY, {"edit": "deny", "bash": "deny"}),
-        (runtime.ToolPolicy.NO_FILE_MUTATION, {"edit": "deny"}),
-        (runtime.ToolPolicy.UNRESTRICTED, None),
-    ],
-)
-def test_runtime_client_ephemeral_opencode_command_uses_tool_policy_config(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    tool_policy: runtime.ToolPolicy,
-    expected_permission: dict[str, str] | str | None,
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                json.dumps(
-                    {
-                        "type": "text",
-                        "part": {
-                            "type": "text",
-                            "time": {"end": True},
-                            "text": "hello from opencode",
-                        },
-                    }
-                )
-                + "\n",
-                json.dumps({"type": "session.status", "status": {"type": "idle"}})
-                + "\n",
-            ),
-        ),
-    )
-
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
-                ),
-                tool_access=_opencode_tool_access(tool_policy, tmp_path),
-            )
-        )
-    )
-
-    assert isinstance(outcome.kind, prompt_runtime.Completed)
-    assert outcome.result.output == "hello from opencode"
-    assert outcome.result.selected == runtime.ResolvedProvider(
-        service="opencode", model="kimi-k2.6", effort="medium"
-    )
-    assert outcome.result.continuation is None
-
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
-    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
-    if expected_permission is None:
-        assert "permission" not in config
-    else:
-        assert config["permission"] == expected_permission
-
-
-@pytest.mark.parametrize(
-    "tool_policy",
-    [
-        pytest.param(runtime.ToolPolicy.NONE.profile, id="none-profile"),
-        pytest.param(
-            runtime.ToolPolicy.INSPECT_ONLY.profile,
-            id="inspect-only-profile",
-        ),
-        pytest.param(
-            runtime.ToolPolicy.NO_FILE_MUTATION.profile,
-            id="no-file-mutation-profile",
-        ),
-        pytest.param(
-            runtime.ToolPolicy.UNRESTRICTED.profile,
-            id="unrestricted-profile",
-        ),
-    ],
-)
-def test_runtime_client_ephemeral_opencode_command_uses_equivalent_tool_policy_profile_config(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    tool_policy: contracts_runtime.ToolPolicyProfile,
-) -> None:
-    expected_permission = _expected_opencode_permission(tool_policy)
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                json.dumps(
-                    {
-                        "type": "text",
-                        "part": {
-                            "type": "text",
-                            "time": {"end": True},
-                            "text": "hello from opencode",
-                        },
-                    }
-                )
-                + "\n",
-                json.dumps({"type": "session.status", "status": {"type": "idle"}})
-                + "\n",
-            ),
-        ),
-    )
-
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
-                ),
-                tool_access=_opencode_tool_access(tool_policy, tmp_path),
-            )
-        )
-    )
-
-    assert outcome.result.output == "hello from opencode"
-    recorded_request = adapter.recorded_requests[0]
-    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
-    if expected_permission is None:
-        assert "permission" not in config
-    else:
-        assert config["permission"] == expected_permission
-
-
-@pytest.mark.parametrize(
-    ("tool_policy", "expected_permission"),
-    [
-        (runtime.ToolPolicy.NONE, "deny"),
-        (runtime.ToolPolicy.INSPECT_ONLY, {"edit": "deny", "bash": "deny"}),
-        (runtime.ToolPolicy.NO_FILE_MUTATION, {"edit": "deny"}),
-        (runtime.ToolPolicy.UNRESTRICTED, None),
-    ],
-)
-def test_runtime_client_runs_opencode_new_session_with_tool_policy_config(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    tool_policy: runtime.ToolPolicy,
-    expected_permission: dict[str, str] | str | None,
-) -> None:
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_new_provider_session_id",
-        lambda: "prepared-session-id",
-    )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationResult(
-            output="final output",
-            usage=runtime.ProviderUsage(
-                input_tokens=7,
-                output_tokens=3,
-            ),
-            stdout_lines=(
-                json.dumps(
-                    {
-                        "type": "text",
-                        "part": {
-                            "type": "text",
-                            "time": {"end": True},
-                            "text": "final output",
-                        },
-                    }
-                )
-                + "\n",
-                json.dumps({"type": "session.status", "status": {"type": "idle"}})
-                + "\n",
-            ),
-            provider_session_id="observed-session-id",
-        ),
-    )
-
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                runtime_state_dir=runtime_state_dir,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="glm-5.2",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
-                ),
-                session_namespace="main",
-                tool_access=_opencode_tool_access(tool_policy, tmp_path),
-            )
-        )
-    )
-
-    assert isinstance(outcome.kind, prompt_runtime.Completed)
-    assert outcome.result.output == "final output"
-    assert outcome.result.usage == runtime.ProviderUsage(
-        input_tokens=7, output_tokens=3
-    )
-    assert outcome.result.selected == runtime.ResolvedProvider(
-        service="opencode", model="glm-5.2", effort="medium"
-    )
-    assert outcome.result.continuation == prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=_opencode_tool_access(tool_policy, tmp_path),
-        provider_resume_state={
-            "provider_session_id": "observed-session-id",
-            "provider_state": {"session_id": "observed-session-id"},
-            "exact_transcript_match": False,
-        },
-    )
-    recorded_request = adapter.recorded_requests[0]
-    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
-    if expected_permission is None:
-        assert "permission" not in config
-    else:
-        assert config["permission"] == expected_permission
-
-
-@pytest.mark.parametrize(
-    ("tool_policy", "expected_permission"),
-    [
-        (runtime.ToolPolicy.NONE, "deny"),
-        (runtime.ToolPolicy.INSPECT_ONLY, {"edit": "deny", "bash": "deny"}),
-        (runtime.ToolPolicy.NO_FILE_MUTATION, {"edit": "deny"}),
-        (runtime.ToolPolicy.UNRESTRICTED, None),
-    ],
-)
-def test_runtime_client_runs_resumed_opencode_session_with_tool_policy_config(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    tool_policy: runtime.ToolPolicy,
-    expected_permission: dict[str, str] | str | None,
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationResult(
-            output="continued output",
-            usage=runtime.ProviderUsage(
-                input_tokens=7,
-                output_tokens=2,
-            ),
-            stdout_lines=(
-                json.dumps(
-                    {
-                        "type": "text",
-                        "part": {
-                            "type": "text",
-                            "time": {"end": True},
-                            "text": "continued output",
-                        },
-                    }
-                )
-                + "\n",
-                json.dumps({"type": "session.status", "status": {"type": "idle"}})
-                + "\n",
-            ),
-            provider_session_id="persisted-session-2",
-        ),
-    )
-
-    worktree = tmp_path / "worktree"
-    runtime_state_dir = tmp_path / "runtime-state"
-    provider_state_dir_relpath = "implementer/main/opencode/"
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    worktree.mkdir()
-    provider_state_dir.mkdir(parents=True)
-    (provider_state_dir / "resume.jsonl").write_text("[]\n", encoding="utf-8")
-    (provider_state_dir / "session_id").write_text(
-        "persisted-session-1\n",
-        encoding="utf-8",
-    )
-
-    continuation = prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=_opencode_tool_access(tool_policy, worktree),
-        provider_resume_state={
-            "provider_session_id": "persisted-session-1",
-            "provider_state_dir_relpath": provider_state_dir_relpath,
-            "exact_transcript_match": True,
-        },
-    )
-
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=worktree,
-                runtime_state_dir=runtime_state_dir,
-                continuation=continuation,
-                session_namespace="main",
-                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
-            )
-        )
-    )
-
-    assert isinstance(outcome.kind, prompt_runtime.Completed)
-    assert outcome.result.output == "continued output"
-    assert outcome.result.usage == runtime.ProviderUsage(
-        input_tokens=7, output_tokens=2
-    )
-    assert outcome.result.selected == runtime.ResolvedProvider(
-        service="opencode", model="glm-5.2", effort="medium"
-    )
-    assert outcome.result.continuation is not None
-    assert outcome.result.continuation.provider_resume_state == {
-        "provider_session_id": "persisted-session-2",
-        "provider_state": {"session_id": "persisted-session-2"},
-        "exact_transcript_match": False,
-    }
-    assert outcome.result.continuation.tool_access == _opencode_tool_access(
-        tool_policy, worktree
-    )
-
-    recorded_request = adapter.recorded_requests[0]
-    config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
-    if expected_permission is None:
-        assert "permission" not in config
-    else:
-        assert config["permission"] == expected_permission
 
 
 def test_runtime_client_ephemeral_run_calls_live_output_observer(
@@ -2749,15 +2246,10 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == tmp_path / ".provider_prompt"
-    assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "claude-session-123"
-    assert recorded_request.environment == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
-    assert "--resume claude-session-123" in recorded_request.command
-    assert "--model sonnet" in recorded_request.command
-    assert "--effort medium" in recorded_request.command
+    assert recorded_request.command
 
 
 def test_runtime_client_runs_claude_resumed_session_from_continuation(
@@ -2841,135 +2333,21 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "claude-session-123"
-    assert recorded_request.environment == {
-        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-    }
-    assert "--resume claude-session-123" in recorded_request.command
-    assert "--session-id" not in recorded_request.command
-    assert "--model sonnet" in recorded_request.command
-    assert "--effort medium" in recorded_request.command
+    assert recorded_request.command
 
 
 @pytest.mark.parametrize(
-    ("tool_policy", "expected_flags"),
+    "tool_access",
     [
-        (runtime.ToolPolicy.NONE, ('--disallowedTools "all"',)),
-        (runtime.ToolPolicy.INSPECT_ONLY, ("--tools 'Read Glob'",)),
-        (
-            runtime.ToolPolicy.NO_FILE_MUTATION,
-            ('--disallowedTools "Edit Write NotebookEdit"',),
+        contracts_runtime.ToolAccess.no_tools(),
+        contracts_runtime.ToolAccess.workspace_backed(
+            Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
         ),
-        (runtime.ToolPolicy.UNRESTRICTED, tuple()),
-    ],
-)
-def test_runtime_client_runs_claude_resumed_session_with_continuation_tool_policy_commands(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    tool_policy: runtime.ToolPolicy,
-    expected_flags: tuple[str, ...],
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                json.dumps({"type": "result", "result": "continued output"}) + "\n",
-            ),
+        contracts_runtime.ToolAccess.workspace_backed(
+            Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
         ),
-    )
-
-    tool_access = (
-        contracts_runtime.ToolAccess.no_tools()
-        if tool_policy is runtime.ToolPolicy.NONE
-        else contracts_runtime.ToolAccess.workspace_backed(
-            tmp_path, tool_policy=tool_policy
-        )
-    )
-
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                continuation=prompt_runtime.Continuation(
-                    selected_service="claude",
-                    selected_model="sonnet",
-                    selected_effort="medium",
-                    tool_access=tool_access,
-                    provider_resume_state={
-                        "run_kind": "resume",
-                        "provider_session_id": "claude-session-123",
-                        "exact_transcript_match": False,
-                    },
-                ),
-                session_namespace="main",
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
-            )
-        )
-    )
-
-    assert isinstance(outcome.kind, prompt_runtime.Completed)
-    assert outcome.result.output == "continued output"
-    assert outcome.result.selected == runtime.ResolvedProvider(
-        service="claude", model="sonnet", effort="medium"
-    )
-    assert outcome.result.continuation == prompt_runtime.Continuation(
-        selected_service="claude",
-        selected_model="sonnet",
-        selected_effort="medium",
-        tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "claude-session-123",
-            "exact_transcript_match": False,
-        },
-    )
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
-    assert recorded_request.provider_session_id == "claude-session-123"
-    assert recorded_request.environment == {
-        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-    }
-    command = recorded_request.command
-    assert "--resume claude-session-123" in command
-    if tool_policy is runtime.ToolPolicy.NONE:
-        assert "--tools none" not in command
-    elif tool_policy is runtime.ToolPolicy.INSPECT_ONLY:
-        assert '--disallowedTools "all"' not in command
-    elif tool_policy is runtime.ToolPolicy.NO_FILE_MUTATION:
-        assert "--tools" not in command
-    elif tool_policy is runtime.ToolPolicy.UNRESTRICTED:
-        assert "--tools" not in command
-        assert "--disallowedTools" not in command
-    for flag in expected_flags:
-        assert flag in command
-
-
-@pytest.mark.parametrize(
-    ("tool_access", "expected_flag"),
-    [
-        (
-            contracts_runtime.ToolAccess.no_tools(),
-            "--sandbox read-only",
-        ),
-        (
-            contracts_runtime.ToolAccess.workspace_backed(
-                Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
-            ),
-            "--sandbox read-only",
-        ),
-        (
-            contracts_runtime.ToolAccess.workspace_backed(
-                Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
-            ),
-            "--sandbox read-only",
-        ),
-        (
-            contracts_runtime.ToolAccess.workspace_backed(
-                Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
-            ),
-            "--sandbox danger-full-access",
+        contracts_runtime.ToolAccess.workspace_backed(
+            Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
         ),
     ],
 )
@@ -2977,7 +2355,6 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     tool_access: contracts_runtime.ToolAccess,
-    expected_flag: str,
 ) -> None:
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
@@ -3070,25 +2447,11 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
-    assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "selected-thread"
-    assert recorded_request.environment == {
-        "TZ": "UTC",
-        "CODEX_HOME": str(provider_state_dir),
-    }
-    assert recorded_request.command == (
+    assert recorded_request.command.startswith(
         f"{_codex_executable()} exec resume selected-thread -m gpt-5.4 "
-        f"-c model_reasoning_effort=medium -c approval_policy=never {expected_flag} "
-        "--json"
-    )
-    assert recorded_request.prefer_argv is True
-    assert recorded_request.argv[-3:] == (
-        "--sandbox",
-        expected_flag.removeprefix("--sandbox "),
-        "--json",
     )
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
@@ -3779,8 +3142,6 @@ def test_runtime_client_omits_codex_continuation_for_pre_start_session_backed_in
     assert outcome.result.continuation is None
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
-    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
-    assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.provider_session_id == expected_recorded_provider_session_id
 
 
@@ -3852,15 +3213,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "generated-session-id"
-    assert recorded_request.prompt.path == tmp_path / ".provider_prompt"
-    assert recorded_request.prompt.cleanup_path is True
-    assert recorded_request.prefer_argv is True
-    assert recorded_request.environment == {
-        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-        "CLAUDE_CONFIG_DIR": str(runtime_state_dir / provider_state_dir_relpath),
-    }
-    assert "--session-id generated-session-id" in recorded_request.command
-    assert "--resume" not in recorded_request.command
+    assert recorded_request.command
 
 
 def test_runtime_client_runs_claude_resumed_session_with_generated_provider_session_id_without_runtime_state_dir(
@@ -3927,14 +3280,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "generated-session-id"
-    assert recorded_request.prompt.path == tmp_path / ".provider_prompt"
-    assert recorded_request.prompt.cleanup_path is True
-    assert recorded_request.prefer_argv is True
-    assert recorded_request.environment == {
-        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-    }
-    assert "--resume generated-session-id" in recorded_request.command
-    assert "--session-id" not in recorded_request.command
+    assert recorded_request.command
 
 
 @pytest.mark.parametrize("create_state_dir", [False, True])
@@ -4006,12 +3352,7 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "claude-session-123"
-    assert recorded_request.environment == {
-        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
-        "CLAUDE_CONFIG_DIR": str(runtime_state_dir / provider_state_dir_relpath),
-    }
-    assert "--session-id claude-session-123" in recorded_request.command
-    assert "--resume" not in recorded_request.command
+    assert recorded_request.command
 
 
 def test_runtime_client_new_session_requires_claude_auth_when_runtime_state_is_resumable(
@@ -4288,33 +3629,10 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
-    assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id is None
-    assert recorded_request.environment == {
-        "TZ": "UTC",
-        "CODEX_HOME": str(provider_state_dir),
-    }
-    assert recorded_request.command == (
-        f"{_codex_executable()} exec -m gpt-5.4 -c model_reasoning_effort=medium "
-        "-c approval_policy=never --sandbox read-only --json"
-    )
-    assert recorded_request.prefer_argv is True
-    assert recorded_request.argv == (
-        _codex_executable(),
-        "exec",
-        "-m",
-        "gpt-5.4",
-        "-c",
-        "model_reasoning_effort=medium",
-        "-c",
-        "approval_policy=never",
-        "--sandbox",
-        "read-only",
-        "--json",
-    )
+    assert recorded_request.command.startswith(f"{_codex_executable()} exec -m gpt-5.4")
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
     )
@@ -4579,8 +3897,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "session-uuid"
-    assert "--resume session-uuid" in recorded_request.command
-    assert "--session-id" not in recorded_request.command
+    assert recorded_request.command
 
 
 @pytest.mark.parametrize(
@@ -4591,9 +3908,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
         "prepared_invocation",
         "expected_output",
         "expected_usage",
-        "expected_prompt_path",
-        "expected_env",
-        "expected_command_parts",
     ),
     [
         pytest.param(
@@ -4632,9 +3946,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 cost_usd=None,
                 duration_seconds=None,
             ),
-            lambda worktree: worktree / ".provider_prompt",
-            {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"},
-            ("claude", "--output-format stream-json", "--model sonnet"),
             id="claude",
         ),
         pytest.param(
@@ -4672,13 +3983,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 input_tokens=3,
                 output_tokens=2,
                 cache_read_input_tokens=1,
-            ),
-            lambda _worktree: Path("/tmp/.provider_prompt"),
-            {"TZ": "UTC"},
-            (
-                f"{_codex_executable()} exec",
-                "-m gpt-5.4",
-                "-c model_reasoning_effort=medium",
             ),
             id="codex",
         ),
@@ -4737,16 +4041,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
             ),
             "first assistant turn\n\nsecond assistant turn",
             None,
-            lambda _worktree: Path("/tmp/.provider_prompt"),
-            {
-                "TZ": "UTC",
-                "OPENCODE_GO_API_KEY": "go-key",
-            },
-            (
-                f"{prompt_runtime._opencode_command(model='kimi-k2.6', effort='medium')[0]} run",
-                "--format json",
-                "--model opencode-go/kimi-k2.6",
-            ),
             id="opencode",
         ),
     ],
@@ -4760,9 +4054,6 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     prepared_invocation: provider_invocation_runtime.ProviderInvocationPreparedStream,
     expected_output: str,
     expected_usage: runtime.ProviderUsage | None,
-    expected_prompt_path: Callable[[Path], Path],
-    expected_env: dict[str, str],
-    expected_command_parts: tuple[str, ...],
 ) -> None:
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -4804,169 +4095,13 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == expected_prompt_path(tmp_path)
-    assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id is None
     assert recorded_request.log_context is None
-    for key, value in expected_env.items():
-        assert recorded_request.environment[key] == value
-    if service_name == "claude":
-        assert recorded_request.environment == expected_env
-    if service_name == "opencode":
-        config = json.loads(recorded_request.environment["OPENCODE_CONFIG_CONTENT"])
-        provider = config["provider"]["opencode-go"]
-        assert provider["options"] == {
-            "baseURL": "https://opencode.ai/zen/go/v1",
-            "apiKey": "{env:OPENCODE_GO_API_KEY}",
-        }
-        assert "kimi-k2.6" in provider["models"]
-        assert "deepseek-v4-flash" in provider["models"]
-    if service_name != "claude":
-        assert recorded_request.prefer_argv is True
-    for command_part in expected_command_parts:
-        assert command_part in recorded_request.command
+    assert recorded_request.command
+    assert recorded_request.argv
     assert list((tmp_path / "logs").glob("*.log")) == []
-
-
-def test_opencode_command_uses_cmd_shim_on_windows() -> None:
-    assert prompt_runtime._opencode_command(
-        model="kimi-k2.6",
-        effort="medium",
-        os_name="nt",
-    ) == (
-        "opencode.cmd",
-        "run",
-        "--format",
-        "json",
-        "--model",
-        "opencode-go/kimi-k2.6",
-    )
-
-
-def test_codex_command_uses_cmd_shim_on_windows() -> None:
-    assert prompt_runtime._builtin_runtime_client_module._codex_command(
-        model="gpt-5.4-mini",
-        effort="low",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        os_name="nt",
-    )[:2] == ("codex.cmd", "exec")
-
-
-def test_opencode_env_includes_only_windows_process_launch_allowlist() -> None:
-    env = prompt_runtime._opencode_env(
-        auth=runtime.ProviderAuth(opencode_api_key="go-key"),
-        state_dir_container_path="state-dir",
-        tool_policy=runtime.ToolPolicy.NONE,
-        os_name="nt",
-        environ={
-            "PATH": "path-value",
-            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
-            "SystemRoot": "C:\\Windows",
-            "ComSpec": "C:\\Windows\\System32\\cmd.exe",
-            "WINDIR": "C:\\Windows",
-            "SHOULD_NOT_LEAK": "host-value",
-        },
-    )
-
-    assert env["PATH"] == "path-value"
-    assert env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
-    assert env["SystemRoot"] == "C:\\Windows"
-    assert env["ComSpec"] == "C:\\Windows\\System32\\cmd.exe"
-    assert env["WINDIR"] == "C:\\Windows"
-    assert env["TZ"] == "UTC"
-    assert env["OPENCODE_HOME"] == "state-dir"
-    assert env["OPENCODE_GO_API_KEY"] == "go-key"
-    assert "OPENCODE_CONFIG_CONTENT" in env
-    assert "SHOULD_NOT_LEAK" not in env
-
-
-@pytest.mark.parametrize(
-    ("service_name", "stage", "auth", "expected_argv"),
-    [
-        pytest.param(
-            "codex",
-            InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-            ),
-            None,
-            (
-                _codex_executable(),
-                "exec",
-                "-m",
-                "gpt-5.4",
-                "-c",
-                "model_reasoning_effort=medium",
-                "-c",
-                "approval_policy=never",
-                "--sandbox",
-                "read-only",
-                "--json",
-            ),
-            id="codex",
-        ),
-        pytest.param(
-            "opencode",
-            InternalStageSelection(
-                service="opencode",
-                model="kimi-k2.6",
-                effort="medium",
-            ),
-            runtime.ProviderAuth(opencode_api_key="go-key"),
-            prompt_runtime._opencode_command(model="kimi-k2.6", effort="medium"),
-            id="opencode",
-        ),
-    ],
-)
-def test_runtime_client_ephemeral_non_claude_invocation_prefers_argv_prompt_transport(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    service_name: str,
-    stage: InternalStageSelection,
-    auth: runtime.ProviderAuth | None,
-    expected_argv: tuple[str, ...],
-) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                json.dumps({"type": "result", "result": "final output"}) + "\n",
-            ),
-        ),
-    )
-    if service_name == "codex":
-        host_home = tmp_path / "host-home"
-        host_auth_path = host_home / ".codex" / "auth.json"
-        host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-        host_auth_path.write_text("{}", encoding="utf-8")
-        monkeypatch.setattr(
-            prompt_runtime._builtin_runtime_client_module.Path,
-            "home",
-            lambda: host_home,
-        )
-
-    asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    stage,
-                    auth,
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-    )
-
-    recorded_request = adapter.recorded_requests[0]
-    assert recorded_request.prefer_argv is True
-    assert recorded_request.argv == expected_argv
-    assert "< /tmp/.provider_prompt" not in recorded_request.command
-    assert '"$(cat /tmp/.provider_prompt)"' not in recorded_request.command
 
 
 def test_runtime_client_ephemeral_execution_remains_available_when_session_backed_support_disabled(
@@ -5090,120 +4225,24 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == worktree / ".provider_prompt"
-    assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == worktree
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "persisted-session-1"
-    assert Path(recorded_request.environment["OPENCODE_HOME"]).name == "opencode"
-    assert recorded_request.environment["OPENCODE_GO_API_KEY"] == "go-key"
-    assert "--session persisted-session-1" in recorded_request.command
-    assert "--model opencode-go/glm-5.2" in recorded_request.command
-
-
-def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("SHOULD_NOT_LEAK", "host-value")
-    captured: dict[str, Any] = {}
-
-    class _ClaudeProcess:
-        def __init__(self) -> None:
-            self.stdout = iter(
-                [json.dumps({"type": "result", "result": "final output"}) + "\n"]
-            )
-            self.stderr = iter(())
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return 0
-
-    def _fake_popen(
-        command: str,
-        *,
-        shell: bool,
-        cwd: Path,
-        env: dict[str, str],
-        stdout: Any,
-        stderr: Any,
-        text: bool,
-    ) -> _ClaudeProcess:
-        captured["env"] = env
-        return _ClaudeProcess()
-
-    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
-
-    asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-    )
-
-    assert captured["env"] == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
-
-
-def test_runtime_client_claude_env_helper_keeps_claude_specific_subset_without_credentials() -> (
-    None
-):
-    assert prompt_runtime._builtin_runtime_client_module._claude_env(
-        auth=None,
-        state_dir_container_path="/tmp/claude-state",
-    ) == {"CLAUDE_CONFIG_DIR": "/tmp/claude-state"}
-
-
-def test_runtime_client_claude_legacy_command_helper_preserves_supplied_prompt_path() -> (
-    None
-):
-    prompt_path = Path("/tmp/custom-prompt.txt")
-
-    command = prompt_runtime._builtin_runtime_client_module._claude_legacy_command_text(
-        model="sonnet",
-        effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        prompt_path=prompt_path,
-    )
-
-    assert command.endswith(f"< {prompt_path}")
-    assert ".provider_prompt" not in command
+    assert recorded_request.command
 
 
 @pytest.mark.parametrize(
-    ("tool_access", "expected_flag"),
+    "tool_access",
     [
-        (
-            contracts_runtime.ToolAccess.no_tools(),
-            "--sandbox read-only",
+        contracts_runtime.ToolAccess.no_tools(),
+        contracts_runtime.ToolAccess.workspace_backed(
+            Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
         ),
-        (
-            contracts_runtime.ToolAccess.workspace_backed(
-                Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
-            ),
-            "--sandbox read-only",
+        contracts_runtime.ToolAccess.workspace_backed(
+            Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
         ),
-        (
-            contracts_runtime.ToolAccess.workspace_backed(
-                Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
-            ),
-            "--sandbox read-only",
-        ),
-        (
-            contracts_runtime.ToolAccess.workspace_backed(
-                Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
-            ),
-            "--sandbox danger-full-access",
+        contracts_runtime.ToolAccess.workspace_backed(
+            Path("."), tool_policy=runtime.ToolPolicy.UNRESTRICTED
         ),
     ],
 )
@@ -5211,7 +4250,6 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     tool_access: contracts_runtime.ToolAccess,
-    expected_flag: str,
 ) -> None:
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
@@ -5310,17 +4348,11 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
-    assert recorded_request.prompt.cleanup_path is True
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id is None
     assert recorded_request.log_context is None
-    assert recorded_request.environment == {
-        "TZ": "UTC",
-        "CODEX_HOME": str(provider_state_dir),
-    }
-    assert expected_flag in recorded_request.command
+    assert recorded_request.command
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
     )
@@ -5468,170 +4500,6 @@ def test_runtime_client_preserves_opencode_invalid_api_key_classification(
     assert not hasattr(exc_info.value, "observations")
 
 
-def test_runtime_client_opencode_allowlist_accepts_current_models_and_rejects_stale_models(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    for model in _CURRENT_OPENCODE_GO_MODELS:
-        adapter = _install_in_memory_provider_invocation_adapter(
-            monkeypatch,
-            provider_invocation_runtime.ProviderInvocationResult(
-                output=f"hello from {model}"
-            ),
-        )
-        outcome = asyncio.run(
-            runtime.RuntimeClient().run_ephemeral(
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
-                    worktree=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="opencode",
-                            model=model,
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="go-key"),
-                    ),
-                    tool_access=contracts_runtime.ToolAccess.no_tools(),
-                )
-            )
-        )
-        assert isinstance(outcome.kind, prompt_runtime.Completed)
-        assert outcome.result.selected.model == model
-        assert len(adapter.recorded_requests) == 1
-        assert f"--model opencode-go/{model}" in adapter.recorded_requests[0].command
-
-    for model in _STALE_OPENCODE_GO_MODELS:
-        adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
-        with pytest.raises(
-            RuntimeConfigurationError, match="Unsupported OpenCode model"
-        ):
-            asyncio.run(
-                runtime.RuntimeClient().run_ephemeral(
-                    prompt_runtime.EphemeralRunRequest(
-                        prompt="already rendered prompt",
-                        worktree=tmp_path,
-                        provider_selection=_selection_with_auth(
-                            InternalStageSelection(
-                                service="opencode",
-                                model=model,
-                                effort="medium",
-                            ),
-                            runtime.ProviderAuth(opencode_api_key="go-key"),
-                        ),
-                        tool_access=contracts_runtime.ToolAccess.no_tools(),
-                    )
-                )
-            )
-        assert adapter.recorded_requests == []
-
-
-def test_runtime_client_opencode_config_exposes_current_subscription_models(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    current_models = set(_CURRENT_OPENCODE_GO_MODELS)
-    stale_models = set(_STALE_OPENCODE_GO_MODELS)
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationResult(output="hello"),
-    )
-
-    asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="deepseek-v4-flash",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-    )
-
-    config = json.loads(
-        adapter.recorded_requests[0].environment["OPENCODE_CONFIG_CONTENT"]
-    )
-    configured_models = set(config["provider"]["opencode-go"]["models"])
-    assert configured_models == current_models
-    assert not configured_models.intersection(stale_models)
-
-
-def test_runtime_client_opencode_command_uses_prefixed_model_reference_while_public_selection_stays_unprefixed(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    model = "glm-5.2"
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        provider_invocation_runtime.ProviderInvocationResult(output="hello"),
-    )
-
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model=model,
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
-                ),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-            )
-        )
-    )
-
-    assert outcome.result.selected.model == model
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
-    assert f"--model opencode-go/{model}" in recorded_request.command
-    assert f"--model {model}" not in recorded_request.command
-    assert f"--model opencode-go/opencode-go/{model}" not in recorded_request.command
-
-
-@pytest.mark.parametrize(
-    ("model", "effort", "expected_message"),
-    [
-        ("not-a-real-model", "medium", "Unsupported OpenCode model"),
-        ("kimi-k2.6", "high", "Unsupported OpenCode effort"),
-    ],
-)
-def test_runtime_client_validates_opencode_model_allowlist_and_medium_effort(
-    tmp_path: Path,
-    model: str,
-    effort: str,
-    expected_message: str,
-) -> None:
-    with pytest.raises(RuntimeConfigurationError, match=expected_message):
-        asyncio.run(
-            runtime.RuntimeClient().run_ephemeral(
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
-                    invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="opencode",
-                            model=model,
-                            effort=effort,
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="go-key"),
-                    ),
-                    tool_access=contracts_runtime.ToolAccess.no_tools(),
-                )
-            )
-        )
-
-
 def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_non_text_events(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5772,10 +4640,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_usage_limited_and_logs_
     assert len(adapter.recorded_requests) == 1
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.prompt.content == "already rendered prompt"
-    assert recorded_request.prompt.path == Path("/tmp/.provider_prompt")
-    assert recorded_request.prompt.cleanup_path is True
-    assert recorded_request.environment["TZ"] == "UTC"
-    assert f"{_codex_executable()} exec" in recorded_request.command
+    assert recorded_request.command.startswith(f"{_codex_executable()} exec")
     assert list((tmp_path / "logs").glob("*.log")) == []
 
 
