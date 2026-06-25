@@ -39,6 +39,21 @@ class BuiltInProviderStreamInterpretation:
     extract_provider_session_id: BuiltInProviderSessionIdExtractor | None = None
 
 
+class _ObservedOutputReducer:
+    __slots__ = ("reduce_output", "consume_stdout_lines")
+
+    def __init__(
+        self,
+        reduce_output: BuiltInProviderOutputReducer,
+        consume_stdout_lines: Callable[[list[str]], None],
+    ) -> None:
+        self.reduce_output = reduce_output
+        self.consume_stdout_lines = consume_stdout_lines
+
+    def __call__(self, lines: list[str]) -> tuple[str, ProviderUsage | None]:
+        return self.reduce_output(lines)
+
+
 def emit_built_in_provider_live_output_event(
     event: AgentEvent,
     on_live_output: Callable[[AgentEvent], None] | None,
@@ -1041,6 +1056,57 @@ def observe_opencode_output(
                 return
 
     return _observe_output_lines
+
+
+def opencode_lifecycle_built_in_provider_stream_interpretation(
+    *,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
+    on_provider_session_id: Callable[[str], None] | None = None,
+    fallback_provider_session_id: str | None = None,
+    reduce_output: BuiltInProviderOutputReducer | None = None,
+) -> BuiltInProviderStreamInterpretation:
+    observed_provider_session_id: str | None = None
+
+    def _record_provider_session_id(session_id: str) -> None:
+        nonlocal observed_provider_session_id
+        observed_provider_session_id = session_id
+        if on_provider_session_id is not None:
+            on_provider_session_id(session_id)
+
+    def _reduce_output(lines: list[str]) -> tuple[str, ProviderUsage | None]:
+        reducer = reduce_output or (
+            lambda output_lines: reduce_opencode_stream(
+                output_lines,
+                on_provider_session_id=_record_provider_session_id,
+            )
+        )
+        return reducer(lines)
+
+    def _extract_provider_session_id(lines: list[str]) -> str | None:
+        if observed_provider_session_id is not None:
+            return observed_provider_session_id
+        extracted_provider_session_id = extract_opencode_provider_session_id(lines)
+        if extracted_provider_session_id is not None:
+            return extracted_provider_session_id
+        return fallback_provider_session_id
+
+    interpretation = opencode_built_in_provider_stream_interpretation(
+        reduce_output=_reduce_output,
+        extract_provider_session_id=_extract_provider_session_id,
+    )
+    if on_live_output is None:
+        return interpretation
+    return dataclasses.replace(
+        interpretation,
+        reduce_output=_ObservedOutputReducer(
+            reduce_output=interpretation.reduce_output,
+            consume_stdout_lines=observe_opencode_output(
+                stream_interpretation=interpretation,
+                on_live_output=on_live_output,
+                on_provider_session_id=_record_provider_session_id,
+            ),
+        ),
+    )
 
 
 def extract_opencode_provider_session_id(lines: list[str]) -> str | None:
