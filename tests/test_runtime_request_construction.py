@@ -12,25 +12,7 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
-from agent_runtime.contracts import ExecutionProvider
 from agent_runtime._runtime_lifecycle import CancellationToken
-from agent_runtime.session import RunKind
-from agent_runtime.session_planning import (
-    ResumableSessionPlan,
-)
-
-from tests.runtime_boundary_fakes import ExecutionServiceFake as _ExecutionService
-
-
-def _session_plan(*, worktree: Path = Path("/repo")) -> ResumableSessionPlan:
-    return ResumableSessionPlan(
-        worktree=worktree,
-        namespace="main",
-        service=cast(ExecutionProvider, _ExecutionService("codex")),
-        run_kind=RunKind.FRESH,
-        provider_state_dir=None,
-        provider_session_id=None,
-    )
 
 
 def _continuation(
