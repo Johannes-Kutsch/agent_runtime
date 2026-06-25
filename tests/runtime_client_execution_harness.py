@@ -38,6 +38,12 @@ class RuntimeClientExecutionHarness:
         return cls(_adapter=adapter)
 
     @property
+    def provider_invocation_adapter(
+        self,
+    ) -> provider_invocation_runtime.InMemoryProviderInvocationAdapter:
+        return self._adapter
+
+    @property
     def recorded_requests(
         self,
     ) -> list[provider_invocation_runtime.ProviderInvocationRequest]:
@@ -48,6 +54,17 @@ class RuntimeClientExecutionHarness:
         index: int = 0,
     ) -> provider_invocation_runtime.ProviderInvocationRequest:
         return self._adapter.recorded_requests[index]
+
+    @staticmethod
+    def install_generated_provider_session_id(
+        monkeypatch: pytest.MonkeyPatch,
+        provider_session_id: str,
+    ) -> None:
+        monkeypatch.setattr(
+            prompt_runtime._builtin_runtime_client_module,
+            "_new_provider_session_id",
+            lambda: provider_session_id,
+        )
 
     @staticmethod
     def attach_provider_auth(

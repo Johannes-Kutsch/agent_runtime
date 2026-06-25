@@ -545,12 +545,11 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_new_provider_session_id",
-        lambda: "prepared-session-id",
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        "prepared-session-id",
     )
-    _ = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -574,17 +573,14 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="glm-5.2",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="glm-5.2",
+                    effort="medium",
                 ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -609,13 +605,12 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
 
     with pytest.raises(RuntimeConfigurationError):
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
                     provider_selection=InternalStageSelection(
                         service="unsupported",
@@ -630,8 +625,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
     with pytest.raises(AgentCredentialFailureError):
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
                     provider_selection=InternalStageSelection(
                         service="opencode",
@@ -646,16 +640,15 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
     with pytest.raises(RuntimeConfigurationError):
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="missing",
-                            model="ignored",
-                            effort="low",
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="root-only-key"),
+                    provider_selection=InternalStageSelection(
+                        service="missing",
+                        model="ignored",
+                        effort="low",
+                    ),
+                    provider_auth=runtime.ProviderAuth(
+                        opencode_api_key="root-only-key"
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
@@ -689,7 +682,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             ),
         )
 
-    assert len(adapter.recorded_requests) == 0
+    assert len(harness.recorded_requests) == 0
 
 
 def test_runtime_client_new_session_validation_failure_cleans_runtime_managed_state_dir(
@@ -895,59 +888,53 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_new_provider_session_id",
-        lambda: "prepared-session-id",
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        "prepared-session-id",
     )
-    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
-        prepared_invocations=[
-            provider_invocation_runtime.ProviderInvocationResult(
-                output="final output",
-                usage=runtime.ProviderUsage(
-                    input_tokens=7,
-                    output_tokens=3,
-                ),
-                stdout_lines=(
-                    json.dumps(
-                        {
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_result(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="final output",
+            usage=runtime.ProviderUsage(
+                input_tokens=7,
+                output_tokens=3,
+            ),
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "part": {
                             "type": "text",
-                            "part": {
-                                "type": "text",
-                                "time": {"end": True},
-                                "text": "final output",
-                            },
-                        }
-                    )
-                    + "\n",
-                    json.dumps({"type": "session.status", "status": {"type": "idle"}})
-                    + "\n",
-                ),
-                provider_session_id="observed-session-id",
-            )
-        ]
+                            "time": {"end": True},
+                            "text": "final output",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+            provider_session_id="observed-session-id",
+        )
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    request = prompt_runtime.NewSessionRunRequest(
-        prompt="already rendered prompt",
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+    request = harness.start_session_run_request(
         invocation_dir=tmp_path,
         runtime_state_dir=runtime_state_dir,
-        provider_selection=_selection_with_auth(
-            InternalStageSelection(
-                service="opencode",
-                model="glm-5.2",
-                effort="medium",
-            ),
-            runtime.ProviderAuth(opencode_api_key="opencode-key"),
+        provider_selection=InternalStageSelection(
+            service="opencode",
+            model="glm-5.2",
+            effort="medium",
         ),
-        session_namespace="main",
+        provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
     outcome = prompt_runtime._run_builtin_session_outcome(
         lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
             request,
-            provider_invocation_adapter=adapter,
+            provider_invocation_adapter=harness.provider_invocation_adapter,
         )
     )
 
@@ -971,8 +958,8 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
             "exact_transcript_match": False,
         },
     )
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
+    assert len(harness.recorded_requests) == 1
+    recorded_request = harness.recorded_request()
     assert recorded_request.prompt.content == "already rendered prompt"
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "prepared-session-id"
@@ -986,12 +973,11 @@ def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_p
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_new_provider_session_id",
-        lambda: "prepared-session-id",
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        "prepared-session-id",
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationResult(
             output="final output",
@@ -1019,22 +1005,18 @@ def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_p
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="glm-5.2",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="glm-5.2",
+                    effort="medium",
                 ),
-                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -1052,7 +1034,7 @@ def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_p
             "exact_transcript_match": False,
         },
     )
-    assert adapter.recorded_requests[0].provider_session_id == "prepared-session-id"
+    assert harness.recorded_request().provider_session_id == "prepared-session-id"
     provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
         "observed-session-id"
@@ -1430,7 +1412,7 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1459,7 +1441,7 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "hello\nworld"
     assert observed == ["hello", "world"]
 
@@ -1933,7 +1915,7 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1969,17 +1951,14 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="glm-5.2",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="glm-5.2",
+                    effort="medium",
                 ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
@@ -2005,7 +1984,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -2093,17 +2072,14 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
     elif run_mode == "new_session":
         outcome = asyncio.run(
             client.run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="opencode",
-                            model="kimi-k2.6",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="go-key"),
+                    provider_selection=InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
                     ),
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
                 )
@@ -2130,7 +2106,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
 
     assert outcome.result.output == "hello\n\nsecond"
     assert observed == ["hello", "second"]
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
 
 
 def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
@@ -2232,7 +2208,7 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -2281,17 +2257,14 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            harness.start_session_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
                 ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
@@ -3856,7 +3829,7 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_PORTABLE_CONTINUATION_PROVIDERS",
@@ -3866,24 +3839,20 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
     with pytest.raises(RuntimeConfigurationError, match="Portable continuation"):
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.start_session_run_request(
                     invocation_dir=tmp_path,
-                    runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="opencode",
-                            model="deepseek-v4-flash",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="api-key"),
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
+                    provider_selection=InternalStageSelection(
+                        service="opencode",
+                        model="deepseek-v4-flash",
+                        effort="medium",
                     ),
-                    session_namespace="main",
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="api-key"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         )
-    assert adapter.recorded_requests == []
+    assert harness.recorded_requests == []
 
 
 def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_provider(
