@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime
-from typing import Callable
+from typing import Callable, TypeVar
 
 from . import _time as _time_module
 from ._runtime_lifecycle import AgentEvent
 from .errors import AgentTimeoutError
+
+_T = TypeVar("_T")
 
 
 class _IdleTimeoutWatchdog:
@@ -96,3 +98,19 @@ def _wrap_on_live_output_with_timeout(
         return on_live_output, None
     context = _LiveRuntimeOutputTimeoutContext(on_live_output, timeout_seconds)
     return context.wrapped_on_live_output, context
+
+
+def _run_with_live_runtime_output_timeout_context(
+    on_live_output: Callable[[AgentEvent], None] | None,
+    timeout_seconds: int,
+    run_once: Callable[[Callable[[AgentEvent], None] | None], _T],
+) -> _T:
+    wrapped_on_live_output, context = _wrap_on_live_output_with_timeout(
+        on_live_output,
+        timeout_seconds,
+    )
+    try:
+        return run_once(wrapped_on_live_output)
+    finally:
+        if context is not None:
+            context.stop_monitoring()

@@ -828,12 +828,9 @@ def _run_builtin_ephemeral(
         else provider_invocation_adapter
     )
 
-    wrapped_on_live_output, timeout_watchdog = _wrap_on_live_output_with_timeout(
-        request.on_live_output,
-        request.timeout_seconds,
-    )
-
-    try:
+    def _run_once(
+        wrapped_on_live_output: Callable[[AgentEvent], None] | None,
+    ) -> RunResult:
         selected_stage = select_builtin_stage(request.provider_selection)
         rendered = _render_ephemeral_provider_invocation(request, selected_stage)
         stream_interpretation: BuiltInProviderStreamInterpretation
@@ -885,9 +882,12 @@ def _run_builtin_ephemeral(
                 effort=selected_stage.effort,
             ),
         )
-    finally:
-        if timeout_watchdog is not None:
-            timeout_watchdog.stop_monitoring()
+
+    return _live_runtime_output_timeout_context_module._run_with_live_runtime_output_timeout_context(
+        request.on_live_output,
+        request.timeout_seconds,
+        _run_once,
+    )
 
 
 def _new_session_runtime_state_dir(
