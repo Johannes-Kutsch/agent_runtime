@@ -3594,26 +3594,17 @@ def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_se
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
 
     with pytest.raises(RuntimeConfigurationError) as exc_info:
         asyncio.run(
             runtime.RuntimeClient().run_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.resume_session_run_request(
                     invocation_dir=tmp_path,
-                    continuation=prompt_runtime.Continuation(
-                        selected_service="codex",
-                        selected_model="gpt-5.4",
-                        selected_effort="medium",
-                        tool_access=contracts_runtime.ToolAccess.no_tools(),
-                        provider_resume_state={
-                            "run_kind": "resume",
-                            "provider_session_id": "   ",
-                            "exact_transcript_match": False,
-                        },
+                    continuation=harness.codex_continuation(
+                        provider_session_id="   ",
+                        provider_state_dir_relpath=None,
                     ),
-                    session_namespace="main",
                 )
             )
         )
@@ -3621,19 +3612,20 @@ def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_se
     assert str(exc_info.value) == (
         "Codex continuation is missing `provider_session_id`."
     )
-    assert adapter.recorded_requests == []
+    assert harness.recorded_request_count == 0
 
 
 def test_runtime_client_rejects_resumed_session_with_non_object_portable_continuation_resume_state(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
     with pytest.raises(RuntimeConfigurationError) as exc_info:
         asyncio.run(
             runtime.RuntimeClient().run_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.resume_session_run_request(
                     invocation_dir=tmp_path,
-                    runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     continuation=prompt_runtime.Continuation(
                         selected_service="codex",
                         selected_model="gpt-5.4",
@@ -3641,7 +3633,7 @@ def test_runtime_client_rejects_resumed_session_with_non_object_portable_continu
                         tool_access=contracts_runtime.ToolAccess.no_tools(),
                         provider_resume_state=["resume"],
                     ),
-                )
+                ),
             )
         )
 
@@ -3651,16 +3643,17 @@ def test_runtime_client_rejects_resumed_session_with_non_object_portable_continu
 
 
 def test_runtime_client_rejects_resumed_session_with_malformed_continuation_data(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
     with pytest.raises(RuntimeConfigurationError) as exc_info:
         asyncio.run(
             runtime.RuntimeClient().run_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.resume_session_run_request(
                     invocation_dir=tmp_path,
                     continuation=prompt_runtime.Continuation(serialized="{not-json"),
-                )
+                ),
             )
         )
 
@@ -3701,7 +3694,7 @@ def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_p
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_PORTABLE_CONTINUATION_PROVIDERS",
@@ -3711,26 +3704,18 @@ def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_p
     with pytest.raises(RuntimeConfigurationError, match="Portable continuation"):
         asyncio.run(
             runtime.RuntimeClient().run_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
+                harness.resume_session_run_request(
                     invocation_dir=tmp_path,
-                    runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                    continuation=prompt_runtime.Continuation(
-                        selected_service="opencode",
-                        selected_model="deepseek-v4-flash",
-                        selected_effort="medium",
-                        tool_access=contracts_runtime.ToolAccess.no_tools(),
-                        provider_resume_state={
-                            "run_kind": "resume",
-                            "provider_session_id": "restored-session",
-                            "exact_transcript_match": False,
-                        },
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
+                    continuation=harness.opencode_continuation(
+                        model="deepseek-v4-flash",
+                        provider_session_id="restored-session",
+                        exact_transcript_match=False,
                     ),
-                    session_namespace="main",
-                )
+                ),
             )
         )
-    assert adapter.recorded_requests == []
+    assert harness.recorded_request_count == 0
 
 
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
@@ -3739,21 +3724,20 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
     tmp_path: Path,
     entrypoint: str,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
         lambda: tmp_path / "missing-home",
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
 
     with pytest.raises(AgentCredentialFailureError) as exc_info:
         if entrypoint == "new":
             asyncio.run(
                 runtime.RuntimeClient().run_new_session(
-                    prompt_runtime.NewSessionRunRequest(
-                        prompt="already rendered prompt",
+                    harness.start_session_run_request(
                         invocation_dir=tmp_path,
                         runtime_state_dir=runtime_state_dir,
                         provider_selection=InternalStageSelection(
@@ -3761,7 +3745,6 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
                             model="gpt-5.4",
                             effort="medium",
                         ),
-                        session_namespace="main",
                         tool_access=contracts_runtime.ToolAccess.no_tools(),
                     )
                 )
@@ -3769,23 +3752,10 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
         else:
             asyncio.run(
                 runtime.RuntimeClient().run_resumed_session(
-                    prompt_runtime.ResumedSessionRunRequest(
-                        prompt="already rendered prompt",
+                    harness.resume_session_run_request(
                         invocation_dir=tmp_path,
                         runtime_state_dir=runtime_state_dir,
-                        continuation=prompt_runtime.Continuation(
-                            selected_service="codex",
-                            selected_model="gpt-5.4",
-                            selected_effort="medium",
-                            tool_access=contracts_runtime.ToolAccess.no_tools(),
-                            provider_resume_state={
-                                "run_kind": "resume",
-                                "provider_session_id": "selected-thread",
-                                "provider_state_dir_relpath": "implementer/main/codex/",
-                                "exact_transcript_match": False,
-                            },
-                        ),
-                        session_namespace="main",
+                        continuation=harness.codex_continuation(),
                     )
                 )
             )
@@ -3794,7 +3764,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
         "Codex authentication missing: run `codex login` on the host."
     )
     assert exc_info.value.service_name == "codex"
-    assert adapter.recorded_requests == []
+    assert harness.recorded_request_count == 0
 
 
 def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
