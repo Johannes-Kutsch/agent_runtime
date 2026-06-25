@@ -75,8 +75,8 @@ def test_runtime_client_execution_harness_records_built_in_provider_invocation_r
 
     assert isinstance(outcome.kind, prompt_runtime.Completed)
     assert outcome.result.output == "final output"
-    assert len(harness.recorded_requests) == 1
-    assert harness.recorded_requests[0].worktree == tmp_path
+    assert harness.recorded_request_count == 1
+    assert harness.recorded_request().worktree == tmp_path
 
 
 @pytest.mark.parametrize(
@@ -148,7 +148,7 @@ def test_runtime_client_execution_harness_prepares_provider_invocation_values(
         )
 
     assert isinstance(outcome.kind, expected_kind)
-    assert len(harness.recorded_requests) == 1
+    assert harness.recorded_request_count == 1
     if isinstance(outcome.kind, prompt_runtime.ProviderUnavailable):
         assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
     else:
@@ -230,6 +230,34 @@ def test_runtime_client_execution_harness_prepares_runtime_state_and_codex_rollo
         json.dumps({"type": "thread.started", "thread_id": "thread-1"}),
         json.dumps({"type": "thread.started", "thread_id": "thread-2"}),
     ]
+
+
+def test_runtime_client_execution_harness_writes_exact_codex_rollout_state_content(
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
+    rollout_content = (
+        "{not-json\n"
+        '{"type":"thread.started","thread_id":"thread-a"}\n'
+        '{"type":"thread.started","thread_id":"   "}\n'
+    )
+
+    rollout_path = RuntimeClientExecutionHarness.write_codex_rollout_state(
+        provider_state_dir,
+        rollout_content,
+    )
+
+    assert (
+        rollout_path
+        == provider_state_dir / "sessions" / "2026" / "05" / "30" / "rollout-001.jsonl"
+    )
+    assert rollout_path.read_text(encoding="utf-8") == rollout_content
 
 
 def test_runtime_client_execution_harness_opencode_continuation_preserves_explicit_provider_state() -> (
