@@ -15,7 +15,7 @@ from agent_runtime.runtime import (
     NewSessionRunRequest,
     ProviderAuth,
     ResumedSessionRunRequest,
-    RuntimeClient,
+    RuntimeClient as _PublicRuntimeClient,
     ToolPolicy,
 )
 from agent_runtime.errors import AgentCredentialFailureError
@@ -39,7 +39,7 @@ class _PlannedProbeCase(Protocol):
     def provider_selection(self) -> Any: ...
 
 
-class _RuntimeClient(Protocol):
+class _RuntimeInvocationPort(Protocol):
     def run_ephemeral(self, request: EphemeralRunRequest) -> Awaitable[Any]: ...
 
     def run_new_session(self, request: NewSessionRunRequest) -> Awaitable[Any]: ...
@@ -71,6 +71,57 @@ class ProbeCaseRunResult:
     traceback: str | None
 
 
+class _RuntimeInvocationClient:
+    """Private port for invoking runtime lifecycle methods."""
+
+    def __init__(self, runtime_client: _PublicRuntimeClient | None = None) -> None:
+        self._runtime_client = runtime_client or _PublicRuntimeClient()
+
+    def run_ephemeral(self, request: EphemeralRunRequest) -> Awaitable[Any]:
+        return self._runtime_client.run_ephemeral(request)
+
+    def run_new_session(self, request: NewSessionRunRequest) -> Awaitable[Any]:
+        return self._runtime_client.run_new_session(request)
+
+    def run_resumed_session(self, request: ResumedSessionRunRequest) -> Awaitable[Any]:
+        return self._runtime_client.run_resumed_session(request)
+
+
+class InMemoryRuntimeInvocationAdapter:
+    """In-memory runtime invocation adapter for deterministic probe tests."""
+
+    def __init__(
+        self,
+        *,
+        prepared_outcomes: list[Any] | None = None,
+        record_handler: Callable[[str, Any], Any] | None = None,
+    ) -> None:
+        self.prepared_outcomes = prepared_outcomes or []
+        self.record_handler = record_handler
+        self.recorded_requests: list[tuple[str, Any]] = []
+
+    def _record(self, mode: str, request: Any) -> None:
+        self.recorded_requests.append((mode, request))
+
+    def _next(self, mode: str, request: Any) -> Any:
+        self._record(mode, request)
+        if self.record_handler is not None:
+            return self.record_handler(mode, request)
+        if self.prepared_outcomes:
+            return self.prepared_outcomes.pop(0)
+        raise AssertionError("No prepared outcome for in-memory runtime invocation")
+
+    async def run_ephemeral(self, request: EphemeralRunRequest) -> Any:
+        return self._next("run_ephemeral", request)
+
+    async def run_new_session(self, request: NewSessionRunRequest) -> Any:
+        return self._next("run_new_session", request)
+
+    async def run_resumed_session(self, request: ResumedSessionRunRequest) -> Any:
+        return self._next("run_resumed_session", request)
+
+
+RuntimeClient = _RuntimeInvocationClient
 LIVE_FEED_FILENAME = "live_feed.json"
 _DISPLAYED_EVENT_TYPES = ("agent_message", "agent_tool_call")
 
@@ -113,7 +164,7 @@ def run_case(
     request: ProbeCaseRunRequest,
     *,
     outcome_category: Callable[[Any], str],
-    runtime_client_factory: Callable[[], _RuntimeClient] = RuntimeClient,
+    runtime_client_factory: Callable[[], _RuntimeInvocationPort] = RuntimeClient,
 ) -> ProbeCaseRunResult:
     request.case_dir.mkdir(parents=True, exist_ok=True)
     request.invocation_dir.mkdir(parents=True, exist_ok=True)
