@@ -688,6 +688,11 @@ def _run_builtin_resumed_session(
             prepared_or_continuation_provider_session_id=provider_session_id,
         )
         if continuation_service == "opencode":
+            if provider_session_id is not None:
+                assert provider_state_dir is not None
+                _builtin_runtime_client_module._persist_opencode_session_id(
+                    provider_state_dir, provider_session_id
+                )
             exact_transcript_match = (
                 _builtin_runtime_client_module._opencode_exact_transcript_match(
                     saved_exact_transcript_match=saved_exact_transcript_match,

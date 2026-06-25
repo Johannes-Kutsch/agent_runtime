@@ -1129,6 +1129,83 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
     )
 
 
+def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_prepared_ids(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "prepared-session-id",
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="final output",
+            usage=runtime.ProviderUsage(
+                input_tokens=7,
+                output_tokens=3,
+            ),
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "sessionID": "observed-session-id",
+                        "part": {
+                            "type": "text",
+                            "time": {"end": True},
+                            "text": "final output",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                + "\n",
+            ),
+            provider_session_id="adapter-session-id",
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                ),
+                session_namespace="main",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "observed-session-id",
+            "provider_state": {"session_id": "observed-session-id"},
+            "exact_transcript_match": False,
+        },
+    )
+    assert adapter.recorded_requests[0].provider_session_id == "prepared-session-id"
+    provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
+        "observed-session-id"
+    )
+
+
 @pytest.mark.parametrize(
     ("tool_policy", "expected_permission"),
     [
@@ -5356,6 +5433,108 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     assert recorded_request.environment["OPENCODE_GO_API_KEY"] == "go-key"
     assert "--session persisted-session-1" in recorded_request.command
     assert "--model opencode-go/glm-5.2" in recorded_request.command
+
+
+def test_runtime_client_uses_observed_opencode_resumed_session_id_for_started_usage_limited_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._time_module,
+        "now_local",
+        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "timestamp": 1,
+                        "sessionID": "observed-session-2",
+                        "part": {
+                            "type": "text",
+                            "text": "started before failure",
+                            "time": {"end": True},
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "error",
+                        "timestamp": 2,
+                        "sessionID": "observed-session-2",
+                        "error": {
+                            "name": "RateLimitError",
+                            "data": {
+                                "message": (
+                                    "You have reached your OpenCode Go usage limit. "
+                                    "Try again at Apr 28th, 2026 9:02 PM."
+                                ),
+                                "statusCode": 429,
+                                "isRetryable": True,
+                            },
+                        },
+                    }
+                )
+                + "\n",
+            ),
+            provider_session_id="adapter-session-2",
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
+            "exact_transcript_match": True,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.reset_time == datetime(2026, 4, 28, 21, 2, tzinfo=timezone.utc)
+    assert outcome.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "observed-session-2",
+            "provider_state": {
+                "session_id": "observed-session-2",
+                "resume_jsonl": "[]",
+            },
+            "exact_transcript_match": False,
+        },
+    )
+    assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
+    provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
+        "observed-session-2"
+    )
 
 
 def test_runtime_client_keeps_started_opencode_new_session_continuation_when_output_reduction_interrupts(
