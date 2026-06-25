@@ -11,6 +11,7 @@
 | `agent_runtime` | Reusable runtime package and stable core public surface. |
 | `Runtime Public Surface` | Documented stability surface: consumer entrypoints, runtime value objects, built-in provider selection — not every importable symbol. |
 | `Runtime Consumer Surface` | Consuming-project entrypoints for executing prepared agent work without implementing runtime or provider adapters. |
+| `Built-in Provider Rendering` | Internal in-process module behind `RuntimeClient` that turns normalized provider selection facts, run kind, `ToolAccess`, `ProviderAuth`, Invocation Directory, optional provider state location, optional provider-session id, and needed host process facts into a rendered built-in provider invocation: canonical argv, legacy command text where still needed, environment, prompt path, prompt cleanup choice, prompt transport preference, and provider-session id placement. It owns built-in provider model and effort allowlists, provider-specific command and environment rendering, prompt transport decisions, `ToolPolicy` mapping, Windows process environment allowlisting, OpenCode config generation, and provider auth validation, but performs no subprocess I/O and no provider stream interpretation. |
 | `Built-in Provider Invocation` | Internal mechanism behind `RuntimeClient` executing one prepared built-in provider command and returning observable invocation facts. |
 | `Built-in Provider Stream Interpretation` | Internal in-process module behind `RuntimeClient` that interprets merged built-in provider output lines into `Agent Event` values, final output, `ProviderUsage`, provider-session identifiers, and started/not-started facts. It owns Claude, Codex, and OpenCode stream semantics but performs no provider subprocess I/O. |
 | `ProviderAuth` | Immutable credential data carried by `ProviderSelection`, or supplied to Resume Session Run since continuations don't store credentials. |
@@ -61,6 +62,9 @@
 - Missing explicit credentials are credential failures and do not trigger Consumer Fallback inside runtime.
 - Runtime classifies provider failures but never acts on the classification: no waiting, retry, or in-runtime fallback. Surfaced outcomes carry a closed reason plus raw provider error.
 - Expected provider failures are normal return values; hard errors, credential failures, process-level failures, and unclassified failures remain exceptions.
+- Built-in Provider Rendering sits above Built-in Provider Invocation: rendering produces invocation facts; invocation adapters execute those facts and deliver merged provider output for stream interpretation.
+- Built-in Provider Rendering is internal and must not become a consumer extension point or Runtime Public Surface.
+- Built-in provider model and effort allowlists, command and environment rendering, prompt path and cleanup choices, prompt transport preferences, Windows process environment allowlisting, OpenCode config generation, and provider-specific auth requirements belong in Built-in Provider Rendering.
 - Built-in Provider Invocation is internal and must not become a consumer extension point.
 - Built-in Provider Stream Interpretation sits above Built-in Provider Invocation: invocation adapters execute provider processes and deliver the merged stdout/stderr line stream; stream interpretation owns provider-shaped semantics for Claude, Codex, and OpenCode.
 - WorkInvocation and execution adapter seams are internal; public-looking internal modules should be underscore-prefixed before release.
