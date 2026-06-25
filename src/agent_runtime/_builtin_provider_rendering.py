@@ -191,6 +191,10 @@ def _codex_host_auth_path() -> Path:
     return Path.home() / ".codex" / "auth.json"
 
 
+def _codex_host_home() -> Path:
+    return _codex_host_auth_path().parent
+
+
 def _missing_codex_auth_error() -> AgentCredentialFailureError:
     return AgentCredentialFailureError(
         "Codex authentication missing: run `codex login` on the host.",
@@ -227,10 +231,12 @@ def _claude_environment(
 
 
 def _codex_environment(provider_state_dir: Path | None) -> dict[str, str]:
-    environment = {"TZ": "UTC"}
-    if provider_state_dir is not None:
-        environment["CODEX_HOME"] = str(provider_state_dir)
-    return environment
+    return {
+        "TZ": "UTC",
+        "CODEX_HOME": str(
+            provider_state_dir if provider_state_dir is not None else _codex_host_home()
+        ),
+    }
 
 
 def _opencode_go_model_ref(model: str) -> str:

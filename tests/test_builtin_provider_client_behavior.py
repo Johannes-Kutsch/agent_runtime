@@ -2587,7 +2587,10 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
             "exact_transcript_match": False,
         },
     )
-    assert harness.recorded_request().environment == {"TZ": "UTC"}
+    assert harness.recorded_request().environment == {
+        "TZ": "UTC",
+        "CODEX_HOME": str(tmp_path / "host-home" / ".codex"),
+    }
     assert harness.recorded_request().command == (
         f"{_codex_executable()} exec resume selected-thread -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
         "--sandbox read-only --json"

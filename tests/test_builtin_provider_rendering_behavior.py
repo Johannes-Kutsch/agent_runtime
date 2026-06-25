@@ -859,7 +859,7 @@ def test_render_codex_fresh_invocation_returns_canonical_argv_environment_and_pr
     )
 
 
-def test_render_codex_without_provider_state_dir_keeps_utc_environment_only(
+def test_render_codex_without_provider_state_dir_uses_host_codex_home_for_auth_resolution(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -883,7 +883,10 @@ def test_render_codex_without_provider_state_dir_keeps_utc_environment_only(
         )
     )
 
-    assert rendered_invocation.environment == {"TZ": "UTC"}
+    assert rendered_invocation.environment == {
+        "TZ": "UTC",
+        "CODEX_HOME": str(host_home / ".codex"),
+    }
 
 
 def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
