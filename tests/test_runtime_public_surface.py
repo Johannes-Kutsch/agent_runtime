@@ -514,11 +514,6 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_probe_env(
             service="claude", model="haiku", effort="low"
         ),
     )
-    _fake_outcome = prompt_runtime.RuntimeOutcome(
-        kind=prompt_runtime.Completed(),
-        result=_fake_result,
-    )
-
     invoked = {"ephemeral": 0, "new_session": 0, "resumed_session": 0}
 
     try:
@@ -529,11 +524,11 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_probe_env(
 
         def _fake_new_session(*_args: object, **_kwargs: object) -> object:
             invoked["new_session"] += 1
-            return _fake_outcome
+            return _fake_result
 
         def _fake_resumed_session(*_args: object, **_kwargs: object) -> object:
             invoked["resumed_session"] += 1
-            return _fake_outcome
+            return _fake_result
 
         provider_selection = prompt_runtime.ProviderSelection(
             service="claude",

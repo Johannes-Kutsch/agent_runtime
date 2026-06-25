@@ -18,14 +18,12 @@ from ._provider_invocation import (
     ProviderInvocationResult,
 )
 from ._runtime_lifecycle import (
-    Completed,
     Continuation,
     NewSessionRunRequest,
     ProviderAuth,
     ProviderUsage,
     ResumedSessionRunRequest,
     RunResult,
-    RuntimeOutcome,
 )
 from .errors import AgentCredentialFailureError, RuntimeConfigurationError
 from .invocation_progress import InvocationProgress
@@ -427,7 +425,7 @@ def _interruption_continuation(
     return build_continuation(provider_session_id)
 
 
-def _completed_outcome(
+def _completed_result(
     *,
     output: str,
     usage: ProviderUsage | None,
@@ -435,15 +433,12 @@ def _completed_outcome(
     service: str,
     model: str,
     effort: str,
-) -> RuntimeOutcome:
-    return RuntimeOutcome(
-        kind=Completed(),
-        result=RunResult(
-            output=output,
-            usage=usage,
-            continuation=continuation,
-            selected=ResolvedProvider(service=service, model=model, effort=effort),
-        ),
+) -> RunResult:
+    return RunResult(
+        output=output,
+        usage=usage,
+        continuation=continuation,
+        selected=ResolvedProvider(service=service, model=model, effort=effort),
     )
 
 
@@ -451,6 +446,7 @@ def _run_builtin_new_session(
     request: NewSessionRunRequest,
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
+    on_live_output: Callable[[Any], None] | None = None,
 ):
     invocation_adapter = (
         _builtin_runtime_client_module._default_provider_invocation_adapter()
@@ -461,12 +457,6 @@ def _run_builtin_new_session(
         _builtin_runtime_client_module._new_session_runtime_state_dir(
             request,
             context="new-session",
-        )
-    )
-    _on_live_output, timeout_watchdog = (
-        _builtin_runtime_client_module._wrap_on_live_output_with_timeout(
-            request.on_live_output,
-            request.timeout_seconds,
         )
     )
     try:
@@ -526,11 +516,12 @@ def _run_builtin_new_session(
                             ),
                         ),
                         provider_auth=selected_stage_auth,
-                        on_live_output=_on_live_output,
+                        on_live_output=on_live_output,
                         timeout_seconds=0,
                         _session_namespace=request._session_namespace,
                     ),
                     provider_invocation_adapter=invocation_adapter,
+                    on_live_output=on_live_output,
                 )
             provider_session_id: str | None = None
             invocation_result = (
@@ -539,7 +530,7 @@ def _run_builtin_new_session(
                     request=request,
                     stage=selected_stage,
                     provider_state_dir=provider_state_dir,
-                    on_live_output=_on_live_output,
+                    on_live_output=on_live_output,
                 )
             )
             if isinstance(invocation_result, ProviderInvocationFailure):
@@ -584,7 +575,7 @@ def _run_builtin_new_session(
                 )
                 result_text = invocation_result.output
                 usage = invocation_result.usage
-            return _completed_outcome(
+            return _completed_result(
                 output=result_text,
                 usage=usage,
                 continuation=(
@@ -618,7 +609,7 @@ def _run_builtin_new_session(
                         prompt=request.prompt,
                         invocation_dir=request.invocation_dir,
                         _runtime_state_dir=runtime_state_dir,
-                        on_live_output=_on_live_output,
+                        on_live_output=on_live_output,
                         timeout_seconds=0,
                         continuation=_build_claude_continuation(
                             model=selected_stage.model,
@@ -630,6 +621,7 @@ def _run_builtin_new_session(
                         _session_namespace=request._session_namespace,
                     ),
                     provider_invocation_adapter=invocation_adapter,
+                    on_live_output=on_live_output,
                 )
             _builtin_runtime_client_module._validate_claude_stage(selected_stage)
             _require_claude_auth(selected_stage_auth)
@@ -678,7 +670,7 @@ def _run_builtin_new_session(
                     provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
                     provider_session_id=provider_session_id,
-                    on_live_output=_on_live_output,
+                    on_live_output=on_live_output,
                 )
             )
         else:
@@ -691,7 +683,7 @@ def _run_builtin_new_session(
                     provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
                     provider_session_id=provider_session_id,
-                    on_live_output=_on_live_output,
+                    on_live_output=on_live_output,
                 )
             )
         stream_interpretation = (
@@ -747,7 +739,7 @@ def _run_builtin_new_session(
         assert provider_session_id is not None
         result_text = invocation_result.output
         usage = invocation_result.usage
-        return _completed_outcome(
+        return _completed_result(
             output=result_text,
             usage=usage,
             continuation=(
@@ -773,25 +765,18 @@ def _run_builtin_new_session(
         )
     finally:
         cleanup_runtime_state_dir()
-        if timeout_watchdog is not None:
-            timeout_watchdog.stop_monitoring()
 
 
 def _run_builtin_resumed_session(
     request: ResumedSessionRunRequest,
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
+    on_live_output: Callable[[Any], None] | None = None,
 ):
     invocation_adapter = (
         _builtin_runtime_client_module._default_provider_invocation_adapter()
         if provider_invocation_adapter is None
         else provider_invocation_adapter
-    )
-    _on_live_output, timeout_watchdog = (
-        _builtin_runtime_client_module._wrap_on_live_output_with_timeout(
-            request.on_live_output,
-            request.timeout_seconds,
-        )
     )
     runtime_state_dir = request._runtime_state_dir
     continuation = request.continuation
@@ -852,7 +837,7 @@ def _run_builtin_resumed_session(
                 provider_session_id=provider_session_id,
                 request=request,
                 provider_state_dir=provider_state_dir,
-                on_live_output=_on_live_output,
+                on_live_output=on_live_output,
             )
         )
         if isinstance(invocation_result, ProviderInvocationFailure):
@@ -897,7 +882,7 @@ def _run_builtin_resumed_session(
             )
             result_text = invocation_result.output
             usage = invocation_result.usage
-        return _completed_outcome(
+        return _completed_result(
             output=result_text,
             usage=usage,
             continuation=(
@@ -994,7 +979,7 @@ def _run_builtin_resumed_session(
 
         stream_interpretation = _builtin_runtime_client_module._with_observed_output(
             _builtin_runtime_client_module._claude_stream_interpretation(),
-            _on_live_output,
+            on_live_output,
         )
     else:
         command_argv = _builtin_runtime_client_module._opencode_command(
@@ -1015,7 +1000,7 @@ def _run_builtin_resumed_session(
         )
         stream_interpretation = (
             _builtin_runtime_client_module._opencode_stream_interpretation(
-                on_live_output=_on_live_output,
+                on_live_output=on_live_output,
                 fallback_provider_session_id=provider_session_id,
             )
         )
@@ -1122,7 +1107,7 @@ def _run_builtin_resumed_session(
             exact_transcript_match=exact_transcript_match,
         )
     cleanup_opencode_state_dir()
-    return _completed_outcome(
+    return _completed_result(
         output=result_text,
         usage=usage,
         continuation=result_continuation,
