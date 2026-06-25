@@ -17,6 +17,7 @@ import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.errors import (
+    AgentCancelledError,
     AgentCredentialFailureError,
     HardAgentError,
     ProviderUnavailableError,
@@ -1209,7 +1210,7 @@ def test_runtime_client_ephemeral_run_propagates_live_output_observer_timeout_ex
     assert observed == ["hello"]
 
 
-def test_runtime_client_new_session_run_calls_live_output_observer(
+def test_runtime_client_start_session_run_calls_live_output_observer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1319,7 +1320,7 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
     assert observed == ["current invocation output"]
 
 
-def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions_as_failures(
+def test_runtime_client_start_session_run_forwards_live_output_observer_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1372,7 +1373,7 @@ def test_runtime_client_new_session_run_forwards_live_output_observer_exceptions
     assert observed == ["hello"]
 
 
-def test_runtime_client_new_session_run_propagates_live_output_observer_timeout_exceptions_as_failures(
+def test_runtime_client_start_session_run_propagates_live_output_observer_timeout_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1404,6 +1405,61 @@ def test_runtime_client_new_session_run_propagates_live_output_observer_timeout_
     )
 
     with pytest.raises(runtime.AgentTimeoutError, match="observer timeout") as excinfo:
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="codex",
+                            model="gpt-5.4",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    on_live_output=on_live_output,
+                )
+            )
+        )
+
+    assert excinfo.value is observer_failure
+    assert observed == ["hello"]
+
+
+def test_runtime_client_start_session_run_propagates_live_output_observer_cancellation_exceptions_as_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[str] = []
+    observer_failure = AgentCancelledError()
+
+    def on_live_output(turn: runtime.AgentEvent) -> None:
+        if turn.type == "agent_message":
+            observed.append(turn.display_message)
+        raise observer_failure
+
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        ),
+    )
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    with pytest.raises(AgentCancelledError) as excinfo:
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(

@@ -5,6 +5,10 @@ from datetime import datetime
 from typing import Callable, TypeVar
 
 from . import _time as _time_module
+from ._live_runtime_output_exceptions import (
+    mark_live_runtime_output_exception,
+    mark_live_runtime_output_timeout_wrapper,
+)
 from ._runtime_lifecycle import AgentEvent
 from .errors import AgentTimeoutError
 
@@ -80,12 +84,11 @@ class _LiveRuntimeOutputTimeoutContext:
                 try:
                     self._on_live_output(event)
                 except Exception as exc:
-                    setattr(exc, "_is_live_output_exception", True)
+                    mark_live_runtime_output_exception(exc)
                     raise
             watchdog.check_timeout()
 
-        setattr(wrapper, "_is_live_output_timeout_wrapper", True)
-        return wrapper
+        return mark_live_runtime_output_timeout_wrapper(wrapper)
 
     def stop_monitoring(self) -> None:
         if self._watchdog is not None:

@@ -19,6 +19,11 @@ from .contracts import (
     UsageLimit,
 )
 from .errors import ProviderUnavailableError, UsageLimitError
+from ._live_runtime_output_exceptions import (
+    is_live_runtime_output_exception,
+    is_live_runtime_output_timeout_wrapper,
+    mark_live_runtime_output_exception,
+)
 from .provider_output import reduce_text_output_events
 from ._runtime_lifecycle import AgentEvent, ProviderUsage
 from .invocation_progress import InvocationProgress
@@ -63,15 +68,15 @@ def emit_built_in_provider_live_output_event(
     try:
         on_live_output(event)
     except Exception as exc:
-        if not getattr(
-            on_live_output, "_is_live_output_timeout_wrapper", False
-        ) and not getattr(exc, "_is_live_output_exception", False):
-            setattr(exc, "_is_live_output_exception", True)
+        if not is_live_runtime_output_timeout_wrapper(
+            on_live_output
+        ) and not is_live_runtime_output_exception(exc):
+            mark_live_runtime_output_exception(exc)
         raise
 
 
 def is_built_in_provider_live_output_exception(exc: BaseException) -> bool:
-    return bool(getattr(exc, "_is_live_output_exception", False))
+    return is_live_runtime_output_exception(exc)
 
 
 def classify_built_in_provider_invocation_progress(

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from . import _time
 from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
+from ._live_runtime_output_exceptions import is_live_runtime_output_exception
 from . import (
     _live_runtime_output_timeout_context as _live_runtime_output_timeout_context_module,
 )
@@ -144,7 +145,7 @@ def _reduce_opencode_stream(
 
 
 def _raise_if_live_output_exception(exc: BaseException) -> None:
-    if getattr(exc, "_is_live_output_exception", False):
+    if is_live_runtime_output_exception(exc):
         raise exc
 
 
