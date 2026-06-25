@@ -260,6 +260,50 @@ def test_runtime_client_execution_harness_writes_exact_codex_rollout_state_conte
     assert rollout_path.read_text(encoding="utf-8") == rollout_content
 
 
+def test_runtime_client_execution_harness_attaches_provider_auth_without_changing_selection_identity() -> (
+    None
+):
+    selection = InternalProviderSelection(
+        service="claude",
+        model="sonnet",
+        effort="medium",
+        auth=runtime.ProviderAuth(claude_code_oauth_token="original-token"),
+    )
+    replacement_auth = runtime.ProviderAuth(claude_code_oauth_token="replacement-token")
+
+    attached = RuntimeClientExecutionHarness.attach_provider_auth(
+        selection,
+        replacement_auth,
+    )
+
+    assert attached == InternalProviderSelection(
+        service="claude",
+        model="sonnet",
+        effort="medium",
+        auth=replacement_auth,
+    )
+    assert selection.auth == runtime.ProviderAuth(
+        claude_code_oauth_token="original-token"
+    )
+
+
+def test_runtime_client_execution_harness_installs_local_codex_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_auth_path = RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+
+    assert host_auth_path == tmp_path / "host-home" / ".codex" / "auth.json"
+    assert host_auth_path.read_text(encoding="utf-8") == '{"token":"host-auth"}\n'
+    assert prompt_runtime._builtin_runtime_client_module.Path.home() == (
+        tmp_path / "host-home"
+    )
+
+
 def test_runtime_client_execution_harness_opencode_continuation_preserves_explicit_provider_state() -> (
     None
 ):
