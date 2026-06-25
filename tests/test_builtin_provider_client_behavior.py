@@ -3907,6 +3907,49 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     assert list((tmp_path / "logs").glob("*.log")) == []
 
 
+def test_runtime_client_runs_ephemeral_codex_with_host_codex_home_when_portable_state_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="ephemeral output",
+            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+            stdout_lines=(
+                '{"type":"item.completed","item":{"type":"agent_message","text":"ephemeral output"}}\n',
+                '{"type":"turn.completed"}\n',
+            ),
+        )
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=None,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "ephemeral output"
+    assert harness.recorded_request().environment == {
+        "TZ": "UTC",
+        "CODEX_HOME": str(tmp_path / "host-home" / ".codex"),
+    }
+
+
 def test_runtime_client_ephemeral_execution_remains_available_when_session_backed_support_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

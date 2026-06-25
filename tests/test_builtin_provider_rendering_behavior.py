@@ -889,6 +889,55 @@ def test_render_codex_without_provider_state_dir_uses_host_codex_home_for_auth_r
     }
 
 
+def test_render_codex_without_provider_state_dir_keeps_windows_host_allowlist_surgical(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(tmp_path),
+            auth=None,
+            invocation_dir=tmp_path,
+            host_facts=built_in_provider_rendering.BuiltInProviderHostFacts(
+                os_name="nt",
+                environment={
+                    "PATH": "path-value",
+                    "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+                    "SystemRoot": "C:\\Windows",
+                    "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+                    "WINDIR": "C:\\Windows",
+                    "USERPROFILE": "C:\\Users\\Tester",
+                    "HOMEDRIVE": "C:",
+                    "HOMEPATH": "\\Users\\Tester",
+                    "APPDATA": "C:\\Users\\Tester\\AppData\\Roaming",
+                },
+            ),
+        )
+    )
+
+    assert rendered_invocation.environment == {
+        "PATH": "path-value",
+        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+        "SystemRoot": "C:\\Windows",
+        "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+        "WINDIR": "C:\\Windows",
+        "TZ": "UTC",
+        "CODEX_HOME": str(host_home / ".codex"),
+    }
+
+
 def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
