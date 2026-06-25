@@ -22,6 +22,19 @@ def _install_adapter(monkeypatch, *prepared):
     return RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(*prepared)
 
 
+def _install_local_codex_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    auth_file_content: str = "{}",
+) -> Path:
+    return RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content=auth_file_content,
+    )
+
+
 def _codex_message_output_line(text: str) -> str:
     return (
         json.dumps(
@@ -39,15 +52,7 @@ def _run_completed_codex_ephemeral(monkeypatch, tmp_path: Path):
             stdout_lines=(line,)
         ),
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    _install_local_codex_host_auth(monkeypatch, tmp_path)
     selection = runtime.ProviderSelection(
         service="codex",
         model="gpt-5.4",

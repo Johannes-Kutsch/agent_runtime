@@ -35,7 +35,20 @@ def _codex_executable() -> str:
 
 
 def _selection_with_auth(selection: Any, auth: Any) -> Any:
-    return dataclasses.replace(selection, auth=auth)
+    return RuntimeClientExecutionHarness.attach_provider_auth(selection, auth)
+
+
+def _install_local_codex_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    auth_file_content: str = "{}",
+) -> Path:
+    return RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content=auth_file_content,
+    )
 
 
 def _write_codex_rollout(state_dir: Path, *thread_ids: str) -> None:
@@ -258,15 +271,7 @@ def test_runtime_client_ephemeral_run_emits_typed_agent_message_event(
             ),
         ),
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    _install_local_codex_host_auth(monkeypatch, tmp_path)
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
@@ -313,15 +318,7 @@ def test_runtime_client_ephemeral_run_event_carries_raw_provider_output(
             stdout_lines=(hello_line, world_line),
         ),
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    _install_local_codex_host_auth(monkeypatch, tmp_path)
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
@@ -1155,15 +1152,7 @@ def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_a
             ),
         ),
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    _install_local_codex_host_auth(monkeypatch, tmp_path)
 
     with pytest.raises(runtime.UsageLimitError):
         asyncio.run(
@@ -1262,15 +1251,7 @@ def test_runtime_client_start_session_run_calls_live_output_observer(
             ),
         ),
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    _install_local_codex_host_auth(monkeypatch, tmp_path)
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
@@ -1306,15 +1287,7 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    _install_local_codex_host_auth(monkeypatch, tmp_path)
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
@@ -4496,14 +4469,10 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     tmp_path: Path,
     tool_access: contracts_runtime.ToolAccess,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    _install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,

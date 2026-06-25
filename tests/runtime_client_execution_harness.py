@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
+from typing import Any, TypeVar, cast
 
 import pytest
 
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
+
+ProviderSelectionT = TypeVar("ProviderSelectionT")
 
 
 @dataclasses.dataclass(slots=True)
@@ -30,6 +34,34 @@ class RuntimeClientExecutionHarness:
         self,
     ) -> list[provider_invocation_runtime.ProviderInvocationRequest]:
         return self._adapter.recorded_requests
+
+    @staticmethod
+    def attach_provider_auth(
+        provider_selection: ProviderSelectionT,
+        auth: prompt_runtime.ProviderAuth,
+    ) -> ProviderSelectionT:
+        return cast(
+            ProviderSelectionT,
+            dataclasses.replace(cast(Any, provider_selection), auth=auth),
+        )
+
+    @staticmethod
+    def install_local_codex_host_auth(
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        *,
+        auth_file_content: str = "{}",
+    ) -> Path:
+        host_home = tmp_path / "host-home"
+        host_auth_path = host_home / ".codex" / "auth.json"
+        host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+        host_auth_path.write_text(auth_file_content, encoding="utf-8")
+        monkeypatch.setattr(
+            prompt_runtime._builtin_runtime_client_module.Path,
+            "home",
+            lambda: host_home,
+        )
+        return host_auth_path
 
     def prepare(
         self,

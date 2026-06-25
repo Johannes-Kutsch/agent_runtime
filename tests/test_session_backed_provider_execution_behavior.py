@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import json
 import os
 from datetime import datetime, timezone
@@ -26,7 +25,20 @@ def _codex_executable() -> str:
 
 
 def _selection_with_auth(selection: Any, auth: Any) -> Any:
-    return dataclasses.replace(selection, auth=auth)
+    return RuntimeClientExecutionHarness.attach_provider_auth(selection, auth)
+
+
+def _install_local_codex_host_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    auth_file_content: str = "{}",
+) -> Path:
+    return RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content=auth_file_content,
+    )
 
 
 def _write_codex_rollout(state_dir: Path, *thread_ids: str) -> None:
@@ -61,14 +73,10 @@ def test_session_backed_codex_completion_resolves_provider_session_id_through_mo
     tmp_path: Path,
     entrypoint: str,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    _install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -152,14 +160,10 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    _install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -229,19 +233,10 @@ def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_
     run_kind: RunKind,
     provider_session_id: str | None,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
-    monkeypatch.setattr(
-        built_in_provider_rendering.Path,
-        "home",
-        lambda: host_home,
+    _install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -342,14 +337,10 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
     expected_provider_session_id: str,
     recorded_provider_session_id: str | None,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    _install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
     adapter = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
@@ -447,16 +438,12 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
     tmp_path: Path,
     rollout_lines: list[str],
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    _install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
+    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
 
     continuation = prompt_runtime.Continuation(
         selected_service="codex",
