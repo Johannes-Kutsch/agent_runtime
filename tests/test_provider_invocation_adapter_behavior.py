@@ -475,7 +475,7 @@ def test_production_adapter_falls_back_to_bare_argv_when_executable_unresolved(
     assert captured["command"] == ["claude", "--model", "sonnet"]
 
 
-def test_production_adapter_records_provider_chunks_and_session_id_when_log_context_is_supplied(
+def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplied(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -502,12 +502,18 @@ def test_production_adapter_records_provider_chunks_and_session_id_when_log_cont
         log_name="implementer",
         logs_dir=logs_dir,
     )
+    observed = {"logged_reducer_calls": 0, "live_reducer_calls": 0}
 
     def _reduce_logged_output(
         lines: list[str],
         work_invocation_log: Any,
     ) -> tuple[str, ProviderUsage | None]:
+        observed["logged_reducer_calls"] += 1
         work_invocation_log.record_provider_session_id("provider-session-123")
+        return ("logged-output", ProviderUsage(output_tokens=999))
+
+    def _reduce_output(lines: list[str]) -> tuple[str, ProviderUsage | None]:
+        observed["live_reducer_calls"] += 1
         return ("normalized output", ProviderUsage(output_tokens=7))
 
     request = provider_invocation_runtime.ProviderInvocationRequest(
@@ -525,7 +531,7 @@ def test_production_adapter_records_provider_chunks_and_session_id_when_log_cont
         ),
         provider_session_id="existing-session",
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
-            reduce_output=lambda lines: ("unexpected", None),
+            reduce_output=_reduce_output,
             reduce_logged_output=_reduce_logged_output,
             extract_provider_session_id=lambda _lines: "provider-session-123",
         ),
@@ -535,17 +541,14 @@ def test_production_adapter_records_provider_chunks_and_session_id_when_log_cont
         request
     )
 
-    log_path = next(logs_dir.glob("*.log"))
-    log_text = log_path.read_text(encoding="utf-8")
-
     assert result == provider_invocation_runtime.ProviderInvocationResult(
         output="normalized output",
         usage=ProviderUsage(output_tokens=7),
         stdout_lines=tuple(process_lines),
         provider_session_id="provider-session-123",
     )
-    assert '"provider_session_id": "provider-session-123"' in log_text
-    assert '{"session":"provider-session-123"}\nfinal line\n' in log_text
+    assert observed["logged_reducer_calls"] == 0
+    assert observed["live_reducer_calls"] == 1
 
 
 @pytest.mark.parametrize(

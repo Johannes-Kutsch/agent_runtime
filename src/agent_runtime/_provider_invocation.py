@@ -8,7 +8,6 @@ import subprocess
 import shlex
 import threading
 from collections.abc import Callable, Iterable, Mapping
-from contextlib import nullcontext
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -184,206 +183,169 @@ class ProductionProviderInvocationAdapter:
             **environment,
         }
 
-        work_invocation_context = (
-            nullcontext()
-            if request.log_context is None
-            else request.log_context.invocation_log.open_work_invocation(
-                run_kind=request.run_kind,
-                session_uuid=request.provider_session_id,
-                prompt=request.prompt.content,
-            )
-        )
-
         try:
-            with work_invocation_context as work_invocation_log:
-                if use_shell:
+            if use_shell:
+                process = subprocess.Popen(
+                    request.command,
+                    shell=True,
+                    cwd=request.worktree,
+                    env=environment,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            else:
+                # Resolve argv[0] against PATH/PATHEXT before spawning with
+                # shell=False. On Windows, CreateProcess only appends .exe to
+                # a bare name and ignores PATHEXT, so an npm-installed CLI
+                # shim (e.g. claude.cmd) is never found from the bare name
+                # "claude". shutil.which returns the resolvable shim path;
+                # fall back to the original name when it cannot be resolved.
+                resolved_argv = list(request.argv)
+                resolved_executable = shutil.which(resolved_argv[0])
+                if resolved_executable is not None:
+                    resolved_argv[0] = resolved_executable
+                try:
                     process = subprocess.Popen(
-                        request.command,
-                        shell=True,
+                        resolved_argv,
+                        shell=False,
+                        stdin=subprocess.PIPE,
                         cwd=request.worktree,
                         env=environment,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
                     )
-                else:
-                    # Resolve argv[0] against PATH/PATHEXT before spawning with
-                    # shell=False. On Windows, CreateProcess only appends .exe to
-                    # a bare name and ignores PATHEXT, so an npm-installed CLI
-                    # shim (e.g. claude.cmd) is never found from the bare name
-                    # "claude". shutil.which returns the resolvable shim path;
-                    # fall back to the original name when it cannot be resolved.
-                    resolved_argv = list(request.argv)
-                    resolved_executable = shutil.which(resolved_argv[0])
-                    if resolved_executable is not None:
-                        resolved_argv[0] = resolved_executable
-                    try:
-                        process = subprocess.Popen(
-                            resolved_argv,
-                            shell=False,
-                            stdin=subprocess.PIPE,
-                            cwd=request.worktree,
-                            env=environment,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                        )
-                    except TypeError as exc:
-                        if "stdin" not in str(exc):
-                            raise
-                        process = subprocess.Popen(
-                            resolved_argv,
-                            shell=False,
-                            cwd=request.worktree,
-                            env=environment,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                        )
-                if not use_shell:
-                    process_stdin = getattr(process, "stdin", None)
-                    if process_stdin is not None:
-                        process_stdin.write(request.prompt.content)
-                        process_stdin.close()
-                stdout_lines: list[str] = []
-                stderr_lines: list[str] = []
-                output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+                except TypeError as exc:
+                    if "stdin" not in str(exc):
+                        raise
+                    process = subprocess.Popen(
+                        resolved_argv,
+                        shell=False,
+                        cwd=request.worktree,
+                        env=environment,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+            if not use_shell:
+                process_stdin = getattr(process, "stdin", None)
+                if process_stdin is not None:
+                    process_stdin.write(request.prompt.content)
+                    process_stdin.close()
+            stdout_lines: list[str] = []
+            stderr_lines: list[str] = []
+            output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
 
-                def _drain_stream(
-                    stream: Iterable[str] | None,
-                    source: str,
-                ) -> None:
-                    if stream is not None:
-                        for line in stream:
-                            output_queue.put((source, line))
-                    output_queue.put((source, None))
+            def _drain_stream(
+                stream: Iterable[str] | None,
+                source: str,
+            ) -> None:
+                if stream is not None:
+                    for line in stream:
+                        output_queue.put((source, line))
+                output_queue.put((source, None))
 
-                stdout_thread = threading.Thread(
-                    target=_drain_stream,
-                    args=(process.stdout, "stdout"),
-                    daemon=True,
-                )
-                stderr_thread = threading.Thread(
-                    target=_drain_stream,
-                    args=(getattr(process, "stderr", None), "stderr"),
-                    daemon=True,
-                )
-                stdout_thread.start()
-                stderr_thread.start()
+            stdout_thread = threading.Thread(
+                target=_drain_stream,
+                args=(process.stdout, "stdout"),
+                daemon=True,
+            )
+            stderr_thread = threading.Thread(
+                target=_drain_stream,
+                args=(getattr(process, "stderr", None), "stderr"),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stderr_thread.start()
 
-                closed_streams: set[str] = set()
-                while len(closed_streams) < 2:
-                    try:
-                        if request.timeout_seconds > 0:
-                            source, line = output_queue.get(
-                                timeout=request.timeout_seconds
-                            )
-                        else:
-                            source, line = output_queue.get()
-                    except queue.Empty as exc:
-                        process.kill()
-                        process.wait()
-                        stdout_thread.join()
-                        stderr_thread.join()
-                        error = ProviderInvocationTimedOutError(
-                            "Provider subprocess exceeded the idle timeout.",
-                        )
-                        setattr(
-                            error, "provider_session_id", request.provider_session_id
-                        )
-                        raise error from exc
-
-                    if line is None:
-                        closed_streams.add(source)
-                        continue
-                    if source == "stdout":
-                        stdout_lines.append(line)
-                        _consume_new_stdout_lines(
-                            request.output_hooks.reduce_output, [line]
-                        )
+            closed_streams: set[str] = set()
+            while len(closed_streams) < 2:
+                try:
+                    if request.timeout_seconds > 0:
+                        source, line = output_queue.get(timeout=request.timeout_seconds)
                     else:
-                        stderr_lines.append(line)
+                        source, line = output_queue.get()
+                except queue.Empty as exc:
+                    process.kill()
+                    process.wait()
+                    stdout_thread.join()
+                    stderr_thread.join()
+                    error = ProviderInvocationTimedOutError(
+                        "Provider subprocess exceeded the idle timeout.",
+                    )
+                    setattr(error, "provider_session_id", request.provider_session_id)
+                    raise error from exc
 
-                process.wait()
-
-                if stderr_lines:
+                if line is None:
+                    closed_streams.add(source)
+                    continue
+                if source == "stdout":
+                    stdout_lines.append(line)
                     _consume_new_stdout_lines(
-                        request.output_hooks.reduce_output, stderr_lines
+                        request.output_hooks.reduce_output, [line]
                     )
-                    stdout_lines.extend(stderr_lines)
-
-                def _extracted_provider_session_id() -> str | None:
-                    if request.output_hooks.extract_provider_session_id is None:
-                        return None
-                    return request.output_hooks.extract_provider_session_id(
-                        stdout_lines
-                    )
-
-                def _active_provider_session_id() -> str | None:
-                    provider_session_id = request.provider_session_id
-                    extracted_provider_session_id = _extracted_provider_session_id()
-                    if extracted_provider_session_id is not None:
-                        provider_session_id = extracted_provider_session_id
-                    return provider_session_id
-
-                if work_invocation_log is None:
-                    try:
-                        output, usage = request.output_hooks.reduce_output(stdout_lines)
-                    except Exception as exc:
-                        if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
-                            return _provider_invocation_failure_from_error(
-                                exc,
-                                stdout_lines=tuple(stdout_lines),
-                                provider_session_id=_extracted_provider_session_id(),
-                            )
-                        raise
                 else:
-                    work_invocation_log.append_provider_chunk(
-                        "".join(stdout_lines).encode()
-                    )
-                    reducer = request.output_hooks.reduce_logged_output or (
-                        lambda lines, _work_invocation_log: (
-                            request.output_hooks.reduce_output(lines)
-                        )
-                    )
-                    try:
-                        output, usage = reducer(stdout_lines, work_invocation_log)
-                    except Exception as exc:
-                        if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
-                            return _provider_invocation_failure_from_error(
-                                exc,
-                                stdout_lines=tuple(stdout_lines),
-                                provider_session_id=_extracted_provider_session_id(),
-                            )
-                        raise
-                returncode = process.returncode
-                observed_provider_session_id = _active_provider_session_id()
-                if returncode != 0:
-                    hard_error = HardAgentError(
-                        _nonzero_exit_message(returncode, stdout_lines),
-                    )
-                    setattr(
-                        hard_error,
-                        "provider_session_id",
-                        observed_provider_session_id,
-                    )
-                    raise hard_error
-                if not output.strip():
-                    hard_error = HardAgentError(
-                        "Provider subprocess completed without producing output.",
-                    )
-                    setattr(
-                        hard_error,
-                        "provider_session_id",
-                        observed_provider_session_id,
-                    )
-                    raise hard_error
-                return ProviderInvocationResult(
-                    output=output,
-                    usage=usage,
-                    stdout_lines=tuple(stdout_lines),
-                    provider_session_id=observed_provider_session_id,
+                    stderr_lines.append(line)
+
+            process.wait()
+
+            if stderr_lines:
+                _consume_new_stdout_lines(
+                    request.output_hooks.reduce_output, stderr_lines
                 )
+                stdout_lines.extend(stderr_lines)
+
+            def _extracted_provider_session_id() -> str | None:
+                if request.output_hooks.extract_provider_session_id is None:
+                    return None
+                return request.output_hooks.extract_provider_session_id(stdout_lines)
+
+            def _active_provider_session_id() -> str | None:
+                provider_session_id = request.provider_session_id
+                extracted_provider_session_id = _extracted_provider_session_id()
+                if extracted_provider_session_id is not None:
+                    provider_session_id = extracted_provider_session_id
+                return provider_session_id
+
+            try:
+                output, usage = request.output_hooks.reduce_output(stdout_lines)
+            except Exception as exc:
+                if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
+                    return _provider_invocation_failure_from_error(
+                        exc,
+                        stdout_lines=tuple(stdout_lines),
+                        provider_session_id=_extracted_provider_session_id(),
+                    )
+                raise
+            returncode = process.returncode
+            observed_provider_session_id = _active_provider_session_id()
+            if returncode != 0:
+                hard_error = HardAgentError(
+                    _nonzero_exit_message(returncode, stdout_lines),
+                )
+                setattr(
+                    hard_error,
+                    "provider_session_id",
+                    observed_provider_session_id,
+                )
+                raise hard_error
+            if not output.strip():
+                hard_error = HardAgentError(
+                    "Provider subprocess completed without producing output.",
+                )
+                setattr(
+                    hard_error,
+                    "provider_session_id",
+                    observed_provider_session_id,
+                )
+                raise hard_error
+            return ProviderInvocationResult(
+                output=output,
+                usage=usage,
+                stdout_lines=tuple(stdout_lines),
+                provider_session_id=observed_provider_session_id,
+            )
         finally:
             if (
                 request.prompt.cleanup_path
@@ -430,46 +392,19 @@ class InMemoryProviderInvocationAdapter:
                     or request.provider_session_id
                 )
 
-            work_invocation_context = (
-                nullcontext()
-                if request.log_context is None
-                else request.log_context.invocation_log.open_work_invocation(
-                    run_kind=request.run_kind,
-                    session_uuid=request.provider_session_id,
-                    prompt=request.prompt.content,
-                )
-            )
-            with work_invocation_context as work_invocation_log:
-                if work_invocation_log is None:
-
-                    def reducer() -> tuple[str, ProviderUsage | None]:
-                        return request.output_hooks.reduce_output(stdout_lines)
-                else:
-                    work_invocation_log.append_provider_chunk(
-                        "".join(stdout_lines).encode()
+            try:
+                output, usage = request.output_hooks.reduce_output(stdout_lines)
+            except Exception as exc:
+                if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
+                    return _provider_invocation_failure_from_error(
+                        exc,
+                        stdout_lines=tuple(stdout_lines),
+                        provider_session_id=(
+                            _extracted_provider_session_id()
+                            or prepared.provider_session_id
+                        ),
                     )
-                    logged_reducer = request.output_hooks.reduce_logged_output or (
-                        lambda lines, _work_invocation_log: (
-                            request.output_hooks.reduce_output(lines)
-                        )
-                    )
-
-                    def reducer() -> tuple[str, ProviderUsage | None]:
-                        return logged_reducer(stdout_lines, work_invocation_log)
-
-                try:
-                    output, usage = reducer()
-                except Exception as exc:
-                    if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
-                        return _provider_invocation_failure_from_error(
-                            exc,
-                            stdout_lines=tuple(stdout_lines),
-                            provider_session_id=(
-                                _extracted_provider_session_id()
-                                or prepared.provider_session_id
-                            ),
-                        )
-                    raise
+                raise
             return ProviderInvocationResult(
                 output=output,
                 usage=usage,
