@@ -9,7 +9,10 @@ from agent_runtime import _time as time_runtime
 from agent_runtime._builtin_provider_stream_interpretation import (
     classify_built_in_provider_invocation_progress,
     codex_built_in_provider_stream_interpretation,
+    observe_opencode_output,
+    opencode_built_in_provider_stream_interpretation,
 )
+from agent_runtime._runtime_lifecycle import AgentEvent
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     HardAgentError,
@@ -120,3 +123,264 @@ def test_codex_built_in_provider_stream_interpretation_extracts_provider_session
         classify_built_in_provider_invocation_progress(interpretation, lines)
         is InvocationProgress.STARTED
     )
+
+
+@pytest.mark.parametrize(
+    ("error_data", "expected_exception", "expected_message"),
+    [
+        (
+            {
+                "name": "AuthenticationError",
+                "data": {"message": "invalid api key", "statusCode": 401},
+            },
+            AgentCredentialFailureError,
+            "invalid api key",
+        ),
+        (
+            {
+                "name": "UnknownError",
+                "data": {
+                    "message": (
+                        "Model not found: opencode-go/deepseek-v4-flash. "
+                        "Did you mean: deepseek-v4-flash?"
+                    )
+                },
+            },
+            HardAgentError,
+            (
+                "Model not found: opencode-go/deepseek-v4-flash. "
+                "Did you mean: deepseek-v4-flash?"
+            ),
+        ),
+        (
+            {
+                "name": "InternalServerError",
+                "data": {
+                    "message": "temporary backend failure",
+                    "statusCode": 503,
+                },
+            },
+            TransientAgentError,
+            "temporary backend failure",
+        ),
+    ],
+)
+def test_opencode_built_in_provider_stream_interpretation_preserves_error_classification(
+    error_data: dict[str, object],
+    expected_exception: type[Exception],
+    expected_message: str,
+) -> None:
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    line = json.dumps({"type": "error", "error": error_data}) + "\n"
+
+    with pytest.raises(expected_exception) as exc_info:
+        interpretation.reduce_output([line])
+
+    assert str(exc_info.value) == expected_message
+    if isinstance(exc_info.value, (AgentCredentialFailureError, HardAgentError)):
+        assert exc_info.value.service_name == "opencode"
+
+
+def test_opencode_built_in_provider_stream_interpretation_maps_usage_limit_and_extracts_provider_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        time_runtime,
+        "now_local",
+        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
+    )
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    lines = [
+        json.dumps(
+            {
+                "type": "error",
+                "sessionID": "sess_123",
+                "error": {
+                    "name": "RateLimitError",
+                    "data": {
+                        "message": (
+                            "You have reached your OpenCode Go usage limit. "
+                            "Try again at Apr 28th, 2026 9:02 PM."
+                        ),
+                        "statusCode": 429,
+                    },
+                },
+            }
+        )
+        + "\n"
+    ]
+
+    assert interpretation.extract_provider_session_id is not None
+    assert interpretation.extract_provider_session_id(lines) == "sess_123"
+
+    with pytest.raises(UsageLimitError) as exc_info:
+        interpretation.reduce_output(lines)
+
+    assert exc_info.value.service_name == "opencode"
+    assert exc_info.value.reset_time == datetime(
+        2026, 4, 28, 21, 2, tzinfo=timezone.utc
+    )
+    assert exc_info.value.invocation_progress is InvocationProgress.STARTED
+
+
+def test_opencode_built_in_provider_stream_interpretation_keeps_completed_result_after_idle_status() -> (
+    None
+):
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    lines = [
+        json.dumps(
+            {
+                "type": "text",
+                "sessionID": "sess_123",
+                "part": {
+                    "type": "text",
+                    "text": "completed answer",
+                    "time": {"start": 1, "end": 2},
+                },
+            }
+        )
+        + "\n",
+        json.dumps(
+            {
+                "type": "session.status",
+                "sessionID": "sess_123",
+                "status": {"type": "idle"},
+            }
+        )
+        + "\n",
+        json.dumps(
+            {
+                "type": "error",
+                "sessionID": "sess_123",
+                "error": {
+                    "name": "InternalServerError",
+                    "data": {
+                        "message": "should be ignored after idle result",
+                        "statusCode": 503,
+                    },
+                },
+            }
+        )
+        + "\n",
+    ]
+
+    output, usage = interpretation.reduce_output(lines)
+
+    assert output == "completed answer"
+    assert usage is None
+
+
+def test_opencode_built_in_provider_stream_interpretation_builds_expected_live_agent_events() -> (
+    None
+):
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    cases = [
+        (
+            json.dumps(
+                {
+                    "type": "text",
+                    "part": {
+                        "type": "text",
+                        "text": "hello from opencode",
+                        "time": {"end": True},
+                    },
+                }
+            )
+            + "\n",
+            "agent_message",
+            "hello from opencode",
+        ),
+        (
+            json.dumps(
+                {
+                    "type": "text",
+                    "part": {
+                        "type": "tool",
+                        "name": "Read",
+                        "input": {"path": "README.md"},
+                    },
+                }
+            )
+            + "\n",
+            "agent_tool_call",
+            'Read({"path":"README.md"})',
+        ),
+        (
+            json.dumps({"type": "session.status", "status": {"type": "idle"}}) + "\n",
+            "other",
+            "idle",
+        ),
+        (
+            json.dumps({"type": "error", "error": {"name": "InternalServerError"}})
+            + "\n",
+            "other",
+            "error",
+        ),
+        ("not json\n", "other", "unparsed"),
+        (json.dumps({"type": "custom.event"}) + "\n", "other", "custom.event"),
+    ]
+
+    for line, expected_type, expected_message in cases:
+        event = interpretation.build_agent_event(line)
+        assert event.type == expected_type
+        assert event.display_message == expected_message
+        assert event.raw_provider_output == line
+
+
+def test_opencode_observation_emits_live_agent_events_and_tracks_provider_session_id_until_idle() -> (
+    None
+):
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    observed: list[AgentEvent] = []
+    observed_provider_session_ids: list[str] = []
+    observe_output = observe_opencode_output(
+        stream_interpretation=interpretation,
+        on_live_output=observed.append,
+        on_provider_session_id=observed_provider_session_ids.append,
+    )
+    text_line = (
+        json.dumps(
+            {
+                "type": "text",
+                "sessionID": "sess_123",
+                "part": {
+                    "type": "text",
+                    "text": "hello from opencode",
+                    "time": {"end": True},
+                },
+            }
+        )
+        + "\n"
+    )
+    idle_line = (
+        json.dumps(
+            {
+                "type": "session.status",
+                "sessionID": "sess_123",
+                "status": {"type": "idle"},
+            }
+        )
+        + "\n"
+    )
+    trailing_error_line = (
+        json.dumps(
+            {
+                "type": "error",
+                "sessionID": "sess_456",
+                "error": {
+                    "name": "InternalServerError",
+                    "data": {"message": "ignored after idle", "statusCode": 503},
+                },
+            }
+        )
+        + "\n"
+    )
+
+    observe_output([text_line, idle_line, trailing_error_line])
+
+    assert [event.type for event in observed] == ["agent_message", "other"]
+    assert [event.display_message for event in observed] == [
+        "hello from opencode",
+        "idle",
+    ]
+    assert observed_provider_session_ids == ["sess_123"]

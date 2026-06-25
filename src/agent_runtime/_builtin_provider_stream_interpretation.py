@@ -1031,23 +1031,34 @@ def reduce_opencode_stream(
     *,
     on_provider_session_id: Callable[[str], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
+    observed_provider_session_id: str | None = None
+
+    def _record_provider_session_id(session_id: str) -> None:
+        nonlocal observed_provider_session_id
+        observed_provider_session_id = session_id
+        if on_provider_session_id is not None:
+            on_provider_session_id(session_id)
+
     if on_live_output is not None:
         for line in lines:
             emit_built_in_provider_live_output_event(
                 build_opencode_agent_event(line),
                 on_live_output,
             )
-    return (
-        reduce_text_output_events(
+    try:
+        output = reduce_text_output_events(
             parse_opencode_events(
                 lines,
-                on_provider_session_id=on_provider_session_id,
+                on_provider_session_id=_record_provider_session_id,
             ),
             lambda _turn, _raw: None,
             provider="opencode",
-        ),
-        None,
-    )
+        )
+    except (ProviderUnavailableError, UsageLimitError) as exc:
+        if observed_provider_session_id is not None:
+            exc.invocation_progress = InvocationProgress.STARTED
+        raise
+    return output, None
 
 
 def opencode_built_in_provider_stream_interpretation(
