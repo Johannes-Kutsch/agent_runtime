@@ -59,6 +59,7 @@ class ProbeCaseRunRequest:
     timeout_seconds: int
     continuation: Continuation | None
     output: _LiveProbeOutput
+    resumed_session_invocation_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,8 @@ class ProbeCaseRunResult:
     usage: dict[str, Any] | None
     continuation: Continuation | None
     traceback: str | None
+    next_resumed_session_continuation: Continuation | None = None
+    next_resumed_session_invocation_dir: Path | None = None
 
 
 class _RuntimeInvocationClient:
@@ -201,6 +204,16 @@ def _continuation_from_outcome(outcome: Any) -> Continuation | None:
     return getattr(result, "continuation", None)
 
 
+def _invocation_dir_for_case(request: ProbeCaseRunRequest) -> Path:
+    if request.case.mode == "resumed_session":
+        return (
+            request.resumed_session_invocation_dir
+            if request.resumed_session_invocation_dir is not None
+            else request.invocation_dir
+        )
+    return request.invocation_dir
+
+
 def _result_payload(
     case: _PlannedProbeCase,
     outcome: ProbeCaseRunResult,
@@ -242,7 +255,8 @@ def run_case(
     runtime_client_factory: Callable[[], _RuntimeInvocationPort] = RuntimeClient,
 ) -> ProbeCaseRunResult:
     request.case_dir.mkdir(parents=True, exist_ok=True)
-    request.invocation_dir.mkdir(parents=True, exist_ok=True)
+    case_invocation_dir = _invocation_dir_for_case(request)
+    case_invocation_dir.mkdir(parents=True, exist_ok=True)
 
     feed_path = request.case_dir / LIVE_FEED_FILENAME
     feed_writer = _LiveProbeFeedWriter(feed_path, request.output)
@@ -261,7 +275,7 @@ def run_case(
                 client.run_ephemeral(
                     EphemeralRunRequest(
                         prompt=request.prompt,
-                        invocation_dir=request.invocation_dir,
+                        invocation_dir=case_invocation_dir,
                         provider_selection=selection,
                         tool_policy=tool_policy,
                         timeout_seconds=request.timeout_seconds,
@@ -274,7 +288,7 @@ def run_case(
                 client.run_new_session(
                     NewSessionRunRequest(
                         prompt=request.prompt,
-                        invocation_dir=request.invocation_dir,
+                        invocation_dir=case_invocation_dir,
                         provider_selection=selection,
                         tool_policy=tool_policy,
                         timeout_seconds=request.timeout_seconds,
@@ -292,7 +306,7 @@ def run_case(
                 client.run_resumed_session(
                     ResumedSessionRunRequest(
                         prompt=request.prompt,
-                        invocation_dir=request.invocation_dir,
+                        invocation_dir=case_invocation_dir,
                         continuation=request.continuation,
                         provider_auth=auth,
                         timeout_seconds=request.timeout_seconds,
@@ -319,12 +333,15 @@ def run_case(
             output=None,
             usage=None,
             continuation=None,
+            next_resumed_session_continuation=None,
+            next_resumed_session_invocation_dir=None,
             traceback=traceback,
         )
         _write_result_json(request.case_dir, request.case, result, request.output)
         return result
 
     outcome_result = getattr(outcome, "result", None)
+    outcome_continuation = _continuation_from_outcome(outcome)
     result = ProbeCaseRunResult(
         category=category,
         kind=type(getattr(outcome, "kind", None)).__name__
@@ -333,7 +350,13 @@ def run_case(
         selected=_selected_payload(getattr(outcome_result, "selected", None)),
         output=getattr(outcome_result, "output", None),
         usage=_usage_payload(getattr(outcome_result, "usage", None)),
-        continuation=_continuation_from_outcome(outcome),
+        continuation=outcome_continuation,
+        next_resumed_session_continuation=(
+            outcome_continuation if request.case.mode == "new_session" else None
+        ),
+        next_resumed_session_invocation_dir=(
+            case_invocation_dir if request.case.mode == "new_session" else None
+        ),
         traceback=None,
     )
     _write_result_json(request.case_dir, request.case, result, request.output)

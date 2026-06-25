@@ -221,36 +221,28 @@ def _run_provider(
     )
 
     cases = plan.probe_cases_for_provider(provider_plan)
-    new_session_continuation: Continuation | None = None
-    new_session_invocation_dir: Path | None = None
+    resumed_session_continuation: Continuation | None = None
+    resumed_session_invocation_dir: Path | None = None
 
     for case in cases:
         case_dir = service_dir / case.label
         console.line(f"-- {case.label}")
 
-        if case.mode == "resumed_session":
-            invocation_dir = new_session_invocation_dir or case_dir
-            continuation = new_session_continuation
-        else:
-            invocation_dir = case_dir
-            continuation = None
-
         execution = case_runner.run_case(
             case_runner.ProbeCaseRunRequest(
                 case=case,
                 case_dir=case_dir,
-                invocation_dir=invocation_dir,
+                invocation_dir=case_dir,
+                resumed_session_invocation_dir=resumed_session_invocation_dir,
                 prompt=_PROMPTS[case.mode],
                 timeout_seconds=timeout_seconds,
-                continuation=continuation,
+                continuation=resumed_session_continuation,
                 output=console,
             ),
             runtime_client_factory=RuntimeClient,
         )
-
-        if case.mode == "new_session":
-            new_session_continuation = execution.continuation
-            new_session_invocation_dir = invocation_dir
+        resumed_session_continuation = execution.next_resumed_session_continuation
+        resumed_session_invocation_dir = execution.next_resumed_session_invocation_dir
 
         if execution.category == plan.SUCCESS_CATEGORY:
             console.line(f"  -> {execution.category}")
