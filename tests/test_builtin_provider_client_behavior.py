@@ -5601,6 +5601,53 @@ def test_runtime_client_resumed_session_silent_invocation_timeout_preserves_cont
     assert outcome.result.continuation == continuation
 
 
+def test_runtime_client_new_session_silent_invocation_timeout_has_no_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _TimedOutInvocationAdapter:
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            error = provider_invocation_runtime.ProviderInvocationTimedOutError(
+                "Provider subprocess exceeded the idle timeout."
+            )
+            setattr(error, "provider_session_id", request.provider_session_id)
+            raise error
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _TimedOutInvocationAdapter(),
+    )
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        "session-uuid",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                timeout_seconds=1,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.TimedOut)
+    assert outcome.result.continuation is None
+
+
 def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

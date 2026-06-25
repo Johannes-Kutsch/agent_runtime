@@ -1317,3 +1317,50 @@ def test_production_adapter_resets_idle_timeout_on_stderr_activity(
         stdout_lines=("final output\n", "heartbeat 1\n", "heartbeat 2\n"),
         provider_session_id=None,
     )
+
+
+@pytest.mark.parametrize("timeout_seconds", [0, -1])
+def test_production_adapter_disables_idle_timeout_for_non_positive_timeout_values(
+    tmp_path: Path,
+    timeout_seconds: int,
+) -> None:
+    script_path = tmp_path / "delayed_output_provider.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import time",
+                "",
+                "time.sleep(1.2)",
+                "print('final output', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines).strip(), None),
+        ),
+        argv=(sys.executable, str(script_path)),
+        prefer_argv=True,
+        timeout_seconds=timeout_seconds,
+    )
+
+    result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        request
+    )
+
+    assert result == provider_invocation_runtime.ProviderInvocationResult(
+        output="final output",
+        usage=None,
+        stdout_lines=("final output\n",),
+        provider_session_id=None,
+    )
