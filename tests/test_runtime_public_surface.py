@@ -810,15 +810,27 @@ def test_provider_session_seams_consolidate_public_session_store_vocabulary() ->
 def test_provider_session_adapter_public_seam_stays_narrow() -> None:
     public_module = importlib.import_module("agent_runtime.provider_session_adapter")
     assert public_module.__all__ == []
-    with pytest.raises(ImportError):
-        exec(
-            "from agent_runtime.provider_session_adapter import ProviderSessionAdapter",
-            {},
-            {},
-        )
+    for removed_name in (
+        "ProviderSessionAdapter",
+        "ProviderSessionPlanningFacts",
+        "ProviderSessionPlanningRequest",
+        "provider_session_planning_facts",
+    ):
+        with pytest.raises(ImportError):
+            exec(
+                f"from agent_runtime.provider_session_adapter import {removed_name}",
+                {},
+                {},
+            )
 
     internal_module = importlib.import_module("agent_runtime._provider_session_adapter")
-    assert not hasattr(internal_module, "ProviderSessionAdapter")
+    for removed_name in (
+        "ProviderSessionAdapter",
+        "ProviderSessionPlanningFacts",
+        "ProviderSessionPlanningRequest",
+        "provider_session_planning_facts",
+    ):
+        assert not hasattr(internal_module, removed_name)
 
 
 def test_provider_session_public_dtos_expose_only_runtime_planning_fields() -> None:
