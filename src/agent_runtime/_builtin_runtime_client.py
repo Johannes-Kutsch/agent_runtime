@@ -25,7 +25,6 @@ from ._builtin_provider_stream_interpretation import (
     is_claude_subscription_access_denial,
     parse_claude_event_with_dependencies,
     parse_claude_reset_time,
-    reduce_claude_stream as _reduce_claude_stream,
     reduce_claude_stream_with_dependencies,
 )
 from ._provider_invocation import (
@@ -629,6 +628,23 @@ def _reduce_claude_stream_with_dependencies(
     return reduce_claude_stream_with_dependencies(
         lines,
         parse_claude_event=parse_claude_event,
+        on_live_output=on_live_output,
+    )
+
+
+def _reduce_claude_stream_with_runtime_overrides(
+    lines: list[str],
+    on_live_output: Callable[[AgentEvent], None] | None = None,
+) -> tuple[str, ProviderUsage | None]:
+    return _reduce_claude_stream_with_dependencies(
+        lines,
+        parse_claude_event=lambda line: _parse_claude_event_with_dependencies(
+            line,
+            parse_claude_reset_time=_parse_claude_reset_time,
+            is_claude_subscription_access_denial=(
+                _is_claude_subscription_access_denial
+            ),
+        ),
         on_live_output=on_live_output,
     )
 
@@ -2203,7 +2219,7 @@ def _run_builtin_ephemeral(
     reduce_claude_stream: Callable[
         [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
-    ] = _reduce_claude_stream,
+    ] = _reduce_claude_stream_with_runtime_overrides,
     codex_command: Callable[..., tuple[str, ...]] = _codex_command,
     codex_env: Callable[..., dict[str, str]] = _codex_env,
     reduce_codex_stream: Callable[

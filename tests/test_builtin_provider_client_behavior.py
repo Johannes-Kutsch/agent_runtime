@@ -2042,6 +2042,117 @@ def test_runtime_client_ephemeral_run_emits_claude_tool_call_and_other_agent_eve
     )
 
 
+@pytest.mark.parametrize("run_mode", ("ephemeral", "new_session", "resumed_session"))
+def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    run_mode: str,
+) -> None:
+    observed: list[runtime.AgentEvent] = []
+
+    def on_live_output(event: runtime.AgentEvent) -> None:
+        observed.append(event)
+
+    assistant_line = _claude_assistant_output_line("intermediate")
+    tool_line = _claude_tool_output_line("Read", {"path": "README.md"})
+    result_line = _claude_result_output_line("final output")
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(assistant_line, tool_line, result_line),
+        ),
+    )
+
+    client = runtime.RuntimeClient()
+    if run_mode == "ephemeral":
+        outcome = asyncio.run(
+            client.run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="claude",
+                            model="sonnet",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    ),
+                    on_live_output=on_live_output,
+                    tool_policy=runtime.ToolPolicy.NONE,
+                )
+            )
+        )
+    elif run_mode == "new_session":
+        monkeypatch.setattr(
+            prompt_runtime._builtin_runtime_client_module,
+            "_new_provider_session_id",
+            lambda: "session-uuid",
+        )
+        outcome = asyncio.run(
+            client.run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                    provider_selection=_selection_with_auth(
+                        InternalStageSelection(
+                            service="claude",
+                            model="sonnet",
+                            effort="medium",
+                        ),
+                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    ),
+                    session_namespace="main",
+                    on_live_output=on_live_output,
+                    tool_policy=runtime.ToolPolicy.NONE,
+                )
+            )
+        )
+    else:
+        outcome = asyncio.run(
+            client.run_resumed_session(
+                prompt_runtime.ResumedSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
+                    continuation=prompt_runtime.Continuation(
+                        selected_service="claude",
+                        selected_model="sonnet",
+                        selected_effort="medium",
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
+                        provider_resume_state={
+                            "run_kind": "resume",
+                            "provider_session_id": "session-uuid",
+                            "exact_transcript_match": False,
+                        },
+                    ),
+                    on_live_output=on_live_output,
+                )
+            )
+        )
+
+    assert outcome.result.output == "final output"
+    assert [event.type for event in observed] == [
+        "agent_message",
+        "agent_tool_call",
+        "other",
+    ]
+    assert [event.display_message for event in observed] == [
+        "intermediate",
+        'Read({"path":"README.md"})',
+        "result",
+    ]
+    assert [event.raw_provider_output for event in observed] == [
+        assistant_line,
+        tool_line,
+        result_line,
+    ]
+    assert len(adapter.recorded_requests) == 1
+
+
 def test_runtime_client_new_session_run_propagates_claude_live_output_observer_failure_for_resumed_claude(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
