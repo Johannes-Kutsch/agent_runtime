@@ -15,6 +15,12 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from . import _time as _time_module
+from ._builtin_provider_stream_interpretation import (
+    BuiltInProviderStreamInterpretation,
+    classify_built_in_provider_invocation_progress,
+    emit_built_in_provider_live_output_event,
+    is_built_in_provider_live_output_exception,
+)
 from ._provider_invocation import (
     InvocationFailureKind,
     ProductionProviderInvocationAdapter,
@@ -735,19 +741,6 @@ class _IdleTimeoutWatchdog:
                 )
 
 
-def _emit_live_output_event(
-    event: AgentEvent,
-    on_live_output: Callable[[AgentEvent], None] | None,
-) -> None:
-    if on_live_output is None:
-        return
-    try:
-        on_live_output(event)
-    except Exception as exc:
-        setattr(exc, "_is_live_output_exception", True)
-        raise
-
-
 def _raw_event_payload(value: object) -> str:
     if isinstance(value, str):
         return value
@@ -917,10 +910,6 @@ def _live_output_event_for_provider_line(service_name: str, line: str) -> AgentE
     return _other_event(line, "other")
 
 
-def _is_live_output_exception(exc: BaseException) -> bool:
-    return bool(getattr(exc, "_is_live_output_exception", False))
-
-
 class _ObservedOutputReducer:
     __slots__ = ("reduce_output", "consume_stdout_lines")
 
@@ -940,13 +929,13 @@ def _observe_output_lines(
     *,
     lines: list[str],
     on_live_output: Callable[[AgentEvent], None] | None,
-    service_name: str,
+    stream_interpretation: BuiltInProviderStreamInterpretation,
 ) -> None:
     if on_live_output is None:
         return
     for line in lines:
-        _emit_live_output_event(
-            _live_output_event_for_provider_line(service_name, line),
+        emit_built_in_provider_live_output_event(
+            stream_interpretation.build_agent_event(line),
             on_live_output,
         )
 
@@ -971,37 +960,71 @@ def _wrap_on_live_output_with_timeout(
 
 
 def _observe_output_reducer(
-    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+    stream_interpretation: BuiltInProviderStreamInterpretation,
     on_live_output: Callable[[AgentEvent], None] | None,
-    *,
-    service_name: str,
 ) -> Callable[[list[str]], tuple[str, ProviderUsage | None]]:
     if on_live_output is None:
-        return reduce_output
+        return stream_interpretation.reduce_output
 
     return _ObservedOutputReducer(
-        reduce_output=reduce_output,
+        reduce_output=stream_interpretation.reduce_output,
         consume_stdout_lines=(
             lambda lines: _observe_output_lines(
                 lines=lines,
                 on_live_output=on_live_output,
-                service_name=service_name,
+                stream_interpretation=stream_interpretation,
             )
         ),
     )
 
 
+def _with_observed_output(
+    stream_interpretation: BuiltInProviderStreamInterpretation,
+    on_live_output: Callable[[AgentEvent], None] | None,
+) -> BuiltInProviderStreamInterpretation:
+    if on_live_output is None:
+        return stream_interpretation
+    return BuiltInProviderStreamInterpretation(
+        reduce_output=_observe_output_reducer(stream_interpretation, on_live_output),
+        build_agent_event=stream_interpretation.build_agent_event,
+        classify_invocation_progress=(
+            stream_interpretation.classify_invocation_progress
+        ),
+        extract_provider_session_id=stream_interpretation.extract_provider_session_id,
+    )
+
+
 def _observe_opencode_output_reducer(
-    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+    stream_interpretation: BuiltInProviderStreamInterpretation,
     on_live_output: Callable[[AgentEvent], None] | None,
 ) -> Callable[[list[str]], tuple[str, ProviderUsage | None]]:
     if on_live_output is None:
-        return reduce_output
+        return stream_interpretation.reduce_output
     return _ObservedOutputReducer(
-        reduce_output=reduce_output,
+        reduce_output=stream_interpretation.reduce_output,
         consume_stdout_lines=_observe_output_opencode(
+            stream_interpretation=stream_interpretation,
             on_live_output=on_live_output,
         ),
+    )
+
+
+def _with_observed_opencode_output(
+    stream_interpretation: BuiltInProviderStreamInterpretation,
+    on_live_output: Callable[[AgentEvent], None] | None,
+) -> BuiltInProviderStreamInterpretation:
+    if on_live_output is None:
+        return stream_interpretation
+    return BuiltInProviderStreamInterpretation(
+        reduce_output=_observe_opencode_output_reducer(
+            stream_interpretation,
+            on_live_output,
+        ),
+        build_agent_event=stream_interpretation.build_agent_event,
+        classify_invocation_progress=(
+            stream_interpretation.classify_invocation_progress
+        ),
+        extract_provider_session_id=stream_interpretation.extract_provider_session_id,
     )
 
 
@@ -1058,7 +1081,7 @@ def _reduce_claude_stream_with_dependencies(
         parsed_events.extend(parse_claude_event(line))
     if on_live_output is not None:
         for line in lines:
-            _emit_live_output_event(
+            emit_built_in_provider_live_output_event(
                 _live_output_event_for_claude_line(line),
                 on_live_output,
             )
@@ -1069,7 +1092,7 @@ def _reduce_claude_stream_with_dependencies(
             provider="claude",
         )
     except (ProviderUnavailableError, UsageLimitError) as exc:
-        if _is_live_output_exception(exc):
+        if is_built_in_provider_live_output_exception(exc):
             raise
         if exc.usage is None:
             exc.usage = usage
@@ -1168,7 +1191,7 @@ def _reduce_codex_stream(
         parsed_events.extend(_parse_codex_event(line))
     if on_live_output is not None:
         for line in lines:
-            _emit_live_output_event(
+            emit_built_in_provider_live_output_event(
                 _live_output_event_for_codex_line(line),
                 on_live_output,
             )
@@ -1179,7 +1202,7 @@ def _reduce_codex_stream(
             provider="codex",
         )
     except (ProviderUnavailableError, UsageLimitError) as exc:
-        if _is_live_output_exception(exc):
+        if is_built_in_provider_live_output_exception(exc):
             raise
         if exc.usage is None:
             exc.usage = usage
@@ -1540,6 +1563,7 @@ def _parse_opencode_output_line(line: str) -> list[Any]:
 
 def _observe_output_opencode(
     *,
+    stream_interpretation: BuiltInProviderStreamInterpretation,
     on_live_output: Callable[[AgentEvent], None],
     on_provider_session_id: Callable[[str], None] | None = None,
 ) -> Callable[[list[str]], None]:
@@ -1566,8 +1590,8 @@ def _observe_output_opencode(
             ):
                 seen_session_id = session_id
                 on_provider_session_id(session_id)
-            _emit_live_output_event(
-                _live_output_event_for_opencode_line(line),
+            emit_built_in_provider_live_output_event(
+                stream_interpretation.build_agent_event(line),
                 on_live_output,
             )
             if event.get("type") == "session.status":
@@ -1597,50 +1621,103 @@ def _extract_opencode_provider_session_id(lines: list[str]) -> str | None:
     return provider_session_id
 
 
-def _provider_session_id_from_stdout_lines(
+def _claude_stream_interpretation() -> BuiltInProviderStreamInterpretation:
+    def _classify_progress(lines: list[str]) -> InvocationProgress:
+        parsed_events = [event for line in lines for event in _parse_claude_event(line)]
+        if any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events):
+            return InvocationProgress.STARTED
+        return InvocationProgress.NOT_STARTED
+
+    return BuiltInProviderStreamInterpretation(
+        reduce_output=_reduce_claude_stream,
+        build_agent_event=_live_output_event_for_claude_line,
+        classify_invocation_progress=_classify_progress,
+    )
+
+
+def _codex_stream_interpretation() -> BuiltInProviderStreamInterpretation:
+    def _classify_progress(lines: list[str]) -> InvocationProgress:
+        parsed_events = [event for line in lines for event in _parse_codex_event(line)]
+        if any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events):
+            return InvocationProgress.STARTED
+        return InvocationProgress.NOT_STARTED
+
+    return BuiltInProviderStreamInterpretation(
+        reduce_output=_reduce_codex_stream,
+        build_agent_event=_live_output_event_for_codex_line,
+        classify_invocation_progress=_classify_progress,
+        extract_provider_session_id=_extract_codex_provider_session_id,
+    )
+
+
+def _opencode_stream_interpretation(
+    *,
+    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]]
+    | None = None,
+    extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
+) -> BuiltInProviderStreamInterpretation:
+    def _classify_progress(lines: list[str]) -> InvocationProgress:
+        parsed_events = _parse_opencode_events(lines)
+        if any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events):
+            return InvocationProgress.STARTED
+        return InvocationProgress.NOT_STARTED
+
+    return BuiltInProviderStreamInterpretation(
+        reduce_output=reduce_output
+        or (lambda lines: (_reduce_opencode_stream(lines), None)),
+        build_agent_event=_live_output_event_for_opencode_line,
+        classify_invocation_progress=_classify_progress,
+        extract_provider_session_id=(
+            extract_provider_session_id or _extract_opencode_provider_session_id
+        ),
+    )
+
+
+def _stream_interpretation_for_service(
     service_name: str,
+) -> BuiltInProviderStreamInterpretation:
+    if service_name == "claude":
+        return _claude_stream_interpretation()
+    if service_name == "codex":
+        return _codex_stream_interpretation()
+    if service_name == "opencode":
+        return _opencode_stream_interpretation()
+    raise RuntimeConfigurationError(
+        "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
+    )
+
+
+def _provider_session_id_from_stdout_lines(
+    stream_interpretation: BuiltInProviderStreamInterpretation,
     stdout_lines: tuple[str, ...],
 ) -> str | None:
-    if service_name == "codex":
-        return _extract_codex_provider_session_id(list(stdout_lines))
-    if service_name == "opencode":
-        return _extract_opencode_provider_session_id(list(stdout_lines))
-    return None
+    if stream_interpretation.extract_provider_session_id is None:
+        return None
+    return stream_interpretation.extract_provider_session_id(list(stdout_lines))
 
 
 def _provider_invocation_failure_started(
-    service_name: str,
+    stream_interpretation: BuiltInProviderStreamInterpretation,
     failure: ProviderInvocationFailure,
 ) -> bool:
-    if failure.provider_session_id is not None:
-        return True
-    if _provider_session_id_from_stdout_lines(service_name, failure.stdout_lines):
-        return True
-    parsed_events: list[Any]
-    if service_name == "claude":
-        parsed_events = [
-            event
-            for line in failure.stdout_lines
-            for event in _parse_claude_event(line)
-        ]
-    elif service_name == "codex":
-        parsed_events = [
-            event for line in failure.stdout_lines for event in _parse_codex_event(line)
-        ]
-    elif service_name == "opencode":
-        parsed_events = _parse_opencode_events(list(failure.stdout_lines))
-    else:
-        return False
-    return any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events)
+    return (
+        classify_built_in_provider_invocation_progress(
+            stream_interpretation,
+            list(failure.stdout_lines),
+            provider_session_id=failure.provider_session_id,
+        )
+        is InvocationProgress.STARTED
+    )
 
 
 def _provider_invocation_error_from_failure(
     service_name: str,
     failure: ProviderInvocationFailure,
 ) -> UsageLimitError | ProviderUnavailableError:
+    stream_interpretation = _stream_interpretation_for_service(service_name)
     invocation_progress = (
         InvocationProgress.STARTED
-        if _provider_invocation_failure_started(service_name, failure)
+        if _provider_invocation_failure_started(stream_interpretation, failure)
         else InvocationProgress.NOT_STARTED
     )
     if failure.kind is InvocationFailureKind.USAGE_LIMITED:
@@ -1673,8 +1750,9 @@ def _provider_session_id_from_failure(
     *,
     fallback_provider_session_id: str | None = None,
 ) -> str | None:
+    stream_interpretation = _stream_interpretation_for_service(service_name)
     fallback_session_id = _provider_session_id_from_stdout_lines(
-        service_name,
+        stream_interpretation,
         failure.stdout_lines,
     )
     if fallback_session_id is not None:
@@ -1690,7 +1768,7 @@ def _reduce_opencode_stream(
 ) -> str:
     if on_live_output is not None:
         for line in lines:
-            _emit_live_output_event(
+            emit_built_in_provider_live_output_event(
                 _live_output_event_for_opencode_line(line),
                 on_live_output,
             )
@@ -2095,8 +2173,7 @@ def _invoke_provider(
     cleanup_prompt_path: bool,
     run_kind: RunKind,
     provider_session_id: str | None,
-    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
-    extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
+    stream_interpretation: BuiltInProviderStreamInterpretation,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return provider_invocation_adapter.execute(
         ProviderInvocationRequest(
@@ -2114,8 +2191,10 @@ def _invoke_provider(
             log_context=None,
             provider_session_id=provider_session_id,
             output_hooks=ProviderOutputReductionHooks(
-                reduce_output=reduce_output,
-                extract_provider_session_id=extract_provider_session_id,
+                reduce_output=stream_interpretation.reduce_output,
+                extract_provider_session_id=(
+                    stream_interpretation.extract_provider_session_id
+                ),
             ),
         )
     )
@@ -2131,6 +2210,10 @@ def _invoke_claude_new_session_provider(
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
+    stream_interpretation = _with_observed_output(
+        _claude_stream_interpretation(),
+        on_live_output,
+    )
     return _invoke_provider(
         provider_invocation_adapter=provider_invocation_adapter,
         command=_claude_legacy_command_text(
@@ -2159,11 +2242,7 @@ def _invoke_claude_new_session_provider(
         cleanup_prompt_path=True,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
-        reduce_output=_observe_output_reducer(
-            lambda lines: _reduce_claude_stream(lines),
-            on_live_output,
-            service_name="claude",
-        ),
+        stream_interpretation=stream_interpretation,
     )
 
 
@@ -2175,6 +2254,10 @@ def _invoke_codex_new_session_provider(
     provider_state_dir: Path,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
+    stream_interpretation = _with_observed_output(
+        _codex_stream_interpretation(),
+        on_live_output,
+    )
     command_argv = _codex_command(
         model=stage.model,
         effort=stage.effort,
@@ -2196,11 +2279,7 @@ def _invoke_codex_new_session_provider(
         cleanup_prompt_path=True,
         run_kind=RunKind.FRESH,
         provider_session_id=None,
-        reduce_output=_observe_output_reducer(
-            lambda lines: _reduce_codex_stream(lines),
-            on_live_output,
-            service_name="codex",
-        ),
+        stream_interpretation=stream_interpretation,
     )
 
 
@@ -2212,6 +2291,10 @@ def _invoke_codex_resumed_session_provider(
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
+    stream_interpretation = _with_observed_output(
+        _codex_stream_interpretation(),
+        on_live_output,
+    )
     command_argv = _codex_command(
         model=request.model,
         effort=request.effort,
@@ -2235,12 +2318,7 @@ def _invoke_codex_resumed_session_provider(
         cleanup_prompt_path=True,
         run_kind=RunKind.RESUME,
         provider_session_id=provider_session_id,
-        reduce_output=_observe_output_reducer(
-            lambda lines: _reduce_codex_stream(lines),
-            on_live_output,
-            service_name="codex",
-        ),
-        extract_provider_session_id=_extract_codex_provider_session_id,
+        stream_interpretation=stream_interpretation,
     )
 
 
@@ -2299,6 +2377,14 @@ def _invoke_opencode_new_session_provider(
             None,
         )
 
+    stream_interpretation = _with_observed_opencode_output(
+        _opencode_stream_interpretation(
+            reduce_output=_reduce_opencode_session_output,
+            extract_provider_session_id=lambda _lines: observed_provider_session_id,
+        ),
+        on_live_output,
+    )
+
     command_argv = _opencode_command(
         model=stage.model,
         effort=stage.effort,
@@ -2321,11 +2407,7 @@ def _invoke_opencode_new_session_provider(
         cleanup_prompt_path=True,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
-        reduce_output=_observe_opencode_output_reducer(
-            _reduce_opencode_session_output,
-            on_live_output,
-        ),
-        extract_provider_session_id=lambda _lines: observed_provider_session_id,
+        stream_interpretation=stream_interpretation,
     )
     return invocation_result, (
         invocation_result.provider_session_id
@@ -2423,10 +2505,16 @@ def _run_builtin_ephemeral(
                 cleanup_prompt_path=True,
                 run_kind=RunKind.FRESH,
                 provider_session_id=None,
-                reduce_output=_observe_output_reducer(
-                    lambda lines: reduce_codex_stream(lines, None),
+                stream_interpretation=_with_observed_output(
+                    BuiltInProviderStreamInterpretation(
+                        reduce_output=lambda lines: reduce_codex_stream(lines, None),
+                        build_agent_event=_live_output_event_for_codex_line,
+                        classify_invocation_progress=(
+                            _codex_stream_interpretation().classify_invocation_progress
+                        ),
+                        extract_provider_session_id=_extract_codex_provider_session_id,
+                    ),
                     wrapped_on_live_output,
-                    service_name="codex",
                 ),
             )
         elif selected_stage.service == "opencode":
@@ -2452,8 +2540,17 @@ def _run_builtin_ephemeral(
                 cleanup_prompt_path=True,
                 run_kind=RunKind.FRESH,
                 provider_session_id=None,
-                reduce_output=_observe_opencode_output_reducer(
-                    lambda lines: (reduce_opencode_stream(lines, None), None),
+                stream_interpretation=_with_observed_opencode_output(
+                    BuiltInProviderStreamInterpretation(
+                        reduce_output=(
+                            lambda lines: (reduce_opencode_stream(lines, None), None)
+                        ),
+                        build_agent_event=_live_output_event_for_opencode_line,
+                        classify_invocation_progress=(
+                            _opencode_stream_interpretation().classify_invocation_progress
+                        ),
+                        extract_provider_session_id=_extract_opencode_provider_session_id,
+                    ),
                     wrapped_on_live_output,
                 ),
             )
@@ -2482,10 +2579,15 @@ def _run_builtin_ephemeral(
                 cleanup_prompt_path=True,
                 run_kind=RunKind.FRESH,
                 provider_session_id=None,
-                reduce_output=_observe_output_reducer(
-                    lambda lines: reduce_claude_stream(lines, None),
+                stream_interpretation=_with_observed_output(
+                    BuiltInProviderStreamInterpretation(
+                        reduce_output=lambda lines: reduce_claude_stream(lines, None),
+                        build_agent_event=_live_output_event_for_claude_line,
+                        classify_invocation_progress=(
+                            _claude_stream_interpretation().classify_invocation_progress
+                        ),
+                    ),
                     wrapped_on_live_output,
-                    service_name="claude",
                 ),
             )
         if isinstance(invocation_result, ProviderInvocationFailure):
@@ -3053,13 +3155,10 @@ def _run_builtin_resumed_session(
             ),
         )
 
-        reduce_output = _observe_output_reducer(
-            lambda lines: _reduce_claude_stream(lines),
+        stream_interpretation = _with_observed_output(
+            _claude_stream_interpretation(),
             _on_live_output,
-            service_name="claude",
         )
-
-        extract_provider_session_id = None
     else:
         command_argv = _opencode_command(
             model=request.model,
@@ -3077,11 +3176,12 @@ def _run_builtin_resumed_session(
             state_dir_container_path=str(provider_state_dir),
             tool_policy=request.tool_access.tool_policy,
         )
-        reduce_output = _observe_opencode_output_reducer(
-            _reduce_opencode_session_output,
+        stream_interpretation = _with_observed_opencode_output(
+            _opencode_stream_interpretation(
+                reduce_output=_reduce_opencode_session_output,
+            ),
             _on_live_output,
         )
-        extract_provider_session_id = _extract_opencode_provider_session_id
     invocation_result = _invoke_provider(
         provider_invocation_adapter=invocation_adapter,
         command="" if continuation_service == "opencode" else command,
@@ -3094,8 +3194,7 @@ def _run_builtin_resumed_session(
         cleanup_prompt_path=True,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
-        reduce_output=reduce_output,
-        extract_provider_session_id=extract_provider_session_id,
+        stream_interpretation=stream_interpretation,
     )
     if isinstance(invocation_result, ProviderInvocationFailure):
         provider_session_id = _provider_session_id_from_failure(
