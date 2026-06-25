@@ -42,16 +42,7 @@ def _install_local_codex_host_auth(
 
 
 def _write_codex_rollout(state_dir: Path, *thread_ids: str) -> None:
-    rollout_dir = state_dir / "sessions" / "2026" / "05" / "30"
-    rollout_dir.mkdir(parents=True, exist_ok=True)
-    lines = [
-        json.dumps({"type": "thread.started", "thread_id": thread_id})
-        for thread_id in thread_ids
-    ]
-    (rollout_dir / "rollout-001.jsonl").write_text(
-        "\n".join(lines) + "\n",
-        encoding="utf-8",
-    )
+    RuntimeClientExecutionHarness.prepare_codex_rollout_state(state_dir, *thread_ids)
 
 
 def _install_in_memory_provider_invocation_adapter(
@@ -91,24 +82,14 @@ def test_session_backed_codex_completion_resolves_provider_session_id_through_mo
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    continuation = prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "selected-thread",
-            "provider_state_dir_relpath": "implementer/main/codex/",
-            "exact_transcript_match": False,
-        },
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
     )
+    continuation = RuntimeClientExecutionHarness.codex_continuation()
 
     if entrypoint == "new":
         result = session_backed_execution._run_builtin_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
@@ -116,20 +97,20 @@ def test_session_backed_codex_completion_resolves_provider_session_id_through_mo
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     else:
-        provider_state_dir = runtime_state_dir / "implementer/main/codex"
+        provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+            runtime_state_dir,
+            service="codex",
+        )
         _write_codex_rollout(provider_state_dir, "selected-thread")
         result = session_backed_execution._run_builtin_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                session_namespace="main",
             )
         )
 
@@ -141,17 +122,8 @@ def test_session_backed_codex_completion_resolves_provider_session_id_through_mo
     assert result.selected == runtime.ResolvedProvider(
         service="codex", model="gpt-5.4", effort="medium"
     )
-    assert result.continuation == prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "thread-obs",
-            "provider_state_dir_relpath": "implementer/main/codex/",
-            "exact_transcript_match": False,
-        },
+    assert result.continuation == RuntimeClientExecutionHarness.codex_continuation(
+        provider_session_id="thread-obs",
     )
     assert len(adapter.recorded_requests) == 1
 
@@ -175,13 +147,17 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
     _write_codex_rollout(provider_state_dir, "thread-123", "thread-123")
 
     result = session_backed_execution._run_builtin_new_session(
-        prompt_runtime.NewSessionRunRequest(
-            prompt="already rendered prompt",
+        RuntimeClientExecutionHarness.start_session_run_request(
             invocation_dir=tmp_path,
             runtime_state_dir=runtime_state_dir,
             provider_selection=InternalStageSelection(
@@ -189,7 +165,6 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
                 model="gpt-5.4",
                 effort="medium",
             ),
-            session_namespace="main",
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
     )
@@ -198,17 +173,8 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
     assert result.selected == runtime.ResolvedProvider(
         service="codex", model="gpt-5.4", effort="medium"
     )
-    assert result.continuation == prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "thread-123",
-            "provider_state_dir_relpath": "implementer/main/codex/",
-            "exact_transcript_match": False,
-        },
+    assert result.continuation == RuntimeClientExecutionHarness.codex_continuation(
+        provider_session_id="thread-123",
     )
     recorded_request = adapter.recorded_requests[0]
     assert recorded_request.run_kind is RunKind.RESUME
@@ -251,12 +217,16 @@ def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
     if entrypoint == "new":
         session_backed_execution._run_builtin_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
@@ -264,31 +234,17 @@ def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     else:
         _write_codex_rollout(provider_state_dir, "selected-thread")
-        continuation = prompt_runtime.Continuation(
-            selected_service="codex",
-            selected_model="gpt-5.4",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "run_kind": "resume",
-                "provider_session_id": "selected-thread",
-                "provider_state_dir_relpath": "implementer/main/codex/",
-                "exact_transcript_match": False,
-            },
-        )
+        continuation = RuntimeClientExecutionHarness.codex_continuation()
         session_backed_execution._run_builtin_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                session_namespace="main",
             )
         )
 
@@ -360,25 +316,15 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    continuation = prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "selected-thread",
-            "provider_state_dir_relpath": "implementer/main/codex/",
-            "exact_transcript_match": False,
-        },
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
     )
+    continuation = RuntimeClientExecutionHarness.codex_continuation()
 
     with pytest.raises(UsageLimitError) as exc_info:
         if entrypoint == "new":
             session_backed_execution._run_builtin_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                RuntimeClientExecutionHarness.start_session_run_request(
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     provider_selection=InternalStageSelection(
@@ -386,34 +332,28 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
                         model="gpt-5.4",
                         effort="medium",
                     ),
-                    session_namespace="main",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         else:
-            provider_state_dir = runtime_state_dir / "implementer/main/codex"
+            provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+                runtime_state_dir,
+                service="codex",
+            )
             _write_codex_rollout(provider_state_dir, "recovered-thread")
             session_backed_execution._run_builtin_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
+                RuntimeClientExecutionHarness.resume_session_run_request(
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     continuation=continuation,
-                    session_namespace="main",
                 )
             )
 
-    assert exc_info.value.continuation == prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": expected_provider_session_id,
-            "provider_state_dir_relpath": "implementer/main/codex/",
-            "exact_transcript_match": False,
-        },
+    assert (
+        exc_info.value.continuation
+        == RuntimeClientExecutionHarness.codex_continuation(
+            provider_session_id=expected_provider_session_id,
+        )
     )
     assert (
         adapter.recorded_requests[0].provider_session_id == recorded_provider_session_id
@@ -445,20 +385,15 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
     )
     adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
 
-    continuation = prompt_runtime.Continuation(
-        selected_service="codex",
-        selected_model="gpt-5.4",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "selected-thread",
-            "provider_state_dir_relpath": "implementer/main/codex/",
-            "exact_transcript_match": False,
-        },
+    continuation = RuntimeClientExecutionHarness.codex_continuation()
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
     )
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    rollout_dir = runtime_state_dir / "implementer/main/codex/sessions/2026/05/30"
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
+    rollout_dir = provider_state_dir / "sessions" / "2026" / "05" / "30"
     rollout_dir.mkdir(parents=True, exist_ok=True)
     if len(rollout_lines) == 1:
         (rollout_dir / "rollout-001.jsonl").write_text(
@@ -473,12 +408,10 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
 
     with pytest.raises(RuntimeConfigurationError) as exc_info:
         session_backed_execution._run_builtin_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                session_namespace="main",
             )
         )
 
@@ -528,27 +461,12 @@ def test_session_backed_opencode_completion_restores_portable_provider_state_thr
         lambda: adapter,
     )
 
-    continuation = prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "provider_session_id": "persisted-session-1",
-            "provider_state": {
-                "session_id": "persisted-session-1",
-                "resume_jsonl": "[]",
-            },
-            "exact_transcript_match": True,
-        },
-    )
+    continuation = RuntimeClientExecutionHarness.opencode_continuation()
 
     result = session_backed_execution._run_builtin_resumed_session(
-        prompt_runtime.ResumedSessionRunRequest(
-            prompt="already rendered prompt",
+        RuntimeClientExecutionHarness.resume_session_run_request(
             invocation_dir=tmp_path,
             continuation=continuation,
-            session_namespace="main",
             provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         )
     )
@@ -557,20 +475,7 @@ def test_session_backed_opencode_completion_restores_portable_provider_state_thr
     assert result.selected == runtime.ResolvedProvider(
         service="opencode", model="glm-5.2", effort="medium"
     )
-    assert result.continuation == prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "provider_session_id": "persisted-session-1",
-            "provider_state": {
-                "session_id": "persisted-session-1",
-                "resume_jsonl": "[]",
-            },
-            "exact_transcript_match": True,
-        },
-    )
+    assert result.continuation == RuntimeClientExecutionHarness.opencode_continuation()
     assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
     assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
     assert adapter.session_id_contents == "persisted-session-1\n"
@@ -612,12 +517,16 @@ def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_fac
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="opencode",
+    )
     if entrypoint == "new":
         session_backed_execution._run_builtin_new_session(
-            prompt_runtime.NewSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 provider_selection=_selection_with_auth(
@@ -628,32 +537,16 @@ def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_fac
                     ),
                     runtime.ProviderAuth(opencode_api_key="go-key"),
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
     else:
-        continuation = prompt_runtime.Continuation(
-            selected_service="opencode",
-            selected_model="glm-5.2",
-            selected_effort="medium",
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
-            provider_resume_state={
-                "provider_session_id": "persisted-session-1",
-                "provider_state": {
-                    "session_id": "persisted-session-1",
-                    "resume_jsonl": "[]",
-                },
-                "exact_transcript_match": True,
-            },
-        )
+        continuation = RuntimeClientExecutionHarness.opencode_continuation()
         session_backed_execution._run_builtin_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                session_namespace="main",
                 provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
@@ -762,27 +655,15 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    continuation = prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "provider_session_id": "persisted-session-1",
-            "provider_state": {
-                "session_id": "persisted-session-1",
-                "resume_jsonl": "[]",
-            },
-            "exact_transcript_match": True,
-        },
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
     )
+    continuation = RuntimeClientExecutionHarness.opencode_continuation()
 
     with pytest.raises(UsageLimitError) as exc_info:
         if entrypoint == "new":
             session_backed_execution._run_builtin_new_session(
-                prompt_runtime.NewSessionRunRequest(
-                    prompt="already rendered prompt",
+                RuntimeClientExecutionHarness.start_session_run_request(
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     provider_selection=_selection_with_auth(
@@ -793,18 +674,15 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
                         ),
                         runtime.ProviderAuth(opencode_api_key="go-key"),
                     ),
-                    session_namespace="main",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
         else:
             session_backed_execution._run_builtin_resumed_session(
-                prompt_runtime.ResumedSessionRunRequest(
-                    prompt="already rendered prompt",
+                RuntimeClientExecutionHarness.resume_session_run_request(
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
                     continuation=continuation,
-                    session_namespace="main",
                     provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 )
             )
@@ -812,16 +690,13 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
     assert exc_info.value.reset_time == datetime(
         2026, 4, 28, 21, 2, tzinfo=timezone.utc
     )
-    assert exc_info.value.continuation == prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "provider_session_id": expected_provider_session_id,
-            "provider_state": expected_provider_state,
-            "exact_transcript_match": expected_exact_transcript_match,
-        },
+    assert (
+        exc_info.value.continuation
+        == RuntimeClientExecutionHarness.opencode_continuation(
+            provider_session_id=expected_provider_session_id,
+            provider_state=expected_provider_state,
+            exact_transcript_match=expected_exact_transcript_match,
+        )
     )
     assert adapter.recorded_requests[0].provider_session_id == (
         "prepared-session-id" if entrypoint == "new" else "persisted-session-1"
@@ -878,50 +753,37 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
         ),
     )
 
-    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    continuation = prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "provider_session_id": "persisted-session-1",
-            "provider_state": {
-                "session_id": "persisted-session-1",
-                "resume_jsonl": "[]",
-            },
-            "exact_transcript_match": True,
-        },
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
     )
+    continuation = RuntimeClientExecutionHarness.opencode_continuation()
 
     with pytest.raises(UsageLimitError) as exc_info:
         session_backed_execution._run_builtin_resumed_session(
-            prompt_runtime.ResumedSessionRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
-                session_namespace="main",
                 provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
             )
         )
 
-    assert exc_info.value.continuation == prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "provider_session_id": "observed-session-2",
-            "provider_state": {
+    assert (
+        exc_info.value.continuation
+        == RuntimeClientExecutionHarness.opencode_continuation(
+            provider_session_id="observed-session-2",
+            provider_state={
                 "session_id": "observed-session-2",
                 "resume_jsonl": "[]",
             },
-            "exact_transcript_match": False,
-        },
+            exact_transcript_match=False,
+        )
     )
     assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
-    provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="opencode",
+    )
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
         "observed-session-2"
     )

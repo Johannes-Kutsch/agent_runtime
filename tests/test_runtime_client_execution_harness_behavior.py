@@ -41,16 +41,13 @@ def _claude_selection() -> InternalProviderSelection:
 
 
 def _new_session_request(
-    _harness: RuntimeClientExecutionHarness,
+    harness: RuntimeClientExecutionHarness,
     tmp_path: Path,
 ) -> prompt_runtime.NewSessionRunRequest:
-    return prompt_runtime.NewSessionRunRequest(
-        prompt="already rendered prompt",
+    return harness.start_session_run_request(
         invocation_dir=tmp_path,
-        runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+        runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
         provider_selection=_claude_selection(),
-        session_namespace="main",
-        tool_policy=runtime.ToolPolicy.NONE,
     )
 
 
