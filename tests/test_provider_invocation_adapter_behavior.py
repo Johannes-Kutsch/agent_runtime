@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -719,6 +719,18 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
     completion. See the codex stderr-only path in ADR 0013's probe.
     """
 
+    # Pin local timezone so the test passes on any host timezone.
+    LOCAL_TZ = timezone(timedelta(hours=2))
+    FAKE_NOW = datetime(2026, 6, 25, 12, 0, 0, tzinfo=LOCAL_TZ)
+
+    def _fake_now_local() -> datetime:
+        return FAKE_NOW
+
+    monkeypatch.setattr(
+        "agent_runtime._builtin_provider_stream_interpretation._time_module.now_local",
+        _fake_now_local,
+    )
+
     usage_limit_line = (
         json.dumps(
             {
@@ -768,13 +780,20 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
         request
     )
 
+    # Derive expected values based on the pinned timezone so the assertion is
+    # independent of the test host's local offset.
+    expected_reset = datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc).astimezone(
+        FAKE_NOW.tzinfo
+    )
+    expected_detail = f"Usage limit reached (reset_time={expected_reset.isoformat()})"
+
     assert result == provider_invocation_runtime.ProviderInvocationFailure(
         kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
-        detail="Usage limit reached (reset_time=2027-01-02T17:00:00+00:00)",
+        detail=expected_detail,
         stdout_lines=(usage_limit_line,),
         provider_session_id=None,
         usage=None,
-        reset_time=datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc),
+        reset_time=expected_reset,
     )
 
 
