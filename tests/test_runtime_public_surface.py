@@ -180,6 +180,26 @@ def test_retired_public_adapter_modules_do_not_expose_runtime_seams(
     assert module.__all__ == []
 
 
+def test_session_module_exports_only_active_provider_state_helpers() -> None:
+    assert session_runtime.__all__ == ["RunKind", "provider_state_relpath"]
+    assert session_runtime.RunKind is RunKind
+    assert session_runtime.provider_state_relpath("implementer", "codex") == (
+        "implementer/codex/"
+    )
+
+    for removed_name in (
+        "ProviderSessionState",
+        "ProviderSessionStateRequest",
+        "normalize_state_dir_relpath",
+        "provider_state_session_id_path",
+        "load_provider_state_session_id",
+        "load_state_dir_provider_session_id",
+    ):
+        with pytest.raises(ImportError):
+            exec(f"from agent_runtime.session import {removed_name}", {}, {})
+        assert not hasattr(session_runtime, removed_name)
+
+
 @pytest.mark.parametrize(
     ("module_name", "removed_name"),
     [
