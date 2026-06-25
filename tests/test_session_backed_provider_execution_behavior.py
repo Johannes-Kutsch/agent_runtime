@@ -19,19 +19,6 @@ from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 
-def _install_in_memory_provider_invocation_adapter(
-    monkeypatch: pytest.MonkeyPatch,
-    *prepared_invocations: (
-        provider_invocation_runtime.ProviderInvocationResult
-        | provider_invocation_runtime.ProviderInvocationFailure
-        | provider_invocation_runtime.ProviderInvocationPreparedStream
-    ),
-) -> RuntimeClientExecutionHarness:
-    return RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
-        *prepared_invocations
-    )
-
-
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
 def test_session_backed_codex_completion_resolves_provider_session_id_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
@@ -43,8 +30,7 @@ def test_session_backed_codex_completion_resolves_provider_session_id_through_mo
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="final output",
             usage=runtime.ProviderUsage(
@@ -113,8 +99,7 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 '{"type":"item.completed","item":{"type":"agent_message","text":"continued output"}}\n',
@@ -182,8 +167,7 @@ def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="final output",
             usage=runtime.ProviderUsage(
@@ -278,8 +262,7 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
             detail="Usage limit reached (reset_time=None)",
@@ -365,7 +348,7 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
 
     continuation = RuntimeClientExecutionHarness.codex_continuation()
     runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
@@ -686,8 +669,7 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
         "now_local",
         lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(

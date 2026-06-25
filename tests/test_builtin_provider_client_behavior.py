@@ -8,7 +8,7 @@ import dataclasses
 from datetime import datetime, timezone
 from pathlib import Path
 import re
-from typing import Any, cast
+from typing import cast
 
 import pytest
 
@@ -32,36 +32,6 @@ from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 def _codex_executable() -> str:
     return "codex.cmd" if os.name == "nt" else "codex"
-
-
-def _selection_with_auth(selection: Any, auth: Any) -> Any:
-    return RuntimeClientExecutionHarness.attach_provider_auth(selection, auth)
-
-
-def _install_local_codex_host_auth(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    *,
-    auth_file_content: str = "{}",
-) -> Path:
-    return RuntimeClientExecutionHarness.install_local_codex_host_auth(
-        monkeypatch,
-        tmp_path,
-        auth_file_content=auth_file_content,
-    )
-
-
-def _install_in_memory_provider_invocation_adapter(
-    monkeypatch: pytest.MonkeyPatch,
-    *prepared_invocations: (
-        provider_invocation_runtime.ProviderInvocationResult
-        | provider_invocation_runtime.ProviderInvocationFailure
-        | provider_invocation_runtime.ProviderInvocationPreparedStream
-    ),
-) -> RuntimeClientExecutionHarness:
-    return RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
-        *prepared_invocations
-    )
 
 
 @dataclasses.dataclass
@@ -455,8 +425,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -536,8 +505,7 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
         monkeypatch,
         "prepared-session-id",
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -592,7 +560,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
 
     with pytest.raises(RuntimeConfigurationError):
         asyncio.run(
@@ -723,8 +691,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "result", "result": "first output"}) + "\n",
@@ -962,8 +929,7 @@ def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_p
         monkeypatch,
         "prepared-session-id",
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="final output",
             usage=runtime.ProviderUsage(
@@ -1179,8 +1145,7 @@ def test_runtime_client_start_session_run_calls_live_output_observer(
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
@@ -1188,7 +1153,7 @@ def test_runtime_client_start_session_run_calls_live_output_observer(
             ),
         ),
     )
-    _install_local_codex_host_auth(monkeypatch, tmp_path)
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
@@ -1220,9 +1185,8 @@ def test_runtime_client_start_session_run_observes_current_codex_turns_when_reus
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    _install_local_codex_host_auth(monkeypatch, tmp_path)
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("current invocation output"),
@@ -1271,8 +1235,7 @@ def test_runtime_client_start_session_run_forwards_live_output_observer_exceptio
             observed.append(turn.display_message)
         raise runtime.UsageLimitError(service_name="codex")
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
@@ -1313,8 +1276,7 @@ def test_runtime_client_start_session_run_propagates_live_output_observer_timeou
             observed.append(turn.display_message)
         raise observer_failure
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
@@ -1356,8 +1318,7 @@ def test_runtime_client_start_session_run_propagates_live_output_observer_cancel
             observed.append(turn.display_message)
         raise observer_failure
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
@@ -1397,8 +1358,7 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
@@ -1445,8 +1405,7 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
             reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
         )
 
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
@@ -1489,8 +1448,7 @@ def test_runtime_client_resumed_session_run_propagates_live_output_observer_time
             observed.append(turn.display_message)
         raise observer_failure
 
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
@@ -1541,8 +1499,7 @@ def test_runtime_client_new_session_maps_provider_unavailable_outcomes(
     reason: ProviderUnavailableReason,
     detail: str,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
             detail=detail,
@@ -1591,8 +1548,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(_claude_assistant_output_line(("  hello ", "world")),),
         ),
@@ -1603,7 +1559,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -1633,8 +1589,7 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _claude_assistant_output_line("intermediate"),
@@ -1692,8 +1647,7 @@ def test_runtime_client_ephemeral_run_emits_claude_tool_call_and_other_agent_eve
 
     tool_line = _claude_tool_output_line("Read", {"path": "README.md"})
     result_line = _claude_result_output_line("final output")
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(tool_line, result_line),
         ),
@@ -1704,7 +1658,7 @@ def test_runtime_client_ephemeral_run_emits_claude_tool_call_and_other_agent_eve
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -1743,8 +1697,7 @@ def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantic
     assistant_line = _claude_assistant_output_line("intermediate")
     tool_line = _claude_tool_output_line("Read", {"path": "README.md"})
     result_line = _claude_result_output_line("final output")
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(assistant_line, tool_line, result_line),
         ),
@@ -1757,7 +1710,7 @@ def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantic
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
+                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                         InternalStageSelection(
                             service="claude",
                             model="sonnet",
@@ -1833,8 +1786,7 @@ def test_runtime_client_new_session_run_propagates_claude_live_output_observer_f
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(_claude_assistant_output_line("intermediate"),),
         ),
@@ -1888,8 +1840,7 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -1957,8 +1908,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -2029,7 +1979,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
+                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                         InternalStageSelection(
                             service="opencode",
                             model="kimi-k2.6",
@@ -2088,8 +2038,7 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -2150,7 +2099,7 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
+                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                         InternalStageSelection(
                             service="opencode",
                             model="kimi-k2.6",
@@ -2177,8 +2126,7 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -2264,8 +2212,7 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="continued output",
             usage=runtime.ProviderUsage(
@@ -2323,8 +2270,7 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -2416,8 +2362,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="continued output",
             usage=runtime.ProviderUsage(
@@ -2511,8 +2456,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         auth_file_content='{"token":"host-auth"}\n',
     )
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="initial output",
             usage=runtime.ProviderUsage(
@@ -2633,8 +2577,7 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
         auth_file_content='{"token":"host-auth"}\n',
     )
 
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="continued output",
             usage=runtime.ProviderUsage(
@@ -2697,8 +2640,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
             detail="Usage limit reached (reset_time=None)",
@@ -2823,18 +2765,13 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True)
-    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
     )
 
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="initial output",
             usage=runtime.ProviderUsage(input_tokens=1, output_tokens=1),
@@ -2920,7 +2857,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -2967,8 +2904,7 @@ def test_runtime_client_keeps_claude_continuation_when_provider_invocation_failu
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
             detail="Usage limit reached (reset_time=None)",
@@ -2982,7 +2918,7 @@ def test_runtime_client_keeps_claude_continuation_when_provider_invocation_failu
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=tmp_path / ".agent-runtime" / "state",
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -3081,8 +3017,7 @@ def test_runtime_client_omits_codex_continuation_for_pre_start_session_backed_in
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         failure,
     )
 
@@ -3143,8 +3078,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
         "_new_provider_session_id",
         lambda: "generated-session-id",
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "result", "result": "generated output"}) + "\n",
@@ -3205,8 +3139,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
         "_new_provider_session_id",
         lambda: "generated-session-id",
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "result", "result": "generated output"}) + "\n",
@@ -3258,8 +3191,7 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
     tmp_path: Path,
     create_state_dir: bool,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "result", "result": "fresh output"}) + "\n",
@@ -3317,8 +3249,7 @@ def test_runtime_client_new_session_requires_claude_auth_when_runtime_state_is_r
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "result", "result": "should not run"}) + "\n",
@@ -3525,8 +3456,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 '{"type":"thread.started","thread_id":"thread-123"}\n',
@@ -3594,7 +3524,7 @@ def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_se
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
 
     with pytest.raises(RuntimeConfigurationError) as exc_info:
         asyncio.run(
@@ -3664,7 +3594,7 @@ def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provi
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_PORTABLE_CONTINUATION_PROVIDERS",
@@ -3694,7 +3624,7 @@ def test_runtime_client_rejects_resumed_session_for_unsupported_session_backed_p
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_PORTABLE_CONTINUATION_PROVIDERS",
@@ -3724,7 +3654,7 @@ def test_runtime_client_requires_host_codex_auth_for_session_execution(
     tmp_path: Path,
     entrypoint: str,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
         "home",
@@ -3776,8 +3706,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "result", "result": "continued output"}) + "\n",
@@ -3796,7 +3725,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -4016,8 +3945,7 @@ def test_runtime_client_ephemeral_execution_remains_available_when_session_backe
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="ephemeral output",
             usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
@@ -4051,8 +3979,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="continued output",
             provider_session_id="persisted-session-2",
@@ -4140,13 +4067,12 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
     tmp_path: Path,
     tool_access: contracts_runtime.ToolAccess,
 ) -> None:
-    _install_local_codex_host_auth(
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
         monkeypatch,
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 '{"type":"thread.started","thread_id":"thread-123"}\n',
@@ -4250,8 +4176,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
             detail="Usage limit reached (reset_time=None)",
@@ -4325,8 +4250,7 @@ def test_runtime_client_preserves_opencode_invalid_api_key_classification(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -4355,7 +4279,7 @@ def test_runtime_client_preserves_opencode_invalid_api_key_classification(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
+                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                         InternalStageSelection(
                             service="opencode",
                             model="kimi-k2.6",
@@ -4386,8 +4310,7 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
         "now_local",
         lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
     )
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 '"not a dict"\n',
@@ -4433,7 +4356,7 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="opencode",
                         model="kimi-k2.6",
@@ -4459,22 +4382,13 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_usage_limited_and_logs_
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
         lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -4525,22 +4439,13 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
         lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -4642,8 +4547,7 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 "not json\n",
@@ -4688,7 +4592,7 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
+                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                         InternalStageSelection(
                             service="opencode",
                             model="kimi-k2.6",
@@ -4712,8 +4616,7 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -4742,7 +4645,7 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
+                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                         InternalStageSelection(
                             service="opencode",
                             model="kimi-k2.6",
@@ -4763,8 +4666,7 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -4817,7 +4719,7 @@ def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="opencode",
                         model="kimi-k2.6",
@@ -4842,8 +4744,7 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -4869,7 +4770,7 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -4895,8 +4796,7 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -4918,7 +4818,7 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
+                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                         InternalStageSelection(
                             service="claude",
                             model="sonnet",
@@ -4939,8 +4839,7 @@ def test_runtime_client_preserves_claude_usage_on_usage_limited_stream(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -4975,7 +4874,7 @@ def test_runtime_client_preserves_claude_usage_on_usage_limited_stream(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -5008,8 +4907,7 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -5037,7 +4935,7 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -5061,8 +4959,7 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
     tmp_path: Path,
 ) -> None:
     reset_time = datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc)
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -5093,7 +4990,7 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="claude",
                         model="sonnet",
@@ -5116,8 +5013,7 @@ def test_runtime_client_rejects_unsupported_selected_provider_for_ephemeral_resu
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "result", "result": "final output"}) + "\n",
@@ -5147,8 +5043,7 @@ def test_runtime_client_preserves_claude_credential_failure_message(
     tmp_path: Path,
 ) -> None:
     denial_message = "Disabled Claude subscription access for Claude Code."
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -5170,7 +5065,7 @@ def test_runtime_client_preserves_claude_credential_failure_message(
                 prompt_runtime.EphemeralRunRequest(
                     prompt="already rendered prompt",
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
+                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                         InternalStageSelection(
                             service="claude",
                             model="sonnet",
@@ -5244,8 +5139,7 @@ def test_runtime_client_new_session_times_out_after_agent_event_and_preserves_ob
         monkeypatch,
         timeout_check_numbers=(2,),
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -5331,8 +5225,7 @@ def test_runtime_client_codex_new_session_timeout_preserves_observed_usage_and_c
         monkeypatch,
         timeout_check_numbers=(3,),
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "thread.started", "thread_id": "thread-123"})
@@ -5414,8 +5307,7 @@ def test_runtime_client_codex_resumed_session_timeout_preserves_observed_usage_a
         monkeypatch,
         timeout_check_numbers=(3,),
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "thread.started", "thread_id": "thread-456"})
@@ -5487,8 +5379,7 @@ def test_runtime_client_resumed_session_times_out_and_preserves_observed_session
         monkeypatch,
         timeout_check_numbers=(2,),
     )
-    harness = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -5553,8 +5444,7 @@ def test_runtime_client_ephemeral_disables_idle_timeout_for_non_positive_timeout
     timeout_seconds: int,
 ) -> None:
     observed_events: list[prompt_runtime.AgentEvent] = []
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "session.status", "status": {"type": "idle"}}),
@@ -5567,7 +5457,7 @@ def test_runtime_client_ephemeral_disables_idle_timeout_for_non_positive_timeout
             prompt_runtime.EphemeralRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
                     InternalStageSelection(
                         service="opencode",
                         model="kimi-k2.6",
@@ -5604,7 +5494,7 @@ def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
     ephemeral = prompt_runtime.EphemeralRunRequest(
         prompt="test",
         invocation_dir=tmp_path,
-        provider_selection=_selection_with_auth(
+        provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
             InternalStageSelection(
                 service="claude", model="claude-haiku-4-5", effort="low"
             ),
@@ -5617,7 +5507,7 @@ def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
     new_session = prompt_runtime.NewSessionRunRequest(
         prompt="test",
         invocation_dir=tmp_path,
-        provider_selection=_selection_with_auth(
+        provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
             InternalStageSelection(
                 service="claude", model="claude-haiku-4-5", effort="low"
             ),
