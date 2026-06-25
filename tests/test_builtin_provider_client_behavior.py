@@ -3857,6 +3857,77 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
     assert "--resume" not in recorded_request.command
 
 
+def test_runtime_client_runs_claude_resumed_session_with_generated_provider_session_id_without_runtime_state_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "generated-session-id",
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "generated output"}) + "\n",
+            ),
+        ),
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "exact_transcript_match": False,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                continuation=continuation,
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "generated output"
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="claude", model="sonnet", effort="medium"
+    )
+    assert outcome.result.continuation == prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "generated-session-id",
+            "exact_transcript_match": False,
+        },
+    )
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    assert recorded_request.worktree == tmp_path
+    assert recorded_request.run_kind is RunKind.RESUME
+    assert recorded_request.provider_session_id == "generated-session-id"
+    assert recorded_request.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+    }
+    assert "--resume generated-session-id" in recorded_request.command
+    assert "--session-id" not in recorded_request.command
+
+
 @pytest.mark.parametrize("create_state_dir", [False, True])
 def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is_not_resumable(
     monkeypatch: pytest.MonkeyPatch,
@@ -3932,6 +4003,47 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
     }
     assert "--session-id claude-session-123" in recorded_request.command
     assert "--resume" not in recorded_request.command
+
+
+def test_runtime_client_new_session_requires_claude_auth_when_runtime_state_is_resumable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "should not run"}) + "\n",
+            ),
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/claude" / "nested"
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "transcript.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                prompt_runtime.NewSessionRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    provider_selection=InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    session_namespace="main",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    assert str(exc_info.value) == "Missing Claude Code OAuth token."
+    assert exc_info.value.service_name == "claude"
+    assert adapter.recorded_requests == []
 
 
 def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_session(
