@@ -857,6 +857,109 @@ def test_production_adapter_streams_stderr_lines_to_live_output_and_reduction(
     assert result.stdout_lines == ("out 1\n", "err 1\n", "err 2\n")
 
 
+def test_production_adapter_surfaces_provider_stderr_text_in_nonzero_shell_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(())
+            self.stderr = iter(["provider exploded\n"])
+            self.returncode = 23
+
+        def wait(self) -> int:
+            return 23
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+    )
+
+    with pytest.raises(
+        HardAgentError,
+        match=r"(?s)exit code 23.*provider exploded",
+    ):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+
+def test_production_adapter_surfaces_provider_stderr_text_in_nonzero_argv_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Stdin:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.closed = False
+
+        def write(self, content: str) -> None:
+            self.writes.append(content)
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdin = _Stdin()
+            self.stdout = iter(())
+            self.stderr = iter(["argv path exploded\n"])
+            self.returncode = 17
+
+        def wait(self) -> int:
+            return 17
+
+    process = _Process()
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: process,
+    )
+    monkeypatch.setattr(provider_invocation_runtime.shutil, "which", lambda _name: None)
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+        argv=("provider", "--run"),
+    )
+
+    with pytest.raises(
+        HardAgentError,
+        match=r"(?s)exit code 17.*argv path exploded",
+    ):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+    assert process.stdin.writes == ["rendered prompt"]
+    assert process.stdin.closed is True
+
+
 def test_production_adapter_raises_hard_error_on_nonzero_exit_even_with_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -975,6 +1078,48 @@ def test_production_adapter_raises_hard_error_on_nonzero_exit_with_empty_output(
     )
 
     with pytest.raises(HardAgentError, match="exit code 17"):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+
+def test_production_adapter_preserves_exit_code_only_message_for_whitespace_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(())
+            self.stderr = iter(["   \n", "\t"])
+            self.returncode = 19
+
+        def wait(self) -> int:
+            return 19
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda _lines: ("", None),
+        ),
+    )
+
+    with pytest.raises(
+        HardAgentError, match=r"^Provider subprocess exited with exit code 19\.$"
+    ):
         provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
             request
         )

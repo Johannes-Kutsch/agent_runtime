@@ -138,6 +138,14 @@ def _provider_invocation_failure_from_error(
     )
 
 
+def _nonzero_exit_message(returncode: int, observed_lines: list[str]) -> str:
+    message = f"Provider subprocess exited with exit code {returncode}."
+    observed_output = "".join(observed_lines)
+    if not observed_output.strip():
+        return message
+    return f"{message} Provider output:\n{observed_output}"
+
+
 class ProductionProviderInvocationAdapter:
     def execute(
         self,
@@ -291,7 +299,7 @@ class ProductionProviderInvocationAdapter:
                 observed_provider_session_id = _active_provider_session_id()
                 if returncode != 0:
                     error = HardAgentError(
-                        f"Provider subprocess exited with exit code {returncode}.",
+                        _nonzero_exit_message(returncode, stdout_lines),
                     )
                     setattr(error, "provider_session_id", observed_provider_session_id)
                     raise error
