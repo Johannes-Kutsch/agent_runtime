@@ -555,6 +555,9 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "session-uuid"
+    assert recorded_request.prompt.path == tmp_path / ".provider_prompt"
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.prefer_argv is True
     assert recorded_request.environment == {
         "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
         "CLAUDE_CONFIG_DIR": str(provider_state_dir),
@@ -3849,6 +3852,9 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "generated-session-id"
+    assert recorded_request.prompt.path == tmp_path / ".provider_prompt"
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.prefer_argv is True
     assert recorded_request.environment == {
         "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
         "CLAUDE_CONFIG_DIR": str(runtime_state_dir / provider_state_dir_relpath),
@@ -3921,6 +3927,9 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "generated-session-id"
+    assert recorded_request.prompt.path == tmp_path / ".provider_prompt"
+    assert recorded_request.prompt.cleanup_path is True
+    assert recorded_request.prefer_argv is True
     assert recorded_request.environment == {
         "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
     }
