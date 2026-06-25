@@ -338,6 +338,19 @@ def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() ->
     )
 
 
+def test_render_tool_policy_none_produces_current_provider_facts() -> None:
+    rendered_policy = built_in_provider_rendering.render_built_in_provider_tool_policy(
+        runtime.ToolPolicy.NONE
+    )
+
+    assert (
+        rendered_policy.claude_profile
+        == ToolPolicyProfile(disallowed_tools=("all",))
+    )
+    assert rendered_policy.codex_sandbox == "read-only"
+    assert rendered_policy.opencode_permission == "deny"
+
+
 def test_render_claude_invocation_places_provider_session_ids_for_fresh_and_resume() -> (
     None
 ):
