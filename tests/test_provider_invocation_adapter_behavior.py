@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 import agent_runtime._provider_invocation as provider_invocation_runtime
-from agent_runtime._builtin_runtime_client import _reduce_codex_stream
+from agent_runtime._builtin_provider_stream_interpretation import reduce_codex_stream
 from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime.errors import (
     HardAgentError,
@@ -621,7 +621,7 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
         log_context=None,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
-            reduce_output=lambda lines: _reduce_codex_stream(lines),
+            reduce_output=reduce_codex_stream,
         ),
     )
 
