@@ -5257,6 +5257,71 @@ def test_runtime_client_new_session_silent_invocation_timeout_has_no_continuatio
     assert outcome.result.continuation is None
 
 
+def test_runtime_client_ephemeral_silent_invocation_timeout_without_live_runtime_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    script_path = tmp_path / "silent_provider_hang.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import signal",
+                "import sys",
+                "import time",
+                "",
+                "signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))",
+                "while True:",
+                "    time.sleep(60)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        builtin_provider_rendering_runtime,
+        "render_built_in_provider_invocation",
+        lambda _request: (
+            builtin_provider_rendering_runtime.BuiltInProviderRenderedInvocation(
+                canonical_argv=(sys.executable, str(script_path)),
+                legacy_command_text=None,
+                environment={},
+                prompt_path=None,
+                prompt_cleanup_choice=builtin_provider_rendering_runtime.PromptCleanupChoice.KEEP,
+                prompt_transport_preference=builtin_provider_rendering_runtime.PromptTransportPreference.STDIN,
+                provider_session_id_placement=builtin_provider_rendering_runtime.ProviderSessionIdPlacement.NONE,
+                prefer_argv=True,
+            )
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            RuntimeClientExecutionHarness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                timeout_seconds=1,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.TimedOut)
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="claude",
+        model="sonnet",
+        effort="medium",
+    )
+    assert outcome.result.continuation is None
+    assert outcome.result.usage is None
+
+
 def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
