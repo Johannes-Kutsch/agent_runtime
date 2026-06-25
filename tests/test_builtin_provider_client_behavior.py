@@ -4258,30 +4258,20 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     expected_output: str,
     expected_usage: runtime.ProviderUsage | None,
 ) -> None:
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
-        prepared_invocation,
-    )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(prepared_invocation)
     if service_name == "codex":
-        host_home = tmp_path / "host-home"
-        host_auth_path = host_home / ".codex" / "auth.json"
-        host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-        host_auth_path.write_text("{}", encoding="utf-8")
-        monkeypatch.setattr(
-            prompt_runtime._builtin_runtime_client_module.Path,
-            "home",
-            lambda: host_home,
+        RuntimeClientExecutionHarness.install_local_codex_host_auth(
+            monkeypatch,
+            tmp_path,
         )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
+            harness.ephemeral_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    stage,
-                    auth,
-                ),
+                provider_selection=stage,
+                provider_auth=auth,
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -4295,8 +4285,8 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
         service=service_name, model=stage.model, effort=stage.effort
     )
     assert result.continuation is None
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
+    assert len(harness.recorded_requests) == 1
+    recorded_request = harness.recorded_request()
     assert recorded_request.prompt.content == "already rendered prompt"
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.FRESH
@@ -4924,28 +4914,22 @@ def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
-    )
-    _install_in_memory_provider_invocation_adapter(
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
         monkeypatch,
+        tmp_path,
+    )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_failure(
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
             detail="Usage limit reached (reset_time=2026-01-02T17:00:00+00:00)",
             reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
-        ),
+        )
     )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
+            harness.ephemeral_run_request(
                 invocation_dir=tmp_path,
                 provider_selection=InternalStageSelection(
                     service="codex",
@@ -5527,28 +5511,25 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
         monkeypatch,
         timeout_check_numbers=(1,),
     )
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps({"type": "session.status", "status": {"type": "idle"}}),
-            ),
-        ),
+            )
+        )
     )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
+            harness.ephemeral_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
                 ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 timeout_seconds=1,
                 on_live_output=lambda _event: None,
@@ -6009,26 +5990,23 @@ def test_runtime_client_ephemeral_times_out_without_live_output_callback(
         monkeypatch,
         timeout_check_numbers=(1,),
     )
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(_opencode_idle_output_line(),),
-        ),
+            stdout_lines=(_opencode_idle_output_line(),)
+        )
     )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
+            harness.ephemeral_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
                 ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 timeout_seconds=1,
             )

@@ -17,23 +17,6 @@ import agent_runtime._provider_invocation as provider_invocation_runtime
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 
 
-def _install_adapter(monkeypatch, *prepared):
-    return RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(*prepared)
-
-
-def _install_local_codex_host_auth(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    *,
-    auth_file_content: str = "{}",
-) -> Path:
-    return RuntimeClientExecutionHarness.install_local_codex_host_auth(
-        monkeypatch,
-        tmp_path,
-        auth_file_content=auth_file_content,
-    )
-
-
 def _codex_message_output_line(text: str) -> str:
     return (
         json.dumps(
@@ -45,23 +28,22 @@ def _codex_message_output_line(text: str) -> str:
 
 def _run_completed_codex_ephemeral(monkeypatch, tmp_path: Path):
     line = _codex_message_output_line("hello")
-    _install_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(line,)
-        ),
+        )
     )
-    _install_local_codex_host_auth(monkeypatch, tmp_path)
-    selection = runtime.ProviderSelection(
-        service="codex",
-        model="gpt-5.4",
-        effort="medium",
-    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
     return asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            RuntimeClientExecutionHarness.ephemeral_run_request(
+            harness.ephemeral_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=selection,
+                provider_selection=runtime.ProviderSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
                 ),
