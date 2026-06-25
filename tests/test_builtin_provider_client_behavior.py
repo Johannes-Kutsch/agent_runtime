@@ -5510,6 +5510,101 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     assert "--model opencode-go/glm-5.2" in recorded_request.command
 
 
+def test_runtime_client_restores_portable_opencode_provider_state_without_runtime_state_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _SnapshottingOpencodeAdapter:
+        def __init__(self) -> None:
+            self.recorded_requests: list[
+                provider_invocation_runtime.ProviderInvocationRequest
+            ] = []
+            self.state_dir: Path | None = None
+            self.session_id_contents: str | None = None
+            self.resume_jsonl_contents: str | None = None
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.recorded_requests.append(request)
+            self.state_dir = Path(request.environment["OPENCODE_HOME"])
+            self.session_id_contents = (self.state_dir / "session_id").read_text(
+                encoding="utf-8"
+            )
+            self.resume_jsonl_contents = (self.state_dir / "resume.jsonl").read_text(
+                encoding="utf-8"
+            )
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output="continued output",
+                stdout_lines=(
+                    json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                    + "\n",
+                ),
+            )
+
+    adapter = _SnapshottingOpencodeAdapter()
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
+            "exact_transcript_match": True,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                continuation=continuation,
+                session_namespace="main",
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "continued output"
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="opencode", model="glm-5.2", effort="medium"
+    )
+    assert outcome.result.continuation == prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "provider_session_id": "persisted-session-1",
+            "provider_state": {
+                "session_id": "persisted-session-1",
+                "resume_jsonl": "[]",
+            },
+            "exact_transcript_match": True,
+        },
+    )
+    assert len(adapter.recorded_requests) == 1
+    assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
+    assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
+    assert adapter.session_id_contents == "persisted-session-1\n"
+    assert adapter.resume_jsonl_contents == "[]"
+    assert adapter.state_dir is not None
+    assert adapter.state_dir.exists() is False
+
+
 def test_runtime_client_uses_observed_opencode_resumed_session_id_for_started_usage_limited_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
