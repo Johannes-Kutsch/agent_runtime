@@ -29,6 +29,12 @@ SCRIPT_PATH = (
     / "live-probe"
     / "live_provider_probe.py"
 )
+CASE_RUNNER_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "live-probe"
+    / "_live_probe_case_runner.py"
+)
 
 
 @pytest.fixture
@@ -39,6 +45,26 @@ def probe() -> Any:
     sys.modules[spec.name] = module  # type: ignore[arg-type]
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture
+def case_runner() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "_live_probe_case_runner", CASE_RUNNER_PATH
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # type: ignore[arg-type]
+    spec.loader.exec_module(module)
+    return module
+
+
+class _OutputRecorder:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def line(self, text: str) -> None:
+        self.lines.append(text)
 
 
 def _continuation() -> pr.Continuation:
@@ -102,6 +128,19 @@ def _default_handler(method: str, request: Any) -> Any:
     if method == "run_resumed_session":
         return _completed("resumed output")
     return _completed("ephemeral output")
+
+
+def _codex_probe_case(probe: Any, *, mode: str) -> Any:
+    provider_plan = probe.plan.plan_selected_providers(
+        probe.plan.parse_provider_selection("codex"),
+        env={},
+        codex_auth_present=True,
+    )[0]
+    return next(
+        case
+        for case in probe.plan.probe_cases_for_provider(provider_plan)
+        if case.mode == mode
+    )
 
 
 def test_full_run_writes_six_cases_with_feed_and_result(
@@ -431,3 +470,170 @@ def test_main_uses_all_when_no_provider_given(
 
     probe.main(["codex"])
     assert captured["selection"] == ("codex",)
+
+
+def test_live_probe_case_runner_writes_feed_and_projects_case_result_facts(
+    probe: Any, case_runner: Any, tmp_path: Path
+) -> None:
+    case = _codex_probe_case(probe, mode="new_session")
+    output = _OutputRecorder()
+    usage = pr.ProviderUsage(input_tokens=10, output_tokens=3, cost_usd=0.01)
+
+    class _FakeClient:
+        async def run_ephemeral(self, request: Any) -> Any:
+            raise AssertionError("unexpected ephemeral execution")
+
+        async def run_new_session(self, request: Any) -> Any:
+            request.on_live_output(
+                pr.AgentEvent(
+                    type="agent_message",
+                    display_message="hello",
+                    raw_provider_output='{"event":"message"}',
+                )
+            )
+            request.on_live_output(
+                pr.AgentEvent(
+                    type="other",
+                    display_message="hidden",
+                    raw_provider_output='{"event":"other"}',
+                )
+            )
+            return _completed(
+                "new session output", continuation=_continuation(), usage=usage
+            )
+
+        async def run_resumed_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected resumed execution")
+
+    result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=case,
+            case_dir=tmp_path / case.label,
+            invocation_dir=tmp_path / "workspace",
+            prompt="prompt",
+            timeout_seconds=123,
+            continuation=None,
+            output=output,
+        ),
+        outcome_category=probe.plan.outcome_category,
+        runtime_client_factory=_FakeClient,
+    )
+
+    assert result.category == "success"
+    assert result.kind == "Completed"
+    assert result.selected == {
+        "service": "codex",
+        "model": "gpt-5.4-mini",
+        "effort": "low",
+    }
+    assert result.output == "new session output"
+    assert result.usage is not None
+    assert result.usage["input_tokens"] == 10
+    assert result.continuation == _continuation()
+    assert result.traceback is None
+    assert output.lines == ["  hello"]
+    assert (tmp_path / "workspace").exists()
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / case.label / case_runner.LIVE_FEED_FILENAME)
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert records == [
+        {
+            "type": "agent_message",
+            "display_message": "hello",
+            "raw_provider_output": '{"event":"message"}',
+        },
+        {
+            "type": "other",
+            "display_message": "hidden",
+            "raw_provider_output": '{"event":"other"}',
+        },
+    ]
+
+
+def test_live_probe_case_runner_passes_continuation_and_default_provider_auth_for_resumed_session(
+    probe: Any, case_runner: Any, tmp_path: Path
+) -> None:
+    case = _codex_probe_case(probe, mode="resumed_session")
+    output = _OutputRecorder()
+    observed: dict[str, Any] = {}
+
+    class _FakeClient:
+        async def run_ephemeral(self, request: Any) -> Any:
+            raise AssertionError("unexpected ephemeral execution")
+
+        async def run_new_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected new-session execution")
+
+        async def run_resumed_session(self, request: Any) -> Any:
+            observed["continuation"] = request.continuation
+            observed["provider_auth"] = request.provider_auth
+            observed["invocation_dir"] = request.invocation_dir
+            return _completed("resumed output")
+
+    result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=case,
+            case_dir=tmp_path / case.label,
+            invocation_dir=tmp_path / "workspace",
+            prompt="resume prompt",
+            timeout_seconds=45,
+            continuation=_continuation(),
+            output=output,
+        ),
+        outcome_category=probe.plan.outcome_category,
+        runtime_client_factory=_FakeClient,
+    )
+
+    assert result.category == "success"
+    assert observed["continuation"] == _continuation()
+    assert observed["provider_auth"] == pr.ProviderAuth()
+    assert observed["invocation_dir"] == tmp_path / "workspace"
+    assert output.lines == []
+
+
+def test_live_probe_case_runner_reports_wrong_credentials_with_traceback(
+    probe: Any, case_runner: Any, tmp_path: Path
+) -> None:
+    case = _codex_probe_case(probe, mode="ephemeral")
+    output = _OutputRecorder()
+
+    class _FakeClient:
+        async def run_ephemeral(self, request: Any) -> Any:
+            raise AgentCredentialFailureError("bad token", service_name="codex")
+
+        async def run_new_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected new-session execution")
+
+        async def run_resumed_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected resumed execution")
+
+    result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=case,
+            case_dir=tmp_path / case.label,
+            invocation_dir=tmp_path / "workspace",
+            prompt="prompt",
+            timeout_seconds=30,
+            continuation=None,
+            output=output,
+        ),
+        outcome_category=probe.plan.outcome_category,
+        runtime_client_factory=_FakeClient,
+    )
+
+    assert result.category == "wrong_credentials"
+    assert result.kind is None
+    assert result.selected is None
+    assert result.output is None
+    assert result.usage is None
+    assert result.continuation is None
+    assert result.traceback is not None
+    assert "AgentCredentialFailureError" in result.traceback
+    assert output.lines == []
+    assert (tmp_path / case.label / case_runner.LIVE_FEED_FILENAME).read_text(
+        encoding="utf-8"
+    ) == ""

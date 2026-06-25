@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from traceback import format_exc
-from typing import Any, Callable, Protocol
+from typing import Any, Awaitable, Callable, Protocol
 
 from agent_runtime.runtime import (
     Continuation,
@@ -25,9 +25,33 @@ class _LiveProbeOutput(Protocol):
     def line(self, text: str) -> None: ...
 
 
+class _PlannedProbeCase(Protocol):
+    @property
+    def service(self) -> str: ...
+
+    @property
+    def mode(self) -> str: ...
+
+    @property
+    def tool_policy(self) -> str: ...
+
+    @property
+    def provider_selection(self) -> Any: ...
+
+
+class _RuntimeClient(Protocol):
+    def run_ephemeral(self, request: EphemeralRunRequest) -> Awaitable[Any]: ...
+
+    def run_new_session(self, request: NewSessionRunRequest) -> Awaitable[Any]: ...
+
+    def run_resumed_session(
+        self, request: ResumedSessionRunRequest
+    ) -> Awaitable[Any]: ...
+
+
 @dataclass(frozen=True)
 class ProbeCaseRunRequest:
-    case: Any
+    case: _PlannedProbeCase
     case_dir: Path
     invocation_dir: Path
     prompt: str
@@ -89,7 +113,7 @@ def run_case(
     request: ProbeCaseRunRequest,
     *,
     outcome_category: Callable[[Any], str],
-    runtime_client_factory: Callable[[], Any] = RuntimeClient,
+    runtime_client_factory: Callable[[], _RuntimeClient] = RuntimeClient,
 ) -> ProbeCaseRunResult:
     request.case_dir.mkdir(parents=True, exist_ok=True)
     request.invocation_dir.mkdir(parents=True, exist_ok=True)
