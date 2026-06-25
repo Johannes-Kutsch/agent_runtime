@@ -20,6 +20,47 @@ from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
+def test_session_backed_lifecycle_requires_session_store_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint: str,
+) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=('{"type":"result","output":"should not run"}\n',)
+        )
+    )
+
+    with pytest.raises(RuntimeConfigurationError, match="session_store"):
+        if entrypoint == "new":
+            session_backed_execution._run_builtin_new_session(
+                RuntimeClientExecutionHarness.start_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=None,
+                    provider_selection=InternalStageSelection(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="medium",
+                    ),
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        else:
+            session_backed_execution._run_builtin_resumed_session(
+                RuntimeClientExecutionHarness.resume_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=None,
+                    continuation=RuntimeClientExecutionHarness.opencode_continuation(),
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                )
+            )
+
+    assert harness.recorded_request_count == 0
+
+
+@pytest.mark.parametrize("entrypoint", ["new", "resumed"])
 def test_session_backed_codex_completion_resolves_provider_session_id_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
