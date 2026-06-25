@@ -4178,6 +4178,111 @@ def test_runtime_client_ephemeral_isolated_home_is_cleaned_up_after_failed_invoc
     assert not adapter.provider_state_dir.exists()
 
 
+def test_runtime_client_ephemeral_isolated_home_is_cleaned_up_after_completion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+
+    class _CapturingAdapter:
+        provider_state_dir: Path | None = None
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.provider_state_dir = Path(request.environment["CODEX_HOME"])
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output="ephemeral output",
+                usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+                stdout_lines=(
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"ephemeral output"}}\n',
+                    '{"type":"turn.completed"}\n',
+                ),
+            )
+
+    adapter = _CapturingAdapter()
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            RuntimeClientExecutionHarness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=None,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert adapter.provider_state_dir is not None
+    assert not adapter.provider_state_dir.exists()
+
+
+def test_runtime_client_ephemeral_codex_missing_host_auth_cleans_up_isolated_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured_provider_state_dir: Path | None = None
+    original_render = prompt_runtime._builtin_runtime_client_module._render_ephemeral_provider_invocation
+
+    def _capture_render(
+        request: prompt_runtime.EphemeralRunRequest,
+        stage: InternalStageSelection,
+        provider_state_dir: Path | None,
+    ) -> Any:
+        nonlocal captured_provider_state_dir
+        captured_provider_state_dir = provider_state_dir
+        return original_render(request, stage, provider_state_dir)
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: tmp_path / "missing-home",
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_render_ephemeral_provider_invocation",
+        _capture_render,
+    )
+
+    with pytest.raises(AgentCredentialFailureError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                RuntimeClientExecutionHarness.ephemeral_run_request(
+                    invocation_dir=tmp_path,
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    provider_auth=None,
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Codex authentication missing: run `codex login` on the host."
+    )
+    assert exc_info.value.service_name == "codex"
+    assert captured_provider_state_dir is not None
+    assert not captured_provider_state_dir.exists()
+
+
 @pytest.mark.parametrize(
     ("service_name", "model", "effort", "auth", "state_dir_name", "state_key"),
     [
