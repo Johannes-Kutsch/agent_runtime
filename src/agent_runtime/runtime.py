@@ -135,7 +135,7 @@ def _reduce_claude_stream(
 def _reduce_opencode_stream(
     lines: list[str],
     on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> str:
+) -> tuple[str, ProviderUsage | None]:
     return _builtin_runtime_client_module._reduce_opencode_stream(
         lines,
         on_live_output=on_live_output,

@@ -19,16 +19,21 @@ from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
     build_claude_agent_event as _live_output_event_for_claude_line,
     build_codex_agent_event as _live_output_event_for_codex_line,
+    build_opencode_agent_event as _live_output_event_for_opencode_line,
     claude_built_in_provider_stream_interpretation,
     classify_built_in_provider_invocation_progress,
     codex_built_in_provider_stream_interpretation,
     emit_built_in_provider_live_output_event,
     extract_codex_provider_session_id as _extract_codex_provider_session_id,
     is_claude_subscription_access_denial,
+    observe_opencode_output as _observe_output_opencode,
+    opencode_built_in_provider_stream_interpretation,
     parse_claude_event_with_dependencies,
     parse_claude_reset_time,
+    parse_opencode_reset_time,
     reduce_codex_stream as _reduce_codex_stream,
     reduce_claude_stream_with_dependencies,
+    reduce_opencode_stream as _reduce_opencode_stream,
 )
 from ._provider_invocation import (
     InvocationFailureKind,
@@ -58,15 +63,9 @@ from ._runtime_lifecycle import (
 )
 from .types import ResolvedProvider
 from .contracts import (
-    AssistantTurn,
-    CredentialFailure,
-    HardError,
-    Result,
     ToolAccess,
     ToolPolicy,
     ToolPolicyProfile,
-    TransientError,
-    UsageLimit,
 )
 from .errors import (
     AgentCredentialFailureError,
@@ -76,7 +75,6 @@ from .errors import (
     UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
-from .provider_output import reduce_text_output_events
 from .session import RunKind, provider_state_relpath
 from .types import ProviderSelection
 
@@ -121,15 +119,6 @@ _CLAUDE_RESET_PATTERN = re.compile(
     r"resets\s+"
     r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
     r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
-    re.IGNORECASE,
-)
-_OPENCODE_RESET_PATTERN = re.compile(
-    r"Try again at\s+"
-    r"(?P<month>[A-Za-z]+)\s+"
-    r"(?P<day>\d{1,2})(?:st|nd|rd|th)?,\s+"
-    r"(?P<year>\d{4})\s+"
-    r"(?P<hour>\d{1,2}):(?P<minute>\d{2})\s+"
-    r"(?P<ampm>AM|PM)\.",
     re.IGNORECASE,
 )
 _CLAUDE_MONTHS = {
@@ -545,6 +534,10 @@ def _parse_claude_reset_time(retry_text: object) -> datetime | None:
     return parse_claude_reset_time(retry_text)
 
 
+def _parse_opencode_reset_time(retry_text: object) -> datetime | None:
+    return parse_opencode_reset_time(retry_text)
+
+
 def _parse_claude_event_with_dependencies(
     line: str,
     *,
@@ -670,50 +663,6 @@ def _other_event(line: str, descriptor: str) -> AgentEvent:
     )
 
 
-def _live_output_event_for_opencode_line(line: str) -> AgentEvent:
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
-        return _other_event(line, "unparsed")
-    if not isinstance(event, dict):
-        return _other_event(line, "non_object")
-    if event.get("type") == "text":
-        part = event.get("part")
-        if isinstance(part, dict):
-            part_type = part.get("type")
-            if part_type == "text":
-                time = part.get("time")
-                if isinstance(time, dict) and time.get("end") is not None:
-                    text = part.get("text")
-                    if isinstance(text, str):
-                        stripped = text.strip()
-                        if stripped:
-                            return _message_event(line, stripped)
-            if part_type == "tool":
-                tool_name = part.get("name")
-                if not isinstance(tool_name, str) or not tool_name:
-                    tool_name = "tool"
-                payload_value = (
-                    part.get("input")
-                    if part.get("input") is not None
-                    else part.get("text", part)
-                )
-                return _tool_call_event(
-                    line, tool_name, _raw_event_payload(payload_value)
-                )
-    if event.get("type") == "session.status":
-        status = event.get("status")
-        descriptor = "session.status"
-        if isinstance(status, dict):
-            status_type = status.get("type")
-            if isinstance(status_type, str):
-                descriptor = status_type
-        return _other_event(line, descriptor)
-    event_type = event.get("type")
-    descriptor = event_type if isinstance(event_type, str) and event_type else "other"
-    return _other_event(line, descriptor)
-
-
 def _live_output_event_for_provider_line(service_name: str, line: str) -> AgentEvent:
     if service_name == "claude":
         return _live_output_event_for_claude_line(line)
@@ -826,21 +775,6 @@ def _with_reduce_output(
     )
 
 
-def _observe_opencode_output_reducer(
-    stream_interpretation: BuiltInProviderStreamInterpretation,
-    on_live_output: Callable[[AgentEvent], None] | None,
-) -> Callable[[list[str]], tuple[str, ProviderUsage | None]]:
-    if on_live_output is None:
-        return stream_interpretation.reduce_output
-    return _ObservedOutputReducer(
-        reduce_output=stream_interpretation.reduce_output,
-        consume_stdout_lines=_observe_output_opencode(
-            stream_interpretation=stream_interpretation,
-            on_live_output=on_live_output,
-        ),
-    )
-
-
 def _with_observed_opencode_output(
     stream_interpretation: BuiltInProviderStreamInterpretation,
     on_live_output: Callable[[AgentEvent], None] | None,
@@ -848,9 +782,12 @@ def _with_observed_opencode_output(
     if on_live_output is None:
         return stream_interpretation
     return BuiltInProviderStreamInterpretation(
-        reduce_output=_observe_opencode_output_reducer(
-            stream_interpretation,
-            on_live_output,
+        reduce_output=_ObservedOutputReducer(
+            reduce_output=stream_interpretation.reduce_output,
+            consume_stdout_lines=_observe_output_opencode(
+                stream_interpretation=stream_interpretation,
+                on_live_output=on_live_output,
+            ),
         ),
         build_agent_event=stream_interpretation.build_agent_event,
         classify_invocation_progress=(
@@ -858,35 +795,6 @@ def _with_observed_opencode_output(
         ),
         extract_provider_session_id=stream_interpretation.extract_provider_session_id,
     )
-
-
-def _parse_opencode_reset_time(retry_text: object) -> datetime | None:
-    if not isinstance(retry_text, str):
-        return None
-    match = _OPENCODE_RESET_PATTERN.search(retry_text)
-    if match is None:
-        return None
-    month = _CLAUDE_MONTHS.get(match.group("month").lower())
-    if month is None:
-        return None
-    hour = int(match.group("hour"))
-    if not 1 <= hour <= 12:
-        return None
-    if match.group("ampm").lower() == "pm" and hour != 12:
-        hour += 12
-    elif match.group("ampm").lower() == "am" and hour == 12:
-        hour = 0
-    minute = int(match.group("minute"))
-    if not 0 <= minute <= 59:
-        return None
-    return datetime(
-        int(match.group("year")),
-        month,
-        int(match.group("day")),
-        hour,
-        minute,
-        tzinfo=timezone.utc,
-    ).astimezone()
 
 
 def _validate_codex_auth() -> None:
@@ -908,231 +816,6 @@ def _missing_codex_auth_error() -> AgentCredentialFailureError:
     )
 
 
-def _opencode_error_data(event: dict[str, Any]) -> dict[str, Any] | None:
-    error = event.get("error")
-    if not isinstance(error, dict):
-        return None
-    data = error.get("data")
-    if not isinstance(data, dict):
-        return None
-    return data
-
-
-def _extract_opencode_usage_limit(event: dict[str, Any]) -> UsageLimit | None:
-    data = _opencode_error_data(event)
-    if data is None or data.get("statusCode") != 429:
-        return None
-    message = data.get("message")
-    if not isinstance(message, str):
-        return UsageLimit(reset_time=None, raw_message=None)
-    reset_time = _parse_opencode_reset_time(message)
-    return UsageLimit(
-        reset_time=reset_time,
-        raw_message=None if reset_time is not None else message,
-    )
-
-
-def _extract_opencode_credential_failure(
-    event: dict[str, Any],
-) -> CredentialFailure | None:
-    data = _opencode_error_data(event)
-    if data is None:
-        return None
-    status = data.get("statusCode")
-    message = data.get("message")
-    error = event.get("error")
-    error_name = error.get("name") if isinstance(error, dict) else None
-    if (
-        status == 401
-        and isinstance(message, str)
-        and message.lower() == "invalid api key"
-        and error_name == "AuthenticationError"
-    ):
-        return CredentialFailure(
-            raw_message=message,
-            service_name="opencode",
-            classification="operator_actionable_agent_credential_failure",
-            status_code=401,
-        )
-    return None
-
-
-def _extract_opencode_error(
-    event: dict[str, Any],
-) -> HardError | TransientError | None:
-    data = _opencode_error_data(event)
-    if data is None:
-        return None
-    message = data.get("message")
-    if not isinstance(message, str) or not message:
-        return None
-    status = data.get("statusCode")
-    if isinstance(status, int):
-        if status >= 500:
-            return TransientError(status_code=status, raw_message=message)
-        if 400 <= status < 500:
-            return HardError(status_code=status, raw_message=message)
-    if status is None and message.lower().startswith("model not found:"):
-        return HardError(status_code=400, raw_message=message)
-    if status is None:
-        return TransientError(status_code=None, raw_message=message)
-    return None
-
-
-def _parse_opencode_events(
-    lines: list[str],
-    *,
-    on_provider_session_id: Callable[[str], None] | None = None,
-) -> list[Any]:
-    parsed_events: list[Any] = []
-    assistant_turns: list[str] = []
-    seen_session_id: str | None = None
-    for line in lines:
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        session_id = event.get("sessionID")
-        if (
-            isinstance(session_id, str)
-            and session_id
-            and session_id != seen_session_id
-            and on_provider_session_id is not None
-        ):
-            seen_session_id = session_id
-            on_provider_session_id(session_id)
-        if event.get("type") == "text":
-            part = event.get("part")
-            if not isinstance(part, dict):
-                continue
-            if part.get("type") != "text":
-                continue
-            time = part.get("time")
-            if not isinstance(time, dict) or time.get("end") is None:
-                continue
-            text = part.get("text")
-            if not isinstance(text, str):
-                continue
-            stripped = text.strip()
-            if not stripped:
-                continue
-            assistant_turns.append(stripped)
-            parsed_events.append(AssistantTurn(text=stripped))
-            continue
-        if event.get("type") == "session.status":
-            status = event.get("status")
-            if (
-                isinstance(status, dict)
-                and status.get("type") == "idle"
-                and assistant_turns
-            ):
-                parsed_events.append(Result(text="\n\n".join(assistant_turns)))
-                return parsed_events
-            continue
-        if event.get("type") == "error":
-            limit = _extract_opencode_usage_limit(event)
-            if limit is not None:
-                parsed_events.append(limit)
-            else:
-                classified: CredentialFailure | HardError | TransientError | None = (
-                    _extract_opencode_credential_failure(event)
-                )
-                if classified is None:
-                    classified = _extract_opencode_error(event)
-                if classified is not None:
-                    parsed_events.append(classified)
-            return parsed_events
-    return parsed_events
-
-
-def _parse_opencode_output_line(line: str) -> list[Any]:
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(event, dict):
-        return []
-    if event.get("type") != "text":
-        return []
-    part = event.get("part")
-    if not isinstance(part, dict):
-        return []
-    if part.get("type") != "text":
-        return []
-    time = part.get("time")
-    if not isinstance(time, dict) or time.get("end") is None:
-        return []
-    text = part.get("text")
-    if not isinstance(text, str):
-        return []
-    stripped_text = text.strip()
-    if not stripped_text:
-        return []
-    return [AssistantTurn(text=stripped_text)]
-
-
-def _observe_output_opencode(
-    *,
-    stream_interpretation: BuiltInProviderStreamInterpretation,
-    on_live_output: Callable[[AgentEvent], None],
-    on_provider_session_id: Callable[[str], None] | None = None,
-) -> Callable[[list[str]], None]:
-    seen_session_id: str | None = None
-    is_complete = False
-
-    def _observe_output_lines(lines: list[str]) -> None:
-        nonlocal seen_session_id, is_complete
-        if is_complete:
-            return
-        for line in lines:
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict):
-                continue
-            session_id = event.get("sessionID")
-            if (
-                isinstance(session_id, str)
-                and session_id
-                and session_id != seen_session_id
-                and on_provider_session_id is not None
-            ):
-                seen_session_id = session_id
-                on_provider_session_id(session_id)
-            emit_built_in_provider_live_output_event(
-                stream_interpretation.build_agent_event(line),
-                on_live_output,
-            )
-            if event.get("type") == "session.status":
-                status = event.get("status")
-                if isinstance(status, dict) and status.get("type") == "idle":
-                    is_complete = True
-                    return
-                continue
-            if event.get("type") == "error":
-                is_complete = True
-                return
-
-    return _observe_output_lines
-
-
-def _extract_opencode_provider_session_id(lines: list[str]) -> str | None:
-    provider_session_id: str | None = None
-
-    def _record_provider_session_id(session_id: str) -> None:
-        nonlocal provider_session_id
-        provider_session_id = session_id
-
-    _parse_opencode_events(
-        lines,
-        on_provider_session_id=_record_provider_session_id,
-    )
-    return provider_session_id
-
-
 def _claude_stream_interpretation() -> BuiltInProviderStreamInterpretation:
     return claude_built_in_provider_stream_interpretation()
 
@@ -1147,20 +830,9 @@ def _opencode_stream_interpretation(
     | None = None,
     extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
 ) -> BuiltInProviderStreamInterpretation:
-    def _classify_progress(lines: list[str]) -> InvocationProgress:
-        parsed_events = _parse_opencode_events(lines)
-        if any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events):
-            return InvocationProgress.STARTED
-        return InvocationProgress.NOT_STARTED
-
-    return BuiltInProviderStreamInterpretation(
-        reduce_output=reduce_output
-        or (lambda lines: (_reduce_opencode_stream(lines), None)),
-        build_agent_event=_live_output_event_for_opencode_line,
-        classify_invocation_progress=_classify_progress,
-        extract_provider_session_id=(
-            extract_provider_session_id or _extract_opencode_provider_session_id
-        ),
+    return opencode_built_in_provider_stream_interpretation(
+        reduce_output=reduce_output,
+        extract_provider_session_id=extract_provider_session_id,
     )
 
 
@@ -1251,23 +923,6 @@ def _provider_session_id_from_failure(
     if failure.provider_session_id is not None:
         return failure.provider_session_id
     return fallback_provider_session_id
-
-
-def _reduce_opencode_stream(
-    lines: list[str],
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> str:
-    if on_live_output is not None:
-        for line in lines:
-            emit_built_in_provider_live_output_event(
-                _live_output_event_for_opencode_line(line),
-                on_live_output,
-            )
-    return reduce_text_output_events(
-        _parse_opencode_events(lines),
-        lambda _turn, _raw: None,
-        provider="opencode",
-    )
 
 
 def _select_builtin_stage(stage: ProviderSelection) -> ProviderSelection:
@@ -1835,16 +1490,10 @@ def _invoke_opencode_new_session_provider(
     def _reduce_opencode_session_output(
         lines: list[str],
     ) -> tuple[str, ProviderUsage | None]:
-        return (
-            reduce_text_output_events(
-                _parse_opencode_events(
-                    lines,
-                    on_provider_session_id=_record_opencode_session_id,
-                ),
-                lambda _turn, _raw: None,
-                provider="opencode",
-            ),
+        return _reduce_opencode_stream(
+            lines,
             None,
+            on_provider_session_id=_record_opencode_session_id,
         )
 
     stream_interpretation = _with_observed_opencode_output(
@@ -1914,7 +1563,7 @@ def _run_builtin_ephemeral(
     opencode_env: Callable[..., dict[str, str]] = _opencode_env,
     reduce_opencode_stream: Callable[
         [list[str], Callable[[AgentEvent], None] | None],
-        str,
+        tuple[str, ProviderUsage | None],
     ] = _reduce_opencode_stream,
     validate_codex_auth: Callable[[], None] = _validate_codex_auth,
 ) -> RunResult:
@@ -2011,15 +1660,8 @@ def _run_builtin_ephemeral(
                 run_kind=RunKind.FRESH,
                 provider_session_id=None,
                 stream_interpretation=_with_observed_opencode_output(
-                    BuiltInProviderStreamInterpretation(
-                        reduce_output=(
-                            lambda lines: (reduce_opencode_stream(lines, None), None)
-                        ),
-                        build_agent_event=_live_output_event_for_opencode_line,
-                        classify_invocation_progress=(
-                            _opencode_stream_interpretation().classify_invocation_progress
-                        ),
-                        extract_provider_session_id=_extract_opencode_provider_session_id,
+                    _opencode_stream_interpretation(
+                        reduce_output=lambda lines: reduce_opencode_stream(lines, None),
                     ),
                     wrapped_on_live_output,
                 ),
@@ -2590,14 +2232,7 @@ def _run_builtin_resumed_session(
     def _reduce_opencode_session_output(
         lines: list[str],
     ) -> tuple[str, ProviderUsage | None]:
-        return (
-            reduce_text_output_events(
-                _parse_opencode_events(lines),
-                lambda _turn, _raw: None,
-                provider="opencode",
-            ),
-            None,
-        )
+        return _reduce_opencode_stream(lines)
 
     if continuation_service == "claude":
         command_argv = _claude_command(
