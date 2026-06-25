@@ -198,7 +198,9 @@ def _run_single_case(
                 timeout_seconds=timeout_seconds,
                 on_live_output=_on_live_output,
             )
-            outcome = _resolve_runtime_outcome(client.run_new_session(new_session_request))
+            outcome = _resolve_runtime_outcome(
+                client.run_new_session(new_session_request)
+            )
         elif case.mode == "resumed_session":
             if continuation is None:
                 raise RuntimeError(
@@ -213,7 +215,9 @@ def _run_single_case(
                 timeout_seconds=timeout_seconds,
                 on_live_output=_on_live_output,
             )
-            outcome = _resolve_runtime_outcome(client.run_resumed_session(resumed_request))
+            outcome = _resolve_runtime_outcome(
+                client.run_resumed_session(resumed_request)
+            )
         else:
             raise ValueError(f"unsupported probe mode: {case.mode!r}")
     except AgentCredentialFailureError:
@@ -309,7 +313,9 @@ def run_probe(
     out = stream if stream is not None else sys.stdout
     console = _Console(
         stream=out,
-        color=color if color is not None else bool(getattr(out, "isatty", lambda: False)()),
+        color=color
+        if color is not None
+        else bool(getattr(out, "isatty", lambda: False)()),
     )
     root = Path(artifact_root or DEFAULT_ARTIFACT_ROOT).resolve()
     resolved_env = _resolve_env(env)
@@ -365,8 +371,7 @@ def _run_provider(
 
     console.line()
     console.line(
-        f"== {provider_plan.service} "
-        f"({provider_plan.model}/{provider_plan.effort}) =="
+        f"== {provider_plan.service} ({provider_plan.model}/{provider_plan.effort}) =="
     )
 
     cases = plan.probe_cases_for_provider(provider_plan)

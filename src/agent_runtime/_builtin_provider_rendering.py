@@ -292,15 +292,8 @@ def _opencode_environment(
     auth: ProviderAuth | None,
     provider_state_dir: Path | None,
     tool_policy: ToolPolicy | ToolPolicyProfile | None,
-    host_facts: BuiltInProviderHostFacts | None,
 ) -> dict[str, str]:
-    environment: dict[str, str] = {
-        **_windows_process_base_env(
-            os_name=None if host_facts is None else host_facts.os_name,
-            environ=None if host_facts is None else host_facts.environment,
-        ),
-        "TZ": "UTC",
-    }
+    environment: dict[str, str] = {"TZ": "UTC"}
     if provider_state_dir is not None:
         environment["OPENCODE_HOME"] = str(provider_state_dir)
     api_key = None if auth is None else auth.opencode_api_key
@@ -515,7 +508,6 @@ def _render_opencode_invocation(
             auth=request.auth,
             provider_state_dir=request.provider_state_dir,
             tool_policy=request.tool_access.tool_policy,
-            host_facts=request.host_facts,
         ),
         prompt_path=prompt_path,
         prompt_cleanup_choice=PromptCleanupChoice.DELETE_AFTER_INVOCATION,
@@ -530,15 +522,36 @@ def _render_opencode_invocation(
     )
 
 
+def _finalize_built_in_provider_invocation_environment(
+    environment: Mapping[str, str],
+    host_facts: BuiltInProviderHostFacts | None,
+) -> Mapping[str, str]:
+    return {
+        **_windows_process_base_env(
+            os_name=None if host_facts is None else host_facts.os_name,
+            environ=None if host_facts is None else host_facts.environment,
+        ),
+        **environment,
+    }
+
+
 def render_built_in_provider_invocation(
     request: BuiltInProviderRenderRequest,
 ) -> BuiltInProviderRenderedInvocation:
     if request.provider_selection.service == "claude":
-        return _render_claude_invocation(request)
-    if request.provider_selection.service == "codex":
-        return _render_codex_invocation(request)
-    if request.provider_selection.service == "opencode":
-        return _render_opencode_invocation(request)
-    raise RuntimeConfigurationError(
-        f"Unsupported built-in provider {request.provider_selection.service!r}."
+        rendered_invocation = _render_claude_invocation(request)
+    elif request.provider_selection.service == "codex":
+        rendered_invocation = _render_codex_invocation(request)
+    elif request.provider_selection.service == "opencode":
+        rendered_invocation = _render_opencode_invocation(request)
+    else:
+        raise RuntimeConfigurationError(
+            f"Unsupported built-in provider {request.provider_selection.service!r}."
+        )
+    return dataclasses.replace(
+        rendered_invocation,
+        environment=_finalize_built_in_provider_invocation_environment(
+            rendered_invocation.environment,
+            request.host_facts,
+        ),
     )
