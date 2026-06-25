@@ -22,6 +22,7 @@
 | `Invocation Directory` | Host directory where runtime launches a provider command; request field `invocation_dir`. |
 | `Tool Workspace` | Invocation Directory when runtime exposes it through provider tools. |
 | `Idle Timeout` | Per-run heartbeat watchdog: max seconds without any observed `Agent Event` before `timed_out` outcome. Consumer-configurable; default 300s. |
+| `Live Runtime Output Timeout Context` | Internal in-process context behind `RuntimeClient` that wraps one invocation's optional Live Runtime Output observer with Idle Timeout handling, starts any per-invocation watchdog, and guarantees watchdog cleanup when the invocation exits. It owns timeout disablement for `timeout_seconds <= 0`, callback ordering around watchdog checks, and cleanup lifecycle, but stores no Agent Event history and performs no Built-in Provider Stream Interpretation. |
 | `Ephemeral Run` | Invocation that neither prepares nor promises provider-session continuity. |
 | `Start Session Run` | Invocation that selects a service and prepares provider-session continuity. |
 | `Resume Session Run` | Invocation that continues an existing continuity chain without fallback or reselection. |
@@ -76,6 +77,7 @@
 - Live Runtime Output: sole channel, events emitted incrementally and never accumulated or stored.
 - Live Runtime Output independent of session lifecycle and `ToolPolicy`; completed output remains authoritative.
 - Live Runtime Output observers are synchronous, notification-only, at-most-once per provider attempt; consumer-owned for async bridging. Callback failures propagate as exceptional failures.
+- Live Runtime Output Timeout Context is internal and must not become Runtime Public Surface or an adapter seam; its watchdog dependency is in-process, and no time/threading port is needed without a real second adapter.
 - Continuations are opaque, portable, semantically immutable; may carry provider-owned resume state but not ProviderSelection objects or ProviderAuth values (`ResolvedProvider` is credential-free).
 - Runtime does not guarantee redaction of prompt text, provider output, or diagnostics; consumers own durable redaction policy.
 - Runtime must not own durable provider-session storage, invocation-log storage, or cleanup policy. All resume state round-trips through the Continuation.
