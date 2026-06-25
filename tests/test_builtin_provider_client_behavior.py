@@ -69,6 +69,44 @@ def _install_in_memory_provider_invocation_adapter(
     return adapter
 
 
+@dataclasses.dataclass
+class _DeterministicTimeoutWatchdog:
+    timeout_seconds: int
+    timeout_check_numbers: tuple[int, ...]
+    check_count: int = 0
+
+    def start_monitoring(self) -> None:
+        return None
+
+    def reset_timer(self) -> None:
+        return None
+
+    def check_timeout(self) -> None:
+        self.check_count += 1
+        if self.check_count in self.timeout_check_numbers:
+            raise runtime.AgentTimeoutError(
+                "Idle timeout: no Agent Event within configured window"
+            )
+
+    def stop_monitoring(self) -> None:
+        return None
+
+
+def _install_deterministic_timeout_watchdog(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    timeout_check_numbers: tuple[int, ...],
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._live_runtime_output_timeout_context_module,
+        "_IdleTimeoutWatchdog",
+        lambda timeout_seconds: _DeterministicTimeoutWatchdog(
+            timeout_seconds=timeout_seconds,
+            timeout_check_numbers=timeout_check_numbers,
+        ),
+    )
+
+
 def _normalize_tool_policy_profile(
     tool_policy: runtime.ToolPolicy | contracts_runtime.ToolPolicyProfile,
 ) -> contracts_runtime.ToolPolicyProfile:
@@ -5536,63 +5574,17 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
     tmp_path: Path,
 ) -> None:
     """A run with no Agent Events within the timeout window should abort with timed_out outcome."""
-    import time
-
-    events_emitted: list[prompt_runtime.AgentEvent] = []
-
-    def collect_events(event: prompt_runtime.AgentEvent) -> None:
-        events_emitted.append(event)
-
-    class SlowProviderAdapter(
-        provider_invocation_runtime.InMemoryProviderInvocationAdapter
-    ):
-        """Provider adapter that emits output after the timeout window."""
-
-        def execute(
-            self,
-            request: provider_invocation_runtime.ProviderInvocationRequest,
-        ) -> provider_invocation_runtime.ProviderInvocationResult:
-            self.recorded_requests.append(request)
-            if not self.prepared_invocations:
-                raise AssertionError("No prepared provider invocation remains.")
-            prepared = self.prepared_invocations.pop(0)
-            if isinstance(
-                prepared, provider_invocation_runtime.ProviderInvocationPreparedStream
-            ):
-                stdout_lines = list(prepared.stdout_lines)
-                # Delay before processing output, which triggers the timeout
-                time.sleep(2)
-                # Now emit the output - but timeout should trigger during this call
-                provider_invocation_runtime._consume_new_stdout_lines(
-                    request.output_hooks.reduce_output, stdout_lines
-                )
-                output, usage = request.output_hooks.reduce_output(stdout_lines)
-                return provider_invocation_runtime.ProviderInvocationResult(
-                    output=output,
-                    usage=usage,
-                    stdout_lines=tuple(stdout_lines),
-                    provider_session_id=(
-                        prepared.provider_session_id or request.provider_session_id
-                    ),
-                )
-            assert isinstance(
-                prepared, provider_invocation_runtime.ProviderInvocationResult
-            )
-            return prepared
-
-    adapter = SlowProviderAdapter(
-        prepared_invocations=[
-            provider_invocation_runtime.ProviderInvocationPreparedStream(
-                stdout_lines=(
-                    json.dumps({"type": "session.status", "status": {"type": "idle"}}),
-                )
-            ),
-        ]
+    _install_deterministic_timeout_watchdog(
+        monkeypatch,
+        timeout_check_numbers=(1,),
     )
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: adapter,
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "session.status", "status": {"type": "idle"}}),
+            ),
+        ),
     )
 
     outcome = asyncio.run(
@@ -5610,7 +5602,7 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 timeout_seconds=1,
-                on_live_output=collect_events,
+                on_live_output=lambda _event: None,
             )
         )
     )
@@ -5623,8 +5615,6 @@ def test_runtime_client_new_session_times_out_after_agent_event_and_preserves_ob
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import time
-
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module,
         "_new_provider_session_id",
@@ -5632,14 +5622,14 @@ def test_runtime_client_new_session_times_out_after_agent_event_and_preserves_ob
     )
 
     observed_events: list[prompt_runtime.AgentEvent] = []
-
-    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
-        def execute(
-            self,
-            request: provider_invocation_runtime.ProviderInvocationRequest,
-        ) -> provider_invocation_runtime.ProviderInvocationResult:
-            self.recorded_requests.append(request)
-            stdout_lines = [
+    _install_deterministic_timeout_watchdog(
+        monkeypatch,
+        timeout_check_numbers=(2,),
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
                 json.dumps(
                     {
                         "type": "assistant",
@@ -5654,29 +5644,9 @@ def test_runtime_client_new_session_times_out_after_agent_event_and_preserves_ob
                     }
                 )
                 + "\n",
-                json.dumps({"type": "result", "result": "final output"}) + "\n",
-            ]
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output,
-                [stdout_lines[0]],
-            )
-            time.sleep(2)
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output,
-                [stdout_lines[1]],
-            )
-            output, usage = request.output_hooks.reduce_output(stdout_lines)
-            return provider_invocation_runtime.ProviderInvocationResult(
-                output=output,
-                usage=usage,
-                stdout_lines=tuple(stdout_lines),
-                provider_session_id=request.provider_session_id,
-            )
-
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: SlowProvider(prepared_invocations=[]),
+                _claude_result_output_line("final output"),
+            ),
+        ),
     )
 
     outcome = asyncio.run(
@@ -5733,8 +5703,6 @@ def test_runtime_client_codex_new_session_timeout_preserves_observed_usage_and_c
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import time
-
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
@@ -5746,26 +5714,17 @@ def test_runtime_client_codex_new_session_timeout_preserves_observed_usage_and_c
     )
 
     observed_events: list[prompt_runtime.AgentEvent] = []
-
-    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
-        def execute(
-            self,
-            request: provider_invocation_runtime.ProviderInvocationRequest,
-        ) -> provider_invocation_runtime.ProviderInvocationResult:
-            self.recorded_requests.append(request)
-            stdout_lines = [
+    _install_deterministic_timeout_watchdog(
+        monkeypatch,
+        timeout_check_numbers=(3,),
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
                 json.dumps({"type": "thread.started", "thread_id": "thread-123"})
                 + "\n",
-                json.dumps(
-                    {
-                        "type": "item.completed",
-                        "item": {
-                            "type": "agent_message",
-                            "text": "initial output",
-                        },
-                    }
-                )
-                + "\n",
+                _codex_assistant_output_line("initial output"),
                 json.dumps(
                     {
                         "type": "turn.completed",
@@ -5777,28 +5736,8 @@ def test_runtime_client_codex_new_session_timeout_preserves_observed_usage_and_c
                     }
                 )
                 + "\n",
-            ]
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output,
-                stdout_lines[:2],
-            )
-            time.sleep(2)
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output,
-                [stdout_lines[2]],
-            )
-            output, usage = request.output_hooks.reduce_output(stdout_lines)
-            return provider_invocation_runtime.ProviderInvocationResult(
-                output=output,
-                usage=usage,
-                stdout_lines=tuple(stdout_lines),
-                provider_session_id=None,
-            )
-
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: SlowProvider(prepared_invocations=[]),
+            ),
+        ),
     )
 
     outcome = asyncio.run(
@@ -5853,8 +5792,6 @@ def test_runtime_client_codex_resumed_session_timeout_preserves_observed_usage_a
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import time
-
     host_home = tmp_path / "host-home"
     host_auth_path = host_home / ".codex" / "auth.json"
     host_auth_path.parent.mkdir(parents=True)
@@ -5866,26 +5803,17 @@ def test_runtime_client_codex_resumed_session_timeout_preserves_observed_usage_a
     )
 
     observed_events: list[prompt_runtime.AgentEvent] = []
-
-    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
-        def execute(
-            self,
-            request: provider_invocation_runtime.ProviderInvocationRequest,
-        ) -> provider_invocation_runtime.ProviderInvocationResult:
-            self.recorded_requests.append(request)
-            stdout_lines = [
+    _install_deterministic_timeout_watchdog(
+        monkeypatch,
+        timeout_check_numbers=(3,),
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
                 json.dumps({"type": "thread.started", "thread_id": "thread-456"})
                 + "\n",
-                json.dumps(
-                    {
-                        "type": "item.completed",
-                        "item": {
-                            "type": "agent_message",
-                            "text": "continued output",
-                        },
-                    }
-                )
-                + "\n",
+                _codex_assistant_output_line("continued output"),
                 json.dumps(
                     {
                         "type": "turn.completed",
@@ -5897,28 +5825,8 @@ def test_runtime_client_codex_resumed_session_timeout_preserves_observed_usage_a
                     }
                 )
                 + "\n",
-            ]
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output,
-                stdout_lines[:2],
-            )
-            time.sleep(2)
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output,
-                [stdout_lines[2]],
-            )
-            output, usage = request.output_hooks.reduce_output(stdout_lines)
-            return provider_invocation_runtime.ProviderInvocationResult(
-                output=output,
-                usage=usage,
-                stdout_lines=tuple(stdout_lines),
-                provider_session_id=None,
-            )
-
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: SlowProvider(prepared_invocations=[]),
+            ),
+        ),
     )
 
     continuation = prompt_runtime.Continuation(
@@ -5980,17 +5888,15 @@ def test_runtime_client_resumed_session_times_out_and_preserves_observed_session
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import time
-
     observed_events: list[prompt_runtime.AgentEvent] = []
-
-    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
-        def execute(
-            self,
-            request: provider_invocation_runtime.ProviderInvocationRequest,
-        ) -> provider_invocation_runtime.ProviderInvocationResult:
-            self.recorded_requests.append(request)
-            stdout_lines = [
+    _install_deterministic_timeout_watchdog(
+        monkeypatch,
+        timeout_check_numbers=(2,),
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
                 json.dumps(
                     {
                         "type": "assistant",
@@ -6005,29 +5911,9 @@ def test_runtime_client_resumed_session_times_out_and_preserves_observed_session
                     }
                 )
                 + "\n",
-                json.dumps({"type": "result", "result": "final output"}) + "\n",
-            ]
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output,
-                [stdout_lines[0]],
-            )
-            time.sleep(2)
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output,
-                [stdout_lines[1]],
-            )
-            output, usage = request.output_hooks.reduce_output(stdout_lines)
-            return provider_invocation_runtime.ProviderInvocationResult(
-                output=output,
-                usage=usage,
-                stdout_lines=tuple(stdout_lines),
-                provider_session_id=request.provider_session_id,
-            )
-
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: SlowProvider(prepared_invocations=[]),
+                _claude_result_output_line("final output"),
+            ),
+        ),
     )
 
     continuation = prompt_runtime.Continuation(
@@ -6084,50 +5970,14 @@ def test_runtime_client_ephemeral_disables_idle_timeout_for_non_positive_timeout
     tmp_path: Path,
     timeout_seconds: int,
 ) -> None:
-    import time
-
     observed_events: list[prompt_runtime.AgentEvent] = []
-
-    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
-        def execute(
-            self,
-            request: provider_invocation_runtime.ProviderInvocationRequest,
-        ) -> provider_invocation_runtime.ProviderInvocationResult:
-            self.recorded_requests.append(request)
-            if not self.prepared_invocations:
-                raise AssertionError("No prepared provider invocation remains.")
-            prepared = self.prepared_invocations.pop(0)
-            assert isinstance(
-                prepared, provider_invocation_runtime.ProviderInvocationPreparedStream
-            )
-            stdout_lines = list(prepared.stdout_lines)
-            time.sleep(2)
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output, stdout_lines
-            )
-            output, usage = request.output_hooks.reduce_output(stdout_lines)
-            return provider_invocation_runtime.ProviderInvocationResult(
-                output=output,
-                usage=usage,
-                stdout_lines=tuple(stdout_lines),
-                provider_session_id=(
-                    prepared.provider_session_id or request.provider_session_id
-                ),
-            )
-
-    adapter = SlowProvider(
-        prepared_invocations=[
-            provider_invocation_runtime.ProviderInvocationPreparedStream(
-                stdout_lines=(
-                    json.dumps({"type": "session.status", "status": {"type": "idle"}}),
-                )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "session.status", "status": {"type": "idle"}}),
             ),
-        ]
-    )
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: adapter,
+        ),
     )
 
     outcome = asyncio.run(
@@ -6206,48 +6056,15 @@ def test_runtime_client_ephemeral_times_out_without_live_output_callback(
     tmp_path: Path,
 ) -> None:
     """Idle timeout fires even when no on_live_output callback is provided."""
-    import time
-
-    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
-        def execute(
-            self,
-            request: provider_invocation_runtime.ProviderInvocationRequest,
-        ) -> provider_invocation_runtime.ProviderInvocationResult:
-            self.recorded_requests.append(request)
-            if not self.prepared_invocations:
-                raise AssertionError("No prepared provider invocation remains.")
-            prepared = self.prepared_invocations.pop(0)
-            assert isinstance(
-                prepared, provider_invocation_runtime.ProviderInvocationPreparedStream
-            )
-            stdout_lines = list(prepared.stdout_lines)
-            time.sleep(2)
-            provider_invocation_runtime._consume_new_stdout_lines(
-                request.output_hooks.reduce_output, stdout_lines
-            )
-            output, usage = request.output_hooks.reduce_output(stdout_lines)
-            return provider_invocation_runtime.ProviderInvocationResult(
-                output=output,
-                usage=usage,
-                stdout_lines=tuple(stdout_lines),
-                provider_session_id=(
-                    prepared.provider_session_id or request.provider_session_id
-                ),
-            )
-
-    adapter = SlowProvider(
-        prepared_invocations=[
-            provider_invocation_runtime.ProviderInvocationPreparedStream(
-                stdout_lines=(
-                    json.dumps({"type": "session.status", "status": {"type": "idle"}}),
-                )
-            ),
-        ]
+    _install_deterministic_timeout_watchdog(
+        monkeypatch,
+        timeout_check_numbers=(1,),
     )
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: adapter,
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(_opencode_idle_output_line(),),
+        ),
     )
 
     outcome = asyncio.run(
