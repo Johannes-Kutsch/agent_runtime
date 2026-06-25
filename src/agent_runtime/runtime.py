@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from . import _time
 from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
@@ -9,7 +9,6 @@ from ._live_runtime_output_exceptions import is_live_runtime_output_exception
 from ._session_backed_provider_execution import (
     _run_builtin_new_session,
     _run_builtin_resumed_session,
-    _session_backed_service_name,
 )
 from .contracts import ToolPolicy
 from .errors import (
@@ -36,6 +35,8 @@ from ._runtime_lifecycle import (
     UsageLimited,
 )
 from .types import ProviderSelection, ResolvedProvider
+
+from ._portable_continuation_payload import read_portable_continuation_payload
 
 if TYPE_CHECKING:
     from ._provider_invocation import ProviderInvocationAdapter
@@ -246,7 +247,9 @@ class RuntimeClient:
                 request,
                 on_live_output=request.on_live_output,
             ),
-            service_name=_session_backed_service_name(request),
+            service_name=read_portable_continuation_payload(
+                cast(Continuation, request.continuation)
+            ).service_name,
             selected_model=request.model,
             selected_effort=request.effort,
         )

@@ -334,13 +334,6 @@ def _require_claude_auth(auth: ProviderAuth | None) -> None:
     _builtin_provider_rendering_module._require_claude_auth(auth)
 
 
-def _session_backed_service_name(request: ResumedSessionRunRequest) -> str:
-    continuation_payload = read_portable_continuation_payload(
-        cast(Continuation, request.continuation)
-    )
-    return continuation_payload.service_name
-
-
 def _resolve_active_provider_session_id(
     *,
     stream_interpretation: BuiltInProviderStreamInterpretation,

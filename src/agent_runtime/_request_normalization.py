@@ -166,33 +166,6 @@ def normalize_continuation_request(
     )
 
 
-def normalize_session_plan_request(
-    *,
-    worktree: Path,
-    tool_access: Any,
-    tool_policy: Any,
-    missing_sentinel: object,
-    session_namespace: str,
-    context: str,
-    missing_message: str,
-    workspace_name: str = "worktree",
-) -> NormalizedResumedRequest:
-    normalized_worktree = normalize_worktree(worktree)
-    return NormalizedResumedRequest(
-        worktree=normalized_worktree,
-        tool_access=normalize_tool_access(
-            tool_access=tool_access,
-            tool_policy=tool_policy,
-            missing_sentinel=missing_sentinel,
-            workspace=normalized_worktree.path,
-            context=context,
-            missing_message=missing_message,
-            workspace_name=workspace_name,
-        ),
-        session_namespace=normalize_session_namespace(session_namespace),
-    )
-
-
 def normalize_tool_policy(
     *,
     tool_access: Any,
