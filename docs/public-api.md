@@ -205,7 +205,7 @@ Outcome kinds:
 - `UsageLimited(reset_time: datetime | None)`: usage limit interrupted execution.
 - `NoServiceAvailable(reset_time: datetime | None)`: the selected provider is temporarily unavailable before model work starts.
 - `Cancelled()`: caller- or user-initiated cancellation.
-- `TimedOut()`: runtime timeout.
+- `TimedOut()`: runtime timeout. For OpenCode Go, this outcome is ambiguous by design: from the runtime's side, an exhausted subscription quota and a server-side maintenance outage are indistinguishable. Consumers should treat `TimedOut()` as back-off / `Consumer Fallback` eligible, not as proof of exhausted quota. The runtime does not distinguish the cause and does not perform any pre-flight subscription or usage check.
 - `RetryableProviderFailure()`: provider failure classified as confidently retryable.
 
 Expected interruption outcomes are normal lifecycle results. Credential failures, malformed inputs, hard provider failures, adapter/protocol bugs, unclassified provider failures, and unexpected exceptions remain errors.
