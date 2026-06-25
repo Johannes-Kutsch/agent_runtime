@@ -5146,6 +5146,31 @@ def test_runtime_client_passes_only_claude_specific_env_to_subprocess(
     assert captured["env"] == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"}
 
 
+def test_runtime_client_claude_env_helper_keeps_claude_specific_subset_without_credentials() -> (
+    None
+):
+    assert prompt_runtime._builtin_runtime_client_module._claude_env(
+        auth=None,
+        state_dir_container_path="/tmp/claude-state",
+    ) == {"CLAUDE_CONFIG_DIR": "/tmp/claude-state"}
+
+
+def test_runtime_client_claude_legacy_command_helper_preserves_supplied_prompt_path() -> (
+    None
+):
+    prompt_path = Path("/tmp/custom-prompt.txt")
+
+    command = prompt_runtime._builtin_runtime_client_module._claude_legacy_command_text(
+        model="sonnet",
+        effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        prompt_path=prompt_path,
+    )
+
+    assert command.endswith(f"< {prompt_path}")
+    assert ".provider_prompt" not in command
+
+
 @pytest.mark.parametrize(
     ("tool_access", "expected_flag"),
     [

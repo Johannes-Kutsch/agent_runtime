@@ -124,6 +124,19 @@ def _require_claude_auth(auth: ProviderAuth | None) -> None:
     )
 
 
+def _claude_environment(
+    auth: ProviderAuth | None,
+    provider_state_dir: Path | None,
+) -> dict[str, str]:
+    environment: dict[str, str] = {}
+    token = None if auth is None else auth.claude_code_oauth_token
+    if token:
+        environment["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    if provider_state_dir is not None:
+        environment["CLAUDE_CONFIG_DIR"] = str(provider_state_dir)
+    return environment
+
+
 def _render_claude_invocation(
     request: BuiltInProviderRenderRequest,
 ) -> BuiltInProviderRenderedInvocation:
@@ -183,13 +196,10 @@ def _render_claude_invocation(
             legacy_flags += f" --resume {shlex.quote(request.provider_session_id)}"
         else:
             legacy_flags += f" --session-id {shlex.quote(request.provider_session_id)}"
-    environment = {"CLAUDE_CODE_OAUTH_TOKEN": request.auth.claude_code_oauth_token}
-    if request.provider_state_dir is not None:
-        environment["CLAUDE_CONFIG_DIR"] = str(request.provider_state_dir)
     return BuiltInProviderRenderedInvocation(
         canonical_argv=("claude", *flags),
         legacy_command_text=f"claude {legacy_flags} < {shlex.quote(str(prompt_path))}",
-        environment=environment,
+        environment=_claude_environment(request.auth, request.provider_state_dir),
         prompt_path=prompt_path,
         prompt_cleanup_choice=PromptCleanupChoice.DELETE_AFTER_INVOCATION,
         prompt_transport_preference=PromptTransportPreference.STDIN,

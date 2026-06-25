@@ -272,7 +272,10 @@ def _claude_legacy_command_text(
         )
     )
     assert rendered.legacy_command_text is not None
-    return rendered.legacy_command_text
+    command_prefix, separator, _ = rendered.legacy_command_text.rpartition(" < ")
+    if not separator:
+        return rendered.legacy_command_text
+    return f"{command_prefix} < {shlex.quote(str(prompt_path))}"
 
 
 def _claude_env(
@@ -280,27 +283,10 @@ def _claude_env(
     auth: ProviderAuth | None,
     state_dir_container_path: str | None = None,
 ) -> dict[str, str]:
-    rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
-        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
-            provider_selection=(
-                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-                    service="claude",
-                    model="sonnet",
-                    effort="medium",
-                )
-            ),
-            run_kind=RunKind.FRESH,
-            tool_access=ToolAccess.workspace_backed(Path("/tmp")),
-            auth=auth,
-            invocation_dir=Path("/tmp"),
-            provider_state_dir=(
-                None
-                if state_dir_container_path is None
-                else Path(state_dir_container_path)
-            ),
-        )
+    return _builtin_provider_rendering_module._claude_environment(
+        auth,
+        (None if state_dir_container_path is None else Path(state_dir_container_path)),
     )
-    return dict(rendered.environment)
 
 
 def _codex_command(
