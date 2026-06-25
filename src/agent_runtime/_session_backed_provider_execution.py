@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from ._builtin_provider_stream_interpretation import BuiltInProviderStreamInterpretation
@@ -43,6 +43,17 @@ def _resolve_active_provider_session_id(
     if invocation_result.provider_session_id is not None:
         return invocation_result.provider_session_id
     return prepared_or_continuation_provider_session_id
+
+
+def _interruption_continuation(
+    *,
+    provider_work_started: bool,
+    provider_session_id: str | None,
+    build_continuation: Callable[[str], Continuation],
+) -> Continuation | None:
+    if not provider_work_started or provider_session_id is None:
+        return None
+    return build_continuation(provider_session_id)
 
 
 def _completed_outcome(
@@ -176,21 +187,25 @@ def _run_builtin_new_session(
                     "codex",
                     invocation_result,
                 )
-                if provider_session_id is not None:
-                    failure_error.invocation_progress = InvocationProgress.STARTED
-                failure_error.continuation = (
-                    _builtin_runtime_client_module._build_codex_continuation(
-                        model=selected_stage.model,
-                        effort=selected_stage.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=provider_session_id,
-                        provider_state_dir_relpath=_portable_codex_state_dir_relpath(
-                            provider_state_dir_relpath
-                        ),
-                    )
-                    if failure_error.invocation_progress is InvocationProgress.STARTED
-                    and provider_session_id is not None
-                    else None
+                failure_error.continuation = _interruption_continuation(
+                    provider_work_started=(
+                        failure_error.invocation_progress is InvocationProgress.STARTED
+                        or provider_session_id is not None
+                    ),
+                    provider_session_id=provider_session_id,
+                    build_continuation=lambda active_provider_session_id: (
+                        _builtin_runtime_client_module._build_codex_continuation(
+                            model=selected_stage.model,
+                            effort=selected_stage.effort,
+                            tool_access=request.tool_access,
+                            provider_session_id=active_provider_session_id,
+                            provider_state_dir_relpath=(
+                                _portable_codex_state_dir_relpath(
+                                    provider_state_dir_relpath
+                                )
+                            ),
+                        )
+                    ),
                 )
                 raise failure_error
             else:
@@ -212,10 +227,8 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=provider_session_id,
-                        provider_state_dir_relpath=(
-                            _portable_codex_state_dir_relpath(
-                                provider_state_dir_relpath
-                            )
+                        provider_state_dir_relpath=_portable_codex_state_dir_relpath(
+                            provider_state_dir_relpath
                         ),
                     )
                     if provider_session_id is not None
@@ -340,28 +353,29 @@ def _run_builtin_new_session(
                     invocation_result,
                 )
             )
-            failure_error.continuation = None
-            if (
-                failure_error.invocation_progress is InvocationProgress.STARTED
-                and provider_session_id is not None
-            ):
-                failure_error.continuation = (
+            failure_error.continuation = _interruption_continuation(
+                provider_work_started=(
+                    failure_error.invocation_progress is InvocationProgress.STARTED
+                ),
+                provider_session_id=provider_session_id,
+                build_continuation=lambda active_provider_session_id: (
                     _builtin_runtime_client_module._build_claude_continuation(
                         model=selected_stage.model,
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
-                        provider_session_id=provider_session_id,
+                        provider_session_id=active_provider_session_id,
                     )
                     if selected_stage.service == "claude"
                     else _builtin_runtime_client_module._build_opencode_continuation(
                         model=selected_stage.model,
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
-                        provider_session_id=provider_session_id,
+                        provider_session_id=active_provider_session_id,
                         provider_state_dir=provider_state_dir,
                         exact_transcript_match=exact_transcript_match,
                     )
-                )
+                ),
+            )
             raise failure_error
         provider_session_id = _resolve_active_provider_session_id(
             stream_interpretation=stream_interpretation,
@@ -501,19 +515,21 @@ def _run_builtin_resumed_session(
                     invocation_result,
                 )
             )
-            if active_provider_session_id is not None:
-                failure_error.invocation_progress = InvocationProgress.STARTED
-            failure_error.continuation = (
-                _builtin_runtime_client_module._build_codex_continuation(
-                    model=request.model,
-                    effort=request.effort,
-                    tool_access=request.tool_access,
-                    provider_session_id=active_provider_session_id,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
-                )
-                if failure_error.invocation_progress is InvocationProgress.STARTED
-                and active_provider_session_id is not None
-                else None
+            failure_error.continuation = _interruption_continuation(
+                provider_work_started=(
+                    failure_error.invocation_progress is InvocationProgress.STARTED
+                    or active_provider_session_id is not None
+                ),
+                provider_session_id=active_provider_session_id,
+                build_continuation=lambda resumed_provider_session_id: (
+                    _builtin_runtime_client_module._build_codex_continuation(
+                        model=request.model,
+                        effort=request.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=resumed_provider_session_id,
+                        provider_state_dir_relpath=provider_state_dir_relpath,
+                    )
+                ),
             )
             raise failure_error
         else:
@@ -706,32 +722,33 @@ def _run_builtin_resumed_session(
                 invocation_result,
             )
         )
-        if (
-            failure_error.invocation_progress is InvocationProgress.STARTED
-            and provider_session_id is not None
-        ):
-            if continuation_service == "claude":
-                failure_error.continuation = (
+        failure_error.continuation = _interruption_continuation(
+            provider_work_started=(
+                failure_error.invocation_progress is InvocationProgress.STARTED
+            ),
+            provider_session_id=provider_session_id,
+            build_continuation=lambda active_provider_session_id: (
+                (
                     _builtin_runtime_client_module._build_claude_continuation(
                         model=request.model,
                         effort=request.effort,
                         tool_access=request.tool_access,
-                        provider_session_id=provider_session_id,
+                        provider_session_id=active_provider_session_id,
                     )
                 )
-            else:
-                failure_error.continuation = (
+                if continuation_service == "claude"
+                else (
                     _builtin_runtime_client_module._build_opencode_continuation(
                         model=request.model,
                         effort=request.effort,
                         tool_access=request.tool_access,
-                        provider_session_id=provider_session_id,
+                        provider_session_id=active_provider_session_id,
                         provider_state_dir=provider_state_dir,
                         exact_transcript_match=exact_transcript_match,
                     )
                 )
-        else:
-            failure_error.continuation = None
+            ),
+        )
         cleanup_opencode_state_dir()
         raise failure_error
     provider_session_id = _resolve_active_provider_session_id(
