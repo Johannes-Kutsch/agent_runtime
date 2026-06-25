@@ -442,3 +442,240 @@ def test_render_claude_invocation_fails_for_missing_credentials_and_unsupported_
                 invocation_dir=invocation_dir,
             )
         )
+
+
+def test_render_codex_fresh_invocation_returns_canonical_argv_environment_and_prompt_facts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(
+                tmp_path,
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            ),
+            auth=None,
+            invocation_dir=tmp_path,
+            provider_state_dir=tmp_path / "provider-state",
+        )
+    )
+
+    assert (
+        rendered_invocation
+        == built_in_provider_rendering.BuiltInProviderRenderedInvocation(
+            canonical_argv=(
+                "codex",
+                "exec",
+                "-m",
+                "gpt-5.4",
+                "-c",
+                "model_reasoning_effort=medium",
+                "-c",
+                "approval_policy=never",
+                "--sandbox",
+                "read-only",
+                "--json",
+            ),
+            legacy_command_text=(
+                "codex exec -m gpt-5.4 -c model_reasoning_effort=medium "
+                "-c approval_policy=never --sandbox read-only --json"
+            ),
+            environment={
+                "TZ": "UTC",
+                "CODEX_HOME": str(tmp_path / "provider-state"),
+            },
+            prompt_path=Path("/tmp/.provider_prompt"),
+            prompt_cleanup_choice=(
+                built_in_provider_rendering.PromptCleanupChoice.DELETE_AFTER_INVOCATION
+            ),
+            prompt_transport_preference=(
+                built_in_provider_rendering.PromptTransportPreference.STDIN
+            ),
+            provider_session_id_placement=(
+                built_in_provider_rendering.ProviderSessionIdPlacement.NONE
+            ),
+            prefer_argv=True,
+        )
+    )
+
+
+def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            run_kind=RunKind.RESUME,
+            tool_access=ToolAccess.workspace_backed(
+                tmp_path,
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            ),
+            auth=None,
+            invocation_dir=tmp_path,
+            provider_session_id="thread-123",
+        )
+    )
+
+    assert rendered_invocation.canonical_argv[:4] == (
+        "codex",
+        "exec",
+        "resume",
+        "thread-123",
+    )
+    assert rendered_invocation.provider_session_id_placement is (
+        built_in_provider_rendering.ProviderSessionIdPlacement.CLI_FLAG
+    )
+    assert rendered_invocation.provider_session_id == "thread-123"
+
+
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_sandbox"),
+    [
+        pytest.param(runtime.ToolPolicy.NONE, "read-only", id="none"),
+        pytest.param(runtime.ToolPolicy.INSPECT_ONLY, "read-only", id="inspect-only"),
+        pytest.param(
+            runtime.ToolPolicy.NO_FILE_MUTATION, "read-only", id="no-file-mutation"
+        ),
+        pytest.param(
+            runtime.ToolPolicy.UNRESTRICTED,
+            "danger-full-access",
+            id="unrestricted",
+        ),
+        pytest.param(
+            ToolPolicyProfile(),
+            "danger-full-access",
+            id="custom-unrestricted-profile",
+        ),
+    ],
+)
+def test_render_codex_uses_windows_executable_and_tool_policy_sandbox_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy | ToolPolicyProfile,
+    expected_sandbox: str,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(
+                tmp_path,
+                tool_policy=tool_policy,
+            ),
+            auth=None,
+            invocation_dir=tmp_path,
+            host_facts=built_in_provider_rendering.BuiltInProviderHostFacts(
+                os_name="nt",
+            ),
+        )
+    )
+
+    assert rendered_invocation.canonical_argv[:2] == ("codex.cmd", "exec")
+    assert rendered_invocation.canonical_argv[-3:] == (
+        "--sandbox",
+        expected_sandbox,
+        "--json",
+    )
+
+
+def test_render_codex_fails_for_missing_host_auth_and_unsupported_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    with pytest.raises(
+        AgentCredentialFailureError,
+        match="Codex authentication missing: run `codex login` on the host.",
+    ):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(tmp_path),
+                auth=None,
+                invocation_dir=tmp_path,
+            )
+        )
+
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeConfigurationError, match=r"Unsupported Codex model 'invalid'\."
+    ):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="codex",
+                        model="invalid",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(tmp_path),
+                auth=None,
+                invocation_dir=tmp_path,
+            )
+        )
+
+    with pytest.raises(
+        RuntimeConfigurationError, match=r"Unsupported Codex effort 'invalid'\."
+    ):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="invalid",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(tmp_path),
+                auth=None,
+                invocation_dir=tmp_path,
+            )
+        )

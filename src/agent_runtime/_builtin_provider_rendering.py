@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import os
 import shlex
 from collections.abc import Mapping
 from pathlib import Path
@@ -14,6 +15,17 @@ from .session import RunKind
 
 _CLAUDE_VALID_MODELS = frozenset({"haiku", "sonnet", "opus"})
 _CLAUDE_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+_CODEX_VALID_MODELS = frozenset(
+    {
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.2",
+    }
+)
+_CODEX_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 _BUILTIN_PROVIDER_PROMPT_FILENAME = ".provider_prompt"
 
 
@@ -79,6 +91,7 @@ class BuiltInProviderRenderedInvocation:
     prompt_cleanup_choice: PromptCleanupChoice
     prompt_transport_preference: PromptTransportPreference
     provider_session_id_placement: ProviderSessionIdPlacement
+    provider_session_id: str | None = None
     prefer_argv: bool = False
 
     def __post_init__(self) -> None:
@@ -88,6 +101,10 @@ class BuiltInProviderRenderedInvocation:
 
 def _builtin_provider_prompt_path(invocation_dir: Path) -> Path:
     return invocation_dir / _BUILTIN_PROVIDER_PROMPT_FILENAME
+
+
+def _codex_provider_prompt_path() -> Path:
+    return _builtin_provider_prompt_path(Path("/tmp"))
 
 
 def _claude_tool_policy_profile(tool_access: ToolAccess) -> ToolPolicyProfile:
@@ -115,6 +132,19 @@ def _validate_claude_selection(
         )
 
 
+def _validate_codex_selection(
+    provider_selection: BuiltInProviderSelectionFacts,
+) -> None:
+    if provider_selection.model not in _CODEX_VALID_MODELS:
+        raise RuntimeConfigurationError(
+            f"Unsupported Codex model {provider_selection.model!r}."
+        )
+    if provider_selection.effort not in _CODEX_VALID_EFFORTS:
+        raise RuntimeConfigurationError(
+            f"Unsupported Codex effort {provider_selection.effort!r}."
+        )
+
+
 def _require_claude_auth(auth: ProviderAuth | None) -> None:
     if auth is not None and auth.claude_code_oauth_token:
         return
@@ -122,6 +152,23 @@ def _require_claude_auth(auth: ProviderAuth | None) -> None:
         "Missing Claude Code OAuth token.",
         service_name="claude",
     )
+
+
+def _codex_host_auth_path() -> Path:
+    return Path.home() / ".codex" / "auth.json"
+
+
+def _missing_codex_auth_error() -> AgentCredentialFailureError:
+    return AgentCredentialFailureError(
+        "Codex authentication missing: run `codex login` on the host.",
+        service_name="codex",
+    )
+
+
+def _require_codex_auth() -> None:
+    if _codex_host_auth_path().exists():
+        return
+    raise _missing_codex_auth_error()
 
 
 def _claude_environment(
@@ -135,6 +182,32 @@ def _claude_environment(
     if provider_state_dir is not None:
         environment["CLAUDE_CONFIG_DIR"] = str(provider_state_dir)
     return environment
+
+
+def _codex_environment(provider_state_dir: Path | None) -> dict[str, str]:
+    environment = {"TZ": "UTC"}
+    if provider_state_dir is not None:
+        environment["CODEX_HOME"] = str(provider_state_dir)
+    return environment
+
+
+def _codex_sandbox(tool_policy: ToolPolicy | ToolPolicyProfile) -> str:
+    if isinstance(tool_policy, ToolPolicy):
+        if tool_policy in {
+            ToolPolicy.NONE,
+            ToolPolicy.INSPECT_ONLY,
+            ToolPolicy.NO_FILE_MUTATION,
+        }:
+            return "read-only"
+        return "danger-full-access"
+    profile = tool_policy
+    if profile == ToolPolicy.NONE.profile:
+        return "read-only"
+    if profile == ToolPolicy.INSPECT_ONLY.profile:
+        return "read-only"
+    if profile == ToolPolicy.NO_FILE_MUTATION.profile:
+        return "read-only"
+    return "danger-full-access"
 
 
 def _render_claude_invocation(
@@ -204,6 +277,58 @@ def _render_claude_invocation(
         prompt_cleanup_choice=PromptCleanupChoice.DELETE_AFTER_INVOCATION,
         prompt_transport_preference=PromptTransportPreference.STDIN,
         provider_session_id_placement=provider_session_id_placement,
+        provider_session_id=request.provider_session_id,
+        prefer_argv=True,
+    )
+
+
+def _render_codex_invocation(
+    request: BuiltInProviderRenderRequest,
+    *,
+    validate_auth: bool = True,
+) -> BuiltInProviderRenderedInvocation:
+    _validate_codex_selection(request.provider_selection)
+    if validate_auth:
+        _require_codex_auth()
+    executable = (
+        "codex.cmd"
+        if ((request.host_facts.os_name if request.host_facts else None) or os.name)
+        == "nt"
+        else "codex"
+    )
+    prompt_path = _codex_provider_prompt_path()
+    flags: list[str] = []
+    if request.run_kind is RunKind.RESUME and request.provider_session_id:
+        flags.extend(["resume", request.provider_session_id])
+    if request.provider_selection.model:
+        flags.extend(["-m", request.provider_selection.model])
+    if request.provider_selection.effort:
+        flags.extend(
+            ["-c", f"model_reasoning_effort={request.provider_selection.effort}"]
+        )
+    flags.extend(
+        [
+            "-c",
+            "approval_policy=never",
+            "--sandbox",
+            _codex_sandbox(request.tool_access.tool_policy),
+            "--json",
+        ]
+    )
+    provider_session_id_placement = ProviderSessionIdPlacement.NONE
+    if request.run_kind is RunKind.RESUME and request.provider_session_id:
+        provider_session_id_placement = ProviderSessionIdPlacement.CLI_FLAG
+    return BuiltInProviderRenderedInvocation(
+        canonical_argv=(executable, "exec", *flags),
+        legacy_command_text=" ".join(
+            shlex.quote(part) for part in (executable, "exec", *flags)
+        ),
+        environment=_codex_environment(request.provider_state_dir),
+        prompt_path=prompt_path,
+        prompt_cleanup_choice=PromptCleanupChoice.DELETE_AFTER_INVOCATION,
+        prompt_transport_preference=PromptTransportPreference.STDIN,
+        provider_session_id_placement=provider_session_id_placement,
+        provider_session_id=request.provider_session_id,
         prefer_argv=True,
     )
 
@@ -213,6 +338,8 @@ def render_built_in_provider_invocation(
 ) -> BuiltInProviderRenderedInvocation:
     if request.provider_selection.service == "claude":
         return _render_claude_invocation(request)
+    if request.provider_selection.service == "codex":
+        return _render_codex_invocation(request)
     raise RuntimeConfigurationError(
         f"Unsupported built-in provider {request.provider_selection.service!r}."
     )

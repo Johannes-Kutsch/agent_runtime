@@ -67,17 +67,8 @@ _log = logging.getLogger(__name__)
 subprocess = _subprocess
 _CLAUDE_VALID_MODELS = _builtin_provider_rendering_module._CLAUDE_VALID_MODELS
 _CLAUDE_VALID_EFFORTS = _builtin_provider_rendering_module._CLAUDE_VALID_EFFORTS
-_CODEX_VALID_MODELS = frozenset(
-    {
-        "gpt-5.5",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.3-codex",
-        "gpt-5.3-codex-spark",
-        "gpt-5.2",
-    }
-)
-_CODEX_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
+_CODEX_VALID_MODELS = _builtin_provider_rendering_module._CODEX_VALID_MODELS
+_CODEX_VALID_EFFORTS = _builtin_provider_rendering_module._CODEX_VALID_EFFORTS
 _OPENCODE_GO_PROVIDER_ID = "opencode-go"
 _OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
 _OPENCODE_SESSION_ID_FILENAME = "session_id"
@@ -205,10 +196,13 @@ def _validate_claude_stage(stage: ProviderSelection) -> None:
 
 
 def _validate_codex_stage(stage: ProviderSelection) -> None:
-    if stage.model not in _CODEX_VALID_MODELS:
-        raise RuntimeConfigurationError(f"Unsupported Codex model {stage.model!r}.")
-    if stage.effort not in _CODEX_VALID_EFFORTS:
-        raise RuntimeConfigurationError(f"Unsupported Codex effort {stage.effort!r}.")
+    _builtin_provider_rendering_module._validate_codex_selection(
+        _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+            service=stage.service,
+            model=stage.model,
+            effort=stage.effort,
+        )
+    )
 
 
 def _validate_opencode_stage(stage: ProviderSelection) -> None:
@@ -298,39 +292,35 @@ def _codex_command(
     session_uuid: str | None = None,
     os_name: str | None = None,
 ) -> tuple[str, ...]:
-    tool_policy = tool_access.tool_policy
-    executable = "codex.cmd" if (os_name or os.name) == "nt" else "codex"
-    if run_kind == RunKind.RESUME and session_uuid:
-        parts = [executable, "exec", "resume", session_uuid]
-    else:
-        parts = [executable, "exec"]
-    if model:
-        parts.extend(["-m", model])
-    if effort:
-        parts.extend(["-c", f"model_reasoning_effort={effort}"])
-    parts.extend(["-c", "approval_policy=never"])
-    if tool_policy is ToolPolicy.UNRESTRICTED:
-        parts.extend(["--sandbox", "danger-full-access"])
-    elif tool_policy is ToolPolicy.NONE:
-        parts.extend(["--sandbox", "read-only"])
-    elif tool_policy is ToolPolicy.INSPECT_ONLY:
-        parts.extend(["--sandbox", "read-only"])
-    elif tool_policy is ToolPolicy.NO_FILE_MUTATION:
-        parts.extend(["--sandbox", "read-only"])
-    else:
-        parts.extend(["--sandbox", "danger-full-access"])
-    parts.append("--json")
-    return tuple(parts)
+    return _builtin_provider_rendering_module._render_codex_invocation(
+        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
+            provider_selection=(
+                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+                    service="codex",
+                    model=model,
+                    effort=effort,
+                )
+            ),
+            run_kind=run_kind,
+            tool_access=tool_access,
+            auth=None,
+            invocation_dir=Path("/tmp"),
+            provider_session_id=session_uuid,
+            host_facts=_builtin_provider_rendering_module.BuiltInProviderHostFacts(
+                os_name=os_name,
+            ),
+        ),
+        validate_auth=False,
+    ).canonical_argv
 
 
 def _codex_env(
     *,
     state_dir_container_path: str | None = None,
 ) -> dict[str, str]:
-    env: dict[str, str] = {"TZ": "UTC"}
-    if state_dir_container_path:
-        env["CODEX_HOME"] = state_dir_container_path
-    return env
+    return _builtin_provider_rendering_module._codex_environment(
+        (None if state_dir_container_path is None else Path(state_dir_container_path))
+    )
 
 
 def _opencode_go_model_ref(model: str) -> str:
@@ -594,22 +584,15 @@ def _with_reduce_output(
 
 
 def _validate_codex_auth() -> None:
-    auth_path = _codex_host_auth_path()
-    if auth_path.exists():
-        return
-    raise _missing_codex_auth_error()
+    _builtin_provider_rendering_module._require_codex_auth()
 
 
 def _codex_host_auth_path() -> Path:
-    return Path.home() / ".codex" / "auth.json"
+    return _builtin_provider_rendering_module._codex_host_auth_path()
 
 
 def _missing_codex_auth_error() -> AgentCredentialFailureError:
-    message = "Codex authentication missing: run `codex login` on the host."
-    return AgentCredentialFailureError(
-        message=message,
-        service_name="codex",
-    )
+    return _builtin_provider_rendering_module._missing_codex_auth_error()
 
 
 def _claude_stream_interpretation() -> BuiltInProviderStreamInterpretation:
