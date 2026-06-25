@@ -1083,6 +1083,48 @@ def test_production_adapter_raises_hard_error_on_nonzero_exit_with_empty_output(
         )
 
 
+def test_production_adapter_preserves_exit_code_only_message_for_whitespace_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(())
+            self.stderr = iter(["   \n", "\t"])
+            self.returncode = 19
+
+        def wait(self) -> int:
+            return 19
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda _lines: ("", None),
+        ),
+    )
+
+    with pytest.raises(
+        HardAgentError, match=r"^Provider subprocess exited with exit code 19\.$"
+    ):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+
 @pytest.mark.parametrize(
     "classified_failure",
     [

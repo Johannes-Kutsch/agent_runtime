@@ -138,10 +138,10 @@ def _provider_invocation_failure_from_error(
     )
 
 
-def _nonzero_exit_message(returncode: int, stdout_lines: list[str]) -> str:
+def _nonzero_exit_message(returncode: int, observed_lines: list[str]) -> str:
     message = f"Provider subprocess exited with exit code {returncode}."
-    observed_output = "".join(stdout_lines).strip()
-    if not observed_output:
+    observed_output = "".join(observed_lines)
+    if not observed_output.strip():
         return message
     return f"{message} Provider output:\n{observed_output}"
 
