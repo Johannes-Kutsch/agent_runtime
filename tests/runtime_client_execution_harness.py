@@ -43,6 +43,10 @@ class RuntimeClientExecutionHarness:
     ) -> list[provider_invocation_runtime.ProviderInvocationRequest]:
         return self._adapter.recorded_requests
 
+    @property
+    def recorded_request_count(self) -> int:
+        return len(self._adapter.recorded_requests)
+
     def recorded_request(
         self,
         index: int = 0,
@@ -273,6 +277,22 @@ class RuntimeClientExecutionHarness:
             + "\n",
             encoding="utf-8",
         )
+        return rollout_path
+
+    @staticmethod
+    def write_codex_rollout_state(
+        provider_state_dir: Path,
+        content: str,
+        *,
+        date_path: tuple[str, str, str] = ("2026", "05", "30"),
+        filename: str = "rollout-001.jsonl",
+    ) -> Path:
+        rollout_dir = (
+            provider_state_dir / "sessions" / date_path[0] / date_path[1] / date_path[2]
+        )
+        rollout_dir.mkdir(parents=True, exist_ok=True)
+        rollout_path = rollout_dir / filename
+        rollout_path.write_text(content, encoding="utf-8")
         return rollout_path
 
     @staticmethod

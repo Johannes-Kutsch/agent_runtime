@@ -20,29 +20,8 @@ from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 
-def _codex_executable() -> str:
-    return "codex.cmd" if os.name == "nt" else "codex"
-
-
 def _selection_with_auth(selection: Any, auth: Any) -> Any:
     return RuntimeClientExecutionHarness.attach_provider_auth(selection, auth)
-
-
-def _install_local_codex_host_auth(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    *,
-    auth_file_content: str = "{}",
-) -> Path:
-    return RuntimeClientExecutionHarness.install_local_codex_host_auth(
-        monkeypatch,
-        tmp_path,
-        auth_file_content=auth_file_content,
-    )
-
-
-def _write_codex_rollout(state_dir: Path, *thread_ids: str) -> None:
-    RuntimeClientExecutionHarness.prepare_codex_rollout_state(state_dir, *thread_ids)
 
 
 def _install_in_memory_provider_invocation_adapter(
@@ -64,12 +43,12 @@ def test_session_backed_codex_completion_resolves_provider_session_id_through_mo
     tmp_path: Path,
     entrypoint: str,
 ) -> None:
-    _install_local_codex_host_auth(
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
         monkeypatch,
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationResult(
             output="final output",
@@ -105,7 +84,9 @@ def test_session_backed_codex_completion_resolves_provider_session_id_through_mo
             runtime_state_dir,
             service="codex",
         )
-        _write_codex_rollout(provider_state_dir, "selected-thread")
+        RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+            provider_state_dir, "selected-thread"
+        )
         result = session_backed_execution._run_builtin_resumed_session(
             RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
@@ -125,19 +106,19 @@ def test_session_backed_codex_completion_resolves_provider_session_id_through_mo
     assert result.continuation == RuntimeClientExecutionHarness.codex_continuation(
         provider_session_id="thread-obs",
     )
-    assert len(adapter.recorded_requests) == 1
+    assert harness.recorded_request_count == 1
 
 
 def test_session_backed_codex_new_session_recovers_provider_state_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _install_local_codex_host_auth(
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
         monkeypatch,
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -154,7 +135,9 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
         runtime_state_dir,
         service="codex",
     )
-    _write_codex_rollout(provider_state_dir, "thread-123", "thread-123")
+    RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+        provider_state_dir, "thread-123", "thread-123"
+    )
 
     result = session_backed_execution._run_builtin_new_session(
         RuntimeClientExecutionHarness.start_session_run_request(
@@ -176,11 +159,11 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
     assert result.continuation == RuntimeClientExecutionHarness.codex_continuation(
         provider_session_id="thread-123",
     )
-    recorded_request = adapter.recorded_requests[0]
+    recorded_request = harness.recorded_request()
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "thread-123"
     assert recorded_request.command == (
-        f"{_codex_executable()} exec resume thread-123 -m gpt-5.4 "
+        f"{'codex.cmd' if os.name == 'nt' else 'codex'} exec resume thread-123 -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never --sandbox read-only --json"
     )
 
@@ -199,12 +182,12 @@ def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_
     run_kind: RunKind,
     provider_session_id: str | None,
 ) -> None:
-    _install_local_codex_host_auth(
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
         monkeypatch,
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationResult(
             output="final output",
@@ -238,7 +221,9 @@ def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_
             )
         )
     else:
-        _write_codex_rollout(provider_state_dir, "selected-thread")
+        RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+            provider_state_dir, "selected-thread"
+        )
         continuation = RuntimeClientExecutionHarness.codex_continuation()
         session_backed_execution._run_builtin_resumed_session(
             RuntimeClientExecutionHarness.resume_session_run_request(
@@ -248,8 +233,8 @@ def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_
             )
         )
 
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
+    assert harness.recorded_request_count == 1
+    recorded_request = harness.recorded_request()
     rendered = built_in_provider_rendering.render_built_in_provider_invocation(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -293,12 +278,12 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
     expected_provider_session_id: str,
     recorded_provider_session_id: str | None,
 ) -> None:
-    _install_local_codex_host_auth(
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
         monkeypatch,
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
@@ -340,7 +325,9 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
                 runtime_state_dir,
                 service="codex",
             )
-            _write_codex_rollout(provider_state_dir, "recovered-thread")
+            RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+                provider_state_dir, "recovered-thread"
+            )
             session_backed_execution._run_builtin_resumed_session(
                 RuntimeClientExecutionHarness.resume_session_run_request(
                     invocation_dir=tmp_path,
@@ -356,7 +343,7 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
         )
     )
     assert (
-        adapter.recorded_requests[0].provider_session_id == recorded_provider_session_id
+        harness.recorded_request().provider_session_id == recorded_provider_session_id
     )
 
 
@@ -378,12 +365,12 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
     tmp_path: Path,
     rollout_lines: list[str],
 ) -> None:
-    _install_local_codex_host_auth(
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
         monkeypatch,
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    adapter = _install_in_memory_provider_invocation_adapter(monkeypatch)
+    harness = _install_in_memory_provider_invocation_adapter(monkeypatch)
 
     continuation = RuntimeClientExecutionHarness.codex_continuation()
     runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
@@ -393,17 +380,15 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
         runtime_state_dir,
         service="codex",
     )
-    rollout_dir = provider_state_dir / "sessions" / "2026" / "05" / "30"
-    rollout_dir.mkdir(parents=True, exist_ok=True)
     if len(rollout_lines) == 1:
-        (rollout_dir / "rollout-001.jsonl").write_text(
+        RuntimeClientExecutionHarness.write_codex_rollout_state(
+            provider_state_dir,
             rollout_lines[0] + '{"type":"thread.started","thread_id":"thread-b"}\n',
-            encoding="utf-8",
         )
     else:
-        (rollout_dir / "rollout-001.jsonl").write_text(
+        RuntimeClientExecutionHarness.write_codex_rollout_state(
+            provider_state_dir,
             "".join(rollout_lines),
-            encoding="utf-8",
         )
 
     with pytest.raises(RuntimeConfigurationError) as exc_info:
@@ -418,7 +403,7 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
     assert str(exc_info.value) == (
         "Codex continuation is not recoverable from provider state."
     )
-    assert adapter.recorded_requests == []
+    assert harness.recorded_request_count == 0
 
 
 def test_session_backed_opencode_completion_restores_portable_provider_state_through_module_interface(
