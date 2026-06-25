@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._builtin_provider_rendering as built_in_provider_rendering
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime._session_backed_provider_execution as session_backed_execution
 import agent_runtime.contracts as contracts_runtime
@@ -217,6 +218,119 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
         f"{_codex_executable()} exec resume thread-123 -m gpt-5.4 "
         "-c model_reasoning_effort=medium -c approval_policy=never --sandbox read-only --json"
     )
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "run_kind", "provider_session_id"),
+    [
+        ("new", RunKind.FRESH, None),
+        ("resumed", RunKind.RESUME, "selected-thread"),
+    ],
+)
+def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint: str,
+    run_kind: RunKind,
+    provider_session_id: str | None,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+    monkeypatch.setattr(
+        built_in_provider_rendering.Path,
+        "home",
+        lambda: host_home,
+    )
+    adapter = _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="final output",
+            usage=runtime.ProviderUsage(
+                input_tokens=5,
+                output_tokens=2,
+            ),
+            provider_session_id="thread-obs",
+            stdout_lines=(),
+        ),
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir = runtime_state_dir / "implementer/main/codex"
+    if entrypoint == "new":
+        session_backed_execution._run_builtin_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                session_namespace="main",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    else:
+        _write_codex_rollout(provider_state_dir, "selected-thread")
+        continuation = prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "selected-thread",
+                "provider_state_dir_relpath": "implementer/main/codex/",
+                "exact_transcript_match": False,
+            },
+        )
+        session_backed_execution._run_builtin_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                session_namespace="main",
+            )
+        )
+
+    assert len(adapter.recorded_requests) == 1
+    recorded_request = adapter.recorded_requests[0]
+    rendered = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            run_kind=run_kind,
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            auth=None,
+            invocation_dir=tmp_path,
+            provider_state_dir=provider_state_dir,
+            provider_session_id=provider_session_id,
+        )
+    )
+
+    assert recorded_request.command == rendered.legacy_command_text
+    assert recorded_request.argv == rendered.canonical_argv
+    assert recorded_request.prefer_argv is rendered.prefer_argv
+    assert recorded_request.environment == dict(rendered.environment)
+    assert recorded_request.prompt.path == rendered.prompt_path
+    assert recorded_request.prompt.cleanup_path is (
+        rendered.prompt_cleanup_choice
+        is built_in_provider_rendering.PromptCleanupChoice.DELETE_AFTER_INVOCATION
+    )
+    assert recorded_request.provider_session_id == provider_session_id
+    assert recorded_request.run_kind is run_kind
 
 
 @pytest.mark.parametrize(
