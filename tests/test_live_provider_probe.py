@@ -143,6 +143,26 @@ def _codex_probe_case(probe: Any, *, mode: str) -> Any:
     )
 
 
+def _probe_case(
+    probe: Any,
+    *,
+    provider: str,
+    mode: str,
+    env: dict[str, str] | None = None,
+    codex_auth_present: bool | None = None,
+) -> Any:
+    provider_plan = probe.plan.plan_selected_providers(
+        probe.plan.parse_provider_selection(provider),
+        env=env or {},
+        codex_auth_present=codex_auth_present,
+    )[0]
+    return next(
+        case
+        for case in probe.plan.probe_cases_for_provider(provider_plan)
+        if case.mode == mode
+    )
+
+
 def test_full_run_writes_six_cases_with_feed_and_result(
     probe: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -637,3 +657,104 @@ def test_live_probe_case_runner_reports_wrong_credentials_with_traceback(
     assert (tmp_path / case.label / case_runner.LIVE_FEED_FILENAME).read_text(
         encoding="utf-8"
     ) == ""
+
+
+def test_live_probe_case_runner_in_memory_runtime_invocation_adapter_records_request_facts_for_all_lifecycle_modes(
+    probe: Any, case_runner: Any, tmp_path: Path
+) -> None:
+    ephemeral_case = _probe_case(
+        probe,
+        provider="codex",
+        mode="ephemeral",
+        codex_auth_present=True,
+    )
+    new_session_case = _probe_case(
+        probe,
+        provider="codex",
+        mode="new_session",
+        codex_auth_present=True,
+    )
+    resumed_session_case = _probe_case(
+        probe,
+        provider="claude",
+        mode="resumed_session",
+        env={"CLAUDE_CODE_OAUTH_TOKEN": "claude-token"},
+    )
+    resumed_invocation_dir = tmp_path / "resumed-session-workspace"
+    continuation = pr.Continuation(
+        selected_service="claude",
+        selected_model=resumed_session_case.model,
+        selected_effort=resumed_session_case.effort,
+        tool_access=ToolAccess.workspace_backed(
+            resumed_invocation_dir,
+            tool_policy=pr.ToolPolicy.UNRESTRICTED,
+        ),
+        provider_resume_state={"provider_session_id": "claude-session"},
+    )
+    adapter = case_runner.InMemoryRuntimeInvocationAdapter(
+        prepared_outcomes=[
+            _completed("ephemeral output"),
+            _completed("new session output", continuation=_continuation()),
+            _completed("resumed output"),
+        ]
+    )
+    output = _OutputRecorder()
+
+    for case, prompt, case_dir_name, case_continuation in (
+        (ephemeral_case, "ephemeral prompt", "ephemeral", None),
+        (new_session_case, "new session prompt", "new-session", None),
+        (
+            resumed_session_case,
+            "resumed prompt",
+            "resumed-session",
+            continuation,
+        ),
+    ):
+        result = case_runner.run_case(
+            case_runner.ProbeCaseRunRequest(
+                case=case,
+                case_dir=tmp_path / case_dir_name,
+                invocation_dir=tmp_path / f"{case_dir_name}-workspace",
+                prompt=prompt,
+                timeout_seconds=45,
+                continuation=case_continuation,
+                output=output,
+            ),
+            outcome_category=probe.plan.outcome_category,
+            runtime_client_factory=lambda: adapter,
+        )
+        assert result.category == "success"
+
+    assert [mode for mode, _ in adapter.recorded_requests] == [
+        "run_ephemeral",
+        "run_new_session",
+        "run_resumed_session",
+    ]
+
+    ephemeral_request = adapter.recorded_requests[0][1]
+    assert isinstance(ephemeral_request, pr.EphemeralRunRequest)
+    assert ephemeral_request.provider_selection == ephemeral_case.provider_selection
+    assert ephemeral_request.tool_policy is pr.ToolPolicy.UNRESTRICTED
+    assert ephemeral_request.prompt == "ephemeral prompt"
+    assert ephemeral_request.timeout_seconds == 45
+    assert ephemeral_request.invocation_dir == tmp_path / "ephemeral-workspace"
+
+    new_session_request = adapter.recorded_requests[1][1]
+    assert isinstance(new_session_request, pr.NewSessionRunRequest)
+    assert new_session_request.provider_selection == new_session_case.provider_selection
+    assert new_session_request.tool_policy is pr.ToolPolicy.UNRESTRICTED
+    assert new_session_request.prompt == "new session prompt"
+    assert new_session_request.timeout_seconds == 45
+    assert new_session_request.invocation_dir == tmp_path / "new-session-workspace"
+
+    resumed_session_request = adapter.recorded_requests[2][1]
+    assert isinstance(resumed_session_request, pr.ResumedSessionRunRequest)
+    assert resumed_session_request.continuation == continuation
+    assert resumed_session_request.provider_auth == pr.ProviderAuth(
+        claude_code_oauth_token="claude-token"
+    )
+    assert resumed_session_request.prompt == "resumed prompt"
+    assert resumed_session_request.timeout_seconds == 45
+    assert resumed_session_request.invocation_dir == (
+        tmp_path / "resumed-session-workspace"
+    )
