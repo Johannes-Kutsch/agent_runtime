@@ -36,6 +36,7 @@
 | `RunResult` | Run facts carried by every `RuntimeOutcome`, even after interruption: final output, provider usage, resume continuation (none for ephemeral), `ResolvedProvider`. |
 | `ResolvedProvider` | Credential-free identity of the provider actually run: service, model, effort. Distinct from `ProviderSelection`; canonical wherever that triple appears. |
 | `Live Provider Probe` | Opt-in manual debugging tool (not CI, not default tests, not Runtime Public Surface) exercising real built-in providers; streams events live, writes per-case JSON artifacts wiped on rerun. |
+| `Live Probe Case Runner` | Private Live Provider Probe module/interface that executes one planned probe case through the Runtime Public Surface, writes per-case live feed and result artifacts, classifies the outcome, captures traceback, and returns only facts needed by provider-level sequencing and terminal display. It is not Runtime Public Surface. |
 | `Live Probe Case Matrix` | Per-service: three entry paths at `UNRESTRICTED`, plus ephemeral under each remaining `ToolPolicy` — six cases, deduplicated on `ephemeral_UNRESTRICTED`. |
 | `Live Probe Default` | Cost-first runtime-supported provider/model/effort tuple used by the probe absent CLI override. |
 | `ProviderUsage` | Provider-reported usage: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, optional provider duration. |
@@ -93,6 +94,7 @@
 - `ProviderSelection` is the canonical single-candidate selection value for one invocation.
 - Runtime Compatibility Aliases are not Runtime Public Surface promises and may be removed before release.
 - Live Provider Probe is opt-in manual debugging — not CI, default tests, or Runtime Public Surface. Proves invocation, not answer quality or tool usefulness. Live Probe Defaults prefer cheapest runtime-supported tuple; prompts must stay simple enough for those defaults.
+- Live Probe Case Runner is private to the manual-debug probe; it must not become Runtime Public Surface or change the probe artifact schema, CLI behavior, exit behavior, or ADR 0010 posture.
 
 ## Flagged Ambiguities
 
