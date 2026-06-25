@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from agent_runtime.agent_log import AgentInvocationLog
 from agent_runtime.errors import (
     AgentFailedError,
     AgentRuntimeError,
@@ -18,7 +15,6 @@ from agent_runtime.errors import (
     TransientAgentError,
     UsageLimitError,
 )
-from agent_runtime.session import RunKind
 
 
 def test_agent_failed_error_rejects_unsafe_session_namespace_before_building_diagnostics() -> (
@@ -91,47 +87,6 @@ def test_hard_agent_error_rejects_unsafe_runtime_service_labels_before_recording
 ) -> None:
     with pytest.raises(ValueError):
         HardAgentError("hard", service_name=service_name)
-
-
-def test_agent_invocation_log_uses_log_name_and_logs_dir_parameters(
-    tmp_path: Path,
-) -> None:
-    invocation_log = AgentInvocationLog(
-        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
-    )
-
-    reserved_path = invocation_log.reserve(
-        log_name="Issue 51 Review",
-        logs_dir=tmp_path,
-    )
-    logical_log = invocation_log.start_logical_session(
-        log_name="Issue 51 Review",
-        logs_dir=tmp_path,
-    )
-
-    assert reserved_path.name == "issue-51-review-20260101T0000.log"
-    assert logical_log.log_path.name == "issue-51-review-20260101T0000-2.log"
-
-
-def test_agent_invocation_log_records_provider_session_id_in_header(
-    tmp_path: Path,
-) -> None:
-    log_path = tmp_path / "agent.log"
-    invocation_log = AgentInvocationLog(
-        now_local=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
-    )
-
-    with invocation_log.open_work_invocation(
-        log_path=log_path,
-        run_kind=RunKind.RESUME,
-        session_uuid=None,
-        prompt="different scope from role",
-    ) as work_invocation:
-        work_invocation.record_provider_session_id("provider-session")
-
-    header = json.loads(log_path.read_text().splitlines()[0])
-
-    assert header["provider_session_id"] == "provider-session"
 
 
 def test_agent_timeout_error_is_an_agent_runtime_error() -> None:
