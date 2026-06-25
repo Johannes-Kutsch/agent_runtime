@@ -574,6 +574,174 @@ def test_live_probe_case_runner_writes_feed_and_projects_case_result_facts(
     ]
 
 
+def test_live_probe_case_runner_streams_tool_call_display_messages_and_persists_partial_feed_on_error(
+    probe: Any, case_runner: Any, tmp_path: Path
+) -> None:
+    case = _codex_probe_case(probe, mode="ephemeral")
+    output = _OutputRecorder()
+
+    class _FakeClient:
+        async def run_ephemeral(self, request: Any) -> Any:
+            request.on_live_output(
+                pr.AgentEvent(
+                    type="agent_message",
+                    display_message="hello",
+                    raw_provider_output='{"event":"message"}',
+                )
+            )
+            request.on_live_output(
+                pr.AgentEvent(
+                    type="agent_tool_call",
+                    display_message="tool call",
+                    raw_provider_output='{"event":"tool_call"}',
+                )
+            )
+            request.on_live_output(
+                pr.AgentEvent(
+                    type="other",
+                    display_message="hidden",
+                    raw_provider_output='{"event":"other"}',
+                )
+            )
+            raise RuntimeError("boom")
+
+        async def run_new_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected new-session execution")
+
+        async def run_resumed_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected resumed execution")
+
+    result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=case,
+            case_dir=tmp_path / case.label,
+            invocation_dir=tmp_path / "workspace",
+            prompt="prompt",
+            timeout_seconds=30,
+            continuation=None,
+            output=output,
+        ),
+        outcome_category=probe.plan.outcome_category,
+        runtime_client_factory=_FakeClient,
+    )
+
+    assert result.category == "error"
+    assert result.kind is None
+    assert result.traceback is not None
+    assert "RuntimeError: boom" in result.traceback
+    assert output.lines == ["  hello", "  tool call"]
+    records = [
+        json.loads(line)
+        for line in (tmp_path / case.label / case_runner.LIVE_FEED_FILENAME)
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert records == [
+        {
+            "type": "agent_message",
+            "display_message": "hello",
+            "raw_provider_output": '{"event":"message"}',
+        },
+        {
+            "type": "agent_tool_call",
+            "display_message": "tool call",
+            "raw_provider_output": '{"event":"tool_call"}',
+        },
+        {
+            "type": "other",
+            "display_message": "hidden",
+            "raw_provider_output": '{"event":"other"}',
+        },
+    ]
+
+
+def test_live_probe_case_runner_flushes_each_observed_event(
+    probe: Any, case_runner: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    case = _codex_probe_case(probe, mode="ephemeral")
+    output = _OutputRecorder()
+
+    class _RecordingSink:
+        def __init__(self) -> None:
+            self.flush_count = 0
+            self.lines: list[str] = []
+
+        def write(self, text: str) -> int:
+            self.lines.append(text)
+            return len(text)
+
+        def flush(self) -> None:
+            self.flush_count += 1
+
+        def close(self) -> None:
+            return None
+
+    sink = _RecordingSink()
+    original_open = Path.open
+
+    def _open(self: Path, mode: str = "r", encoding: str | None = None) -> Any:
+        if self == tmp_path / case.label / case_runner.LIVE_FEED_FILENAME:
+            assert mode == "w"
+            assert encoding == "utf-8"
+            return sink
+        return original_open(self, mode, encoding=encoding)
+
+    monkeypatch.setattr(case_runner.Path, "open", _open)
+
+    class _FakeClient:
+        async def run_ephemeral(self, request: Any) -> Any:
+            request.on_live_output(
+                pr.AgentEvent(
+                    type="agent_message",
+                    display_message="hello",
+                    raw_provider_output='{"event":"message"}',
+                )
+            )
+            request.on_live_output(
+                pr.AgentEvent(
+                    type="other",
+                    display_message="hidden",
+                    raw_provider_output='{"event":"other"}',
+                )
+            )
+            return _completed("ephemeral output")
+
+        async def run_new_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected new-session execution")
+
+        async def run_resumed_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected resumed execution")
+
+    result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=case,
+            case_dir=tmp_path / case.label,
+            invocation_dir=tmp_path / "workspace",
+            prompt="prompt",
+            timeout_seconds=30,
+            continuation=None,
+            output=output,
+        ),
+        outcome_category=probe.plan.outcome_category,
+        runtime_client_factory=_FakeClient,
+    )
+
+    assert result.category == "success"
+    assert sink.flush_count == 2
+    assert [json.loads(line) for line in sink.lines] == [
+        {
+            "type": "agent_message",
+            "display_message": "hello",
+            "raw_provider_output": '{"event":"message"}',
+        },
+        {
+            "type": "other",
+            "display_message": "hidden",
+            "raw_provider_output": '{"event":"other"}',
+        },
+    ]
+
+
 def test_live_probe_case_runner_passes_continuation_and_default_provider_auth_for_resumed_session(
     probe: Any, case_runner: Any, tmp_path: Path
 ) -> None:
