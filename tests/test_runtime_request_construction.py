@@ -84,6 +84,7 @@ def test_resumed_session_run_request_has_minimal_public_signature() -> None:
         "invocation_dir",
         "continuation",
         "provider_auth",
+        "session_store",
         "timeout_seconds",
         "on_live_output",
         "token",
@@ -95,7 +96,7 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
 
     assert "on_live_output" in parameters
     assert "timeout_seconds" in parameters
-    assert "session_store" not in parameters
+    assert "session_store" in parameters
     assert "provider_session_adapter" not in parameters
 
 

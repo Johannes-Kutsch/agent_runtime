@@ -336,7 +336,7 @@ class NewSessionRunRequest:
     token: CancellationToken | None = None
 
     if TYPE_CHECKING:
-        _runtime_state_dir: Path | None = None
+        session_store: Path | None = None
         _session_namespace: str = ""
 
     def __init__(
@@ -346,7 +346,7 @@ class NewSessionRunRequest:
         provider_selection: ProviderSelection | None = None,
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
-        _runtime_state_dir: Path | None = None,
+        session_store: Path | None = None,
         _session_namespace: str = "",
         timeout_seconds: int = 300,
         name: str = "Runtime Agent",
@@ -362,21 +362,21 @@ class NewSessionRunRequest:
         )
         compatibility_runtime_state_dir = compatibility_kwargs.pop(
             "runtime_state_dir",
-            _runtime_state_dir,
+            session_store,
         )
         if _session_namespace and compatibility_session_namespace != _session_namespace:
             raise TypeError(
                 "NewSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
             )
         if (
-            _runtime_state_dir is not None
-            and compatibility_runtime_state_dir != _runtime_state_dir
+            session_store is not None
+            and compatibility_runtime_state_dir != session_store
         ):
             raise TypeError(
-                "NewSessionRunRequest received conflicting `runtime_state_dir` and `_runtime_state_dir` values."
+                "NewSessionRunRequest received conflicting `runtime_state_dir` and `session_store` values."
             )
         _session_namespace = compatibility_session_namespace
-        _runtime_state_dir = compatibility_runtime_state_dir
+        session_store = compatibility_runtime_state_dir
         resolved_invocation_dir = _resolve_public_invocation_dir(
             invocation_dir,
             compatibility_kwargs,
@@ -400,7 +400,7 @@ class NewSessionRunRequest:
             _PUBLIC_INVOCATION_DIR_NAME,
             normalized_request.worktree.path,
         )
-        object.__setattr__(self, "_runtime_state_dir", _runtime_state_dir)
+        object.__setattr__(self, "session_store", session_store)
         object.__setattr__(
             self,
             "provider_selection",
@@ -425,6 +425,10 @@ class NewSessionRunRequest:
     def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
         return self.tool_access.tool_policy
 
+    @property
+    def _runtime_state_dir(self) -> Path | None:
+        return self.session_store
+
 
 @dataclasses.dataclass(frozen=True, init=False)
 class ResumedSessionRunRequest:
@@ -444,7 +448,7 @@ class ResumedSessionRunRequest:
     token: CancellationToken | None = None
 
     if TYPE_CHECKING:
-        _runtime_state_dir: Path | None = None
+        session_store: Path | None = None
         _session_namespace: str = ""
 
     def __init__(
@@ -456,7 +460,7 @@ class ResumedSessionRunRequest:
         session_plan: ResumableSessionPlan | None = None,
         continuation: Continuation | None = None,
         provider_auth: ProviderAuth | None = None,
-        _runtime_state_dir: Path | None = None,
+        session_store: Path | None = None,
         _session_namespace: str = "",
         tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
@@ -474,21 +478,21 @@ class ResumedSessionRunRequest:
         )
         compatibility_runtime_state_dir = compatibility_kwargs.pop(
             "runtime_state_dir",
-            _runtime_state_dir,
+            session_store,
         )
         if _session_namespace and compatibility_session_namespace != _session_namespace:
             raise TypeError(
                 "ResumedSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
             )
         if (
-            _runtime_state_dir is not None
-            and compatibility_runtime_state_dir != _runtime_state_dir
+            session_store is not None
+            and compatibility_runtime_state_dir != session_store
         ):
             raise TypeError(
-                "ResumedSessionRunRequest received conflicting `runtime_state_dir` and `_runtime_state_dir` values."
+                "ResumedSessionRunRequest received conflicting `runtime_state_dir` and `session_store` values."
             )
         _session_namespace = compatibility_session_namespace
-        _runtime_state_dir = compatibility_runtime_state_dir
+        session_store = compatibility_runtime_state_dir
         resolved_invocation_dir = _resolve_public_invocation_dir(
             invocation_dir,
             compatibility_kwargs,
@@ -565,7 +569,7 @@ class ResumedSessionRunRequest:
             _PUBLIC_INVOCATION_DIR_NAME,
             normalized_request.worktree.path,
         )
-        object.__setattr__(self, "_runtime_state_dir", _runtime_state_dir)
+        object.__setattr__(self, "session_store", session_store)
         object.__setattr__(self, "model", resolved_model)
         object.__setattr__(self, "effort", resolved_effort)
         object.__setattr__(
@@ -592,6 +596,10 @@ class ResumedSessionRunRequest:
     def tool_policy(self) -> ToolPolicy | ToolPolicyProfile:
         return self.tool_access.tool_policy
 
+    @property
+    def _runtime_state_dir(self) -> Path | None:
+        return self.session_store
+
 
 cast(Any, EphemeralRunRequest).__signature__ = _public_request_signature(
     "prompt",
@@ -607,6 +615,7 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "invocation_dir",
     "provider_selection",
     "tool_policy",
+    "session_store",
     "timeout_seconds",
     "name",
     "status_display",
@@ -619,6 +628,7 @@ cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
     "invocation_dir",
     "continuation",
     "provider_auth",
+    "session_store",
     "timeout_seconds",
     "on_live_output",
     "token",
