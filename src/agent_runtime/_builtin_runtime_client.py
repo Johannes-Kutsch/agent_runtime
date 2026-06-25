@@ -709,6 +709,76 @@ def _invoke_provider(
     )
 
 
+def _provider_invocation_request_from_rendered_invocation(
+    *,
+    rendered: _builtin_provider_rendering_module.BuiltInProviderRenderedInvocation,
+    invocation_dir: Path,
+    prompt: str,
+    run_kind: RunKind,
+    provider_session_id: str | None,
+    stream_interpretation: BuiltInProviderStreamInterpretation,
+    normalize_prompt_file_command_for_argv: bool = False,
+) -> ProviderInvocationRequest:
+    command = rendered.legacy_command_text or ""
+    if (
+        normalize_prompt_file_command_for_argv
+        and rendered.prefer_argv
+        and rendered.prompt_transport_preference
+        is _builtin_provider_rendering_module.PromptTransportPreference.PROMPT_FILE
+    ):
+        command = ""
+    return ProviderInvocationRequest(
+        command=command,
+        argv=rendered.canonical_argv,
+        prefer_argv=rendered.prefer_argv,
+        worktree=invocation_dir,
+        environment=dict(rendered.environment),
+        prompt=ProviderInvocationPrompt(
+            content=prompt,
+            path=rendered.prompt_path,
+            cleanup_path=(
+                rendered.prompt_cleanup_choice
+                is _builtin_provider_rendering_module.PromptCleanupChoice.DELETE_AFTER_INVOCATION
+            ),
+        ),
+        run_kind=run_kind,
+        log_context=None,
+        provider_session_id=provider_session_id,
+        output_hooks=ProviderOutputReductionHooks(
+            reduce_output=stream_interpretation.reduce_output,
+            extract_provider_session_id=(
+                stream_interpretation.extract_provider_session_id
+            ),
+        ),
+    )
+
+
+def _execute_rendered_provider_invocation(
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter,
+    rendered: _builtin_provider_rendering_module.BuiltInProviderRenderedInvocation,
+    invocation_dir: Path,
+    prompt: str,
+    run_kind: RunKind,
+    provider_session_id: str | None,
+    stream_interpretation: BuiltInProviderStreamInterpretation,
+    normalize_prompt_file_command_for_argv: bool = False,
+) -> ProviderInvocationResult | ProviderInvocationFailure:
+    return provider_invocation_adapter.execute(
+        _provider_invocation_request_from_rendered_invocation(
+            rendered=rendered,
+            invocation_dir=invocation_dir,
+            prompt=prompt,
+            run_kind=run_kind,
+            provider_session_id=provider_session_id,
+            stream_interpretation=stream_interpretation,
+            normalize_prompt_file_command_for_argv=(
+                normalize_prompt_file_command_for_argv
+            ),
+        )
+    )
+
+
 def _invoke_claude_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
@@ -744,19 +814,11 @@ def _invoke_claude_session_provider(
         _claude_stream_interpretation(),
         on_live_output,
     )
-    return _invoke_provider(
+    return _execute_rendered_provider_invocation(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=rendered.legacy_command_text or "",
-        command_argv=rendered.canonical_argv,
-        prefer_argv=rendered.prefer_argv,
-        worktree=invocation_dir,
-        environment=dict(rendered.environment),
-        prompt_content=prompt,
-        prompt_path=rendered.prompt_path,
-        cleanup_prompt_path=(
-            rendered.prompt_cleanup_choice
-            is _builtin_provider_rendering_module.PromptCleanupChoice.DELETE_AFTER_INVOCATION
-        ),
+        rendered=rendered,
+        invocation_dir=invocation_dir,
+        prompt=prompt,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
         stream_interpretation=stream_interpretation,
@@ -845,19 +907,11 @@ def _invoke_codex_session_provider(
         ),
         validate_auth=False,
     )
-    return _invoke_provider(
+    return _execute_rendered_provider_invocation(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=rendered.legacy_command_text or "",
-        command_argv=rendered.canonical_argv,
-        prefer_argv=rendered.prefer_argv,
-        worktree=invocation_dir,
-        environment=dict(rendered.environment),
-        prompt_content=prompt,
-        prompt_path=rendered.prompt_path,
-        cleanup_prompt_path=(
-            rendered.prompt_cleanup_choice
-            is _builtin_provider_rendering_module.PromptCleanupChoice.DELETE_AFTER_INVOCATION
-        ),
+        rendered=rendered,
+        invocation_dir=invocation_dir,
+        prompt=prompt,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
         stream_interpretation=stream_interpretation,
@@ -921,19 +975,11 @@ def _invoke_opencode_session_provider(
             provider_session_id=provider_session_id,
         )
     )
-    return _invoke_provider(
+    return _execute_rendered_provider_invocation(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=rendered.legacy_command_text or "",
-        command_argv=rendered.canonical_argv,
-        prefer_argv=rendered.prefer_argv,
-        worktree=invocation_dir,
-        environment=dict(rendered.environment),
-        prompt_content=prompt,
-        prompt_path=rendered.prompt_path,
-        cleanup_prompt_path=(
-            rendered.prompt_cleanup_choice
-            is _builtin_provider_rendering_module.PromptCleanupChoice.DELETE_AFTER_INVOCATION
-        ),
+        rendered=rendered,
+        invocation_dir=invocation_dir,
+        prompt=prompt,
         run_kind=run_kind,
         provider_session_id=rendered.provider_session_id,
         stream_interpretation=stream_interpretation,
@@ -965,6 +1011,52 @@ def _invoke_opencode_new_session_provider(
     )
 
 
+def _ephemeral_provider_state_dir(
+    service_name: str,
+    invocation_dir: Path,
+) -> Path | None:
+    if service_name == "opencode":
+        return invocation_dir
+    return None
+
+
+def _ephemeral_render_invocation_dir(
+    service_name: str,
+    invocation_dir: Path,
+) -> Path:
+    if service_name == "opencode":
+        return Path("/tmp")
+    return invocation_dir
+
+
+def _render_ephemeral_provider_invocation(
+    request: EphemeralRunRequest,
+    stage: ProviderSelection,
+) -> _builtin_provider_rendering_module.BuiltInProviderRenderedInvocation:
+    return _builtin_provider_rendering_module.render_built_in_provider_invocation(
+        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
+            provider_selection=(
+                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+                    service=stage.service,
+                    model=stage.model,
+                    effort=stage.effort,
+                )
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=request.tool_access,
+            auth=_selection_auth(stage),
+            invocation_dir=_ephemeral_render_invocation_dir(
+                stage.service,
+                request.invocation_dir,
+            ),
+            provider_state_dir=_ephemeral_provider_state_dir(
+                stage.service,
+                request.invocation_dir,
+            ),
+        )
+    )
+
+
 def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
     *,
@@ -972,30 +1064,18 @@ def _run_builtin_ephemeral(
     select_builtin_stage: Callable[
         [ProviderSelection], ProviderSelection
     ] = _select_builtin_stage,
-    validate_claude_stage: Callable[[ProviderSelection], None] = _validate_claude_stage,
-    validate_codex_stage: Callable[[ProviderSelection], None] = _validate_codex_stage,
-    validate_opencode_stage: Callable[
-        [ProviderSelection], None
-    ] = _validate_opencode_stage,
-    claude_command: Callable[..., tuple[str, ...]] = _claude_command,
-    claude_env: Callable[..., dict[str, str]] = _claude_env,
     reduce_claude_stream: Callable[
         [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
     ] = reduce_claude_stream,
-    codex_command: Callable[..., tuple[str, ...]] = _codex_command,
-    codex_env: Callable[..., dict[str, str]] = _codex_env,
     reduce_codex_stream: Callable[
         [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
     ] = reduce_codex_stream,
-    opencode_command: Callable[..., tuple[str, ...]] = _opencode_command,
-    opencode_env: Callable[..., dict[str, str]] = _opencode_env,
     reduce_opencode_stream: Callable[
         [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
     ] = reduce_opencode_stream,
-    validate_codex_auth: Callable[[], None] = _validate_codex_auth,
 ) -> RunResult:
     invocation_adapter = (
         _default_provider_invocation_adapter()
@@ -1010,119 +1090,39 @@ def _run_builtin_ephemeral(
 
     try:
         selected_stage = select_builtin_stage(request.provider_selection)
-        selected_stage_auth = _selection_auth(selected_stage)
+        rendered = _render_ephemeral_provider_invocation(request, selected_stage)
+        stream_interpretation: BuiltInProviderStreamInterpretation
         if selected_stage.service == "codex":
-            validate_codex_stage(selected_stage)
-            validate_codex_auth()
-            prompt_path = _builtin_provider_temp_prompt_path()
-        elif selected_stage.service == "opencode":
-            validate_opencode_stage(selected_stage)
-            if selected_stage_auth is None or not selected_stage_auth.opencode_api_key:
-                message = "Missing OpenCode API key."
-                raise AgentCredentialFailureError(
-                    message=message,
-                    service_name="opencode",
-                    classification="operator_actionable_agent_credential_failure",
-                )
-            prompt_path = _builtin_provider_temp_prompt_path()
-        else:
-            validate_claude_stage(selected_stage)
-            if (
-                selected_stage_auth is None
-                or not selected_stage_auth.claude_code_oauth_token
-            ):
-                raise AgentCredentialFailureError(
-                    message="Missing Claude Code OAuth token.",
-                    service_name="claude",
-                )
-            prompt_path = _builtin_provider_prompt_path(request.invocation_dir)
-        if selected_stage.service == "codex":
-            command_argv = codex_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
-            )
-            invocation_result = _invoke_provider(
-                provider_invocation_adapter=invocation_adapter,
-                command="",
-                command_argv=command_argv,
-                prefer_argv=True,
-                worktree=request.invocation_dir,
-                environment=codex_env(),
-                prompt_content=request.prompt,
-                prompt_path=prompt_path,
-                cleanup_prompt_path=True,
-                run_kind=RunKind.FRESH,
-                provider_session_id=None,
-                stream_interpretation=_with_observed_output(
-                    _with_reduce_output(
-                        _codex_stream_interpretation(),
-                        lambda lines: reduce_codex_stream(lines, None),
-                    ),
-                    wrapped_on_live_output,
+            stream_interpretation = _with_observed_output(
+                _with_reduce_output(
+                    _codex_stream_interpretation(),
+                    lambda lines: reduce_codex_stream(lines, None),
                 ),
+                wrapped_on_live_output,
             )
         elif selected_stage.service == "opencode":
-            command_argv = opencode_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                run_kind=RunKind.FRESH,
-                session_uuid=None,
-            )
-            invocation_result = _invoke_provider(
-                provider_invocation_adapter=invocation_adapter,
-                command="",
-                command_argv=command_argv,
-                prefer_argv=True,
-                worktree=request.invocation_dir,
-                environment=opencode_env(
-                    auth=selected_stage_auth,
-                    state_dir_container_path=str(request.invocation_dir),
-                    tool_policy=request.tool_access.tool_policy,
-                ),
-                prompt_content=request.prompt,
-                prompt_path=prompt_path,
-                cleanup_prompt_path=True,
-                run_kind=RunKind.FRESH,
-                provider_session_id=None,
-                stream_interpretation=_opencode_stream_interpretation(
-                    on_live_output=wrapped_on_live_output,
-                    reduce_output=lambda lines: reduce_opencode_stream(lines, None),
-                ),
+            stream_interpretation = _opencode_stream_interpretation(
+                on_live_output=wrapped_on_live_output,
+                reduce_output=lambda lines: reduce_opencode_stream(lines, None),
             )
         else:
-            command_argv = claude_command(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                tool_access=request.tool_access,
-                run_kind=RunKind.FRESH,
-            )
-            invocation_result = _invoke_provider(
-                provider_invocation_adapter=invocation_adapter,
-                command=_claude_legacy_command_text(
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    prompt_path=prompt_path,
-                    run_kind=RunKind.FRESH,
+            stream_interpretation = _with_observed_output(
+                _with_reduce_output(
+                    _claude_stream_interpretation(),
+                    lambda lines: reduce_claude_stream(lines, None),
                 ),
-                command_argv=command_argv,
-                prefer_argv=True,
-                worktree=request.invocation_dir,
-                environment=claude_env(auth=selected_stage_auth),
-                prompt_content=request.prompt,
-                prompt_path=prompt_path,
-                cleanup_prompt_path=True,
-                run_kind=RunKind.FRESH,
-                provider_session_id=None,
-                stream_interpretation=_with_observed_output(
-                    _with_reduce_output(
-                        _claude_stream_interpretation(),
-                        lambda lines: reduce_claude_stream(lines, None),
-                    ),
-                    wrapped_on_live_output,
-                ),
+                wrapped_on_live_output,
             )
+        invocation_result = _execute_rendered_provider_invocation(
+            provider_invocation_adapter=invocation_adapter,
+            rendered=rendered,
+            invocation_dir=request.invocation_dir,
+            prompt=request.prompt,
+            run_kind=RunKind.FRESH,
+            provider_session_id=rendered.provider_session_id,
+            stream_interpretation=stream_interpretation,
+            normalize_prompt_file_command_for_argv=True,
+        )
         if isinstance(invocation_result, ProviderInvocationFailure):
             raise _provider_invocation_error_from_failure(
                 selected_stage.service,

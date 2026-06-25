@@ -272,13 +272,7 @@ def _run_builtin_ephemeral(
         request,
         provider_invocation_adapter=provider_invocation_adapter,
         select_builtin_stage=select_builtin_stage,
-        validate_claude_stage=_validate_claude_stage,
-        validate_opencode_stage=_validate_opencode_stage,
-        claude_command=_claude_command,
-        claude_env=_claude_env,
         reduce_claude_stream=_reduce_claude_stream,
-        opencode_command=_opencode_command,
-        opencode_env=_opencode_env,
         reduce_opencode_stream=_reduce_opencode_stream,
     )
 
