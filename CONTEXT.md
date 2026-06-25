@@ -12,6 +12,7 @@
 | `Runtime Public Surface` | Documented stability surface: consumer entrypoints, runtime value objects, built-in provider selection — not every importable symbol. |
 | `Runtime Consumer Surface` | Consuming-project entrypoints for executing prepared agent work without implementing runtime or provider adapters. |
 | `Built-in Provider Invocation` | Internal mechanism behind `RuntimeClient` executing one prepared built-in provider command and returning observable invocation facts. |
+| `Built-in Provider Stream Interpretation` | Internal in-process module behind `RuntimeClient` that interprets merged built-in provider output lines into `Agent Event` values, final output, `ProviderUsage`, provider-session identifiers, and started/not-started facts. It owns Claude, Codex, and OpenCode stream semantics but performs no provider subprocess I/O. |
 | `ProviderAuth` | Immutable credential data carried by `ProviderSelection`, or supplied to Resume Session Run since continuations don't store credentials. |
 | `ProviderSelection` | Public request value selecting one service, model, effort, and provider credentials for one invocation. |
 | `OpenCode Go Integration` | Built-in `opencode` service integration for OpenCode Go subscription access. |
@@ -60,10 +61,11 @@
 - Runtime classifies provider failures but never acts on the classification: no waiting, retry, or in-runtime fallback. Surfaced outcomes carry a closed reason plus raw provider error.
 - Expected provider failures are normal return values; hard errors, credential failures, process-level failures, and unclassified failures remain exceptions.
 - Built-in Provider Invocation is internal and must not become a consumer extension point.
+- Built-in Provider Stream Interpretation sits above Built-in Provider Invocation: invocation adapters execute provider processes and deliver the merged stdout/stderr line stream; stream interpretation owns provider-shaped semantics for Claude, Codex, and OpenCode.
 - WorkInvocation and execution adapter seams are internal; public-looking internal modules should be underscore-prefixed before release.
 - Retiring a concept means deleting obsolete code; internal survival requires a current built-in purpose and must not reappear on public surfaces.
 - Built-in Provider Invocation must use runtime-neutral internal names, not pycastle-specific naming.
-- Provider event DTOs, session details, command rendering, stream parsing, and flag profiles are internal.
+- Provider event DTOs, session details, command rendering, stream interpretation, and flag profiles are internal.
 - Provider failure diagnostics carry raw error messages; structured provider error observations are not a runtime concept.
 - Raw provider output on Agent Events supersedes the earlier rule hiding raw stdout/JSON; provider DTOs, command rendering, and stream parsing remain internal.
 - Live Runtime Output: sole channel, events emitted incrementally and never accumulated or stored.
