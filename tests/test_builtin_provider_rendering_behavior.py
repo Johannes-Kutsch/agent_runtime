@@ -23,10 +23,18 @@ from agent_runtime.session import RunKind
         ("agent_runtime", "BuiltInProviderRenderedInvocation"),
         ("agent_runtime", "BuiltInProviderSelectionFacts"),
         ("agent_runtime", "BuiltInProviderHostFacts"),
+        ("agent_runtime", "_claude_command"),
+        ("agent_runtime", "_claude_env"),
+        ("agent_runtime", "_opencode_command"),
+        ("agent_runtime", "_opencode_env"),
         ("agent_runtime.runtime", "BuiltInProviderRenderRequest"),
         ("agent_runtime.runtime", "BuiltInProviderRenderedInvocation"),
         ("agent_runtime.runtime", "BuiltInProviderSelectionFacts"),
         ("agent_runtime.runtime", "BuiltInProviderHostFacts"),
+        ("agent_runtime.runtime", "_claude_command"),
+        ("agent_runtime.runtime", "_claude_env"),
+        ("agent_runtime.runtime", "_opencode_command"),
+        ("agent_runtime.runtime", "_opencode_env"),
     ],
 )
 def test_built_in_provider_rendering_values_stay_off_runtime_public_surface(
