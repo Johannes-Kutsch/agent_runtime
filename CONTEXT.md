@@ -21,8 +21,7 @@
 | `ToolPolicy` | Closed public value: `NONE`, `INSPECT_ONLY`, `NO_FILE_MUTATION`, or `UNRESTRICTED`. |
 | `Invocation Directory` | Host directory where runtime launches a provider command; request field `invocation_dir`. |
 | `Tool Workspace` | Invocation Directory when runtime exposes it through provider tools. |
-| `Idle Timeout` | Per-run heartbeat watchdog: max seconds without any observed `Agent Event` before `timed_out` outcome. Consumer-configurable; default 300s. |
-| `Live Runtime Output Timeout Context` | Internal in-process context behind `RuntimeClient` that wraps one invocation's optional Live Runtime Output observer with Idle Timeout handling, starts any per-invocation watchdog, and guarantees watchdog cleanup when the invocation exits. It owns timeout disablement for `timeout_seconds <= 0`, callback ordering around watchdog checks, and cleanup lifecycle, but stores no Agent Event history and performs no Built-in Provider Stream Interpretation. |
+| `Idle Timeout` | Per-run liveness watchdog owned by Built-in Provider Invocation: max seconds without any raw provider output line before the runtime terminates the provider subprocess and yields a `timed_out` outcome. Reset by any raw output line, not by interpreted `Agent Event`s. Consumer-configurable; default 300s. |
 | `Ephemeral Run` | Invocation that neither prepares nor promises provider-session continuity. |
 | `Start Session Run` | Invocation that selects a service and prepares provider-session continuity. |
 | `Resume Session Run` | Invocation that continues an existing continuity chain without fallback or reselection. |
@@ -77,7 +76,7 @@
 - Live Runtime Output: sole channel, events emitted incrementally and never accumulated or stored.
 - Live Runtime Output independent of session lifecycle and `ToolPolicy`; completed output remains authoritative.
 - Live Runtime Output observers are synchronous, notification-only, at-most-once per provider attempt; consumer-owned for async bridging. Callback failures propagate as exceptional failures.
-- Live Runtime Output Timeout Context is internal and must not become Runtime Public Surface or an adapter seam; its watchdog dependency is in-process, and no time/threading port is needed without a real second adapter.
+- Idle Timeout lives in Built-in Provider Invocation because terminating a silent subprocess requires the process handle; it reads provider output against a deadline, resets on any raw output line, and kills the process on silence. The Live Runtime Output observer carries no timeout responsibility.
 - Continuations are opaque, portable, semantically immutable; may carry provider-owned resume state but not ProviderSelection objects or ProviderAuth values (`ResolvedProvider` is credential-free).
 - Runtime does not guarantee redaction of prompt text, provider output, or diagnostics; consumers own durable redaction policy.
 - Runtime must not own durable provider-session storage, invocation-log storage, or cleanup policy. All resume state round-trips through the Continuation.
@@ -87,7 +86,7 @@
 - `RuntimeClient` remains the `Runtime Public Surface` for Start Session Run and Resume Session Run; consumers never import the session-backed execution module.
 - Credential failures, hard provider failures (including process-level: non-zero exit or empty output), adapter/protocol bugs, and unexpected exceptions remain exceptional.
 - Provider-reported usage belongs on outcomes whenever observed, including interrupted outcomes. Cancellation/timeout outcomes report only usage observed before interruption.
-- Idle Timeout is a heartbeat watchdog reset by every Agent Event, not a wall-clock budget. Runtime performs no automatic timeout retry.
+- Idle Timeout is a liveness watchdog reset by every raw provider output line, not a wall-clock budget. Runtime performs no automatic timeout retry.
 - Resumed-session execution keeps service, model, effort, `ToolPolicy` fixed from continuation; credentials received separately.
 - Runtime requests require explicit `ToolPolicy`; non-`NONE` policies grant Invocation Directory as Tool Workspace.
 - `ToolPolicy` is an invocation permission grant, not part of ProviderSelection identity.
@@ -112,3 +111,4 @@
 - `RetryableProviderFailure`, `RetryableProviderFailureError`: use **ProviderUnavailable** / `ProviderUnavailableError`.
 - `NoServiceAvailable`, `NoServiceAvailableError`: use **ProviderUnavailable** with reason `SERVICE_NOT_AVAILABLE`.
 - `ProviderErrorObservation`, `observations`: retired; diagnostics use raw error messages only.
+- `Live Runtime Output Timeout Context`, event-layer idle watchdog: retired; **Idle Timeout** now lives in Built-in Provider Invocation and resets on raw output lines.

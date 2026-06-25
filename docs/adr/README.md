@@ -12,3 +12,4 @@
 - [0010 - Live Provider Probe: manual-debug-only](0010-live-provider-probe-manual-debug-only.md): Manual debugging tool exercising real providers; not CI, not Runtime Public Surface.
 - [0011 - Merge provider stderr into observed stream](0011-merge-provider-stderr-into-observed-stream.md): Merge provider stderr into observed/reduced output stream so stderr-only failures reach the live feed.
 - [0012 - Provider failure classification and outcome consolidation](0012-provider-failure-classification-and-outcome-consolidation.md): Consolidate `RetryableProviderFailure`/`NoServiceAvailable` into `ProviderUnavailable`; drop `ProviderErrorObservation`.
+- [0013 - Silent provider hang timeout](0013-silent-provider-hang-timeout.md): Silent provider hangs stay honest `timed_out`; Idle Timeout moves into Built-in Provider Invocation and terminates the subprocess; event-layer watchdog retired.
