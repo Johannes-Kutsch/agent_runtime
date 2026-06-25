@@ -43,6 +43,12 @@ class RuntimeClientExecutionHarness:
     ) -> list[provider_invocation_runtime.ProviderInvocationRequest]:
         return self._adapter.recorded_requests
 
+    def recorded_request(
+        self,
+        index: int = 0,
+    ) -> provider_invocation_runtime.ProviderInvocationRequest:
+        return self._adapter.recorded_requests[index]
+
     @staticmethod
     def attach_provider_auth(
         provider_selection: ProviderSelectionT,

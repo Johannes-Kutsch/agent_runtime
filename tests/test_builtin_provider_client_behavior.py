@@ -262,29 +262,31 @@ def test_runtime_client_ephemeral_run_emits_typed_agent_message_event(
     def on_live_output(event: runtime.AgentEvent) -> None:
         observed.append(event)
 
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
                 _codex_assistant_output_line("world"),
             ),
-        ),
+        )
     )
-    _install_local_codex_host_auth(monkeypatch, tmp_path)
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+    )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
@@ -292,7 +294,7 @@ def test_runtime_client_ephemeral_run_emits_typed_agent_message_event(
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "hello\nworld"
     assert len(observed) == 2
     assert observed[0].type == "agent_message"
@@ -312,26 +314,28 @@ def test_runtime_client_ephemeral_run_event_carries_raw_provider_output(
 
     hello_line = _codex_assistant_output_line("hello")
     world_line = _codex_assistant_output_line("world")
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(hello_line, world_line),
-        ),
+        )
     )
-    _install_local_codex_host_auth(monkeypatch, tmp_path)
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+    )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
@@ -339,7 +343,7 @@ def test_runtime_client_ephemeral_run_event_carries_raw_provider_output(
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "hello\nworld"
     assert len(observed) == 2
     assert observed[0].raw_provider_output == hello_line
@@ -361,34 +365,28 @@ def test_runtime_client_ephemeral_run_emits_other_agent_event_for_codex_life_sig
 
     thread_started_line = '{"type":"thread.started","thread_id":"thread-123"}\n'
     message_line = _codex_assistant_output_line("hello")
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(thread_started_line, message_line),
-        ),
+        )
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
     )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
@@ -396,7 +394,7 @@ def test_runtime_client_ephemeral_run_emits_other_agent_event_for_codex_life_sig
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "hello"
     assert [event.type for event in observed] == ["other", "agent_message"]
     assert observed[0].display_message == "thread.started"
@@ -422,33 +420,30 @@ def test_runtime_client_ephemeral_run_emits_tool_call_and_other_agent_events_for
     )
     text_line = _opencode_text_output_line("assistant output")
     idle_line = _opencode_idle_output_line()
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(tool_line, text_line, idle_line),
-        ),
+        )
     )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
-                worktree=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="kimi-k2.6",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="kimi-k2.6",
+                    effort="medium",
                 ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
             )
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "assistant output"
     assert [event.type for event in observed] == [
         "agent_tool_call",
@@ -1089,37 +1084,31 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
                 _codex_assistant_output_line("world"),
             ),
-        ),
+        )
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
     )
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
+            harness.ephemeral_run_request(
                 invocation_dir=tmp_path,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 on_live_output=on_live_output,
@@ -1127,7 +1116,7 @@ def test_runtime_client_ephemeral_run_calls_live_output_observer(
         )
     )
 
-    assert len(adapter.recorded_requests) == 1
+    assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "hello\nworld"
     assert observed == ["hello", "world"]
 
@@ -1143,30 +1132,32 @@ def test_runtime_client_ephemeral_run_forwards_live_output_observer_exceptions_a
             observed.append(turn.display_message)
         raise runtime.UsageLimitError(service_name="codex")
 
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
                 _codex_assistant_output_line("world"),
             ),
-        ),
+        )
     )
-    _install_local_codex_host_auth(monkeypatch, tmp_path)
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+    )
 
     with pytest.raises(runtime.UsageLimitError):
         asyncio.run(
             runtime.RuntimeClient().run_ephemeral(
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
+                harness.ephemeral_run_request(
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="codex",
-                            model="gpt-5.4",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
@@ -1189,38 +1180,32 @@ def test_runtime_client_ephemeral_run_propagates_live_output_observer_timeout_ex
             observed.append(turn.display_message)
         raise observer_failure
 
-    _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 _codex_assistant_output_line("hello"),
                 _codex_assistant_output_line("world"),
             ),
-        ),
+        )
     )
-    host_home = tmp_path / "host-home"
-    host_auth_path = host_home / ".codex" / "auth.json"
-    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
-    host_auth_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module.Path,
-        "home",
-        lambda: host_home,
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
     )
 
     with pytest.raises(runtime.AgentTimeoutError, match="observer timeout") as excinfo:
         asyncio.run(
             runtime.RuntimeClient().run_ephemeral(
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
+                harness.ephemeral_run_request(
                     invocation_dir=tmp_path,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="codex",
-                            model="gpt-5.4",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
                     ),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     on_live_output=on_live_output,
