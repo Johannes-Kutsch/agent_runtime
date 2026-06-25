@@ -21,31 +21,20 @@ service's entire directory is wiped and recreated before it reruns.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from traceback import format_exc
 from types import ModuleType
 from typing import Any, Mapping, Sequence, TextIO
 from importlib import util as importlib_util
 
 from agent_runtime.errors import (
-    AgentCredentialFailureError,
     RuntimeConfigurationError,
 )
-from agent_runtime.runtime import (
-    Continuation,
-    EphemeralRunRequest,
-    NewSessionRunRequest,
-    ProviderAuth,
-    ResumedSessionRunRequest,
-    RuntimeClient,
-    ToolPolicy,
-)
+from agent_runtime.runtime import Continuation
 
 try:
     import live_provider_probe_plan as plan
@@ -60,15 +49,27 @@ except ModuleNotFoundError:
     sys.modules["live_provider_probe_plan"] = plan
     _plan_spec.loader.exec_module(plan)
 
+try:
+    import _live_probe_case_runner as case_runner
+except ModuleNotFoundError:
+    _case_runner_spec = importlib_util.spec_from_file_location(
+        "_live_probe_case_runner",
+        str(Path(__file__).resolve().parent / "_live_probe_case_runner.py"),
+    )
+    assert _case_runner_spec is not None
+    assert _case_runner_spec.loader is not None
+    case_runner = ModuleType("_live_probe_case_runner")
+    sys.modules["_live_probe_case_runner"] = case_runner
+    _case_runner_spec.loader.exec_module(case_runner)
+RuntimeClient = case_runner.RuntimeClient
+
 
 DEFAULT_ARTIFACT_ROOT = "live-probe-artifacts"
-LIVE_FEED_FILENAME = "live_feed.json"
+LIVE_FEED_FILENAME = case_runner.LIVE_FEED_FILENAME
 RESULT_FILENAME = "result.json"
 _DEFAULT_TIMEOUT_SECONDS = 300
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 _ENV_PATH_OVERRIDE = "LIVE_PROBE_ENV_PATH"
-
-_DISPLAYED_EVENT_TYPES = ("agent_message", "agent_tool_call")
 
 _RED = "\033[31m"
 _DIM = "\033[2m"
@@ -133,152 +134,23 @@ class _Console:
         self.line(f"{_DIM}{text}{_RESET}" if self.color else text)
 
 
-# --------------------------------------------------------------------------- #
-# Case execution.
-# --------------------------------------------------------------------------- #
-@dataclass
-class _CaseExecution:
-    category: str
-    outcome: Any | None
-    traceback: str | None
-
-
-def _resolve_runtime_outcome(awaitable: Any) -> Any:
-    return asyncio.run(awaitable)
-
-
-def _run_single_case(
-    case: Any,
-    *,
-    case_dir: Path,
-    invocation_dir: Path,
-    prompt: str,
-    timeout_seconds: int,
-    continuation: Continuation | None,
-    console: _Console,
-) -> _CaseExecution:
-    case_dir.mkdir(parents=True, exist_ok=True)
-    invocation_dir.mkdir(parents=True, exist_ok=True)
-    feed_path = case_dir / LIVE_FEED_FILENAME
-    feed_sink = feed_path.open("w", encoding="utf-8")
-
-    def _on_live_output(event: Any) -> None:
-        record = {
-            "type": getattr(event, "type", ""),
-            "display_message": getattr(event, "display_message", ""),
-            "raw_provider_output": getattr(event, "raw_provider_output", ""),
-        }
-        feed_sink.write(json.dumps(record) + "\n")
-        feed_sink.flush()
-        if record["type"] in _DISPLAYED_EVENT_TYPES:
-            console.line(f"  {record['display_message']}")
-
-    selection = case.provider_selection
-    auth = getattr(selection, "auth", None) or ProviderAuth()
-    tool_policy = ToolPolicy[case.tool_policy]
-
-    try:
-        client = RuntimeClient()
-        if case.mode == "ephemeral":
-            request = EphemeralRunRequest(
-                prompt=prompt,
-                invocation_dir=invocation_dir,
-                provider_selection=selection,
-                tool_policy=tool_policy,
-                timeout_seconds=timeout_seconds,
-                on_live_output=_on_live_output,
-            )
-            outcome = _resolve_runtime_outcome(client.run_ephemeral(request))
-        elif case.mode == "new_session":
-            new_session_request = NewSessionRunRequest(
-                prompt=prompt,
-                invocation_dir=invocation_dir,
-                provider_selection=selection,
-                tool_policy=tool_policy,
-                timeout_seconds=timeout_seconds,
-                on_live_output=_on_live_output,
-            )
-            outcome = _resolve_runtime_outcome(
-                client.run_new_session(new_session_request)
-            )
-        elif case.mode == "resumed_session":
-            if continuation is None:
-                raise RuntimeError(
-                    "resumed_session requires a continuation from new_session; "
-                    "the new_session case did not produce one"
-                )
-            resumed_request = ResumedSessionRunRequest(
-                prompt=prompt,
-                invocation_dir=invocation_dir,
-                continuation=continuation,
-                provider_auth=auth,
-                timeout_seconds=timeout_seconds,
-                on_live_output=_on_live_output,
-            )
-            outcome = _resolve_runtime_outcome(
-                client.run_resumed_session(resumed_request)
-            )
-        else:
-            raise ValueError(f"unsupported probe mode: {case.mode!r}")
-    except AgentCredentialFailureError:
-        return _CaseExecution(
-            category="wrong_credentials", outcome=None, traceback=format_exc()
-        )
-    except Exception:
-        return _CaseExecution(category="error", outcome=None, traceback=format_exc())
-    finally:
-        feed_sink.close()
-
-    return _CaseExecution(
-        category=plan.outcome_category(outcome), outcome=outcome, traceback=None
-    )
-
-
-def _selected_payload(selected: Any) -> dict[str, Any] | None:
-    if selected is None:
-        return None
-    return {
-        "service": getattr(selected, "service", None),
-        "model": getattr(selected, "model", None),
-        "effort": getattr(selected, "effort", None),
-    }
-
-
-def _usage_payload(usage: Any) -> dict[str, Any] | None:
-    if usage is None:
-        return None
-    return {
-        "input_tokens": getattr(usage, "input_tokens", None),
-        "output_tokens": getattr(usage, "output_tokens", None),
-        "cache_read_input_tokens": getattr(usage, "cache_read_input_tokens", None),
-        "cache_creation_input_tokens": getattr(
-            usage, "cache_creation_input_tokens", None
-        ),
-        "cost_usd": getattr(usage, "cost_usd", None),
-        "duration_seconds": getattr(usage, "duration_seconds", None),
-    }
-
-
-def _continuation_from_outcome(outcome: Any) -> Continuation | None:
-    result = getattr(outcome, "result", None)
-    return getattr(result, "continuation", None)
-
-
-def _write_result_json(case_dir: Path, case: Any, execution: _CaseExecution) -> None:
-    outcome = execution.outcome
-    result = getattr(outcome, "result", None)
-    kind = getattr(outcome, "kind", None)
-    continuation = _continuation_from_outcome(outcome)
+def _write_result_json(
+    case_dir: Path, case: Any, execution: case_runner.ProbeCaseRunResult
+) -> None:
     payload = {
         "service": case.service,
         "mode": case.mode,
         "tool_policy": case.tool_policy,
         "category": execution.category,
-        "kind": type(kind).__name__ if kind is not None else None,
-        "selected": _selected_payload(getattr(result, "selected", None)),
-        "output": getattr(result, "output", None),
-        "usage": _usage_payload(getattr(result, "usage", None)),
-        "continuation": continuation.serialized if continuation is not None else None,
+        "kind": execution.kind,
+        "selected": execution.selected,
+        "output": execution.output,
+        "usage": execution.usage,
+        "continuation": (
+            execution.continuation.serialized
+            if execution.continuation is not None
+            else None
+        ),
         "traceback": execution.traceback,
     }
     (case_dir / RESULT_FILENAME).write_text(
@@ -389,14 +261,18 @@ def _run_provider(
             invocation_dir = case_dir
             continuation = None
 
-        execution = _run_single_case(
-            case,
-            case_dir=case_dir,
-            invocation_dir=invocation_dir,
-            prompt=_PROMPTS[case.mode],
-            timeout_seconds=timeout_seconds,
-            continuation=continuation,
-            console=console,
+        execution = case_runner.run_case(
+            case_runner.ProbeCaseRunRequest(
+                case=case,
+                case_dir=case_dir,
+                invocation_dir=invocation_dir,
+                prompt=_PROMPTS[case.mode],
+                timeout_seconds=timeout_seconds,
+                continuation=continuation,
+                output=console,
+            ),
+            outcome_category=plan.outcome_category,
+            runtime_client_factory=RuntimeClient,
         )
 
         try:
@@ -405,7 +281,7 @@ def _run_provider(
             console.red(f"  (failed to write {RESULT_FILENAME}: {exc})")
 
         if case.mode == "new_session":
-            new_session_continuation = _continuation_from_outcome(execution.outcome)
+            new_session_continuation = execution.continuation
             new_session_invocation_dir = invocation_dir
 
         if execution.category == plan.SUCCESS_CATEGORY:
