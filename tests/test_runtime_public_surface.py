@@ -274,7 +274,6 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
     ]
     assert [field.name for field in fields(hooks)] == [
         "reduce_output",
-        "reduce_logged_output",
         "extract_provider_session_id",
     ]
     assert [field.name for field in fields(request)] == [

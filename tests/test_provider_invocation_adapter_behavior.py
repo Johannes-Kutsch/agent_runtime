@@ -502,15 +502,7 @@ def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplie
         log_name="implementer",
         logs_dir=logs_dir,
     )
-    observed = {"logged_reducer_calls": 0, "live_reducer_calls": 0}
-
-    def _reduce_logged_output(
-        lines: list[str],
-        work_invocation_log: Any,
-    ) -> tuple[str, ProviderUsage | None]:
-        observed["logged_reducer_calls"] += 1
-        work_invocation_log.record_provider_session_id("provider-session-123")
-        return ("logged-output", ProviderUsage(output_tokens=999))
+    observed = {"live_reducer_calls": 0}
 
     def _reduce_output(lines: list[str]) -> tuple[str, ProviderUsage | None]:
         observed["live_reducer_calls"] += 1
@@ -532,7 +524,6 @@ def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplie
         provider_session_id="existing-session",
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=_reduce_output,
-            reduce_logged_output=_reduce_logged_output,
             extract_provider_session_id=lambda _lines: "provider-session-123",
         ),
     )
@@ -547,7 +538,6 @@ def test_production_adapter_uses_live_output_reducer_when_log_context_is_supplie
         stdout_lines=tuple(process_lines),
         provider_session_id="provider-session-123",
     )
-    assert observed["logged_reducer_calls"] == 0
     assert observed["live_reducer_calls"] == 1
 
 
@@ -560,15 +550,7 @@ def test_in_memory_prepared_stream_uses_live_output_reducer_when_log_context_is_
         log_name="implementer",
         logs_dir=logs_dir,
     )
-    observed = {"logged_reducer_calls": 0, "live_reducer_calls": 0}
-
-    def _reduce_logged_output(
-        lines: list[str],
-        work_invocation_log: Any,
-    ) -> tuple[str, ProviderUsage | None]:
-        observed["logged_reducer_calls"] += 1
-        work_invocation_log.record_provider_session_id("provider-session-123")
-        return ("logged-output", ProviderUsage(output_tokens=999))
+    observed = {"live_reducer_calls": 0}
 
     def _reduce_output(lines: list[str]) -> tuple[str, ProviderUsage | None]:
         observed["live_reducer_calls"] += 1
@@ -596,7 +578,6 @@ def test_in_memory_prepared_stream_uses_live_output_reducer_when_log_context_is_
         provider_session_id="existing-session",
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
             reduce_output=_reduce_output,
-            reduce_logged_output=_reduce_logged_output,
             extract_provider_session_id=lambda _lines: "provider-session-123",
         ),
     )
@@ -609,7 +590,6 @@ def test_in_memory_prepared_stream_uses_live_output_reducer_when_log_context_is_
         stdout_lines=tuple(process_lines),
         provider_session_id="provider-session-123",
     )
-    assert observed["logged_reducer_calls"] == 0
     assert observed["live_reducer_calls"] == 1
 
 

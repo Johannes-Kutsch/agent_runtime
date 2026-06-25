@@ -383,6 +383,56 @@ def test_runtime_client_ephemeral_run_emits_tool_call_and_other_agent_events_for
     )
 
 
+def test_runtime_client_ephemeral_opencode_request_uses_stream_interpretation_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sample_lines = [_opencode_text_output_line("hello from opencode")]
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="hello from opencode",
+            stdout_lines=tuple(sample_lines),
+            provider_session_id="sess_123",
+        )
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="glm-5.2",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    stream_interpretation = (
+        builtin_runtime_client_runtime._opencode_stream_interpretation()
+    )
+    recorded_request = harness.recorded_request()
+
+    assert outcome.result.output == "hello from opencode"
+    assert recorded_request.output_hooks.reduce_output(sample_lines) == (
+        stream_interpretation.reduce_output(sample_lines)
+    )
+    extract_provider_session_id = (
+        recorded_request.output_hooks.extract_provider_session_id
+    )
+    expected_extract_provider_session_id = (
+        stream_interpretation.extract_provider_session_id
+    )
+    assert extract_provider_session_id is not None
+    assert expected_extract_provider_session_id is not None
+    assert extract_provider_session_id(sample_lines) == (
+        expected_extract_provider_session_id(sample_lines)
+    )
+
+
 def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
