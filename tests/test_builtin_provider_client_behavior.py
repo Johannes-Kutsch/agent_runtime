@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 import re
+from types import SimpleNamespace
 from typing import Any
 from typing import cast
 
@@ -3536,15 +3537,9 @@ def test_runtime_client_runs_codex_session_invocations_with_windows_host_process
     harness = RuntimeClientExecutionHarness.install(monkeypatch)
 
     monkeypatch.setattr(
-        provider_invocation_runtime.ProductionProviderInvocationAdapter,
-        "_windows_process_base_env",
-        lambda self: {
-            "PATH": "host/path",
-            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
-            "SystemRoot": "C:\\Windows",
-            "ComSpec": "C:\\Windows\\System32\\cmd.exe",
-            "WINDIR": "C:\\Windows",
-        },
+        provider_invocation_runtime,
+        "os",
+        SimpleNamespace(name="nt", environ=os.environ),
     )
     monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(
