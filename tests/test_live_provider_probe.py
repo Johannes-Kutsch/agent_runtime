@@ -291,6 +291,9 @@ def test_resumed_session_receives_new_session_continuation(
         request for method, request in calls if method == "run_resumed_session"
     )
     assert resumed_request.continuation.serialized == _continuation().serialized
+    assert resumed_request.invocation_dir == (
+        tmp_path / "artifacts" / "codex" / "new_session_UNRESTRICTED"
+    )
 
 
 def test_non_success_category_prints_red_and_records_category(
@@ -549,6 +552,8 @@ def test_live_probe_case_runner_writes_feed_and_projects_case_result_facts(
     assert result.usage is not None
     assert result.usage["input_tokens"] == 10
     assert result.continuation == _continuation()
+    assert result.next_resumed_session_continuation == _continuation()
+    assert result.next_resumed_session_invocation_dir == tmp_path / "workspace"
     assert result.traceback is None
     assert output.lines == ["  hello"]
     assert (tmp_path / "workspace").exists()
@@ -813,6 +818,46 @@ def test_live_probe_case_runner_passes_continuation_and_default_provider_auth_fo
     assert observed["provider_auth"] == pr.ProviderAuth()
     assert observed["invocation_dir"] == tmp_path / "workspace"
     assert output.lines == []
+
+
+def test_live_probe_case_runner_uses_returned_resumed_session_invocation_dir(
+    probe: Any, case_runner: Any, tmp_path: Path
+) -> None:
+    case = _codex_probe_case(probe, mode="resumed_session")
+    output = _OutputRecorder()
+    observed: dict[str, Any] = {}
+    resumed_session_invocation_dir = tmp_path / "new-session-workspace"
+
+    class _FakeClient:
+        async def run_ephemeral(self, request: Any) -> Any:
+            raise AssertionError("unexpected ephemeral execution")
+
+        async def run_new_session(self, request: Any) -> Any:
+            raise AssertionError("unexpected new-session execution")
+
+        async def run_resumed_session(self, request: Any) -> Any:
+            observed["invocation_dir"] = request.invocation_dir
+            return _completed("resumed output")
+
+    result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=case,
+            case_dir=tmp_path / case.label,
+            invocation_dir=tmp_path / "resumed-session-workspace",
+            resumed_session_invocation_dir=resumed_session_invocation_dir,
+            prompt="resume prompt",
+            timeout_seconds=45,
+            continuation=_continuation(),
+            output=output,
+        ),
+        runtime_client_factory=_FakeClient,
+    )
+
+    assert result.category == "success"
+    assert result.next_resumed_session_continuation is None
+    assert result.next_resumed_session_invocation_dir is None
+    assert observed["invocation_dir"] == resumed_session_invocation_dir
+    assert resumed_session_invocation_dir.exists()
 
 
 def test_live_probe_case_runner_reports_wrong_credentials_with_traceback(
