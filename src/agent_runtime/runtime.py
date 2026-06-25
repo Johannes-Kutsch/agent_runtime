@@ -219,6 +219,10 @@ class RuntimeClient:
         return RuntimeOutcome(kind=Completed(), result=result)
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
+        if request.session_store is None:
+            raise RuntimeConfigurationError(
+                "RuntimeClient Start Session Run requires a `session_store`."
+            )
         return _run_builtin_session_outcome(
             lambda: _run_builtin_new_session(
                 request,
@@ -233,6 +237,10 @@ class RuntimeClient:
         self,
         request: ResumedSessionRunRequest,
     ) -> RuntimeOutcome:
+        if request.session_store is None:
+            raise RuntimeConfigurationError(
+                "RuntimeClient Resume Session Run requires a `session_store`."
+            )
         return _run_builtin_session_outcome(
             lambda: _run_builtin_resumed_session(
                 request,

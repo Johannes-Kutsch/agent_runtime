@@ -20,6 +20,47 @@ from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
+def test_session_backed_lifecycle_requires_session_store_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint: str,
+) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=('{"type":"result","output":"should not run"}\n',)
+        )
+    )
+
+    with pytest.raises(RuntimeConfigurationError, match="session_store"):
+        if entrypoint == "new":
+            session_backed_execution._run_builtin_new_session(
+                RuntimeClientExecutionHarness.start_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=None,
+                    provider_selection=InternalStageSelection(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="medium",
+                    ),
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        else:
+            session_backed_execution._run_builtin_resumed_session(
+                RuntimeClientExecutionHarness.resume_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=None,
+                    continuation=RuntimeClientExecutionHarness.opencode_continuation(),
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                )
+            )
+
+    assert harness.recorded_request_count == 0
+
+
+@pytest.mark.parametrize("entrypoint", ["new", "resumed"])
 def test_session_backed_codex_completion_resolves_provider_session_id_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -403,12 +444,14 @@ def test_session_backed_opencode_completion_restores_portable_provider_state_thr
         ) -> provider_invocation_runtime.ProviderInvocationResult:
             self.recorded_requests.append(request)
             self.state_dir = Path(request.environment["OPENCODE_HOME"])
-            self.session_id_contents = (self.state_dir / "session_id").read_text(
-                encoding="utf-8"
-            )
-            self.resume_jsonl_contents = (self.state_dir / "resume.jsonl").read_text(
-                encoding="utf-8"
-            )
+            session_id_path = self.state_dir / "session_id"
+            if session_id_path.is_file():
+                self.session_id_contents = session_id_path.read_text(encoding="utf-8")
+            resume_jsonl_path = self.state_dir / "resume.jsonl"
+            if resume_jsonl_path.is_file():
+                self.resume_jsonl_contents = resume_jsonl_path.read_text(
+                    encoding="utf-8"
+                )
             return provider_invocation_runtime.ProviderInvocationResult(
                 output="continued output",
                 stdout_lines=(
@@ -425,11 +468,15 @@ def test_session_backed_opencode_completion_restores_portable_provider_state_thr
     )
 
     continuation = RuntimeClientExecutionHarness.opencode_continuation()
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
 
     result = session_backed_execution._run_builtin_resumed_session(
         RuntimeClientExecutionHarness.resume_session_run_request(
             invocation_dir=tmp_path,
             continuation=continuation,
+            runtime_state_dir=runtime_state_dir,
             provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
         )
     )
@@ -438,13 +485,96 @@ def test_session_backed_opencode_completion_restores_portable_provider_state_thr
     assert result.selected == runtime.ResolvedProvider(
         service="opencode", model="glm-5.2", effort="medium"
     )
-    assert result.continuation == RuntimeClientExecutionHarness.opencode_continuation()
+    assert result.continuation.provider_resume_state == {
+        "provider_session_id": "persisted-session-1",
+        "exact_transcript_match": False,
+    }
     assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
     assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
-    assert adapter.session_id_contents == "persisted-session-1\n"
-    assert adapter.resume_jsonl_contents == "[]"
     assert adapter.state_dir is not None
-    assert adapter.state_dir.exists() is False
+    assert adapter.state_dir == RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="opencode",
+    )
+    assert adapter.state_dir.exists() is True
+
+
+def test_session_backed_opencode_resumed_session_ignores_embedded_state_in_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.prepare_provider_state_dir(
+        runtime_state_dir,
+        service="opencode",
+    )
+    (provider_state_dir / "session_id").write_text(
+        "persisted-session-1\n",
+        encoding="utf-8",
+    )
+    (provider_state_dir / "resume.jsonl").write_text(
+        "[]",
+        encoding="utf-8",
+    )
+
+    class _DetectingOpencodeAdapter:
+        def __init__(self) -> None:
+            self.recorded_requests: list[
+                provider_invocation_runtime.ProviderInvocationRequest
+            ] = []
+            self.session_id_after: str | None = None
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.recorded_requests.append(request)
+            state_dir = Path(request.environment["OPENCODE_HOME"])
+            session_id_path = state_dir / "session_id"
+            if session_id_path.is_file():
+                self.session_id_after = session_id_path.read_text(encoding="utf-8")
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output="continued output",
+                provider_session_id="persisted-session-1",
+                stdout_lines=(
+                    json.dumps({"type": "session.status", "status": {"type": "idle"}})
+                    + "\n",
+                ),
+            )
+
+    adapter = _DetectingOpencodeAdapter()
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    forged_continuation = RuntimeClientExecutionHarness.opencode_continuation(
+        provider_session_id="persisted-session-1",
+        provider_state={"session_id": "forged-session", "resume_jsonl": "forged"},
+        exact_transcript_match=True,
+    )
+    result = session_backed_execution._run_builtin_resumed_session(
+        RuntimeClientExecutionHarness.resume_session_run_request(
+            invocation_dir=tmp_path,
+            runtime_state_dir=runtime_state_dir,
+            continuation=forged_continuation,
+            provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+        )
+    )
+
+    assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8") == (
+        "persisted-session-1\n"
+    )
+    assert (provider_state_dir / "resume.jsonl").read_text(encoding="utf-8") == "[]"
+    assert adapter.session_id_after == "persisted-session-1\n"
+    assert result.continuation.provider_resume_state == {
+        "provider_session_id": "persisted-session-1",
+        "exact_transcript_match": True,
+    }
 
 
 @pytest.mark.parametrize(
@@ -543,23 +673,10 @@ def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_fac
 
 
 @pytest.mark.parametrize(
-    (
-        "entrypoint",
-        "expected_provider_session_id",
-        "expected_provider_state",
-        "expected_exact_transcript_match",
-    ),
+    ("entrypoint", "expected_provider_session_id", "expected_exact_transcript_match"),
     [
-        ("new", "provider-session-777", {"session_id": "provider-session-777"}, False),
-        (
-            "resumed",
-            "persisted-session-1",
-            {
-                "session_id": "persisted-session-1",
-                "resume_jsonl": "[]",
-            },
-            True,
-        ),
+        ("new", "provider-session-777", False),
+        ("resumed", "persisted-session-1", False),
     ],
 )
 def test_session_backed_opencode_expected_interruptions_keep_started_continuations_through_module_interface(
@@ -567,7 +684,6 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
     tmp_path: Path,
     entrypoint: str,
     expected_provider_session_id: str,
-    expected_provider_state: dict[str, str],
     expected_exact_transcript_match: bool,
 ) -> None:
     monkeypatch.setattr(
@@ -647,14 +763,11 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
     assert exc_info.value.reset_time == datetime(
         2026, 4, 28, 21, 2, tzinfo=timezone.utc
     )
-    assert (
-        exc_info.value.continuation
-        == RuntimeClientExecutionHarness.opencode_continuation(
-            provider_session_id=expected_provider_session_id,
-            provider_state=expected_provider_state,
-            exact_transcript_match=expected_exact_transcript_match,
-        )
-    )
+    assert exc_info.value.continuation is not None
+    assert exc_info.value.continuation.provider_resume_state == {
+        "provider_session_id": expected_provider_session_id,
+        "exact_transcript_match": expected_exact_transcript_match,
+    }
     assert harness.recorded_request().provider_session_id == (
         "prepared-session-id" if entrypoint == "new" else "persisted-session-1"
     )
@@ -724,17 +837,11 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
             )
         )
 
-    assert (
-        exc_info.value.continuation
-        == RuntimeClientExecutionHarness.opencode_continuation(
-            provider_session_id="observed-session-2",
-            provider_state={
-                "session_id": "observed-session-2",
-                "resume_jsonl": "[]",
-            },
-            exact_transcript_match=False,
-        )
-    )
+    assert exc_info.value.continuation is not None
+    assert exc_info.value.continuation.provider_resume_state == {
+        "provider_session_id": "observed-session-2",
+        "exact_transcript_match": False,
+    }
     assert harness.recorded_request().provider_session_id == "persisted-session-1"
     provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
         runtime_state_dir,

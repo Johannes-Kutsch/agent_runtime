@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any, Callable, TypeVar, cast
 
@@ -113,43 +112,16 @@ def _opencode_is_resumable(state_dir: Path) -> bool:
     ).is_file()
 
 
-def _opencode_provider_state_from_runtime_dir(
-    state_dir: Path | None,
-) -> dict[str, Any]:
-    if state_dir is None:
-        return {}
-    provider_state: dict[str, Any] = {}
-    session_id = _load_opencode_state_dir_session_id(state_dir)
-    if session_id is not None:
-        provider_state["session_id"] = session_id
-    resume_jsonl_path = state_dir / "resume.jsonl"
-    if resume_jsonl_path.is_file():
-        try:
-            provider_state["resume_jsonl"] = resume_jsonl_path.read_text(
-                encoding="utf-8"
-            )
-        except OSError:
-            pass
-    return provider_state
-
-
 def _build_opencode_continuation(
     *,
     model: str,
     effort: str,
     tool_access: ToolAccess,
     provider_session_id: str,
-    provider_state: dict[str, Any] | None = None,
-    provider_state_dir: Path | None = None,
     exact_transcript_match: bool | None = None,
 ) -> Continuation:
-    if provider_state is None and provider_state_dir is not None:
-        provider_state = _opencode_provider_state_from_runtime_dir(provider_state_dir)
-    if provider_state is None:
-        provider_state = {}
     provider_resume_state: dict[str, Any] = {
         "provider_session_id": provider_session_id,
-        "provider_state": provider_state,
     }
     if exact_transcript_match is not None:
         provider_resume_state["exact_transcript_match"] = exact_transcript_match
@@ -171,50 +143,19 @@ def _persist_opencode_session_id(state_dir: Path, provider_session_id: str) -> N
     )
 
 
-def _seed_opencode_provider_state_dir(
-    state_dir: Path,
-    provider_state: dict[str, Any] | None,
-) -> None:
-    for state_filename in (
-        _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME,
-        "resume.jsonl",
-    ):
-        state_path = state_dir / state_filename
-        if state_path.exists():
-            state_path.unlink()
-    if not isinstance(provider_state, dict):
-        return
-    provider_session_id = provider_state.get("session_id")
-    if isinstance(provider_session_id, str) and provider_session_id:
-        _persist_opencode_session_id(state_dir, provider_session_id)
-    resume_jsonl = provider_state.get("resume_jsonl")
-    if isinstance(resume_jsonl, str) and resume_jsonl:
-        (state_dir / "resume.jsonl").write_text(
-            resume_jsonl,
-            encoding="utf-8",
-        )
-
-
 def _restore_opencode_state_dir(
     request: ResumedSessionRunRequest,
-    continuation_provider_state: dict[str, Any] | None,
 ) -> tuple[Path, Callable[[], None]]:
     if request.session_store is None:
-        temp_dir = tempfile.TemporaryDirectory(prefix="opencode-provider-state-")
-
-        def cleanup() -> None:
-            temp_dir.cleanup()
-
-        state_dir = Path(temp_dir.name)
-        _seed_opencode_provider_state_dir(state_dir, continuation_provider_state)
-        return state_dir, cleanup
+        raise RuntimeConfigurationError(
+            "RuntimeClient Resume Session Run requires a `session_store`."
+        )
     provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
         role="implementer",
         session_namespace=request._session_namespace,
     )
     state_dir = request.session_store / provider_state_dir_relpath
     state_dir.mkdir(parents=True, exist_ok=True)
-    _seed_opencode_provider_state_dir(state_dir, continuation_provider_state)
     return state_dir, lambda: None
 
 
@@ -489,6 +430,10 @@ def _run_builtin_new_session(
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     on_live_output: Callable[[Any], None] | None = None,
 ):
+    if request.session_store is None:
+        raise RuntimeConfigurationError(
+            "RuntimeClient Start Session Run requires a `session_store`."
+        )
     invocation_adapter = (
         _builtin_runtime_client_module._default_provider_invocation_adapter()
         if provider_invocation_adapter is None
@@ -762,7 +707,6 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
-                        provider_state_dir=provider_state_dir,
                         exact_transcript_match=exact_transcript_match,
                     )
                 ),
@@ -804,7 +748,6 @@ def _run_builtin_new_session(
                         effort=selected_stage.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
-                        provider_state_dir=provider_state_dir,
                         exact_transcript_match=exact_transcript_match,
                     )
                 ),
@@ -836,7 +779,6 @@ def _run_builtin_new_session(
                     effort=selected_stage.effort,
                     tool_access=request.tool_access,
                     provider_session_id=provider_session_id,
-                    provider_state_dir=provider_state_dir,
                     exact_transcript_match=exact_transcript_match,
                 )
             ),
@@ -854,6 +796,10 @@ def _run_builtin_resumed_session(
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     on_live_output: Callable[[Any], None] | None = None,
 ):
+    if request.session_store is None:
+        raise RuntimeConfigurationError(
+            "RuntimeClient Resume Session Run requires a `session_store`."
+        )
     invocation_adapter = (
         _builtin_runtime_client_module._default_provider_invocation_adapter()
         if provider_invocation_adapter is None
@@ -1021,12 +967,8 @@ def _run_builtin_resumed_session(
         cleanup_opencode_state_dir = _no_cleanup
     else:
         _builtin_runtime_client_module._require_opencode_auth(request.provider_auth)
-        continuation_provider_state = provider_resume_state.get("provider_state")
-        if not isinstance(continuation_provider_state, dict):
-            continuation_provider_state = None
         provider_state_dir, cleanup_opencode_state_dir = _restore_opencode_state_dir(
             request=request,
-            continuation_provider_state=continuation_provider_state,
         )
         state_dir_session_id = _load_opencode_state_dir_session_id(provider_state_dir)
         saved_exact_transcript_match = bool(
@@ -1098,7 +1040,6 @@ def _run_builtin_resumed_session(
                     effort=request.effort,
                     tool_access=request.tool_access,
                     provider_session_id=resumed_provider_session_id,
-                    provider_state_dir=provider_state_dir,
                     exact_transcript_match=exact_transcript_match,
                 )
             ),
@@ -1151,7 +1092,6 @@ def _run_builtin_resumed_session(
                         effort=request.effort,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
-                        provider_state_dir=provider_state_dir,
                         exact_transcript_match=exact_transcript_match,
                     )
                 )
@@ -1189,7 +1129,6 @@ def _run_builtin_resumed_session(
             effort=request.effort,
             tool_access=request.tool_access,
             provider_session_id=provider_session_id,
-            provider_state_dir=provider_state_dir,
             exact_transcript_match=exact_transcript_match,
         )
     cleanup_opencode_state_dir()
