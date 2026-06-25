@@ -5407,6 +5407,91 @@ def test_runtime_client_ephemeral_times_out_with_no_events_within_window(
     assert outcome.result.selected.service == "opencode"
 
 
+@pytest.mark.parametrize("timeout_seconds", [0, -1])
+def test_runtime_client_ephemeral_disables_idle_timeout_for_non_positive_timeout_values(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    timeout_seconds: int,
+) -> None:
+    import time
+
+    observed_events: list[prompt_runtime.AgentEvent] = []
+
+    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.recorded_requests.append(request)
+            if not self.prepared_invocations:
+                raise AssertionError("No prepared provider invocation remains.")
+            prepared = self.prepared_invocations.pop(0)
+            assert isinstance(
+                prepared, provider_invocation_runtime.ProviderInvocationPreparedStream
+            )
+            stdout_lines = list(prepared.stdout_lines)
+            time.sleep(2)
+            provider_invocation_runtime._consume_new_stdout_lines(
+                request.output_hooks.reduce_output, stdout_lines
+            )
+            output, usage = request.output_hooks.reduce_output(stdout_lines)
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output=output,
+                usage=usage,
+                stdout_lines=tuple(stdout_lines),
+                provider_session_id=(
+                    prepared.provider_session_id or request.provider_session_id
+                ),
+            )
+
+    adapter = SlowProvider(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationPreparedStream(
+                stdout_lines=(
+                    json.dumps({"type": "session.status", "status": {"type": "idle"}}),
+                )
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                timeout_seconds=timeout_seconds,
+                on_live_output=observed_events.append,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.selected.service == "opencode"
+    assert observed_events == [
+        prompt_runtime.AgentEvent(
+            type="other",
+            display_message="idle",
+            raw_provider_output=(
+                '{"type": "session.status", "status": {"type": "idle"}}'
+            ),
+        )
+    ]
+
+
 def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
     tmp_path: Path,
 ) -> None:
