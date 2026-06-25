@@ -14,7 +14,6 @@ from agent_runtime._builtin_provider_stream_interpretation import (
     opencode_built_in_provider_stream_interpretation,
 )
 import agent_runtime._provider_invocation as provider_invocation_runtime
-import agent_runtime.runtime as prompt_runtime
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 
 
@@ -57,15 +56,15 @@ def _run_completed_codex_ephemeral(monkeypatch, tmp_path: Path):
         service="codex",
         model="gpt-5.4",
         effort="medium",
-        auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
     )
     return asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
-            prompt_runtime.EphemeralRunRequest(
-                prompt="already rendered prompt",
+            RuntimeClientExecutionHarness.ephemeral_run_request(
                 invocation_dir=tmp_path,
                 provider_selection=selection,
-                tool_policy=runtime.ToolPolicy.NONE,
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
             )
         )
     )

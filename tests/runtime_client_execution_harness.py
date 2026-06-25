@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
 import pytest
 
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 
@@ -44,6 +46,41 @@ class RuntimeClientExecutionHarness:
             ProviderSelectionT,
             dataclasses.replace(cast(Any, provider_selection), auth=auth),
         )
+
+    @classmethod
+    def ephemeral_run_request(
+        cls,
+        *,
+        prompt: str = "already rendered prompt",
+        invocation_dir: Path,
+        provider_selection: Any,
+        provider_auth: prompt_runtime.ProviderAuth | None = None,
+        tool_policy: prompt_runtime.ToolPolicy = prompt_runtime.ToolPolicy.NONE,
+        tool_access: contracts_runtime.ToolAccess | None = None,
+        timeout_seconds: int = 300,
+        token: Any = None,
+        on_live_output: Callable[[prompt_runtime.AgentEvent], None] | None = None,
+    ) -> prompt_runtime.EphemeralRunRequest:
+        if provider_auth is not None:
+            provider_selection = cls.attach_provider_auth(
+                provider_selection,
+                provider_auth,
+            )
+
+        request_kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "invocation_dir": invocation_dir,
+            "provider_selection": provider_selection,
+            "timeout_seconds": timeout_seconds,
+            "token": token,
+            "on_live_output": on_live_output,
+        }
+        if tool_access is None:
+            request_kwargs["tool_policy"] = tool_policy
+        else:
+            request_kwargs["tool_access"] = tool_access
+
+        return prompt_runtime.EphemeralRunRequest(**request_kwargs)
 
     @staticmethod
     def install_local_codex_host_auth(

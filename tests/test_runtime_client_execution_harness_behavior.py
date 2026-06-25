@@ -8,6 +8,7 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.errors import ProviderUnavailableReason
 from agent_runtime.types import ProviderSelection as InternalProviderSelection
@@ -39,16 +40,10 @@ def _claude_selection() -> InternalProviderSelection:
     )
 
 
-def _ephemeral_request(tmp_path: Path) -> prompt_runtime.EphemeralRunRequest:
-    return prompt_runtime.EphemeralRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=tmp_path,
-        provider_selection=_claude_selection(),
-        tool_policy=runtime.ToolPolicy.NONE,
-    )
-
-
-def _new_session_request(tmp_path: Path) -> prompt_runtime.NewSessionRunRequest:
+def _new_session_request(
+    _harness: RuntimeClientExecutionHarness,
+    tmp_path: Path,
+) -> prompt_runtime.NewSessionRunRequest:
     return prompt_runtime.NewSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=tmp_path,
@@ -73,7 +68,12 @@ def test_runtime_client_execution_harness_records_built_in_provider_invocation_r
     )
 
     outcome = asyncio.run(
-        runtime.RuntimeClient().run_ephemeral(_ephemeral_request(tmp_path))
+        runtime.RuntimeClient().run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=_claude_selection(),
+            )
+        )
     )
 
     assert isinstance(outcome.kind, prompt_runtime.Completed)
@@ -92,7 +92,11 @@ def test_runtime_client_execution_harness_records_built_in_provider_invocation_r
                     usage=runtime.ProviderUsage(output_tokens=2),
                 )
             ),
-            _ephemeral_request,
+            lambda harness, tmp_path: harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=_claude_selection(),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            ),
             prompt_runtime.Completed,
             "result output",
         ),
@@ -118,7 +122,10 @@ def test_runtime_client_execution_harness_records_built_in_provider_invocation_r
                     ),
                 )
             ),
-            _ephemeral_request,
+            lambda harness, tmp_path: harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=_claude_selection(),
+            ),
             prompt_runtime.Completed,
             "stream output",
         ),
@@ -136,11 +143,11 @@ def test_runtime_client_execution_harness_prepares_provider_invocation_values(
     prepare(harness)
     if expected_kind is prompt_runtime.ProviderUnavailable:
         outcome = asyncio.run(
-            runtime.RuntimeClient().run_new_session(run_request(tmp_path))
+            runtime.RuntimeClient().run_new_session(run_request(harness, tmp_path))
         )
     else:
         outcome = asyncio.run(
-            runtime.RuntimeClient().run_ephemeral(run_request(tmp_path))
+            runtime.RuntimeClient().run_ephemeral(run_request(harness, tmp_path))
         )
 
     assert isinstance(outcome.kind, expected_kind)
