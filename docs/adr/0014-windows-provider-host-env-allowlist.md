@@ -8,9 +8,18 @@ The base env is layered **once** at the point where any built-in provider invoca
 
 The layer is Windows-only and a strict no-op on Mac/Linux, where the minimal env is already survivable; the fix changes no POSIX behavior.
 
+## Amendment: the single layering point is the invocation boundary, not rendering
+
+The original decision said the allowlist is layered "once at the point where any built-in provider invocation's environment is finalized," and placed that point inside the public rendering wrapper (`render_built_in_provider_invocation`). That was not actually a single point: rendering has more than one entrypoint. The Codex session path (`_invoke_codex_session_provider`) legitimately calls the private renderer `_render_codex_invocation` directly to pass `validate_auth=False`, bypassing the wrapper — and therefore the allowlist. On Windows this dropped `PATH` from the Codex session subprocess, and `codex.cmd`'s node shim failed with `node ... could not be found` on every new-session/resumed run, while ephemeral and Claude (which go through the wrapper) worked. The footgun ADR 0014 claimed to close had merely moved from a per-provider helper to a per-render-seam choice.
+
+We move the layering down to the **invocation boundary** — the one place every invocation funnels through to spawn a subprocess — and rendering no longer owns host-env layering at all. Renderers return only provider-specific environment; the invocation layer applies the host allowlist beneath provider values. This makes the "structurally impossible to bypass" claim literally true: there is exactly one execution chokepoint, versus N render entrypoints, and a new provider or a new render seam cannot reintroduce the crash.
+
+This relocates a responsibility previously assigned to Built-in Provider Rendering; CONTEXT.md is updated to place Windows host-process environment layering in Built-in Provider Invocation.
+
 ## Consequences
 
 - Host environment leakage on Windows is bounded to five named system variables; no provider can widen it implicitly.
+- The allowlist is applied at the single subprocess-spawn chokepoint, so no rendering entrypoint — public wrapper or private per-provider renderer — can omit it.
 - Adding a built-in provider requires no Windows-env wiring — it is inherited structurally.
 - The allowlist is intentionally minimal: a provider that needs more host context (e.g. Codex resolving its auth home from `USERPROFILE` on an ephemeral run) is a distinct, separately-tracked concern, not a reason to broaden the shared base.
 - Mac/Linux provider isolation is unchanged; tests pin the anti-leak property on both platforms.
