@@ -5637,6 +5637,133 @@ def test_runtime_client_codex_new_session_timeout_preserves_observed_usage_and_c
     ]
 
 
+def test_runtime_client_codex_resumed_session_timeout_preserves_observed_usage_and_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import time
+
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module.Path,
+        "home",
+        lambda: host_home,
+    )
+
+    observed_events: list[prompt_runtime.AgentEvent] = []
+
+    class SlowProvider(provider_invocation_runtime.InMemoryProviderInvocationAdapter):
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.recorded_requests.append(request)
+            stdout_lines = [
+                json.dumps({"type": "thread.started", "thread_id": "thread-456"})
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": "continued output",
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "turn.completed",
+                        "usage": {
+                            "input_tokens": 8,
+                            "cached_tokens": 3,
+                            "output_tokens": 2,
+                        },
+                    }
+                )
+                + "\n",
+            ]
+            provider_invocation_runtime._consume_new_stdout_lines(
+                request.output_hooks.reduce_output,
+                stdout_lines[:2],
+            )
+            time.sleep(2)
+            provider_invocation_runtime._consume_new_stdout_lines(
+                request.output_hooks.reduce_output,
+                [stdout_lines[2]],
+            )
+            output, usage = request.output_hooks.reduce_output(stdout_lines)
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output=output,
+                usage=usage,
+                stdout_lines=tuple(stdout_lines),
+                provider_session_id=None,
+            )
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: SlowProvider(prepared_invocations=[]),
+    )
+
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "thread-123",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+            "exact_transcript_match": False,
+        },
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                continuation=continuation,
+                session_namespace="main",
+                timeout_seconds=1,
+                on_live_output=observed_events.append,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.TimedOut)
+    assert outcome.result.output == ""
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="codex", model="gpt-5.4", effort="medium"
+    )
+    assert outcome.result.usage == runtime.ProviderUsage(
+        input_tokens=8,
+        output_tokens=2,
+        cache_read_input_tokens=3,
+    )
+    assert outcome.result.continuation == prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "thread-456",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+            "exact_transcript_match": False,
+        },
+    )
+    assert [event.display_message for event in observed_events] == [
+        "thread.started",
+        "continued output",
+        "turn.completed",
+    ]
+
+
 def test_runtime_client_resumed_session_times_out_and_preserves_observed_session_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

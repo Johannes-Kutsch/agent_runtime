@@ -4,7 +4,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, TypeVar, cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
@@ -456,6 +456,26 @@ def _augment_timeout_interruption(
     )
 
 
+_InvocationResultT = TypeVar("_InvocationResultT")
+
+
+def _invoke_with_timeout_continuation(
+    *,
+    invoke: Callable[[], _InvocationResultT],
+    provider_session_id: str | None,
+    build_continuation: Callable[[str], Continuation],
+) -> _InvocationResultT:
+    try:
+        return invoke()
+    except AgentTimeoutError as exc:
+        _augment_timeout_interruption(
+            error=exc,
+            provider_session_id=provider_session_id,
+            build_continuation=build_continuation,
+        )
+        raise
+
+
 def _run_builtin_new_session(
     request: NewSessionRunRequest,
     *,
@@ -538,8 +558,8 @@ def _run_builtin_new_session(
                     on_live_output=on_live_output,
                 )
             provider_session_id: str | None = None
-            try:
-                invocation_result = (
+            invocation_result = _invoke_with_timeout_continuation(
+                invoke=lambda: (
                     _builtin_runtime_client_module._invoke_codex_new_session_provider(
                         provider_invocation_adapter=invocation_adapter,
                         request=request,
@@ -547,26 +567,22 @@ def _run_builtin_new_session(
                         provider_state_dir=provider_state_dir,
                         on_live_output=on_live_output,
                     )
-                )
-            except AgentTimeoutError as exc:
-                _augment_timeout_interruption(
-                    error=exc,
-                    provider_session_id=provider_session_id,
-                    build_continuation=lambda active_provider_session_id: (
-                        _build_codex_continuation(
-                            model=selected_stage.model,
-                            effort=selected_stage.effort,
-                            tool_access=request.tool_access,
-                            provider_session_id=active_provider_session_id,
-                            provider_state_dir_relpath=(
-                                _portable_codex_state_dir_relpath(
-                                    provider_state_dir_relpath
-                                )
-                            ),
-                        )
-                    ),
-                )
-                raise
+                ),
+                provider_session_id=provider_session_id,
+                build_continuation=lambda active_provider_session_id: (
+                    _build_codex_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=active_provider_session_id,
+                        provider_state_dir_relpath=(
+                            _portable_codex_state_dir_relpath(
+                                provider_state_dir_relpath
+                            )
+                        ),
+                    )
+                ),
+            )
             if isinstance(invocation_result, ProviderInvocationFailure):
                 provider_session_id = _resolve_active_provider_session_id(
                     stream_interpretation=(
@@ -696,60 +712,54 @@ def _run_builtin_new_session(
             )
         if selected_stage.service == "claude":
             assert provider_session_id is not None
-            try:
-                invocation_result = (
+            invocation_result = _invoke_with_timeout_continuation(
+                invoke=lambda: (
                     _builtin_runtime_client_module._invoke_claude_new_session_provider(
                         provider_invocation_adapter=invocation_adapter,
                         request=request,
                         stage=selected_stage,
                         provider_state_dir=provider_state_dir,
                         run_kind=run_kind,
-                        provider_session_id=provider_session_id,
+                        provider_session_id=cast(str, provider_session_id),
                         on_live_output=on_live_output,
                     )
-                )
-            except AgentTimeoutError as exc:
-                _augment_timeout_interruption(
-                    error=exc,
-                    provider_session_id=provider_session_id,
-                    build_continuation=lambda active_provider_session_id: (
-                        _build_claude_continuation(
-                            model=selected_stage.model,
-                            effort=selected_stage.effort,
-                            tool_access=request.tool_access,
-                            provider_session_id=active_provider_session_id,
-                        )
-                    ),
-                )
-                raise
+                ),
+                provider_session_id=provider_session_id,
+                build_continuation=lambda active_provider_session_id: (
+                    _build_claude_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=active_provider_session_id,
+                    )
+                ),
+            )
         else:
             assert provider_session_id is not None
-            try:
-                invocation_result = _builtin_runtime_client_module._invoke_opencode_new_session_provider(
-                    provider_invocation_adapter=invocation_adapter,
-                    request=request,
-                    stage=selected_stage,
-                    provider_state_dir=provider_state_dir,
-                    run_kind=run_kind,
-                    provider_session_id=provider_session_id,
-                    on_live_output=on_live_output,
-                )
-            except AgentTimeoutError as exc:
-                _augment_timeout_interruption(
-                    error=exc,
-                    provider_session_id=provider_session_id,
-                    build_continuation=lambda active_provider_session_id: (
-                        _build_opencode_continuation(
-                            model=selected_stage.model,
-                            effort=selected_stage.effort,
-                            tool_access=request.tool_access,
-                            provider_session_id=active_provider_session_id,
-                            provider_state_dir=provider_state_dir,
-                            exact_transcript_match=exact_transcript_match,
-                        )
-                    ),
-                )
-                raise
+            invocation_result = _invoke_with_timeout_continuation(
+                invoke=lambda: (
+                    _builtin_runtime_client_module._invoke_opencode_new_session_provider(
+                        provider_invocation_adapter=invocation_adapter,
+                        request=request,
+                        stage=selected_stage,
+                        provider_state_dir=provider_state_dir,
+                        run_kind=run_kind,
+                        provider_session_id=cast(str, provider_session_id),
+                        on_live_output=on_live_output,
+                    )
+                ),
+                provider_session_id=provider_session_id,
+                build_continuation=lambda active_provider_session_id: (
+                    _build_opencode_continuation(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        tool_access=request.tool_access,
+                        provider_session_id=active_provider_session_id,
+                        provider_state_dir=provider_state_dir,
+                        exact_transcript_match=exact_transcript_match,
+                    )
+                ),
+            )
         stream_interpretation = (
             _builtin_runtime_client_module._stream_interpretation_for_service(
                 selected_stage.service
@@ -895,31 +905,27 @@ def _run_builtin_resumed_session(
                 "Codex continuation is missing `provider_session_id`."
             )
         active_provider_session_id: str | None = provider_session_id
-        try:
-            invocation_result = (
+        invocation_result = _invoke_with_timeout_continuation(
+            invoke=lambda: (
                 _builtin_runtime_client_module._invoke_codex_resumed_session_provider(
                     provider_invocation_adapter=invocation_adapter,
-                    provider_session_id=provider_session_id,
+                    provider_session_id=cast(str, provider_session_id),
                     request=request,
                     provider_state_dir=provider_state_dir,
                     on_live_output=on_live_output,
                 )
-            )
-        except AgentTimeoutError as exc:
-            _augment_timeout_interruption(
-                error=exc,
-                provider_session_id=active_provider_session_id,
-                build_continuation=lambda resumed_provider_session_id: (
-                    _build_codex_continuation(
-                        model=request.model,
-                        effort=request.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=resumed_provider_session_id,
-                        provider_state_dir_relpath=provider_state_dir_relpath,
-                    )
-                ),
-            )
-            raise
+            ),
+            provider_session_id=active_provider_session_id,
+            build_continuation=lambda resumed_provider_session_id: (
+                _build_codex_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=resumed_provider_session_id,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                )
+            ),
+        )
         if isinstance(invocation_result, ProviderInvocationFailure):
             active_provider_session_id = _resolve_active_provider_session_id(
                 stream_interpretation=(
@@ -1031,8 +1037,8 @@ def _run_builtin_resumed_session(
         )
         run_kind = RunKind.RESUME
     if continuation_service == "claude":
-        try:
-            invocation_result = (
+        invocation_result = _invoke_with_timeout_continuation(
+            invoke=lambda: (
                 _builtin_runtime_client_module._invoke_claude_session_provider(
                     provider_invocation_adapter=invocation_adapter,
                     invocation_dir=request.invocation_dir,
@@ -1043,27 +1049,23 @@ def _run_builtin_resumed_session(
                     auth=request.provider_auth,
                     provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
-                    provider_session_id=provider_session_id,
+                    provider_session_id=cast(str, provider_session_id),
                     on_live_output=on_live_output,
                 )
-            )
-        except AgentTimeoutError as exc:
-            _augment_timeout_interruption(
-                error=exc,
-                provider_session_id=provider_session_id,
-                build_continuation=lambda resumed_provider_session_id: (
-                    _build_claude_continuation(
-                        model=request.model,
-                        effort=request.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=resumed_provider_session_id,
-                    )
-                ),
-            )
-            raise
+            ),
+            provider_session_id=provider_session_id,
+            build_continuation=lambda resumed_provider_session_id: (
+                _build_claude_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=resumed_provider_session_id,
+                )
+            ),
+        )
     else:
-        try:
-            invocation_result = (
+        invocation_result = _invoke_with_timeout_continuation(
+            invoke=lambda: (
                 _builtin_runtime_client_module._invoke_opencode_session_provider(
                     provider_invocation_adapter=invocation_adapter,
                     invocation_dir=request.invocation_dir,
@@ -1074,26 +1076,22 @@ def _run_builtin_resumed_session(
                     auth=request.provider_auth,
                     provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
-                    provider_session_id=provider_session_id,
+                    provider_session_id=cast(str, provider_session_id),
                     on_live_output=on_live_output,
                 )
-            )
-        except AgentTimeoutError as exc:
-            _augment_timeout_interruption(
-                error=exc,
-                provider_session_id=provider_session_id,
-                build_continuation=lambda resumed_provider_session_id: (
-                    _build_opencode_continuation(
-                        model=request.model,
-                        effort=request.effort,
-                        tool_access=request.tool_access,
-                        provider_session_id=resumed_provider_session_id,
-                        provider_state_dir=provider_state_dir,
-                        exact_transcript_match=exact_transcript_match,
-                    )
-                ),
-            )
-            raise
+            ),
+            provider_session_id=provider_session_id,
+            build_continuation=lambda resumed_provider_session_id: (
+                _build_opencode_continuation(
+                    model=request.model,
+                    effort=request.effort,
+                    tool_access=request.tool_access,
+                    provider_session_id=resumed_provider_session_id,
+                    provider_state_dir=provider_state_dir,
+                    exact_transcript_match=exact_transcript_match,
+                )
+            ),
+        )
     active_provider_session_interpretation = (
         _builtin_runtime_client_module._stream_interpretation_for_service(
             continuation_service
