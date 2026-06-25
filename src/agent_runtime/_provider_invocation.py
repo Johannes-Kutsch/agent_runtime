@@ -13,7 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
-from .agent_log import LogicalAgentInvocationLog, WorkInvocationLog
+from .agent_log import LogicalAgentInvocationLog
 from .errors import (
     AgentTimeoutError,
     HardAgentError,
@@ -24,9 +24,6 @@ from .provider_usage import ProviderUsage
 from .session import RunKind
 
 ProviderOutputReducer = Callable[[list[str]], tuple[str, ProviderUsage | None]]
-ProviderLoggedOutputReducer = Callable[
-    [list[str], WorkInvocationLog], tuple[str, ProviderUsage | None]
-]
 ProviderSessionIdExtractor = Callable[[list[str]], str | None]
 
 
@@ -49,7 +46,6 @@ class ProviderInvocationPrompt:
 @dataclasses.dataclass(frozen=True, slots=True)
 class ProviderOutputReductionHooks:
     reduce_output: ProviderOutputReducer
-    reduce_logged_output: ProviderLoggedOutputReducer | None = None
     extract_provider_session_id: ProviderSessionIdExtractor | None = None
 
 
