@@ -859,6 +859,50 @@ def test_render_opencode_tool_policy_maps_to_current_permission_content(
     assert config.get("permission") == expected_permission
 
 
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_permission"),
+    [
+        pytest.param(runtime.ToolPolicy.NONE.profile, "deny", id="none-profile"),
+        pytest.param(
+            runtime.ToolPolicy.INSPECT_ONLY.profile,
+            {"bash": "deny", "edit": "deny"},
+            id="inspect-only-profile",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.NO_FILE_MUTATION.profile,
+            {"edit": "deny"},
+            id="no-file-mutation-profile",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.UNRESTRICTED.profile,
+            None,
+            id="unrestricted-profile",
+        ),
+    ],
+)
+def test_render_opencode_tool_policy_profile_maps_to_current_permission_content(
+    tmp_path: Path,
+    tool_policy: ToolPolicyProfile,
+    expected_permission: object,
+) -> None:
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="opencode",
+                model="glm-5.2",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(tmp_path, tool_policy=tool_policy),
+            auth=ProviderAuth(opencode_api_key="go-key"),
+            invocation_dir=tmp_path,
+        )
+    )
+
+    config = json.loads(rendered_invocation.environment["OPENCODE_CONFIG_CONTENT"])
+    assert config.get("permission") == expected_permission
+
+
 def test_render_opencode_uses_windows_executable_and_process_launch_env_allowlist(
     tmp_path: Path,
 ) -> None:
@@ -906,6 +950,8 @@ def test_render_opencode_uses_windows_executable_and_process_launch_env_allowlis
         ],
     }
 
+
+def test_render_opencode_fails_for_unsupported_model(tmp_path: Path) -> None:
     with pytest.raises(
         RuntimeConfigurationError, match=r"Unsupported OpenCode model 'glm-5'\."
     ):
@@ -925,6 +971,8 @@ def test_render_opencode_uses_windows_executable_and_process_launch_env_allowlis
             )
         )
 
+
+def test_render_opencode_fails_for_unsupported_effort(tmp_path: Path) -> None:
     with pytest.raises(
         RuntimeConfigurationError, match=r"Unsupported OpenCode effort 'high'\."
     ):
