@@ -11,6 +11,8 @@ import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime.errors import ProviderUnavailableReason
+from agent_runtime.errors import RuntimeConfigurationError
+from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalProviderSelection
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 
@@ -153,6 +155,103 @@ def test_runtime_client_execution_harness_prepares_provider_invocation_values(
         assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
     else:
         assert outcome.result.output == expected_output
+
+
+def test_runtime_session_requests_require_session_store_for_session_backed_lifecycle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=('{"type":"result","output":"should not run"}\n',)
+        )
+    )
+
+    provider_selection = InternalProviderSelection(
+        service="opencode",
+        model="glm-5.2",
+        effort="medium",
+        auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+    )
+    start_request = RuntimeClientExecutionHarness.start_session_run_request(
+        invocation_dir=tmp_path,
+        provider_selection=provider_selection,
+        runtime_state_dir=None,
+    )
+    resume_request = RuntimeClientExecutionHarness.resume_session_run_request(
+        invocation_dir=tmp_path,
+        continuation=RuntimeClientExecutionHarness.opencode_continuation(),
+        provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+    )
+
+    with pytest.raises(RuntimeConfigurationError, match="session_store"):
+        asyncio.run(runtime.RuntimeClient().run_new_session(start_request))
+
+    with pytest.raises(RuntimeConfigurationError, match="session_store"):
+        asyncio.run(runtime.RuntimeClient().run_resumed_session(resume_request))
+
+
+def test_runtime_client_reuses_session_store_across_new_and_resumed_session_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="first output",
+            provider_session_id="thread-123",
+            usage=runtime.ProviderUsage(input_tokens=1, output_tokens=1),
+            stdout_lines=(),
+        ),
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="second output",
+            provider_session_id="thread-123",
+            usage=runtime.ProviderUsage(input_tokens=1, output_tokens=1),
+            stdout_lines=(),
+        ),
+    )
+
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    start_request = RuntimeClientExecutionHarness.start_session_run_request(
+        invocation_dir=tmp_path,
+        runtime_state_dir=runtime_state_dir,
+        provider_selection=InternalProviderSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+    )
+
+    start_outcome = asyncio.run(runtime.RuntimeClient().run_new_session(start_request))
+    continuation = start_outcome.result.continuation
+    assert continuation is not None
+    assert start_outcome.result.output == "first output"
+
+    RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+        RuntimeClientExecutionHarness.provider_state_dir(
+            runtime_state_dir,
+            service="codex",
+        ),
+        "thread-123",
+    )
+    resume_request = RuntimeClientExecutionHarness.resume_session_run_request(
+        invocation_dir=tmp_path,
+        runtime_state_dir=runtime_state_dir,
+        continuation=continuation,
+    )
+    resume_outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(resume_request)
+    )
+    assert resume_outcome.result.output == "second output"
+    assert harness.recorded_request_count == 2
+    recorded_resume_request = harness.recorded_request(1)
+    assert recorded_resume_request.run_kind is RunKind.RESUME
+    assert recorded_resume_request.provider_session_id == "thread-123"
 
 
 def test_runtime_client_execution_harness_builds_session_lifecycle_requests(

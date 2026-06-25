@@ -492,34 +492,24 @@ def test_runtime_client_new_session_without_runtime_state_dir_returns_meaningful
         ),
     )
 
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_new_session(
-            harness.start_session_run_request(
-                invocation_dir=tmp_path,
-                provider_selection=InternalStageSelection(
-                    service="opencode",
-                    model="glm-5.2",
-                    effort="medium",
-                ),
-                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
+    with pytest.raises(
+        RuntimeConfigurationError,
+        match="RuntimeClient Start Session Run requires a `session_store`.",
+    ):
+        asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                harness.start_session_run_request(
+                    invocation_dir=tmp_path,
+                    provider_selection=InternalStageSelection(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="medium",
+                    ),
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
             )
         )
-    )
-
-    assert outcome.result.output == "hello from opencode"
-    session_result = cast(prompt_runtime.RunResult, outcome.result)
-    assert session_result.continuation == prompt_runtime.Continuation(
-        selected_service="opencode",
-        selected_model="glm-5.2",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "provider_session_id": "provider-session-777",
-            "provider_state": {"session_id": "provider-session-777"},
-            "exact_transcript_match": False,
-        },
-    )
 
 
 def test_runtime_client_new_session_still_validates_provider_selection_credentials_invocation_dir_and_tool_policy(
@@ -527,12 +517,14 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
     tmp_path: Path,
 ) -> None:
     harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
 
     with pytest.raises(RuntimeConfigurationError):
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
                 harness.start_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
                     provider_selection=InternalStageSelection(
                         service="unsupported",
                         model="gpt-5.4",
@@ -548,6 +540,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             runtime.RuntimeClient().run_new_session(
                 harness.start_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
                     provider_selection=InternalStageSelection(
                         service="opencode",
                         model="glm-5.2",
@@ -563,6 +556,7 @@ def test_runtime_client_new_session_still_validates_provider_selection_credentia
             runtime.RuntimeClient().run_new_session(
                 harness.start_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
                     provider_selection=InternalStageSelection(
                         service="missing",
                         model="ignored",
@@ -629,7 +623,7 @@ def test_runtime_client_new_session_validation_failure_cleans_runtime_managed_st
         _TrackingTemporaryDirectory,
     )
 
-    with pytest.raises(RuntimeConfigurationError):
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
         asyncio.run(
             runtime.RuntimeClient().run_new_session(
                 prompt_runtime.NewSessionRunRequest(
@@ -645,7 +639,11 @@ def test_runtime_client_new_session_validation_failure_cleans_runtime_managed_st
             )
         )
 
-    assert cleaned_up is True
+    assert (
+        str(exc_info.value)
+        == "RuntimeClient Start Session Run requires a `session_store`."
+    )
+    assert cleaned_up is False
 
 
 def test_runtime_client_runs_claude_new_session_and_returns_portable_continuation_for_resumption(
@@ -697,11 +695,13 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
         "provider_session_id": "session-uuid",
         "exact_transcript_match": False,
     }
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
 
     second_outcome = asyncio.run(
         runtime.RuntimeClient().run_resumed_session(
             harness.resume_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -872,7 +872,6 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "provider_session_id": "observed-session-id",
-            "provider_state": {"session_id": "observed-session-id"},
             "exact_transcript_match": False,
         },
     )
@@ -947,7 +946,6 @@ def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_p
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "provider_session_id": "observed-session-id",
-            "provider_state": {"session_id": "observed-session-id"},
             "exact_transcript_match": False,
         },
     )
@@ -1120,11 +1118,13 @@ def test_runtime_client_start_session_run_calls_live_output_observer(
         ),
     )
     RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
 
     outcome = asyncio.run(
         runtime.RuntimeClient().run_new_session(
             harness.start_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
                 provider_selection=InternalStageSelection(
                     service="codex",
                     model="gpt-5.4",
@@ -1216,6 +1216,7 @@ def test_runtime_client_start_session_run_forwards_live_output_observer_exceptio
             runtime.RuntimeClient().run_new_session(
                 harness.start_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     provider_selection=InternalStageSelection(
                         service="codex",
                         model="gpt-5.4",
@@ -1257,6 +1258,7 @@ def test_runtime_client_start_session_run_propagates_live_output_observer_timeou
             runtime.RuntimeClient().run_new_session(
                 harness.start_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     provider_selection=InternalStageSelection(
                         service="codex",
                         model="gpt-5.4",
@@ -1299,6 +1301,7 @@ def test_runtime_client_start_session_run_propagates_live_output_observer_cancel
             runtime.RuntimeClient().run_new_session(
                 harness.start_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     provider_selection=InternalStageSelection(
                         service="codex",
                         model="gpt-5.4",
@@ -1345,6 +1348,9 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
         runtime.RuntimeClient().run_resumed_session(
             harness.resume_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                    tmp_path
+                ),
                 continuation=continuation,
                 on_live_output=on_live_output,
             )
@@ -1393,6 +1399,9 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
             runtime.RuntimeClient().run_resumed_session(
                 RuntimeClientExecutionHarness.resume_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                        tmp_path
+                    ),
                     continuation=continuation,
                     on_live_output=on_live_output,
                 )
@@ -1436,6 +1445,9 @@ def test_runtime_client_resumed_session_run_propagates_live_output_observer_time
             runtime.RuntimeClient().run_resumed_session(
                 RuntimeClientExecutionHarness.resume_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                        tmp_path
+                    ),
                     continuation=continuation,
                     on_live_output=on_live_output,
                 )
@@ -1718,6 +1730,7 @@ def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantic
             client.run_resumed_session(
                 harness.resume_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     provider_auth=runtime.ProviderAuth(
                         claude_code_oauth_token="oauth-token"
                     ),
@@ -1843,6 +1856,7 @@ def test_runtime_client_new_opencode_session_calls_live_runtime_output_observer_
         runtime.RuntimeClient().run_new_session(
             harness.start_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                 provider_selection=InternalStageSelection(
                     service="opencode",
                     model="glm-5.2",
@@ -1963,6 +1977,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
             client.run_new_session(
                 harness.start_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     provider_selection=InternalStageSelection(
                         service="opencode",
                         model="kimi-k2.6",
@@ -1979,6 +1994,7 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
             client.run_resumed_session(
                 harness.resume_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                     continuation=harness.opencode_continuation(
                         model="kimi-k2.6",
@@ -2142,6 +2158,7 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
         runtime.RuntimeClient().run_new_session(
             harness.start_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                 provider_selection=InternalStageSelection(
                     service="opencode",
                     model="kimi-k2.6",
@@ -2162,7 +2179,6 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "provider_session_id": "sess_123",
-            "provider_state": {"session_id": "sess_123"},
             "exact_transcript_match": False,
         },
     )
@@ -2195,6 +2211,7 @@ def test_runtime_client_runs_claude_resumed_session_through_built_in_provider_in
         runtime.RuntimeClient().run_resumed_session(
             harness.resume_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                 continuation=continuation,
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -2263,6 +2280,9 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
         runtime.RuntimeClient().run_resumed_session(
             adapter.resume_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                    tmp_path
+                ),
                 continuation=continuation,
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -2492,11 +2512,14 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
     assert isinstance(new_outcome.result, prompt_runtime.RunResult)
     continuation = new_outcome.result.continuation
     assert continuation is not None
+    provider_state_dir = runtime_state_dir / "implementer" / "main" / "codex"
+    harness.prepare_codex_rollout_state(provider_state_dir, "thread-123")
 
     resumed_outcome = asyncio.run(
         runtime.RuntimeClient().run_resumed_session(
             harness.resume_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
             )
         )
@@ -2565,6 +2588,7 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
         runtime.RuntimeClient().run_resumed_session(
             harness.resume_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                 continuation=continuation,
             )
         )
@@ -3122,6 +3146,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
         runtime.RuntimeClient().run_resumed_session(
             adapter.resume_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=adapter.prepare_runtime_state_dir(tmp_path),
                 continuation=continuation,
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -3617,6 +3642,7 @@ def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_se
             runtime.RuntimeClient().run_resumed_session(
                 harness.resume_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     continuation=harness.codex_continuation(
                         provider_session_id="   ",
                         provider_state_dir_relpath=None,
@@ -3668,6 +3694,7 @@ def test_runtime_client_rejects_resumed_session_with_malformed_continuation_data
             runtime.RuntimeClient().run_resumed_session(
                 harness.resume_session_run_request(
                     invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
                     continuation=prompt_runtime.Continuation(serialized="{not-json"),
                 ),
             )
@@ -4156,10 +4183,6 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         tool_access=continuation.tool_access,
         provider_resume_state={
             "provider_session_id": "persisted-session-2",
-            "provider_state": {
-                "session_id": "persisted-session-2",
-                "resume_jsonl": "[]",
-            },
             "exact_transcript_match": False,
         },
     )
@@ -5318,6 +5341,9 @@ def test_runtime_client_threads_timeout_seconds_into_provider_invocation_request
         runtime.RuntimeClient().run_new_session(
             harness.start_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                    tmp_path
+                ),
                 provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
@@ -5363,6 +5389,9 @@ def test_runtime_client_resumed_session_silent_invocation_timeout_preserves_cont
         runtime.RuntimeClient().run_resumed_session(
             RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                    tmp_path
+                ),
                 continuation=continuation,
                 provider_auth=runtime.ProviderAuth(
                     claude_code_oauth_token="oauth-token"
@@ -5405,6 +5434,9 @@ def test_runtime_client_new_session_silent_invocation_timeout_has_no_continuatio
         runtime.RuntimeClient().run_new_session(
             RuntimeClientExecutionHarness.start_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                    tmp_path
+                ),
                 provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",
@@ -5545,6 +5577,9 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
         runtime.RuntimeClient().run_new_session(
             RuntimeClientExecutionHarness.start_session_run_request(
                 invocation_dir=tmp_path,
+                runtime_state_dir=RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+                    tmp_path
+                ),
                 provider_selection=InternalStageSelection(
                     service="claude",
                     model="sonnet",

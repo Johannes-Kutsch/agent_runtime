@@ -546,6 +546,7 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_probe_env(
         new_session_request = prompt_runtime.NewSessionRunRequest(
             prompt="hello",
             invocation_dir=tmp_path / "new-session",
+            runtime_state_dir=tmp_path / "new-session" / "runtime-state",
             provider_selection=provider_selection,
             tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
         )
@@ -561,6 +562,7 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_probe_env(
         resumed_request = prompt_runtime.ResumedSessionRunRequest(
             prompt="hello",
             invocation_dir=tmp_path / "resumed-session",
+            runtime_state_dir=tmp_path / "resumed-session" / "runtime-state",
             continuation=prompt_runtime.Continuation(serialized=continuation_payload),
         )
 
@@ -621,6 +623,7 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
             lambda tmp_path: prompt_runtime.NewSessionRunRequest(
                 prompt="hello",
                 invocation_dir=tmp_path / "new-session",
+                runtime_state_dir=tmp_path / "runtime-state",
                 provider_selection=runtime.ProviderSelection(
                     service="claude",
                     model="haiku",
@@ -636,6 +639,7 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
             lambda tmp_path: prompt_runtime.ResumedSessionRunRequest(
                 prompt="hello",
                 invocation_dir=tmp_path / "resumed-session",
+                runtime_state_dir=tmp_path / "runtime-state",
                 continuation=prompt_runtime.Continuation(
                     serialized=continuation_payload_module.create_portable_continuation_payload(
                         service_name="claude",
@@ -692,6 +696,7 @@ def test_runtime_client_session_entrypoints_delegate_directly_to_execution(
             lambda tmp_path: prompt_runtime.NewSessionRunRequest(
                 prompt="hello",
                 invocation_dir=tmp_path / "new-session",
+                runtime_state_dir=tmp_path / "runtime-state",
                 provider_selection=runtime.ProviderSelection(
                     service="claude",
                     model="haiku",
@@ -707,6 +712,7 @@ def test_runtime_client_session_entrypoints_delegate_directly_to_execution(
             lambda tmp_path: prompt_runtime.ResumedSessionRunRequest(
                 prompt="hello",
                 invocation_dir=tmp_path / "resumed-session",
+                runtime_state_dir=tmp_path / "runtime-state",
                 continuation=prompt_runtime.Continuation(
                     serialized=continuation_payload_module.create_portable_continuation_payload(
                         service_name="claude",
