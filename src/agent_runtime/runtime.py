@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from . import _time
+from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from .contracts import ToolPolicy
 from .errors import (
@@ -90,10 +91,10 @@ _claude_env = _builtin_runtime_client_module._claude_env
 _opencode_command = _builtin_runtime_client_module._opencode_command
 _opencode_env = _builtin_runtime_client_module._opencode_env
 _is_claude_subscription_access_denial = (
-    _builtin_runtime_client_module._is_claude_subscription_access_denial
+    _stream_interpretation_module.is_claude_subscription_access_denial
 )
-_parse_claude_reset_time = _builtin_runtime_client_module._parse_claude_reset_time
-_parse_opencode_reset_time = _builtin_runtime_client_module._parse_opencode_reset_time
+_parse_claude_reset_time = _stream_interpretation_module.parse_claude_reset_time
+_parse_opencode_reset_time = _stream_interpretation_module.parse_opencode_reset_time
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
 _supported_builtin_provider_selection = (
     _builtin_runtime_client_module.supported_builtin_provider_selection
@@ -114,7 +115,7 @@ def _interrupted_result(exc: Any, selected: ResolvedProvider) -> RunResult:
 
 
 def _parse_claude_event(line: str) -> list[Any]:
-    return _builtin_runtime_client_module._parse_claude_event_with_dependencies(
+    return _stream_interpretation_module.parse_claude_event_with_dependencies(
         line,
         parse_claude_reset_time=_parse_claude_reset_time,
         is_claude_subscription_access_denial=_is_claude_subscription_access_denial,
@@ -125,7 +126,7 @@ def _reduce_claude_stream(
     lines: list[str],
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
-    return _builtin_runtime_client_module._reduce_claude_stream_with_dependencies(
+    return _stream_interpretation_module.reduce_claude_stream_with_dependencies(
         lines,
         parse_claude_event=_parse_claude_event,
         on_live_output=on_live_output,
@@ -136,7 +137,7 @@ def _reduce_opencode_stream(
     lines: list[str],
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
-    return _builtin_runtime_client_module._reduce_opencode_stream(
+    return _stream_interpretation_module.reduce_opencode_stream(
         lines,
         on_live_output=on_live_output,
     )

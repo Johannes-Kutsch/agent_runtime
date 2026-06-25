@@ -8,11 +8,13 @@ from pathlib import Path
 import pytest
 
 import agent_runtime as runtime
+from agent_runtime._builtin_provider_stream_interpretation import (
+    claude_built_in_provider_stream_interpretation,
+    codex_built_in_provider_stream_interpretation,
+    opencode_built_in_provider_stream_interpretation,
+)
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
-from agent_runtime._builtin_runtime_client import (
-    _live_output_event_for_provider_line,
-)
 
 
 def _install_adapter(monkeypatch, *prepared):
@@ -145,12 +147,24 @@ def _opencode_tool_line(name: str, tool_input: dict[str, object]) -> str:
     )
 
 
+def _built_in_provider_event(service_name: str, line: str) -> runtime.AgentEvent:
+    if service_name == "claude":
+        return claude_built_in_provider_stream_interpretation().build_agent_event(line)
+    if service_name == "codex":
+        return codex_built_in_provider_stream_interpretation().build_agent_event(line)
+    if service_name == "opencode":
+        return opencode_built_in_provider_stream_interpretation().build_agent_event(
+            line
+        )
+    raise AssertionError(f"unexpected service {service_name!r}")
+
+
 def test_message_lines_render_display_message_text_for_each_provider() -> None:
     for service, line in (
         ("claude", _claude_message_line("hi from claude")),
         ("codex", _codex_message_line("hi from codex")),
     ):
-        event = _live_output_event_for_provider_line(service, line)
+        event = _built_in_provider_event(service, line)
         assert event.type == "agent_message"
         assert event.display_message == f"hi from {service}"
         assert event.raw_provider_output == line
@@ -158,14 +172,14 @@ def test_message_lines_render_display_message_text_for_each_provider() -> None:
 
 def test_tool_call_lines_render_tool_identity_and_arguments() -> None:
     claude_tool = _claude_tool_line("Read", {"path": "README.md"})
-    event = _live_output_event_for_provider_line("claude", claude_tool)
+    event = _built_in_provider_event("claude", claude_tool)
     assert event.type == "agent_tool_call"
     assert "Read" in event.display_message
     assert '{"path":"README.md"}' in event.display_message
     assert event.raw_provider_output == claude_tool
 
     opencode_tool = _opencode_tool_line("Grep", {"q": "needle"})
-    event = _live_output_event_for_provider_line("opencode", opencode_tool)
+    event = _built_in_provider_event("opencode", opencode_tool)
     assert event.type == "agent_tool_call"
     assert "Grep" in event.display_message
     assert '{"q":"needle"}' in event.display_message
@@ -191,7 +205,7 @@ def test_claude_tool_only_lines_preserve_tool_payload_shape() -> None:
         + "\n"
     )
 
-    event = _live_output_event_for_provider_line("claude", line)
+    event = _built_in_provider_event("claude", line)
 
     assert event.type == "agent_tool_call"
     assert event.display_message == (
@@ -203,7 +217,7 @@ def test_claude_tool_only_lines_preserve_tool_payload_shape() -> None:
 
 def test_other_lines_render_neutral_descriptor_as_display_message() -> None:
     line = '{"type":"thread.started","thread_id":"t-1"}\n'
-    event = _live_output_event_for_provider_line("codex", line)
+    event = _built_in_provider_event("codex", line)
     assert event.type == "other"
     assert event.display_message == "thread.started"
     assert event.raw_provider_output == line

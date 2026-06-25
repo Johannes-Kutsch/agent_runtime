@@ -16,17 +16,14 @@ from typing import Any, Callable, cast
 from . import _time as _time_module
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
-    built_in_provider_invocation_started,
+    classify_built_in_provider_invocation_progress,
     claude_built_in_provider_stream_interpretation,
     codex_built_in_provider_stream_interpretation,
     emit_built_in_provider_live_output_event,
-    is_claude_subscription_access_denial,
     opencode_lifecycle_built_in_provider_stream_interpretation,
     opencode_built_in_provider_stream_interpretation,
-    parse_claude_event_with_dependencies,
-    parse_claude_reset_time,
     reduce_codex_stream,
-    reduce_claude_stream_with_dependencies,
+    reduce_claude_stream,
     reduce_opencode_stream,
     resolve_built_in_provider_session_id,
 )
@@ -488,74 +485,6 @@ def _opencode_env(
     return env
 
 
-def _is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
-    return is_claude_subscription_access_denial(event)
-
-
-def _parse_claude_reset_time(retry_text: object) -> datetime | None:
-    return parse_claude_reset_time(retry_text)
-
-
-def _parse_opencode_reset_time(retry_text: object) -> datetime | None:
-    from ._builtin_provider_stream_interpretation import parse_opencode_reset_time
-
-    return parse_opencode_reset_time(retry_text)
-
-
-def _parse_claude_event_with_dependencies(
-    line: str,
-    *,
-    parse_claude_reset_time: Callable[[object], datetime | None],
-    is_claude_subscription_access_denial: Callable[[dict[str, Any]], bool],
-) -> list[Any]:
-    return parse_claude_event_with_dependencies(
-        line,
-        parse_claude_reset_time=parse_claude_reset_time,
-        is_claude_subscription_access_denial=is_claude_subscription_access_denial,
-    )
-
-
-def _reduce_claude_stream_with_dependencies(
-    lines: list[str],
-    *,
-    parse_claude_event: Callable[[str], list[Any]],
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> tuple[str, ProviderUsage | None]:
-    return reduce_claude_stream_with_dependencies(
-        lines,
-        parse_claude_event=parse_claude_event,
-        on_live_output=on_live_output,
-    )
-
-
-def _reduce_claude_stream_with_runtime_overrides(
-    lines: list[str],
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> tuple[str, ProviderUsage | None]:
-    return _reduce_claude_stream_with_dependencies(
-        lines,
-        parse_claude_event=lambda line: _parse_claude_event_with_dependencies(
-            line,
-            parse_claude_reset_time=_parse_claude_reset_time,
-            is_claude_subscription_access_denial=(
-                _is_claude_subscription_access_denial
-            ),
-        ),
-        on_live_output=on_live_output,
-    )
-
-
-def _reduce_opencode_stream(
-    lines: list[str],
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> tuple[str, ProviderUsage | None]:
-    return reduce_opencode_stream(lines, on_live_output=on_live_output)
-
-
-def _live_output_event_for_provider_line(service_name: str, line: str) -> AgentEvent:
-    return _stream_interpretation_for_service(service_name).build_agent_event(line)
-
-
 class _IdleTimeoutWatchdog:
     def __init__(self, timeout_seconds: int) -> None:
         self.timeout_seconds = timeout_seconds
@@ -767,31 +696,6 @@ def _stream_interpretation_for_service(
     )
 
 
-def _provider_session_id_from_result(
-    stream_interpretation: BuiltInProviderStreamInterpretation,
-    result: ProviderInvocationResult,
-    *,
-    fallback_provider_session_id: str | None = None,
-) -> str | None:
-    return resolve_built_in_provider_session_id(
-        stream_interpretation,
-        list(result.stdout_lines),
-        provider_session_id=result.provider_session_id,
-        fallback_provider_session_id=fallback_provider_session_id,
-    )
-
-
-def _provider_invocation_failure_started(
-    stream_interpretation: BuiltInProviderStreamInterpretation,
-    failure: ProviderInvocationFailure,
-) -> bool:
-    return built_in_provider_invocation_started(
-        stream_interpretation,
-        list(failure.stdout_lines),
-        provider_session_id=failure.provider_session_id,
-    )
-
-
 def _provider_invocation_error_from_failure(
     service_name: str,
     failure: ProviderInvocationFailure,
@@ -799,7 +703,12 @@ def _provider_invocation_error_from_failure(
     stream_interpretation = _stream_interpretation_for_service(service_name)
     invocation_progress = (
         InvocationProgress.STARTED
-        if _provider_invocation_failure_started(stream_interpretation, failure)
+        if classify_built_in_provider_invocation_progress(
+            stream_interpretation,
+            list(failure.stdout_lines),
+            provider_session_id=failure.provider_session_id,
+        )
+        is InvocationProgress.STARTED
         else InvocationProgress.NOT_STARTED
     )
     if failure.kind is InvocationFailureKind.USAGE_LIMITED:
@@ -824,21 +733,6 @@ def _provider_invocation_error_from_failure(
         )
     setattr(error, "provider_session_id", failure.provider_session_id)
     return error
-
-
-def _provider_session_id_from_failure(
-    service_name: str,
-    failure: ProviderInvocationFailure,
-    *,
-    fallback_provider_session_id: str | None = None,
-) -> str | None:
-    stream_interpretation = _stream_interpretation_for_service(service_name)
-    return resolve_built_in_provider_session_id(
-        stream_interpretation,
-        list(failure.stdout_lines),
-        provider_session_id=failure.provider_session_id,
-        fallback_provider_session_id=fallback_provider_session_id,
-    )
 
 
 def _select_builtin_stage(stage: ProviderSelection) -> ProviderSelection:
@@ -1427,7 +1321,7 @@ def _run_builtin_ephemeral(
     reduce_claude_stream: Callable[
         [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
-    ] = _reduce_claude_stream_with_runtime_overrides,
+    ] = reduce_claude_stream,
     codex_command: Callable[..., tuple[str, ...]] = _codex_command,
     codex_env: Callable[..., dict[str, str]] = _codex_env,
     reduce_codex_stream: Callable[
@@ -1715,9 +1609,10 @@ def _run_builtin_new_session(
                 on_live_output=_on_live_output,
             )
             if isinstance(invocation_result, ProviderInvocationFailure):
-                provider_session_id = _provider_session_id_from_failure(
-                    "codex",
-                    invocation_result,
+                provider_session_id = resolve_built_in_provider_session_id(
+                    _codex_stream_interpretation(),
+                    list(invocation_result.stdout_lines),
+                    provider_session_id=invocation_result.provider_session_id,
                     fallback_provider_session_id=provider_session_id,
                 )
                 failure_error = _provider_invocation_error_from_failure(
@@ -1742,9 +1637,10 @@ def _run_builtin_new_session(
                 )
                 raise failure_error
             else:
-                provider_session_id = _provider_session_id_from_result(
+                provider_session_id = resolve_built_in_provider_session_id(
                     _codex_stream_interpretation(),
-                    invocation_result,
+                    list(invocation_result.stdout_lines),
+                    provider_session_id=invocation_result.provider_session_id,
                     fallback_provider_session_id=None,
                 )
                 result_text = invocation_result.output
@@ -1856,9 +1752,10 @@ def _run_builtin_new_session(
                 )
             )
         if isinstance(invocation_result, ProviderInvocationFailure):
-            provider_session_id = _provider_session_id_from_failure(
-                selected_stage.service,
-                invocation_result,
+            provider_session_id = resolve_built_in_provider_session_id(
+                _stream_interpretation_for_service(selected_stage.service),
+                list(invocation_result.stdout_lines),
+                provider_session_id=invocation_result.provider_session_id,
                 fallback_provider_session_id=provider_session_id,
             )
             if selected_stage.service == "opencode" and provider_session_id is not None:
@@ -2003,9 +1900,10 @@ def _run_builtin_resumed_session(
             on_live_output=_on_live_output,
         )
         if isinstance(invocation_result, ProviderInvocationFailure):
-            active_provider_session_id = _provider_session_id_from_failure(
-                "codex",
-                invocation_result,
+            active_provider_session_id = resolve_built_in_provider_session_id(
+                _codex_stream_interpretation(),
+                list(invocation_result.stdout_lines),
+                provider_session_id=invocation_result.provider_session_id,
                 fallback_provider_session_id=active_provider_session_id,
             )
             failure_error = _provider_invocation_error_from_failure(
@@ -2028,9 +1926,10 @@ def _run_builtin_resumed_session(
             )
             raise failure_error
         else:
-            active_provider_session_id = _provider_session_id_from_result(
+            active_provider_session_id = resolve_built_in_provider_session_id(
                 _codex_stream_interpretation(),
-                invocation_result,
+                list(invocation_result.stdout_lines),
+                provider_session_id=invocation_result.provider_session_id,
                 fallback_provider_session_id=provider_session_id,
             )
             result_text = invocation_result.output
@@ -2168,9 +2067,10 @@ def _run_builtin_resumed_session(
         stream_interpretation=stream_interpretation,
     )
     if isinstance(invocation_result, ProviderInvocationFailure):
-        provider_session_id = _provider_session_id_from_failure(
-            continuation_service,
-            invocation_result,
+        provider_session_id = resolve_built_in_provider_session_id(
+            stream_interpretation,
+            list(invocation_result.stdout_lines),
+            provider_session_id=invocation_result.provider_session_id,
             fallback_provider_session_id=provider_session_id,
         )
         if continuation_service == "opencode":
