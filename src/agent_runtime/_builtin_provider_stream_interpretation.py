@@ -156,6 +156,7 @@ _CLAUDE_SUBSCRIPTION_ACCESS_DENIAL_PHRASE = (
     "disabled Claude subscription access for Claude Code"
 )
 _CODEX_USAGE_LIMIT_SUBSTRING = "You've hit your usage limit"
+_CODEX_AT_CAPACITY_SUBSTRING = "selected model is at capacity"
 _CODEX_RESET_PATTERN = re.compile(
     r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
     r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
@@ -539,6 +540,12 @@ def _classify_codex_error_message(
     message: str,
 ) -> CredentialFailure | HardError | TransientError | None:
     lowered_message = message.lower()
+    if _CODEX_AT_CAPACITY_SUBSTRING in lowered_message:
+        return TransientError(
+            status_code=None,
+            raw_message=message,
+            classification="retryable",
+        )
     if "refresh_token_reused" in message:
         return CredentialFailure(
             raw_message=message,
@@ -560,7 +567,7 @@ def _classify_codex_error_message(
         return HardError(status_code=401, raw_message=message)
     match = _CODEX_HTTP_STATUS_RE.search(message)
     if match is None:
-        return None
+        return HardError(status_code=500, raw_message=message)
     status = int(match.group("status"))
     if status >= 500:
         return TransientError(status_code=status, raw_message=message)

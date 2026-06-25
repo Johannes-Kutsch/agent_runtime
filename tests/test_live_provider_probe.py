@@ -22,6 +22,7 @@ import pytest
 from agent_runtime.contracts import ToolAccess
 from agent_runtime.errors import AgentCredentialFailureError
 from agent_runtime import runtime as pr
+from agent_runtime.errors import ProviderUnavailableReason
 
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[1]
@@ -361,6 +362,55 @@ def test_non_success_category_prints_red_and_records_category(
     )
     assert payload["category"] == "usage_limited"
     assert payload["kind"] == "UsageLimited"
+
+
+def test_retryable_provider_unavailable_is_retryable_failure_category(
+    probe: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def handler(method: str, request: Any) -> Any:
+        if method == "run_ephemeral":
+            return pr.RuntimeOutcome(
+                kind=pr.ProviderUnavailable(
+                    reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
+                    detail="Selected model is at capacity. Please try a different model.",
+                ),
+                result=pr.RunResult(
+                    output="",
+                    usage=None,
+                    continuation=None,
+                    selected=pr.ResolvedProvider(
+                        service="codex",
+                        model="gpt-5.4-mini",
+                        effort="low",
+                    ),
+                ),
+            )
+        if method == "run_new_session":
+            return _completed("new session output")
+        return _completed("resumed output")
+
+    _install_client(probe, monkeypatch, handler)
+    stream = io.StringIO()
+
+    root = probe.run_probe(
+        ("codex",),
+        env={},
+        codex_auth_present=True,
+        artifact_root=tmp_path / "artifacts",
+        stream=stream,
+        color=True,
+    )
+
+    text = stream.getvalue()
+    assert "run not completed: retryable_failure" in text
+    assert "\033[31m" in text
+    payload = json.loads(
+        (root / "codex" / "ephemeral_UNRESTRICTED" / probe.RESULT_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["category"] == "retryable_failure"
+    assert payload["kind"] == "ProviderUnavailable"
 
 
 def test_credential_failure_is_wrong_credentials_with_traceback(

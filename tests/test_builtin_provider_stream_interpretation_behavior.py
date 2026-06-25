@@ -16,6 +16,8 @@ from agent_runtime._runtime_lifecycle import AgentEvent
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     HardAgentError,
+    ProviderUnavailableError,
+    ProviderUnavailableReason,
     TransientAgentError,
     UsageLimitError,
 )
@@ -52,6 +54,22 @@ def test_codex_built_in_provider_stream_interpretation_maps_error_usage_limit_wi
     assert exc_info.value.invocation_progress is InvocationProgress.NOT_STARTED
 
 
+def test_codex_built_in_provider_stream_interpretation_maps_selected_model_at_capacity_to_retryable_failure() -> (
+    None
+):
+    interpretation = codex_built_in_provider_stream_interpretation()
+    message = "Selected model is at capacity. Please try a different model."
+
+    with pytest.raises(ProviderUnavailableError) as exc_info:
+        interpretation.reduce_output(
+            [json.dumps({"type": "error", "message": message}) + "\n"]
+        )
+
+    assert exc_info.value.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert exc_info.value.service_name == "codex"
+    assert str(exc_info.value) == message
+
+
 @pytest.mark.parametrize(
     ("event_type", "message", "expected_exception"),
     [
@@ -84,6 +102,21 @@ def test_codex_built_in_provider_stream_interpretation_preserves_error_classific
     assert str(exc_info.value) == message
     if isinstance(exc_info.value, (AgentCredentialFailureError, HardAgentError)):
         assert exc_info.value.service_name == "codex"
+
+
+def test_codex_built_in_provider_stream_interpretation_treats_unrecognized_message_as_hard_failure() -> (
+    None
+):
+    interpretation = codex_built_in_provider_stream_interpretation()
+    message = "The codex model service is temporarily in maintenance mode."
+
+    with pytest.raises(HardAgentError) as exc_info:
+        interpretation.reduce_output(
+            [json.dumps({"type": "error", "message": message}) + "\n"]
+        )
+
+    assert exc_info.value.service_name == "codex"
+    assert str(exc_info.value) == message
 
 
 def test_codex_built_in_provider_stream_interpretation_builds_tool_call_event_from_item_started() -> (
