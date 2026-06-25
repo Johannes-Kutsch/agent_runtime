@@ -888,6 +888,20 @@ def _with_observed_output(
     )
 
 
+def _with_reduce_output(
+    stream_interpretation: BuiltInProviderStreamInterpretation,
+    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+) -> BuiltInProviderStreamInterpretation:
+    return BuiltInProviderStreamInterpretation(
+        reduce_output=reduce_output,
+        build_agent_event=stream_interpretation.build_agent_event,
+        classify_invocation_progress=(
+            stream_interpretation.classify_invocation_progress
+        ),
+        extract_provider_session_id=stream_interpretation.extract_provider_session_id,
+    )
+
+
 def _observe_opencode_output_reducer(
     stream_interpretation: BuiltInProviderStreamInterpretation,
     on_live_output: Callable[[AgentEvent], None] | None,
@@ -2336,12 +2350,9 @@ def _run_builtin_ephemeral(
                 run_kind=RunKind.FRESH,
                 provider_session_id=None,
                 stream_interpretation=_with_observed_output(
-                    BuiltInProviderStreamInterpretation(
-                        reduce_output=lambda lines: reduce_claude_stream(lines, None),
-                        build_agent_event=_live_output_event_for_claude_line,
-                        classify_invocation_progress=(
-                            _claude_stream_interpretation().classify_invocation_progress
-                        ),
+                    _with_reduce_output(
+                        _claude_stream_interpretation(),
+                        lambda lines: reduce_claude_stream(lines, None),
                     ),
                     wrapped_on_live_output,
                 ),
