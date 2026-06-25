@@ -153,3 +153,95 @@ def test_runtime_client_execution_harness_prepares_provider_invocation_values(
         assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
     else:
         assert outcome.result.output == expected_output
+
+
+def test_runtime_client_execution_harness_builds_session_lifecycle_requests(
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_auth = runtime.ProviderAuth(claude_code_oauth_token="override-token")
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
+        tmp_path,
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+
+    start_request = RuntimeClientExecutionHarness.start_session_run_request(
+        invocation_dir=tmp_path,
+        runtime_state_dir=runtime_state_dir,
+        provider_selection=_claude_selection(),
+        provider_auth=provider_auth,
+        tool_access=tool_access,
+    )
+    resume_request = RuntimeClientExecutionHarness.resume_session_run_request(
+        invocation_dir=tmp_path,
+        runtime_state_dir=runtime_state_dir,
+        continuation=RuntimeClientExecutionHarness.codex_continuation(
+            tool_access=tool_access,
+        ),
+        provider_auth=provider_auth,
+    )
+
+    assert isinstance(start_request, prompt_runtime.NewSessionRunRequest)
+    assert start_request.invocation_dir == tmp_path
+    assert start_request.provider_selection.auth == provider_auth
+    assert start_request.tool_access == tool_access
+    assert start_request._runtime_state_dir == runtime_state_dir
+    assert start_request._session_namespace == "main"
+    assert isinstance(resume_request, prompt_runtime.ResumedSessionRunRequest)
+    assert (
+        resume_request.continuation
+        == RuntimeClientExecutionHarness.codex_continuation(
+            tool_access=tool_access,
+        )
+    )
+    assert resume_request.provider_auth == provider_auth
+    assert resume_request.tool_access == tool_access
+    assert resume_request._runtime_state_dir == runtime_state_dir
+    assert resume_request._session_namespace == "main"
+
+
+def test_runtime_client_execution_harness_prepares_runtime_state_and_codex_rollout_state(
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
+
+    rollout_path = RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+        provider_state_dir,
+        "thread-1",
+        "thread-2",
+    )
+
+    assert runtime_state_dir == tmp_path / ".agent-runtime" / "state"
+    assert runtime_state_dir.is_dir()
+    assert provider_state_dir == runtime_state_dir / "implementer" / "main" / "codex"
+    assert (
+        rollout_path
+        == provider_state_dir / "sessions" / "2026" / "05" / "30" / "rollout-001.jsonl"
+    )
+    assert rollout_path.read_text(encoding="utf-8").splitlines() == [
+        json.dumps({"type": "thread.started", "thread_id": "thread-1"}),
+        json.dumps({"type": "thread.started", "thread_id": "thread-2"}),
+    ]
+
+
+def test_runtime_client_execution_harness_opencode_continuation_preserves_explicit_provider_state() -> (
+    None
+):
+    continuation = RuntimeClientExecutionHarness.opencode_continuation(
+        provider_session_id="persisted-session-1",
+        provider_state={},
+    )
+
+    assert continuation.provider_resume_state == {
+        "provider_session_id": "persisted-session-1",
+        "provider_state": {},
+        "exact_transcript_match": True,
+    }

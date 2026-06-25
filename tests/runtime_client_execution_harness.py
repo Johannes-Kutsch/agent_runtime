@@ -222,7 +222,8 @@ class RuntimeClientExecutionHarness:
             provider_resume_state={
                 "provider_session_id": provider_session_id,
                 "provider_state": provider_state
-                or {
+                if provider_state is not None
+                else {
                     "session_id": provider_session_id,
                     "resume_jsonl": "[]",
                 },
