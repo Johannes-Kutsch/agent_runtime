@@ -386,6 +386,145 @@ def test_render_built_in_provider_invocation_layers_windows_host_allowlist_for_e
     }
 
 
+@pytest.mark.parametrize(
+    ("service", "model", "effort", "auth", "expected_environment"),
+    [
+        pytest.param(
+            "claude",
+            "sonnet",
+            "medium",
+            ProviderAuth(claude_code_oauth_token="token"),
+            {
+                "CLAUDE_CODE_OAUTH_TOKEN": "token",
+                "CLAUDE_CONFIG_DIR": "provider-state",
+            },
+            id="claude",
+        ),
+        pytest.param(
+            "codex",
+            "gpt-5.4",
+            "medium",
+            None,
+            {
+                "TZ": "UTC",
+                "CODEX_HOME": "provider-state",
+            },
+            id="codex",
+        ),
+        pytest.param(
+            "opencode",
+            "glm-5.2",
+            "medium",
+            ProviderAuth(opencode_api_key="go-key"),
+            {
+                "TZ": "UTC",
+                "OPENCODE_HOME": "provider-state",
+                "OPENCODE_GO_API_KEY": "go-key",
+                "OPENCODE_CONFIG_CONTENT": "present",
+            },
+            id="opencode",
+        ),
+    ],
+)
+def test_render_built_in_provider_invocation_keeps_posix_environment_provider_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    service: str,
+    model: str,
+    effort: str,
+    auth: ProviderAuth | None,
+    expected_environment: dict[str, str],
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    provider_state_dir = tmp_path / "provider-state"
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service=service,
+                model=model,
+                effort=effort,
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(tmp_path),
+            auth=auth,
+            invocation_dir=tmp_path,
+            provider_state_dir=provider_state_dir,
+            host_facts=built_in_provider_rendering.BuiltInProviderHostFacts(
+                os_name="posix",
+                environment={
+                    "PATH": "/usr/bin",
+                    "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+                    "SystemRoot": "/should/not/leak",
+                    "ComSpec": "/should/not/leak",
+                    "WINDIR": "/should/not/leak",
+                    "SHOULD_NOT_LEAK": "host-value",
+                },
+            ),
+        )
+    )
+
+    for base_key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR"):
+        assert base_key not in rendered_invocation.environment
+    assert "SHOULD_NOT_LEAK" not in rendered_invocation.environment
+
+    if service == "opencode":
+        assert rendered_invocation.environment["OPENCODE_HOME"] == str(
+            provider_state_dir
+        )
+        assert rendered_invocation.environment["OPENCODE_GO_API_KEY"] == "go-key"
+        assert rendered_invocation.environment["OPENCODE_CONFIG_CONTENT"]
+        assert set(rendered_invocation.environment) == {
+            "TZ",
+            "OPENCODE_HOME",
+            "OPENCODE_GO_API_KEY",
+            "OPENCODE_CONFIG_CONTENT",
+        }
+        return
+
+    assert rendered_invocation.environment == {
+        key: (str(provider_state_dir) if value == "provider-state" else value)
+        for key, value in expected_environment.items()
+    }
+
+
+def test_finalized_built_in_provider_environment_prefers_provider_values_on_key_collision() -> (
+    None
+):
+    finalized_environment = (
+        built_in_provider_rendering._finalize_built_in_provider_invocation_environment(
+            environment={
+                "PATH": "provider-path",
+                "WINDIR": "provider-windir",
+                "TZ": "UTC",
+            },
+            host_facts=built_in_provider_rendering.BuiltInProviderHostFacts(
+                os_name="nt",
+                environment={
+                    "PATH": "host-path",
+                    "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+                    "SystemRoot": "C:\\Windows",
+                    "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+                    "WINDIR": "C:\\Windows",
+                },
+            ),
+        )
+    )
+
+    assert finalized_environment == {
+        "PATH": "provider-path",
+        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+        "SystemRoot": "C:\\Windows",
+        "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+        "WINDIR": "provider-windir",
+        "TZ": "UTC",
+    }
+
+
 def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() -> None:
     invocation_dir = Path("/tmp/invocation")
 
