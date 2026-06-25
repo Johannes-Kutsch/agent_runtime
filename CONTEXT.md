@@ -25,6 +25,7 @@
 | `Start Session Run` | Invocation that selects a service and prepares provider-session continuity. |
 | `Resume Session Run` | Invocation that continues an existing continuity chain without fallback or reselection. |
 | `Session-backed Provider` | Built-in provider that can produce and consume portable continuation data. |
+| `Session-backed Provider Execution` | Internal lifecycle module behind `RuntimeClient` Start Session Run and Resume Session Run for `Session-backed Provider`s. It resolves provider state, chooses run kind, invokes through `Built-in Provider Invocation`, interprets expected interruption, builds `RuntimeOutcome` / `RunResult` values, and preserves `Continuation` only when provider work started and a provider-session id is known. |
 | `Continuation` | Opaque portable resume token callers persist and pass back to resume a continuity chain. |
 | `Live Runtime Output` | Live feed of typed `Agent Event` observations emitted during invocation; the runtime's only output-observation channel. |
 | `Agent Event` | One observed signal in Live Runtime Output: closed type (agent message, agent tool call, other agent life sign), single human-readable display message, raw provider output it derived from. |
@@ -76,6 +77,8 @@
 - Runtime must not own durable provider-session storage, invocation-log storage, or cleanup policy. All resume state round-trips through the Continuation.
 - Resumed-session failures do not invalidate continuations or trigger automatic Consumer Fallback inside runtime.
 - Session-backed interruptions surface a continuation only when provider work started; callers infer resumability from continuation presence.
+- `Session-backed Provider Execution` is internal and must not become a consumer extension point; it reuses `Built-in Provider Invocation` and keeps provider-specific continuity facts explicit inside the implementation.
+- `RuntimeClient` remains the `Runtime Public Surface` for Start Session Run and Resume Session Run; consumers never import the session-backed execution module.
 - Credential failures, hard provider failures (including process-level: non-zero exit or empty output), adapter/protocol bugs, and unexpected exceptions remain exceptional.
 - Provider-reported usage belongs on outcomes whenever observed, including interrupted outcomes. Cancellation/timeout outcomes report only usage observed before interruption.
 - Idle Timeout is a heartbeat watchdog reset by every Agent Event, not a wall-clock budget. Runtime performs no automatic timeout retry.
