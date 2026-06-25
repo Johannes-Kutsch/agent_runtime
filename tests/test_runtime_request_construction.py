@@ -84,6 +84,7 @@ def test_resumed_session_run_request_has_minimal_public_signature() -> None:
         "invocation_dir",
         "continuation",
         "provider_auth",
+        "session_store",
         "timeout_seconds",
         "on_live_output",
         "token",
@@ -95,8 +96,48 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
 
     assert "on_live_output" in parameters
     assert "timeout_seconds" in parameters
-    assert "session_store" not in parameters
+    assert "session_store" in parameters
     assert "provider_session_adapter" not in parameters
+
+
+@pytest.mark.parametrize(
+    ("request_factory", "expected_request_type"),
+    [
+        (
+            lambda: prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=Path("/repo"),
+                provider_selection=runtime.ProviderSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_policy=runtime.ToolPolicy.NONE,
+                session_store=Path("/state"),
+            ),
+            "NewSessionRunRequest",
+        ),
+        (
+            lambda: prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=Path("/repo"),
+                continuation=_continuation(),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                session_store=Path("/state"),
+            ),
+            "ResumedSessionRunRequest",
+        ),
+    ],
+)
+def test_session_backed_run_requests_accept_public_session_store_input(
+    request_factory: Callable[[], object],
+    expected_request_type: str,
+) -> None:
+    request = cast(Any, request_factory())
+
+    assert type(request).__name__ == expected_request_type
+    assert request.session_store == Path("/state")
+    assert request._runtime_state_dir == Path("/state")
 
 
 def test_new_invocation_requests_take_provider_auth_from_provider_selection() -> None:
@@ -426,6 +467,44 @@ def test_lifecycle_requests_keep_runtime_managed_compatibility_fields_internal_t
         assert "_session_namespace" not in {field.name for field in fields(request)}
         assert "_runtime_state_dir" not in asdict(request)
         assert "_session_namespace" not in asdict(request)
+
+
+@pytest.mark.parametrize(
+    ("request_factory", "expected_message"),
+    [
+        (
+            lambda: prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=Path("/repo"),
+                provider_selection=runtime.ProviderSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_policy=runtime.ToolPolicy.NONE,
+                session_store=Path("/state"),
+                runtime_state_dir=Path("/other-state"),
+            ),
+            "NewSessionRunRequest received conflicting `runtime_state_dir` and `session_store` values.",
+        ),
+        (
+            lambda: prompt_runtime.ResumedSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=Path("/repo"),
+                continuation=_continuation(),
+                session_store=Path("/state"),
+                runtime_state_dir=Path("/other-state"),
+            ),
+            "ResumedSessionRunRequest received conflicting `runtime_state_dir` and `session_store` values.",
+        ),
+    ],
+)
+def test_session_backed_run_request_rejects_conflicting_session_store_inputs(
+    request_factory: Callable[[], object],
+    expected_message: str,
+) -> None:
+    with pytest.raises(TypeError, match=re.escape(expected_message)):
+        request_factory()
 
 
 def test_lifecycle_request_construction_requires_explicit_tool_policy() -> None:

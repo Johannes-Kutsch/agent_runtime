@@ -199,7 +199,7 @@ def _restore_opencode_state_dir(
     request: ResumedSessionRunRequest,
     continuation_provider_state: dict[str, Any] | None,
 ) -> tuple[Path, Callable[[], None]]:
-    if request._runtime_state_dir is None:
+    if request.session_store is None:
         temp_dir = tempfile.TemporaryDirectory(prefix="opencode-provider-state-")
 
         def cleanup() -> None:
@@ -212,7 +212,7 @@ def _restore_opencode_state_dir(
         role="implementer",
         session_namespace=request._session_namespace,
     )
-    state_dir = request._runtime_state_dir / provider_state_dir_relpath
+    state_dir = request.session_store / provider_state_dir_relpath
     state_dir.mkdir(parents=True, exist_ok=True)
     _seed_opencode_provider_state_dir(state_dir, continuation_provider_state)
     return state_dir, lambda: None
@@ -546,7 +546,7 @@ def _run_builtin_new_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
                         prompt=request.prompt,
                         invocation_dir=request.invocation_dir,
-                        _runtime_state_dir=runtime_state_dir,
+                        session_store=runtime_state_dir,
                         continuation=_build_codex_continuation(
                             model=selected_stage.model,
                             effort=selected_stage.effort,
@@ -665,7 +665,7 @@ def _run_builtin_new_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
                         prompt=request.prompt,
                         invocation_dir=request.invocation_dir,
-                        _runtime_state_dir=runtime_state_dir,
+                        session_store=runtime_state_dir,
                         on_live_output=on_live_output,
                         timeout_seconds=0,
                         continuation=_build_claude_continuation(
@@ -859,7 +859,7 @@ def _run_builtin_resumed_session(
         if provider_invocation_adapter is None
         else provider_invocation_adapter
     )
-    runtime_state_dir = request._runtime_state_dir
+    runtime_state_dir = request.session_store
     continuation = request.continuation
     if continuation is None:
         raise RuntimeConfigurationError(
@@ -1008,8 +1008,8 @@ def _run_builtin_resumed_session(
             str | None,
             provider_resume_state.get("provider_state_dir_relpath"),
         )
-        if provider_state_dir_relpath and request._runtime_state_dir is not None:
-            provider_state_dir = request._runtime_state_dir / provider_state_dir_relpath
+        if provider_state_dir_relpath and request.session_store is not None:
+            provider_state_dir = request.session_store / provider_state_dir_relpath
             provider_state_dir.mkdir(parents=True, exist_ok=True)
         state_dir_session_id = None
         run_kind = _claude_run_kind_for_state_dir(provider_state_dir)

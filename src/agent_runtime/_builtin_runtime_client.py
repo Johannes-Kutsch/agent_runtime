@@ -991,7 +991,7 @@ def _new_session_runtime_state_dir(
     *,
     context: str,
 ) -> tuple[Path, Callable[[], None], bool]:
-    runtime_state_dir = request._runtime_state_dir
+    runtime_state_dir = request.session_store
     if runtime_state_dir is not None:
         return runtime_state_dir, lambda: None, True
     temp_dir = tempfile.TemporaryDirectory(prefix=f"{context}-provider-state-")
