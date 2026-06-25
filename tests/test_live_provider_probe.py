@@ -1077,3 +1077,110 @@ def test_live_probe_case_runner_in_memory_runtime_invocation_adapter_records_req
     assert resumed_session_request.invocation_dir == (
         tmp_path / "resumed-session-workspace"
     )
+
+
+def test_live_probe_case_runner_threads_public_session_store_between_new_and_resumed_session_cases(
+    probe: Any, case_runner: Any, tmp_path: Path
+) -> None:
+    new_session_case = _probe_case(
+        probe,
+        provider="codex",
+        mode="new_session",
+        codex_auth_present=True,
+    )
+    resumed_session_case = _probe_case(
+        probe,
+        provider="codex",
+        mode="resumed_session",
+        codex_auth_present=True,
+    )
+    adapter = case_runner.InMemoryRuntimeInvocationAdapter(
+        prepared_outcomes=[
+            _completed("new session output", continuation=_continuation()),
+            _completed("resumed output"),
+        ]
+    )
+    output = _OutputRecorder()
+    session_store = tmp_path / "session-store"
+
+    first_result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=new_session_case,
+            case_dir=tmp_path / "new-session",
+            invocation_dir=tmp_path / "new-session-workspace",
+            prompt="first prompt",
+            timeout_seconds=45,
+            continuation=None,
+            session_store=session_store,
+            output=output,
+        ),
+        runtime_client_factory=lambda: adapter,
+    )
+    assert first_result.category == "success"
+
+    second_result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=resumed_session_case,
+            case_dir=tmp_path / "resumed-session",
+            invocation_dir=tmp_path / "resumed-session-workspace",
+            resumed_session_invocation_dir=tmp_path / "new-session-workspace",
+            prompt="second prompt",
+            timeout_seconds=45,
+            continuation=_continuation(),
+            session_store=session_store,
+            output=output,
+        ),
+        runtime_client_factory=lambda: adapter,
+    )
+    assert second_result.category == "success"
+
+    requests = {method: request for method, request in adapter.recorded_requests}
+    assert isinstance(requests["run_new_session"], pr.NewSessionRunRequest)
+    assert isinstance(requests["run_resumed_session"], pr.ResumedSessionRunRequest)
+    assert requests["run_new_session"].session_store == session_store
+    assert requests["run_resumed_session"].session_store == session_store
+    assert (
+        requests["run_new_session"].session_store
+        == requests["run_resumed_session"].session_store
+    )
+
+
+def test_live_probe_resumed_session_case_reaches_classified_outcome_when_session_store_is_threaded(
+    probe: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[Any] = []
+
+    def _record(method: str, request: Any) -> Any:
+        calls.append((method, request))
+        if method == "run_new_session":
+            assert request.session_store is not None
+            return _completed("new session output", continuation=_continuation())
+        if method == "run_resumed_session":
+            assert request.session_store is not None
+            new_request = next(
+                request_for_case
+                for method_for_case, request_for_case in calls
+                if method_for_case == "run_new_session"
+            )
+            assert request.session_store == new_request.session_store
+            return _completed("resumed output")
+        return _completed("ephemeral output")
+
+    _install_client(probe, monkeypatch, _record)
+
+    root = probe.run_probe(
+        ("codex",),
+        env={},
+        codex_auth_present=True,
+        artifact_root=tmp_path / "artifacts",
+        stream=io.StringIO(),
+    )
+
+    payload = json.loads(
+        (
+            root / "codex" / "resumed_session_UNRESTRICTED" / probe.RESULT_FILENAME
+        ).read_text(encoding="utf-8")
+    )
+    assert payload["category"] == "success"
+    assert payload["kind"] == "Completed"
+    assert len(calls) == 6

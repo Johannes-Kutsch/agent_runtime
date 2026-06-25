@@ -59,6 +59,7 @@ class ProbeCaseRunRequest:
     timeout_seconds: int
     continuation: Continuation | None
     output: _LiveProbeOutput
+    session_store: Path | None = None
     resumed_session_invocation_dir: Path | None = None
 
 
@@ -291,6 +292,7 @@ def run_case(
                         invocation_dir=case_invocation_dir,
                         provider_selection=selection,
                         tool_policy=tool_policy,
+                        session_store=request.session_store,
                         timeout_seconds=request.timeout_seconds,
                         on_live_output=feed_writer.append,
                     )
@@ -308,6 +310,7 @@ def run_case(
                         prompt=request.prompt,
                         invocation_dir=case_invocation_dir,
                         continuation=request.continuation,
+                        session_store=request.session_store,
                         provider_auth=auth,
                         timeout_seconds=request.timeout_seconds,
                         on_live_output=feed_writer.append,
