@@ -175,6 +175,20 @@ def _claude_result_output_line(text: str) -> str:
     return json.dumps({"type": "result", "result": text}) + "\n"
 
 
+def _claude_tool_output_line(name: str, payload: object) -> str:
+    return (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "tool_use", "name": name, "input": payload}],
+                },
+            }
+        )
+        + "\n"
+    )
+
+
 def _opencode_text_output_line(text: str, *, session_id: str = "sess_123") -> str:
     return (
         json.dumps(
@@ -1978,6 +1992,54 @@ def test_runtime_client_new_session_run_calls_live_output_observer_for_resumed_c
     assert observed == [
         "intermediate",
     ]
+
+
+def test_runtime_client_ephemeral_run_emits_claude_tool_call_and_other_agent_events(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[runtime.AgentEvent] = []
+
+    def on_live_output(event: runtime.AgentEvent) -> None:
+        observed.append(event)
+
+    tool_line = _claude_tool_output_line("Read", {"path": "README.md"})
+    result_line = _claude_result_output_line("final output")
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(tool_line, result_line),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                on_live_output=on_live_output,
+            )
+        )
+    )
+
+    assert outcome.result.output == "final output"
+    assert [event.type for event in observed] == ["agent_tool_call", "other"]
+    assert observed[0].display_message == 'Read({"path":"README.md"})'
+    assert observed[0].raw_provider_output == tool_line
+    assert observed[1].display_message == "result"
+    assert observed[1].raw_provider_output == result_line
+    assert "".join(event.raw_provider_output for event in observed) == (
+        tool_line + result_line
+    )
 
 
 def test_runtime_client_new_session_run_propagates_claude_live_output_observer_failure_for_resumed_claude(
@@ -6337,6 +6399,75 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
 
     assert "temporary Claude failure" in str(exc_info.value)
     assert exc_info.value.status_code == 500
+
+
+def test_runtime_client_preserves_claude_usage_on_usage_limited_stream(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "partial output"}],
+                            "usage": {
+                                "input_tokens": 3,
+                                "cache_creation_input_tokens": 1,
+                                "cache_read_input_tokens": 2,
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "type": "result",
+                        "is_error": True,
+                        "api_error_status": 429,
+                        "result": "Claude usage limit reached.",
+                    }
+                )
+                + "\n",
+            )
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.reset_time is None
+    assert outcome.result.output == ""
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="claude", model="sonnet", effort="medium"
+    )
+    assert outcome.result.usage == runtime.ProviderUsage(
+        input_tokens=3,
+        output_tokens=None,
+        cache_read_input_tokens=2,
+        cache_creation_input_tokens=1,
+        cost_usd=None,
+        duration_seconds=None,
+    )
 
 
 def test_runtime_client_parses_claude_usage_limit_reset_time(

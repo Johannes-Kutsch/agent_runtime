@@ -171,6 +171,36 @@ def test_tool_call_lines_render_tool_identity_and_arguments() -> None:
     assert '{"q":"needle"}' in event.display_message
 
 
+def test_claude_tool_only_lines_preserve_tool_payload_shape() -> None:
+    line = (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "name": "Read", "input": {"path": "a.md"}},
+                        {
+                            "type": "tool_use",
+                            "name": "Write",
+                            "input": {"path": "b.md"},
+                        },
+                    ]
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = _live_output_event_for_provider_line("claude", line)
+
+    assert event.type == "agent_tool_call"
+    assert event.display_message == (
+        'Read([{"type":"tool_use","name":"Read","input":{"path":"a.md"}},'
+        '{"type":"tool_use","name":"Write","input":{"path":"b.md"}}])'
+    )
+    assert event.raw_provider_output == line
+
+
 def test_other_lines_render_neutral_descriptor_as_display_message() -> None:
     line = '{"type":"thread.started","thread_id":"t-1"}\n'
     event = _live_output_event_for_provider_line("codex", line)
