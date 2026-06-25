@@ -4,7 +4,6 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -18,10 +17,6 @@ from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 from agent_runtime.errors import RuntimeConfigurationError, UsageLimitError
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
-
-
-def _selection_with_auth(selection: Any, auth: Any) -> Any:
-    return RuntimeClientExecutionHarness.attach_provider_auth(selection, auth)
 
 
 def _install_in_memory_provider_invocation_adapter(
@@ -483,14 +478,13 @@ def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_fac
     run_kind: RunKind,
     provider_session_id: str,
 ) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
     if entrypoint == "new":
-        monkeypatch.setattr(
-            prompt_runtime._builtin_runtime_client_module,
-            "_new_provider_session_id",
-            lambda: "prepared-session-id",
+        RuntimeClientExecutionHarness.install_generated_provider_session_id(
+            monkeypatch,
+            "prepared-session-id",
         )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness.prepare(
         provider_invocation_runtime.ProviderInvocationResult(
             output="final output",
             usage=runtime.ProviderUsage(
@@ -514,14 +508,12 @@ def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_fac
             RuntimeClientExecutionHarness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                provider_selection=_selection_with_auth(
-                    InternalStageSelection(
-                        service="opencode",
-                        model="glm-5.2",
-                        effort="medium",
-                    ),
-                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="glm-5.2",
+                    effort="medium",
                 ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -536,8 +528,8 @@ def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_fac
             )
         )
 
-    assert len(adapter.recorded_requests) == 1
-    recorded_request = adapter.recorded_requests[0]
+    assert harness.recorded_request_count == 1
+    recorded_request = harness.recorded_request()
     rendered = built_in_provider_rendering.render_built_in_provider_invocation(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -600,14 +592,13 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
         "now_local",
         lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
     )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
     if entrypoint == "new":
-        monkeypatch.setattr(
-            prompt_runtime._builtin_runtime_client_module,
-            "_new_provider_session_id",
-            lambda: "prepared-session-id",
+        RuntimeClientExecutionHarness.install_generated_provider_session_id(
+            monkeypatch,
+            "prepared-session-id",
         )
-    adapter = _install_in_memory_provider_invocation_adapter(
-        monkeypatch,
+    harness.prepare(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
                 json.dumps(
@@ -651,14 +642,12 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
                 RuntimeClientExecutionHarness.start_session_run_request(
                     invocation_dir=tmp_path,
                     runtime_state_dir=runtime_state_dir,
-                    provider_selection=_selection_with_auth(
-                        InternalStageSelection(
-                            service="opencode",
-                            model="glm-5.2",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="go-key"),
+                    provider_selection=InternalStageSelection(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="medium",
                     ),
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
@@ -683,7 +672,7 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
             exact_transcript_match=expected_exact_transcript_match,
         )
     )
-    assert adapter.recorded_requests[0].provider_session_id == (
+    assert harness.recorded_request().provider_session_id == (
         "prepared-session-id" if entrypoint == "new" else "persisted-session-1"
     )
 
@@ -697,7 +686,7 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
         "now_local",
         lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
     )
-    adapter = _install_in_memory_provider_invocation_adapter(
+    harness = _install_in_memory_provider_invocation_adapter(
         monkeypatch,
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -764,7 +753,7 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
             exact_transcript_match=False,
         )
     )
-    assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
+    assert harness.recorded_request().provider_session_id == "persisted-session-1"
     provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
         runtime_state_dir,
         service="opencode",
