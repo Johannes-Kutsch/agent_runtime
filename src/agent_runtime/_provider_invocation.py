@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import shutil
 import subprocess
 import shlex
 import threading
@@ -172,9 +173,19 @@ class ProductionProviderInvocationAdapter:
                         text=True,
                     )
                 else:
+                    # Resolve argv[0] against PATH/PATHEXT before spawning with
+                    # shell=False. On Windows, CreateProcess only appends .exe to
+                    # a bare name and ignores PATHEXT, so an npm-installed CLI
+                    # shim (e.g. claude.cmd) is never found from the bare name
+                    # "claude". shutil.which returns the resolvable shim path;
+                    # fall back to the original name when it cannot be resolved.
+                    resolved_argv = list(request.argv)
+                    resolved_executable = shutil.which(resolved_argv[0])
+                    if resolved_executable is not None:
+                        resolved_argv[0] = resolved_executable
                     try:
                         process = subprocess.Popen(
-                            request.argv,
+                            resolved_argv,
                             shell=False,
                             stdin=subprocess.PIPE,
                             cwd=request.worktree,
@@ -187,7 +198,7 @@ class ProductionProviderInvocationAdapter:
                         if "stdin" not in str(exc):
                             raise
                         process = subprocess.Popen(
-                            request.argv,
+                            resolved_argv,
                             shell=False,
                             cwd=request.worktree,
                             env=environment,

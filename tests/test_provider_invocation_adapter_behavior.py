@@ -164,6 +164,7 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
         return process
 
     monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(provider_invocation_runtime.shutil, "which", lambda _name: None)
 
     request = provider_invocation_runtime.ProviderInvocationRequest(
         worktree=tmp_path,
@@ -198,7 +199,7 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
     assert process.wait_called is True
     assert not prompt_path.exists()
     assert captured == {
-        "command": ("provider", "--run"),
+        "command": ["provider", "--run"],
         "shell": False,
         "cwd": tmp_path,
         "env": {"PROVIDER_TOKEN": "secret"},
@@ -269,6 +270,7 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
         return process
 
     monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(provider_invocation_runtime.shutil, "which", lambda _name: None)
 
     request = provider_invocation_runtime.ProviderInvocationRequest(
         command=legacy_command,
@@ -321,7 +323,7 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
     assert process.stdin.closed is True
     assert not prompt_path.exists()
     assert captured == {
-        "command": request.argv,
+        "command": list(request.argv),
         "shell": False,
         "cwd": tmp_path,
         "env": {"CLAUDE_CODE_OAUTH_TOKEN": "secret"},
@@ -330,6 +332,143 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
         "text": True,
         "stdin": provider_invocation_runtime.subprocess.PIPE,
     }
+
+
+def test_production_adapter_resolves_argv_executable_against_path_before_spawning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Regression: an argv invocation spawned with shell=False must resolve its
+    # executable against PATH/PATHEXT first. On Windows, CreateProcess only
+    # appends .exe and ignores PATHEXT, so a bare "claude" never finds the
+    # npm-installed claude.cmd shim and raises FileNotFoundError. Resolving via
+    # shutil.which yields the runnable shim path while preserving the rest of
+    # the argv unchanged.
+    resolved_path = r"C:\Users\agent\AppData\Roaming\npm\claude.CMD"
+    captured: dict[str, Any] = {}
+    which_calls: list[str] = []
+
+    class _Stdin:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.closed = False
+
+        def write(self, content: str) -> None:
+            self.writes.append(content)
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdin = _Stdin()
+            self.stdout = iter(['{"type":"result","result":"hi"}\n'])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    process = _Process()
+
+    def _fake_popen(
+        command: tuple[str, ...],
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+        stdin: Any,
+    ) -> _Process:
+        captured["command"] = command
+        captured["shell"] = shell
+        return process
+
+    def _fake_which(name: str) -> str | None:
+        which_calls.append(name)
+        return resolved_path if name == "claude" else None
+
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(provider_invocation_runtime.shutil, "which", _fake_which)
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={"CLAUDE_CODE_OAUTH_TOKEN": "secret"},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+        argv=("claude", "--model", "sonnet"),
+        prefer_argv=True,
+    )
+
+    provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(request)
+
+    assert which_calls == ["claude"]
+    assert captured["shell"] is False
+    # argv[0] rewritten to the resolved shim; remaining args untouched.
+    assert captured["command"] == [resolved_path, "--model", "sonnet"]
+    # The unresolved request argv is left intact.
+    assert request.argv == ("claude", "--model", "sonnet")
+
+
+def test_production_adapter_falls_back_to_bare_argv_when_executable_unresolved(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # When shutil.which cannot resolve the executable (e.g. POSIX hosts where
+    # the bare name already runs, or the tool is genuinely absent), the bare
+    # argv must be passed through unchanged so existing behavior is preserved.
+    captured: dict[str, Any] = {}
+
+    class _Stdin:
+        def write(self, content: str) -> None: ...
+
+        def close(self) -> None: ...
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdin = _Stdin()
+            self.stdout = iter(['{"type":"result","result":"hi"}\n'])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(command: tuple[str, ...], **_kwargs: Any) -> _Process:
+        captured["command"] = command
+        return _Process()
+
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(provider_invocation_runtime.shutil, "which", lambda _name: None)
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+        argv=("claude", "--model", "sonnet"),
+        prefer_argv=True,
+    )
+
+    provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(request)
+
+    assert captured["command"] == ["claude", "--model", "sonnet"]
 
 
 def test_production_adapter_records_provider_chunks_and_session_id_when_log_context_is_supplied(
