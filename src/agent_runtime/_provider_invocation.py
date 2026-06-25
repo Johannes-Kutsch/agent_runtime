@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import dataclasses
+import queue
 import shutil
 import subprocess
 import shlex
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import nullcontext
 from datetime import datetime
 from enum import Enum
@@ -13,7 +14,12 @@ from pathlib import Path
 from typing import Protocol
 
 from .agent_log import LogicalAgentInvocationLog, WorkInvocationLog
-from .errors import HardAgentError, ProviderUnavailableError, UsageLimitError
+from .errors import (
+    AgentTimeoutError,
+    HardAgentError,
+    ProviderUnavailableError,
+    UsageLimitError,
+)
 from .provider_usage import ProviderUsage
 from .session import RunKind
 
@@ -64,6 +70,7 @@ class ProviderInvocationRequest:
     command: str = ""
     argv: tuple[str, ...] = ()
     prefer_argv: bool = False
+    timeout_seconds: int = 300
 
     def __post_init__(self) -> None:
         if not self.argv and not self.command:
@@ -89,6 +96,10 @@ class ProviderInvocationResult:
 class ProviderInvocationPreparedStream:
     stdout_lines: tuple[str, ...] = ()
     provider_session_id: str | None = None
+
+
+class ProviderInvocationTimedOutError(AgentTimeoutError):
+    pass
 
 
 class InvocationFailureKind(str, Enum):
@@ -221,29 +232,64 @@ class ProductionProviderInvocationAdapter:
                         process_stdin.close()
                 stdout_lines: list[str] = []
                 stderr_lines: list[str] = []
+                output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
 
-                # Some providers (notably codex) emit usage-limit / error
-                # notices on stderr while leaving stdout empty. Drain stderr on
-                # a side thread so it is merged into the reduced line stream
-                # without risking a pipe-buffer deadlock against stdout.
-                stderr_stream = getattr(process, "stderr", None)
+                def _drain_stream(
+                    stream: Iterable[str] | None,
+                    source: str,
+                ) -> None:
+                    if stream is not None:
+                        for line in stream:
+                            output_queue.put((source, line))
+                    output_queue.put((source, None))
 
-                def _drain_stderr() -> None:
-                    if stderr_stream is not None:
-                        for line in stderr_stream:
-                            stderr_lines.append(line)
-
-                stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+                stdout_thread = threading.Thread(
+                    target=_drain_stream,
+                    args=(process.stdout, "stdout"),
+                    daemon=True,
+                )
+                stderr_thread = threading.Thread(
+                    target=_drain_stream,
+                    args=(getattr(process, "stderr", None), "stderr"),
+                    daemon=True,
+                )
+                stdout_thread.start()
                 stderr_thread.start()
 
-                if process.stdout is not None:
-                    for line in process.stdout:
+                closed_streams: set[str] = set()
+                while len(closed_streams) < 2:
+                    try:
+                        if request.timeout_seconds > 0:
+                            source, line = output_queue.get(
+                                timeout=request.timeout_seconds
+                            )
+                        else:
+                            source, line = output_queue.get()
+                    except queue.Empty as exc:
+                        process.kill()
+                        process.wait()
+                        stdout_thread.join()
+                        stderr_thread.join()
+                        error = ProviderInvocationTimedOutError(
+                            "Provider subprocess exceeded the idle timeout.",
+                        )
+                        setattr(
+                            error, "provider_session_id", request.provider_session_id
+                        )
+                        raise error from exc
+
+                    if line is None:
+                        closed_streams.add(source)
+                        continue
+                    if source == "stdout":
                         stdout_lines.append(line)
                         _consume_new_stdout_lines(
                             request.output_hooks.reduce_output, [line]
                         )
+                    else:
+                        stderr_lines.append(line)
+
                 process.wait()
-                stderr_thread.join()
 
                 if stderr_lines:
                     _consume_new_stdout_lines(
@@ -298,17 +344,25 @@ class ProductionProviderInvocationAdapter:
                 returncode = process.returncode
                 observed_provider_session_id = _active_provider_session_id()
                 if returncode != 0:
-                    error = HardAgentError(
+                    hard_error = HardAgentError(
                         _nonzero_exit_message(returncode, stdout_lines),
                     )
-                    setattr(error, "provider_session_id", observed_provider_session_id)
-                    raise error
+                    setattr(
+                        hard_error,
+                        "provider_session_id",
+                        observed_provider_session_id,
+                    )
+                    raise hard_error
                 if not output.strip():
-                    error = HardAgentError(
+                    hard_error = HardAgentError(
                         "Provider subprocess completed without producing output.",
                     )
-                    setattr(error, "provider_session_id", observed_provider_session_id)
-                    raise error
+                    setattr(
+                        hard_error,
+                        "provider_session_id",
+                        observed_provider_session_id,
+                    )
+                    raise hard_error
                 return ProviderInvocationResult(
                     output=output,
                     usage=usage,

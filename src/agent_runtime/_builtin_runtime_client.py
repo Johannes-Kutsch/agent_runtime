@@ -492,6 +492,7 @@ def _invoke_provider(
     run_kind: RunKind,
     provider_session_id: str | None,
     stream_interpretation: BuiltInProviderStreamInterpretation,
+    timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return provider_invocation_adapter.execute(
         ProviderInvocationRequest(
@@ -514,6 +515,7 @@ def _invoke_provider(
                     stream_interpretation.extract_provider_session_id
                 ),
             ),
+            timeout_seconds=timeout_seconds,
         )
     )
 
@@ -527,6 +529,7 @@ def _provider_invocation_request_from_rendered_invocation(
     provider_session_id: str | None,
     stream_interpretation: BuiltInProviderStreamInterpretation,
     normalize_prompt_file_command_for_argv: bool = False,
+    timeout_seconds: int = 300,
 ) -> ProviderInvocationRequest:
     command = rendered.legacy_command_text or ""
     if (
@@ -559,6 +562,7 @@ def _provider_invocation_request_from_rendered_invocation(
                 stream_interpretation.extract_provider_session_id
             ),
         ),
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -572,6 +576,7 @@ def _execute_rendered_provider_invocation(
     provider_session_id: str | None,
     stream_interpretation: BuiltInProviderStreamInterpretation,
     normalize_prompt_file_command_for_argv: bool = False,
+    timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return provider_invocation_adapter.execute(
         _provider_invocation_request_from_rendered_invocation(
@@ -584,6 +589,7 @@ def _execute_rendered_provider_invocation(
             normalize_prompt_file_command_for_argv=(
                 normalize_prompt_file_command_for_argv
             ),
+            timeout_seconds=timeout_seconds,
         )
     )
 
@@ -601,6 +607,7 @@ def _invoke_claude_session_provider(
     run_kind: RunKind,
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
+    timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
         _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
@@ -623,20 +630,25 @@ def _invoke_claude_session_provider(
         _claude_stream_interpretation(),
         on_live_output,
     )
-    stream_interpretation, _ = _with_session_timeout_state(
+    stream_interpretation, timeout_state = _with_session_timeout_state(
         stream_interpretation,
         tracking_interpretation=_claude_stream_interpretation(),
         fallback_provider_session_id=provider_session_id,
     )
-    return _execute_rendered_provider_invocation(
-        provider_invocation_adapter=provider_invocation_adapter,
-        rendered=rendered,
-        invocation_dir=invocation_dir,
-        prompt=prompt,
-        run_kind=run_kind,
-        provider_session_id=provider_session_id,
-        stream_interpretation=stream_interpretation,
-    )
+    try:
+        return _execute_rendered_provider_invocation(
+            provider_invocation_adapter=provider_invocation_adapter,
+            rendered=rendered,
+            invocation_dir=invocation_dir,
+            prompt=prompt,
+            run_kind=run_kind,
+            provider_session_id=provider_session_id,
+            stream_interpretation=stream_interpretation,
+            timeout_seconds=timeout_seconds,
+        )
+    except AgentTimeoutError as exc:
+        timeout_state.apply_to_timeout(exc)
+        raise
 
 
 def _invoke_claude_new_session_provider(
@@ -661,6 +673,7 @@ def _invoke_claude_new_session_provider(
         run_kind=run_kind,
         provider_session_id=provider_session_id,
         on_live_output=on_live_output,
+        timeout_seconds=request.timeout_seconds,
     )
 
 
@@ -683,6 +696,7 @@ def _invoke_codex_new_session_provider(
         run_kind=RunKind.FRESH,
         provider_session_id=None,
         on_live_output=on_live_output,
+        timeout_seconds=request.timeout_seconds,
     )
 
 
@@ -698,12 +712,13 @@ def _invoke_codex_session_provider(
     run_kind: RunKind,
     provider_session_id: str | None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
+    timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     stream_interpretation = _with_observed_output(
         _codex_stream_interpretation(),
         on_live_output,
     )
-    stream_interpretation, _ = _with_session_timeout_state(
+    stream_interpretation, timeout_state = _with_session_timeout_state(
         stream_interpretation,
         tracking_interpretation=_codex_stream_interpretation(),
         fallback_provider_session_id=provider_session_id,
@@ -726,15 +741,20 @@ def _invoke_codex_session_provider(
         ),
         validate_auth=False,
     )
-    return _execute_rendered_provider_invocation(
-        provider_invocation_adapter=provider_invocation_adapter,
-        rendered=rendered,
-        invocation_dir=invocation_dir,
-        prompt=prompt,
-        run_kind=run_kind,
-        provider_session_id=provider_session_id,
-        stream_interpretation=stream_interpretation,
-    )
+    try:
+        return _execute_rendered_provider_invocation(
+            provider_invocation_adapter=provider_invocation_adapter,
+            rendered=rendered,
+            invocation_dir=invocation_dir,
+            prompt=prompt,
+            run_kind=run_kind,
+            provider_session_id=provider_session_id,
+            stream_interpretation=stream_interpretation,
+            timeout_seconds=timeout_seconds,
+        )
+    except AgentTimeoutError as exc:
+        timeout_state.apply_to_timeout(exc)
+        raise
 
 
 def _invoke_codex_resumed_session_provider(
@@ -756,6 +776,7 @@ def _invoke_codex_resumed_session_provider(
         run_kind=RunKind.RESUME,
         provider_session_id=provider_session_id,
         on_live_output=on_live_output,
+        timeout_seconds=request.timeout_seconds,
     )
 
 
@@ -772,12 +793,13 @@ def _invoke_opencode_session_provider(
     run_kind: RunKind,
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
+    timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     stream_interpretation = _opencode_stream_interpretation(
         on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
     )
-    stream_interpretation, _ = _with_session_timeout_state(
+    stream_interpretation, timeout_state = _with_session_timeout_state(
         stream_interpretation,
         tracking_interpretation=_opencode_stream_interpretation(
             fallback_provider_session_id=provider_session_id,
@@ -801,15 +823,20 @@ def _invoke_opencode_session_provider(
             provider_session_id=provider_session_id,
         )
     )
-    return _execute_rendered_provider_invocation(
-        provider_invocation_adapter=provider_invocation_adapter,
-        rendered=rendered,
-        invocation_dir=invocation_dir,
-        prompt=prompt,
-        run_kind=run_kind,
-        provider_session_id=rendered.provider_session_id,
-        stream_interpretation=stream_interpretation,
-    )
+    try:
+        return _execute_rendered_provider_invocation(
+            provider_invocation_adapter=provider_invocation_adapter,
+            rendered=rendered,
+            invocation_dir=invocation_dir,
+            prompt=prompt,
+            run_kind=run_kind,
+            provider_session_id=rendered.provider_session_id,
+            stream_interpretation=stream_interpretation,
+            timeout_seconds=timeout_seconds,
+        )
+    except AgentTimeoutError as exc:
+        timeout_state.apply_to_timeout(exc)
+        raise
 
 
 def _invoke_opencode_new_session_provider(
@@ -834,6 +861,7 @@ def _invoke_opencode_new_session_provider(
         run_kind=run_kind,
         provider_session_id=provider_session_id,
         on_live_output=on_live_output,
+        timeout_seconds=request.timeout_seconds,
     )
 
 
@@ -945,6 +973,7 @@ def _run_builtin_ephemeral(
             provider_session_id=rendered.provider_session_id,
             stream_interpretation=stream_interpretation,
             normalize_prompt_file_command_for_argv=True,
+            timeout_seconds=request.timeout_seconds,
         )
         if isinstance(invocation_result, ProviderInvocationFailure):
             raise _provider_invocation_error_from_failure(

@@ -444,16 +444,21 @@ def _augment_timeout_interruption(
     error: AgentTimeoutError,
     provider_session_id: str | None,
     build_continuation: Callable[[str], Continuation],
+    fallback_continuation: Continuation | None = None,
 ) -> None:
     timeout_provider_session_id = cast(
         str | None,
         getattr(error, "provider_session_id", provider_session_id),
     )
-    error.continuation = _interruption_continuation(
-        provider_work_started=error.invocation_progress is InvocationProgress.STARTED,
-        provider_session_id=timeout_provider_session_id,
-        build_continuation=build_continuation,
-    )
+    if error.invocation_progress is InvocationProgress.STARTED:
+        error.continuation = _interruption_continuation(
+            provider_work_started=True,
+            provider_session_id=timeout_provider_session_id,
+            build_continuation=build_continuation,
+        )
+        return
+    if fallback_continuation is not None:
+        error.continuation = fallback_continuation
 
 
 _InvocationResultT = TypeVar("_InvocationResultT")
@@ -464,6 +469,7 @@ def _invoke_with_timeout_continuation(
     invoke: Callable[[], _InvocationResultT],
     provider_session_id: str | None,
     build_continuation: Callable[[str], Continuation],
+    fallback_continuation: Continuation | None = None,
 ) -> _InvocationResultT:
     try:
         return invoke()
@@ -472,6 +478,7 @@ def _invoke_with_timeout_continuation(
             error=exc,
             provider_session_id=provider_session_id,
             build_continuation=build_continuation,
+            fallback_continuation=fallback_continuation,
         )
         raise
 
@@ -925,6 +932,7 @@ def _run_builtin_resumed_session(
                     provider_state_dir_relpath=provider_state_dir_relpath,
                 )
             ),
+            fallback_continuation=request.continuation,
         )
         if isinstance(invocation_result, ProviderInvocationFailure):
             active_provider_session_id = _resolve_active_provider_session_id(
@@ -1051,6 +1059,7 @@ def _run_builtin_resumed_session(
                     run_kind=run_kind,
                     provider_session_id=cast(str, provider_session_id),
                     on_live_output=on_live_output,
+                    timeout_seconds=request.timeout_seconds,
                 )
             ),
             provider_session_id=provider_session_id,
@@ -1062,6 +1071,7 @@ def _run_builtin_resumed_session(
                     provider_session_id=resumed_provider_session_id,
                 )
             ),
+            fallback_continuation=request.continuation,
         )
     else:
         invocation_result = _invoke_with_timeout_continuation(
@@ -1078,6 +1088,7 @@ def _run_builtin_resumed_session(
                     run_kind=run_kind,
                     provider_session_id=cast(str, provider_session_id),
                     on_live_output=on_live_output,
+                    timeout_seconds=request.timeout_seconds,
                 )
             ),
             provider_session_id=provider_session_id,
@@ -1091,6 +1102,7 @@ def _run_builtin_resumed_session(
                     exact_transcript_match=exact_transcript_match,
                 )
             ),
+            fallback_continuation=request.continuation,
         )
     active_provider_session_interpretation = (
         _builtin_runtime_client_module._stream_interpretation_for_service(

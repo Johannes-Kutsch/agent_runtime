@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -1214,3 +1216,104 @@ def test_provider_invocation_request_requires_command_or_argv() -> None:
                 reduce_output=lambda lines: ("".join(lines), None)
             ),
         )
+
+
+def test_production_adapter_terminates_silent_subprocess_after_idle_timeout(
+    tmp_path: Path,
+) -> None:
+    marker_path = tmp_path / "child-started"
+    script_path = tmp_path / "silent_provider.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import os",
+                "import signal",
+                "import sys",
+                "import time",
+                "",
+                "marker_path = sys.argv[1]",
+                "with open(marker_path, 'w', encoding='utf-8') as marker:",
+                "    marker.write(str(os.getpid()))",
+                "    marker.flush()",
+                "",
+                "signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))",
+                "while True:",
+                "    time.sleep(60)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id="provider-session-123",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+        argv=(sys.executable, str(script_path), str(marker_path)),
+        prefer_argv=True,
+        timeout_seconds=1,
+    )
+
+    with pytest.raises(provider_invocation_runtime.ProviderInvocationTimedOutError):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+    child_pid = int(marker_path.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+
+
+def test_production_adapter_resets_idle_timeout_on_stderr_activity(
+    tmp_path: Path,
+) -> None:
+    script_path = tmp_path / "stderr_heartbeat_provider.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import sys",
+                "import time",
+                "",
+                "for line in ('heartbeat 1', 'heartbeat 2'):",
+                "    print(line, file=sys.stderr, flush=True)",
+                "    time.sleep(0.6)",
+                "print('final output', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        log_context=None,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda _lines: ("normalized output", None),
+        ),
+        argv=(sys.executable, str(script_path)),
+        prefer_argv=True,
+        timeout_seconds=1,
+    )
+
+    result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        request
+    )
+
+    assert result == provider_invocation_runtime.ProviderInvocationResult(
+        output="normalized output",
+        usage=None,
+        stdout_lines=("final output\n", "heartbeat 1\n", "heartbeat 2\n"),
+        provider_session_id=None,
+    )

@@ -288,6 +288,7 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         "command",
         "argv",
         "prefer_argv",
+        "timeout_seconds",
     ]
     assert [field.name for field in fields(result)] == [
         "output",

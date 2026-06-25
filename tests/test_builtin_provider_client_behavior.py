@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 import dataclasses
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
+import agent_runtime._builtin_provider_rendering as builtin_provider_rendering_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
@@ -5520,6 +5522,164 @@ def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
     assert (
         "timeout_seconds"
         in inspect.signature(prompt_runtime.ResumedSessionRunRequest).parameters
+    )
+
+
+def test_runtime_client_threads_timeout_seconds_into_provider_invocation_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(_claude_result_output_line("final output"),),
+        ),
+    )
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        "session-uuid",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            harness.start_session_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                timeout_seconds=17,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert harness.recorded_request().timeout_seconds == 17
+
+
+def test_runtime_client_resumed_session_silent_invocation_timeout_preserves_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _TimedOutInvocationAdapter:
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            error = provider_invocation_runtime.ProviderInvocationTimedOutError(
+                "Provider subprocess exceeded the idle timeout."
+            )
+            setattr(error, "provider_session_id", request.provider_session_id)
+            raise error
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _TimedOutInvocationAdapter(),
+    )
+
+    continuation = RuntimeClientExecutionHarness.claude_continuation()
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            RuntimeClientExecutionHarness.resume_session_run_request(
+                invocation_dir=tmp_path,
+                continuation=continuation,
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                timeout_seconds=1,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.TimedOut)
+    assert outcome.result.continuation == continuation
+
+
+def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    script_path = tmp_path / "claude_partial_then_hang.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import json",
+                "import signal",
+                "import sys",
+                "import time",
+                "",
+                "signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))",
+                "print(json.dumps({",
+                "    'type': 'assistant',",
+                "    'message': {",
+                "        'content': [{'type': 'text', 'text': 'intermediate'}],",
+                "        'usage': {",
+                "            'input_tokens': 5,",
+                "            'cache_creation_input_tokens': 0,",
+                "            'cache_read_input_tokens': 1",
+                "        }",
+                "    }",
+                "}), flush=True)",
+                "while True:",
+                "    time.sleep(60)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        builtin_provider_rendering_runtime,
+        "render_built_in_provider_invocation",
+        lambda _request: (
+            builtin_provider_rendering_runtime.BuiltInProviderRenderedInvocation(
+                canonical_argv=(sys.executable, str(script_path)),
+                legacy_command_text=None,
+                environment={},
+                prompt_path=None,
+                prompt_cleanup_choice=builtin_provider_rendering_runtime.PromptCleanupChoice.KEEP,
+                prompt_transport_preference=builtin_provider_rendering_runtime.PromptTransportPreference.STDIN,
+                provider_session_id_placement=builtin_provider_rendering_runtime.ProviderSessionIdPlacement.NONE,
+                prefer_argv=True,
+            )
+        ),
+    )
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        "session-uuid",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                timeout_seconds=1,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.TimedOut)
+    assert outcome.result.usage == runtime.ProviderUsage(
+        input_tokens=5,
+        output_tokens=None,
+        cache_read_input_tokens=1,
+        cache_creation_input_tokens=0,
+        cost_usd=None,
+        duration_seconds=None,
     )
 
 
