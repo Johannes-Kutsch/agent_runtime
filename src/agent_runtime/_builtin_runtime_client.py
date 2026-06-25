@@ -15,6 +15,7 @@ from . import (
 )
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
+    resolve_built_in_provider_session_id,
     classify_built_in_provider_invocation_progress,
     claude_built_in_provider_stream_interpretation,
     codex_built_in_provider_stream_interpretation,
@@ -51,6 +52,7 @@ from .contracts import (
 )
 from .errors import (
     AgentCredentialFailureError,
+    AgentTimeoutError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
     RuntimeConfigurationError,
@@ -211,6 +213,47 @@ class _ObservedOutputReducer:
         return self.reduce_output(lines)
 
 
+class _SessionTimeoutState:
+    def __init__(
+        self,
+        *,
+        tracking_interpretation: BuiltInProviderStreamInterpretation,
+        fallback_provider_session_id: str | None,
+    ) -> None:
+        self._tracking_interpretation = tracking_interpretation
+        self._fallback_provider_session_id = fallback_provider_session_id
+        self._observed_lines: list[str] = []
+        self.usage: ProviderUsage | None = None
+        self.provider_session_id: str | None = fallback_provider_session_id
+        self.invocation_progress = InvocationProgress.NOT_STARTED
+
+    def record(self, lines: list[str]) -> None:
+        self._observed_lines.extend(lines)
+        try:
+            _, self.usage = self._tracking_interpretation.reduce_output(
+                self._observed_lines
+            )
+        except (UsageLimitError, ProviderUnavailableError) as exc:
+            if exc.usage is not None:
+                self.usage = exc.usage
+        self.provider_session_id = resolve_built_in_provider_session_id(
+            self._tracking_interpretation,
+            self._observed_lines,
+            fallback_provider_session_id=self._fallback_provider_session_id,
+        )
+        self.invocation_progress = classify_built_in_provider_invocation_progress(
+            self._tracking_interpretation,
+            self._observed_lines,
+            provider_session_id=self.provider_session_id,
+        )
+
+    def apply_to_timeout(self, exc: AgentTimeoutError) -> None:
+        if exc.usage is None:
+            exc.usage = self.usage
+        exc.invocation_progress = self.invocation_progress
+        setattr(exc, "provider_session_id", self.provider_session_id)
+
+
 def _observe_output_lines(
     *,
     lines: list[str],
@@ -287,6 +330,42 @@ def _with_reduce_output(
             stream_interpretation.classify_invocation_progress
         ),
         extract_provider_session_id=stream_interpretation.extract_provider_session_id,
+    )
+
+
+def _with_session_timeout_state(
+    stream_interpretation: BuiltInProviderStreamInterpretation,
+    *,
+    tracking_interpretation: BuiltInProviderStreamInterpretation,
+    fallback_provider_session_id: str | None,
+) -> tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState]:
+    timeout_state = _SessionTimeoutState(
+        tracking_interpretation=tracking_interpretation,
+        fallback_provider_session_id=fallback_provider_session_id,
+    )
+    consume_stdout_lines = getattr(
+        stream_interpretation.reduce_output, "consume_stdout_lines", None
+    )
+    if not callable(consume_stdout_lines):
+        return stream_interpretation, timeout_state
+
+    def _consume_with_timeout_state(lines: list[str]) -> None:
+        timeout_state.record(lines)
+        try:
+            consume_stdout_lines(lines)
+        except AgentTimeoutError as exc:
+            timeout_state.apply_to_timeout(exc)
+            raise
+
+    return (
+        _with_reduce_output(
+            stream_interpretation,
+            _ObservedOutputReducer(
+                reduce_output=stream_interpretation.reduce_output,
+                consume_stdout_lines=_consume_with_timeout_state,
+            ),
+        ),
+        timeout_state,
     )
 
 
@@ -559,6 +638,11 @@ def _invoke_claude_session_provider(
         _claude_stream_interpretation(),
         on_live_output,
     )
+    stream_interpretation, _ = _with_session_timeout_state(
+        stream_interpretation,
+        tracking_interpretation=_claude_stream_interpretation(),
+        fallback_provider_session_id=provider_session_id,
+    )
     return _execute_rendered_provider_invocation(
         provider_invocation_adapter=provider_invocation_adapter,
         rendered=rendered,
@@ -634,6 +718,11 @@ def _invoke_codex_session_provider(
         _codex_stream_interpretation(),
         on_live_output,
     )
+    stream_interpretation, _ = _with_session_timeout_state(
+        stream_interpretation,
+        tracking_interpretation=_codex_stream_interpretation(),
+        fallback_provider_session_id=provider_session_id,
+    )
     rendered = _builtin_provider_rendering_module._render_codex_invocation(
         _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
             provider_selection=(
@@ -701,6 +790,13 @@ def _invoke_opencode_session_provider(
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     stream_interpretation = _opencode_stream_interpretation(
         on_live_output=on_live_output,
+        fallback_provider_session_id=provider_session_id,
+    )
+    stream_interpretation, _ = _with_session_timeout_state(
+        stream_interpretation,
+        tracking_interpretation=_opencode_stream_interpretation(
+            fallback_provider_session_id=provider_session_id,
+        ),
         fallback_provider_session_id=provider_session_id,
     )
     rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
