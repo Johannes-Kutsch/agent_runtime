@@ -19,6 +19,7 @@ from agent_runtime.runtime import (
     ToolPolicy,
 )
 from agent_runtime.errors import AgentCredentialFailureError
+from agent_runtime.errors import ProviderUnavailableReason
 
 
 class _LiveProbeOutput(Protocol):
@@ -123,6 +124,7 @@ class InMemoryRuntimeInvocationAdapter:
 
 RuntimeClient = _RuntimeInvocationClient
 LIVE_FEED_FILENAME = "live_feed.json"
+RESULT_FILENAME = "result.json"
 _DISPLAYED_EVENT_TYPES = ("agent_message", "agent_tool_call")
 
 
@@ -144,6 +146,25 @@ class _LiveProbeFeedWriter:
 
     def close(self) -> None:
         self._sink.close()
+
+
+def _outcome_category(runtime_outcome: Any) -> str:
+    """Map a ``RuntimeOutcome`` to its probe verdict category."""
+
+    kind = getattr(runtime_outcome, "kind", None)
+    if type(kind).__name__ == "ProviderUnavailable":
+        reason = getattr(kind, "reason", None)
+        if reason is ProviderUnavailableReason.SERVICE_NOT_AVAILABLE:
+            return "no_service_available"
+        if reason is ProviderUnavailableReason.TRANSIENT_API_ERROR:
+            return "retryable_failure"
+    _outcome_map: dict[str, str] = {
+        "Completed": "success",
+        "UsageLimited": "usage_limited",
+        "TimedOut": "timed_out",
+        "Cancelled": "cancelled",
+    }
+    return _outcome_map.get(type(kind).__name__, "error")
 
 
 def _resolve_runtime_outcome(awaitable: Any) -> Any:
@@ -180,10 +201,45 @@ def _continuation_from_outcome(outcome: Any) -> Continuation | None:
     return getattr(result, "continuation", None)
 
 
+def _result_payload(
+    case: _PlannedProbeCase,
+    outcome: ProbeCaseRunResult,
+) -> dict[str, Any]:
+    return {
+        "service": case.service,
+        "mode": case.mode,
+        "tool_policy": case.tool_policy,
+        "category": outcome.category,
+        "kind": outcome.kind,
+        "selected": outcome.selected,
+        "output": outcome.output,
+        "usage": outcome.usage,
+        "continuation": (
+            outcome.continuation.serialized
+            if outcome.continuation is not None
+            else None
+        ),
+        "traceback": outcome.traceback,
+    }
+
+
+def _write_result_json(
+    case_dir: Path, case: _PlannedProbeCase, outcome: ProbeCaseRunResult, output: Any
+) -> None:
+    payload = _result_payload(case, outcome)
+    try:
+        (case_dir / RESULT_FILENAME).write_text(
+            json.dumps(payload, indent=2, sort_keys=True, default=str),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # pragma: no cover - best effort diagnostics only
+        output.line(f"  (failed to write {RESULT_FILENAME}: {exc})")
+
+
 def run_case(
     request: ProbeCaseRunRequest,
     *,
-    outcome_category: Callable[[Any], str],
+    outcome_category: Callable[[Any], str] | None = None,
     runtime_client_factory: Callable[[], _RuntimeInvocationPort] = RuntimeClient,
 ) -> ProbeCaseRunResult:
     request.case_dir.mkdir(parents=True, exist_ok=True)
@@ -247,7 +303,11 @@ def run_case(
             )
         else:
             raise ValueError(f"unsupported probe mode: {request.case.mode!r}")
-        category = outcome_category(outcome)
+        category = (
+            outcome_category(outcome)
+            if outcome_category is not None
+            else _outcome_category(outcome)
+        )
     except AgentCredentialFailureError:
         category = "wrong_credentials"
         traceback = format_exc()
@@ -257,7 +317,7 @@ def run_case(
         feed_writer.close()
 
     if outcome is None:
-        return ProbeCaseRunResult(
+        result = ProbeCaseRunResult(
             category=category,
             kind=None,
             selected=None,
@@ -266,16 +326,20 @@ def run_case(
             continuation=None,
             traceback=traceback,
         )
+        _write_result_json(request.case_dir, request.case, result, request.output)
+        return result
 
-    result = getattr(outcome, "result", None)
-    return ProbeCaseRunResult(
+    outcome_result = getattr(outcome, "result", None)
+    result = ProbeCaseRunResult(
         category=category,
         kind=type(getattr(outcome, "kind", None)).__name__
         if getattr(outcome, "kind", None) is not None
         else None,
-        selected=_selected_payload(getattr(result, "selected", None)),
-        output=getattr(result, "output", None),
-        usage=_usage_payload(getattr(result, "usage", None)),
+        selected=_selected_payload(getattr(outcome_result, "selected", None)),
+        output=getattr(outcome_result, "output", None),
+        usage=_usage_payload(getattr(outcome_result, "usage", None)),
         continuation=_continuation_from_outcome(outcome),
         traceback=None,
     )
+    _write_result_json(request.case_dir, request.case, result, request.output)
+    return result

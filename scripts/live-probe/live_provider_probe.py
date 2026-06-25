@@ -21,7 +21,6 @@ service's entire directory is wiped and recreated before it reruns.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import sys
@@ -66,7 +65,7 @@ RuntimeClient = case_runner.RuntimeClient
 
 DEFAULT_ARTIFACT_ROOT = "live-probe-artifacts"
 LIVE_FEED_FILENAME = case_runner.LIVE_FEED_FILENAME
-RESULT_FILENAME = "result.json"
+RESULT_FILENAME = case_runner.RESULT_FILENAME
 _DEFAULT_TIMEOUT_SECONDS = 300
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 _ENV_PATH_OVERRIDE = "LIVE_PROBE_ENV_PATH"
@@ -132,31 +131,6 @@ class _Console:
 
     def dim(self, text: str) -> None:
         self.line(f"{_DIM}{text}{_RESET}" if self.color else text)
-
-
-def _write_result_json(
-    case_dir: Path, case: Any, execution: case_runner.ProbeCaseRunResult
-) -> None:
-    payload = {
-        "service": case.service,
-        "mode": case.mode,
-        "tool_policy": case.tool_policy,
-        "category": execution.category,
-        "kind": execution.kind,
-        "selected": execution.selected,
-        "output": execution.output,
-        "usage": execution.usage,
-        "continuation": (
-            execution.continuation.serialized
-            if execution.continuation is not None
-            else None
-        ),
-        "traceback": execution.traceback,
-    }
-    (case_dir / RESULT_FILENAME).write_text(
-        json.dumps(payload, indent=2, sort_keys=True, default=str),
-        encoding="utf-8",
-    )
 
 
 # --------------------------------------------------------------------------- #
@@ -271,14 +245,8 @@ def _run_provider(
                 continuation=continuation,
                 output=console,
             ),
-            outcome_category=plan.outcome_category,
             runtime_client_factory=RuntimeClient,
         )
-
-        try:
-            _write_result_json(case_dir, case, execution)
-        except Exception as exc:  # pragma: no cover - diagnostics best effort
-            console.red(f"  (failed to write {RESULT_FILENAME}: {exc})")
 
         if case.mode == "new_session":
             new_session_continuation = execution.continuation
