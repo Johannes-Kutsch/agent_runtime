@@ -335,11 +335,10 @@ def _require_claude_auth(auth: ProviderAuth | None) -> None:
 
 
 def _session_backed_service_name(request: ResumedSessionRunRequest) -> str:
-    if request.continuation is not None:
-        continuation_payload = read_portable_continuation_payload(request.continuation)
-        return continuation_payload.service_name
-    assert request.session_plan is not None
-    return request.session_plan.service.name
+    continuation_payload = read_portable_continuation_payload(
+        cast(Continuation, request.continuation)
+    )
+    return continuation_payload.service_name
 
 
 def _resolve_active_provider_session_id(

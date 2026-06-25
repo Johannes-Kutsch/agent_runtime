@@ -78,7 +78,7 @@ def test_resumed_session_run_request_from_continuation_rejects_model_override() 
     with pytest.raises(
         TypeError,
         match=re.escape(
-            "ResumedSessionRunRequest derives fixed model from `continuation` and does not accept a request-level `model` override."
+            "ResumedSessionRunRequest got an unexpected keyword argument 'model'"
         ),
     ):
         prompt_runtime.ResumedSessionRunRequest(
@@ -95,7 +95,7 @@ def test_resumed_session_run_request_from_continuation_rejects_effort_override()
     with pytest.raises(
         TypeError,
         match=re.escape(
-            "ResumedSessionRunRequest derives fixed effort from `continuation` and does not accept a request-level `effort` override."
+            "ResumedSessionRunRequest got an unexpected keyword argument 'effort'"
         ),
     ):
         prompt_runtime.ResumedSessionRunRequest(
@@ -159,17 +159,14 @@ def test_resumed_session_run_request_rejects_conflicting_continuation_and_sessio
     with pytest.raises(
         TypeError,
         match=re.escape(
-            "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
+            "ResumedSessionRunRequest got an unexpected keyword argument 'session_plan'"
         ),
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
-            model="gpt-5.4",
-            effort="medium",
-            session_plan=_session_plan(),
             continuation=_continuation(),
-            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
+            session_plan=_session_plan(),
         )
 
 
@@ -179,17 +176,14 @@ def test_resumed_session_run_request_rejects_conflicting_tool_access_and_tool_po
     with pytest.raises(
         TypeError,
         match=re.escape(
-            "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
+            "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
         ),
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
-            model="gpt-5.4",
-            effort="medium",
-            session_plan=_session_plan(),
+            continuation=_continuation(),
             tool_access=contracts_runtime.ToolAccess.no_tools(),
-            tool_policy=runtime.ToolPolicy.UNRESTRICTED,
         )
 
 
@@ -202,28 +196,26 @@ def test_resumed_session_run_request_carries_workspace_backed_tool_access() -> N
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        model="gpt-5.4",
-        effort="medium",
-        session_plan=_session_plan(),
-        tool_access=tool_access,
+        continuation=_continuation(tool_access=tool_access),
     )
 
     assert request.tool_access == tool_access
     assert request.tool_access.workspace == Path("/repo")
 
 
-def test_resumed_session_run_request_accepts_explicit_no_tools_tool_access() -> None:
-    request = prompt_runtime.ResumedSessionRunRequest(
-        prompt="already rendered prompt",
-        invocation_dir=Path("/repo"),
-        model="gpt-5.4",
-        effort="medium",
-        session_plan=_session_plan(),
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-    )
-
-    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
-    assert request.tool_policy == contracts_runtime.ToolAccess.no_tools().tool_policy
+def test_resumed_session_run_request_rejects_explicit_no_tools_tool_access() -> None:
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            continuation=_continuation(),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
 
 
 def test_resumed_session_run_request_rejects_workspace_backed_tool_access_for_other_invocation_dir() -> (
@@ -238,13 +230,29 @@ def test_resumed_session_run_request_rejects_workspace_backed_tool_access_for_ot
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/other"),
-            model="gpt-5.4",
-            effort="medium",
-            session_plan=_session_plan(worktree=Path("/other")),
-            tool_access=contracts_runtime.ToolAccess.workspace_backed(
-                Path("/repo"),
-                tool_policy=runtime.ToolPolicy.UNRESTRICTED,
+            continuation=_continuation(
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                    Path("/repo"),
+                    tool_policy=runtime.ToolPolicy.UNRESTRICTED,
+                )
             ),
+        )
+
+
+def test_resumed_session_run_request_from_continuation_rejects_tool_policy_override() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest got an unexpected keyword argument 'tool_policy'"
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            continuation=_continuation(),
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
         )
 
 
@@ -263,24 +271,18 @@ def test_resumed_session_run_request_from_continuation_rejects_workspace_backed_
             continuation=_continuation(
                 tool_access=contracts_runtime.ToolAccess.workspace_backed(
                     Path("/repo"),
-                    tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+                    tool_policy=runtime.ToolPolicy.UNRESTRICTED,
                 )
             ),
         )
 
 
-def test_resumed_session_run_request_requires_model_and_effort_when_built_from_session_plan() -> (
-    None
-):
+def test_resumed_session_run_request_rejects_missing_continuation() -> None:
     with pytest.raises(
         TypeError,
-        match=re.escape(
-            "ResumedSessionRunRequest requires `model` and `effort` when constructed from a session plan."
-        ),
+        match=re.escape("ResumedSessionRunRequest requires a `continuation` value."),
     ):
         prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
-            session_plan=_session_plan(),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
         )

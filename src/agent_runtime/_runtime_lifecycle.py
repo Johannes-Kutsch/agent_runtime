@@ -13,9 +13,7 @@ from .provider_usage import ProviderUsage
 from ._request_normalization import (
     normalize_continuation_request,
     normalize_provider_selection_request,
-    normalize_session_plan_request,
 )
-from .session_planning import ResumableSessionPlan
 from .types import ProviderSelection, ResolvedProvider
 from .errors import ProviderUnavailableReason, RuntimeConfigurationError
 
@@ -436,7 +434,6 @@ class ResumedSessionRunRequest:
     invocation_dir: Path
     model: str
     effort: str
-    session_plan: ResumableSessionPlan | None
     continuation: Continuation | None
     provider_auth: ProviderAuth | None
     tool_access: ToolAccess
@@ -455,14 +452,10 @@ class ResumedSessionRunRequest:
         self,
         prompt: str,
         invocation_dir: Path | None = None,
-        model: str | None = None,
-        effort: str | None = None,
-        session_plan: ResumableSessionPlan | None = None,
         continuation: Continuation | None = None,
         provider_auth: ProviderAuth | None = None,
         session_store: Path | None = None,
         _session_namespace: str = "",
-        tool_policy: ToolPolicy | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         timeout_seconds: int = 300,
         name: str = "Runtime Agent",
@@ -498,70 +491,29 @@ class ResumedSessionRunRequest:
             compatibility_kwargs,
             context="ResumedSessionRunRequest",
         )
-        if continuation is not None and session_plan is not None:
+        if continuation is None:
+            raise TypeError("ResumedSessionRunRequest requires a `continuation` value.")
+        if "tool_policy" in compatibility_kwargs or isinstance(tool_access, ToolAccess):
             raise TypeError(
-                "ResumedSessionRunRequest received conflicting `session_plan` and `continuation` values."
+                "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
             )
-        if (
-            isinstance(tool_access, ToolAccess)
-            and tool_policy is not _MISSING_TOOL_POLICY
-        ):
-            raise TypeError(
-                "ResumedSessionRunRequest received conflicting `tool_access` and `tool_policy` values."
-            )
-        if continuation is not None:
-            if tool_policy is not _MISSING_TOOL_POLICY or isinstance(
-                tool_access, ToolAccess
-            ):
-                raise TypeError(
-                    "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
-                )
-            if model is not None:
-                raise TypeError(
-                    "ResumedSessionRunRequest derives fixed model from `continuation` and does not accept a request-level `model` override."
-                )
-            if effort is not None:
-                raise TypeError(
-                    "ResumedSessionRunRequest derives fixed effort from `continuation` and does not accept a request-level `effort` override."
-                )
-            from ._portable_continuation_payload import (
-                read_portable_continuation_payload,
-            )
+        from ._portable_continuation_payload import (
+            read_portable_continuation_payload,
+        )
 
-            try:
-                continuation_payload = read_portable_continuation_payload(continuation)
-                normalized_request = normalize_continuation_request(
-                    worktree=resolved_invocation_dir,
-                    tool_access=continuation_payload.tool_access,
-                    session_namespace=_session_namespace,
-                    context="ResumedSessionRunRequest",
-                    workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
-                )
-                resolved_model = continuation_payload.model
-                resolved_effort = continuation_payload.effort
-            except TypeError as exc:
-                raise RuntimeConfigurationError(str(exc)) from exc
-        else:
-            if session_plan is None:
-                raise TypeError(
-                    "ResumedSessionRunRequest requires either a `session_plan` or `continuation` value."
-                )
-            if model is None or effort is None:
-                raise TypeError(
-                    "ResumedSessionRunRequest requires `model` and `effort` when constructed from a session plan."
-                )
-            normalized_request = normalize_session_plan_request(
+        try:
+            continuation_payload = read_portable_continuation_payload(continuation)
+            normalized_request = normalize_continuation_request(
                 worktree=resolved_invocation_dir,
-                tool_access=tool_access,
-                tool_policy=tool_policy,
-                missing_sentinel=_MISSING_TOOL_POLICY,
-                session_namespace=session_plan.namespace,
+                tool_access=continuation_payload.tool_access,
+                session_namespace=_session_namespace,
                 context="ResumedSessionRunRequest",
-                missing_message="ResumedSessionRunRequest requires an explicit `tool_policy` value.",
                 workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
             )
-            resolved_model = model
-            resolved_effort = effort
+            resolved_model = continuation_payload.model
+            resolved_effort = continuation_payload.effort
+        except TypeError as exc:
+            raise RuntimeConfigurationError(str(exc)) from exc
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(
@@ -577,7 +529,6 @@ class ResumedSessionRunRequest:
             "_session_namespace",
             normalized_request.session_namespace,
         )
-        object.__setattr__(self, "session_plan", session_plan)
         object.__setattr__(self, "continuation", continuation)
         object.__setattr__(self, "provider_auth", provider_auth)
         object.__setattr__(self, "tool_access", normalized_request.tool_access)

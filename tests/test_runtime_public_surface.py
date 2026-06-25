@@ -5,7 +5,7 @@ import inspect
 import asyncio
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 import unittest.mock
 
 import pytest
@@ -490,17 +490,13 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
     resumed_session_request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/tmp/worktree"),
-        model="gpt-5.4",
-        effort="medium",
-        session_plan=session_planning_runtime.ResumableSessionPlan(
-            worktree=Path("/tmp/worktree"),
-            namespace="main",
-            service=cast(Any, object()),
-            run_kind=RunKind.FRESH,
-            provider_state_dir=None,
-            provider_session_id=None,
+        continuation=prompt_runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={},
         ),
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
     )
 
     assert ephemeral_request.invocation_dir == Path("/tmp/worktree")

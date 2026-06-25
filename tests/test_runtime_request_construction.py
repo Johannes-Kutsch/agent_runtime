@@ -33,12 +33,15 @@ def _session_plan(*, worktree: Path = Path("/repo")) -> ResumableSessionPlan:
     )
 
 
-def _continuation() -> prompt_runtime.Continuation:
+def _continuation(
+    *,
+    tool_access: contracts_runtime.ToolAccess | None = None,
+) -> prompt_runtime.Continuation:
     return prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
         selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        tool_access=tool_access or contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={"run_kind": "resume"},
     )
 
@@ -425,10 +428,12 @@ def test_lifecycle_requests_derive_workspace_backed_tool_access_from_tool_policy
     assert prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        model="gpt-5.4",
-        effort="medium",
-        session_plan=_session_plan(),
-        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        continuation=_continuation(
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                Path("/repo"),
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            )
+        ),
     ).tool_access == contracts_runtime.ToolAccess.workspace_backed(
         Path("/repo"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
@@ -569,10 +574,7 @@ def test_resumed_session_run_request_keeps_path_invocation_dir() -> None:
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
-        model="gpt-5.4",
-        effort="medium",
-        session_plan=_session_plan(),
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        continuation=_continuation(),
     )
 
     assert request.invocation_dir == Path("/repo")
@@ -605,10 +607,7 @@ def test_resumed_session_run_request_keeps_path_invocation_dir() -> None:
         lambda: prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             worktree=Path("/repo"),
-            model="gpt-5.4",
-            effort="medium",
-            session_plan=_session_plan(),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            continuation=_continuation(),
         ),
     ],
 )
@@ -649,10 +648,7 @@ def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_publ
             prompt="already rendered prompt",
             invocation_dir=Path("/repo"),
             worktree=Path("/other"),
-            model="gpt-5.4",
-            effort="medium",
-            session_plan=_session_plan(),
-            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            continuation=_continuation(),
         ),
     ],
 )
