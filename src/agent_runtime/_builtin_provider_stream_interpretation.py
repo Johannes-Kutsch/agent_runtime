@@ -71,6 +71,38 @@ def classify_built_in_provider_invocation_progress(
     return interpretation.classify_invocation_progress(lines)
 
 
+def built_in_provider_invocation_started(
+    interpretation: BuiltInProviderStreamInterpretation,
+    lines: list[str],
+    *,
+    provider_session_id: str | None = None,
+) -> bool:
+    return (
+        classify_built_in_provider_invocation_progress(
+            interpretation,
+            lines,
+            provider_session_id=provider_session_id,
+        )
+        is InvocationProgress.STARTED
+    )
+
+
+def resolve_built_in_provider_session_id(
+    interpretation: BuiltInProviderStreamInterpretation,
+    lines: list[str],
+    *,
+    provider_session_id: str | None = None,
+    fallback_provider_session_id: str | None = None,
+) -> str | None:
+    if interpretation.extract_provider_session_id is not None:
+        observed_provider_session_id = interpretation.extract_provider_session_id(lines)
+        if observed_provider_session_id is not None:
+            return observed_provider_session_id
+    if provider_session_id is not None:
+        return provider_session_id
+    return fallback_provider_session_id
+
+
 _CLAUDE_MONTHS = {
     "jan": 1,
     "january": 1,

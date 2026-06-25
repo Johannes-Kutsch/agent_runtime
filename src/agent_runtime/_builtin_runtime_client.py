@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import shlex
 import shutil
 import tempfile
@@ -17,23 +16,20 @@ from typing import Any, Callable, cast
 from . import _time as _time_module
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
-    build_claude_agent_event as _live_output_event_for_claude_line,
-    build_codex_agent_event as _live_output_event_for_codex_line,
-    build_opencode_agent_event as _live_output_event_for_opencode_line,
+    built_in_provider_invocation_started,
     claude_built_in_provider_stream_interpretation,
-    classify_built_in_provider_invocation_progress,
     codex_built_in_provider_stream_interpretation,
     emit_built_in_provider_live_output_event,
-    extract_codex_provider_session_id as _extract_codex_provider_session_id,
     is_claude_subscription_access_denial,
     observe_opencode_output as _observe_output_opencode,
     opencode_built_in_provider_stream_interpretation,
     parse_claude_event_with_dependencies,
     parse_claude_reset_time,
     parse_opencode_reset_time,
-    reduce_codex_stream as _reduce_codex_stream,
+    reduce_codex_stream,
     reduce_claude_stream_with_dependencies,
-    reduce_opencode_stream as _reduce_opencode_stream,
+    reduce_opencode_stream,
+    resolve_built_in_provider_session_id,
 )
 from ._provider_invocation import (
     InvocationFailureKind,
@@ -115,39 +111,6 @@ _OPENCODE_GO_MODELS = frozenset(
     }
 )
 _OPENCODE_VALID_EFFORTS = frozenset({"medium"})
-_CLAUDE_RESET_PATTERN = re.compile(
-    r"resets\s+"
-    r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
-    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
-    re.IGNORECASE,
-)
-_CLAUDE_MONTHS = {
-    "january": 1,
-    "jan": 1,
-    "february": 2,
-    "feb": 2,
-    "march": 3,
-    "mar": 3,
-    "april": 4,
-    "apr": 4,
-    "may": 5,
-    "june": 6,
-    "jun": 6,
-    "july": 7,
-    "jul": 7,
-    "august": 8,
-    "aug": 8,
-    "september": 9,
-    "sept": 9,
-    "sep": 9,
-    "october": 10,
-    "oct": 10,
-    "november": 11,
-    "nov": 11,
-    "december": 12,
-    "dec": 12,
-}
-
 _SUPPORTED_BUILTIN_SERVICES = frozenset({"claude", "codex", "opencode"})
 _PORTABLE_CONTINUATION_PROVIDERS = frozenset({"claude", "codex", "opencode"})
 _WAKE_TIME_BUFFER = timedelta(minutes=2)
@@ -581,6 +544,17 @@ def _reduce_claude_stream_with_runtime_overrides(
     )
 
 
+def _reduce_opencode_stream(
+    lines: list[str],
+    on_live_output: Callable[[AgentEvent], None] | None = None,
+) -> tuple[str, ProviderUsage | None]:
+    return reduce_opencode_stream(lines, on_live_output=on_live_output)
+
+
+def _live_output_event_for_provider_line(service_name: str, line: str) -> AgentEvent:
+    return _stream_interpretation_for_service(service_name).build_agent_event(line)
+
+
 class _IdleTimeoutWatchdog:
     def __init__(self, timeout_seconds: int) -> None:
         self.timeout_seconds = timeout_seconds
@@ -625,56 +599,6 @@ class _IdleTimeoutWatchdog:
                 raise AgentTimeoutError(
                     "Idle timeout: no Agent Event within configured window"
                 )
-
-
-def _raw_event_payload(value: object) -> str:
-    if isinstance(value, str):
-        return value
-    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
-
-
-def _render_tool_call_display_message(tool_name: str, payload: str) -> str:
-    if payload:
-        return f"{tool_name}({payload})"
-    return tool_name
-
-
-def _message_event(line: str, text: str) -> AgentEvent:
-    return AgentEvent(
-        type="agent_message",
-        display_message=text,
-        raw_provider_output=line,
-    )
-
-
-def _tool_call_event(line: str, tool_name: str, payload: str) -> AgentEvent:
-    return AgentEvent(
-        type="agent_tool_call",
-        display_message=_render_tool_call_display_message(tool_name, payload),
-        raw_provider_output=line,
-    )
-
-
-def _other_event(line: str, descriptor: str) -> AgentEvent:
-    return AgentEvent(
-        type="other",
-        display_message=descriptor,
-        raw_provider_output=line,
-    )
-
-
-def _live_output_event_for_provider_line(service_name: str, line: str) -> AgentEvent:
-    if service_name == "claude":
-        return _live_output_event_for_claude_line(line)
-    if service_name == "codex":
-        return _live_output_event_for_codex_line(line)
-    if service_name == "opencode":
-        return _live_output_event_for_opencode_line(line)
-    return AgentEvent(
-        type="other",
-        display_message="other",
-        raw_provider_output=line,
-    )
 
 
 class _ObservedOutputReducer:
@@ -850,26 +774,28 @@ def _stream_interpretation_for_service(
     )
 
 
-def _provider_session_id_from_stdout_lines(
+def _provider_session_id_from_result(
     stream_interpretation: BuiltInProviderStreamInterpretation,
-    stdout_lines: tuple[str, ...],
+    result: ProviderInvocationResult,
+    *,
+    fallback_provider_session_id: str | None = None,
 ) -> str | None:
-    if stream_interpretation.extract_provider_session_id is None:
-        return None
-    return stream_interpretation.extract_provider_session_id(list(stdout_lines))
+    return resolve_built_in_provider_session_id(
+        stream_interpretation,
+        list(result.stdout_lines),
+        provider_session_id=result.provider_session_id,
+        fallback_provider_session_id=fallback_provider_session_id,
+    )
 
 
 def _provider_invocation_failure_started(
     stream_interpretation: BuiltInProviderStreamInterpretation,
     failure: ProviderInvocationFailure,
 ) -> bool:
-    return (
-        classify_built_in_provider_invocation_progress(
-            stream_interpretation,
-            list(failure.stdout_lines),
-            provider_session_id=failure.provider_session_id,
-        )
-        is InvocationProgress.STARTED
+    return built_in_provider_invocation_started(
+        stream_interpretation,
+        list(failure.stdout_lines),
+        provider_session_id=failure.provider_session_id,
     )
 
 
@@ -914,15 +840,12 @@ def _provider_session_id_from_failure(
     fallback_provider_session_id: str | None = None,
 ) -> str | None:
     stream_interpretation = _stream_interpretation_for_service(service_name)
-    fallback_session_id = _provider_session_id_from_stdout_lines(
+    return resolve_built_in_provider_session_id(
         stream_interpretation,
-        failure.stdout_lines,
+        list(failure.stdout_lines),
+        provider_session_id=failure.provider_session_id,
+        fallback_provider_session_id=fallback_provider_session_id,
     )
-    if fallback_session_id is not None:
-        return fallback_session_id
-    if failure.provider_session_id is not None:
-        return failure.provider_session_id
-    return fallback_provider_session_id
 
 
 def _select_builtin_stage(stage: ProviderSelection) -> ProviderSelection:
@@ -1447,30 +1370,6 @@ def _invoke_codex_resumed_session_provider(
     )
 
 
-def _active_codex_provider_session_id_from_result(
-    invocation_result: ProviderInvocationResult,
-    *,
-    fallback_provider_session_id: str | None,
-) -> str | None:
-    return (
-        _extract_codex_provider_session_id(list(invocation_result.stdout_lines))
-        or invocation_result.provider_session_id
-        or fallback_provider_session_id
-    )
-
-
-def _active_codex_provider_session_id_from_failure(
-    failure: ProviderInvocationFailure,
-    *,
-    fallback_provider_session_id: str | None,
-) -> str | None:
-    return (
-        _extract_codex_provider_session_id(list(failure.stdout_lines))
-        or failure.provider_session_id
-        or fallback_provider_session_id
-    )
-
-
 def _invoke_opencode_new_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
@@ -1490,7 +1389,7 @@ def _invoke_opencode_new_session_provider(
     def _reduce_opencode_session_output(
         lines: list[str],
     ) -> tuple[str, ProviderUsage | None]:
-        return _reduce_opencode_stream(
+        return reduce_opencode_stream(
             lines,
             None,
             on_provider_session_id=_record_opencode_session_id,
@@ -1558,13 +1457,13 @@ def _run_builtin_ephemeral(
     reduce_codex_stream: Callable[
         [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
-    ] = _reduce_codex_stream,
+    ] = reduce_codex_stream,
     opencode_command: Callable[..., tuple[str, ...]] = _opencode_command,
     opencode_env: Callable[..., dict[str, str]] = _opencode_env,
     reduce_opencode_stream: Callable[
         [list[str], Callable[[AgentEvent], None] | None],
         tuple[str, ProviderUsage | None],
-    ] = _reduce_opencode_stream,
+    ] = reduce_opencode_stream,
     validate_codex_auth: Callable[[], None] = _validate_codex_auth,
 ) -> RunResult:
     invocation_adapter = (
@@ -1625,13 +1524,9 @@ def _run_builtin_ephemeral(
                 run_kind=RunKind.FRESH,
                 provider_session_id=None,
                 stream_interpretation=_with_observed_output(
-                    BuiltInProviderStreamInterpretation(
-                        reduce_output=lambda lines: reduce_codex_stream(lines, None),
-                        build_agent_event=_live_output_event_for_codex_line,
-                        classify_invocation_progress=(
-                            _codex_stream_interpretation().classify_invocation_progress
-                        ),
-                        extract_provider_session_id=_extract_codex_provider_session_id,
+                    _with_reduce_output(
+                        _codex_stream_interpretation(),
+                        lambda lines: reduce_codex_stream(lines, None),
                     ),
                     wrapped_on_live_output,
                 ),
@@ -1846,7 +1741,8 @@ def _run_builtin_new_session(
                 on_live_output=_on_live_output,
             )
             if isinstance(invocation_result, ProviderInvocationFailure):
-                provider_session_id = _active_codex_provider_session_id_from_failure(
+                provider_session_id = _provider_session_id_from_failure(
+                    "codex",
                     invocation_result,
                     fallback_provider_session_id=provider_session_id,
                 )
@@ -1872,9 +1768,10 @@ def _run_builtin_new_session(
                 )
                 raise failure_error
             else:
-                provider_session_id = _active_codex_provider_session_id_from_result(
+                provider_session_id = _provider_session_id_from_result(
+                    _codex_stream_interpretation(),
                     invocation_result,
-                    fallback_provider_session_id=provider_session_id,
+                    fallback_provider_session_id=None,
                 )
                 result_text = invocation_result.output
                 usage = invocation_result.usage
@@ -2129,7 +2026,8 @@ def _run_builtin_resumed_session(
             on_live_output=_on_live_output,
         )
         if isinstance(invocation_result, ProviderInvocationFailure):
-            active_provider_session_id = _active_codex_provider_session_id_from_failure(
+            active_provider_session_id = _provider_session_id_from_failure(
+                "codex",
                 invocation_result,
                 fallback_provider_session_id=active_provider_session_id,
             )
@@ -2153,7 +2051,8 @@ def _run_builtin_resumed_session(
             )
             raise failure_error
         else:
-            active_provider_session_id = _active_codex_provider_session_id_from_result(
+            active_provider_session_id = _provider_session_id_from_result(
+                _codex_stream_interpretation(),
                 invocation_result,
                 fallback_provider_session_id=provider_session_id,
             )
@@ -2232,7 +2131,7 @@ def _run_builtin_resumed_session(
     def _reduce_opencode_session_output(
         lines: list[str],
     ) -> tuple[str, ProviderUsage | None]:
-        return _reduce_opencode_stream(lines)
+        return reduce_opencode_stream(lines)
 
     if continuation_service == "claude":
         command_argv = _claude_command(
