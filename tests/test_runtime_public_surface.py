@@ -658,24 +658,21 @@ def test_runtime_client_session_entrypoints_delegate_wrapped_live_runtime_output
     delegate_name: str,
 ) -> None:
     wrapped_live_runtime_output = object()
-
-    class _Watchdog:
-        def __init__(self) -> None:
-            self.stop_calls = 0
-
-        def stop_monitoring(self) -> None:
-            self.stop_calls += 1
-
-    watchdog = _Watchdog()
     delegated_calls: list[tuple[Any, Any]] = []
+    timeout_context_calls: list[tuple[Any, int]] = []
+
+    def _run_with_timeout_context(
+        on_live_output: Any,
+        timeout_seconds: int,
+        run_once: Any,
+    ) -> Any:
+        timeout_context_calls.append((on_live_output, timeout_seconds))
+        return run_once(wrapped_live_runtime_output)
 
     monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_wrap_on_live_output_with_timeout",
-        lambda on_live_output, timeout_seconds: (
-            wrapped_live_runtime_output,
-            watchdog,
-        ),
+        prompt_runtime._live_runtime_output_timeout_context_module,
+        "_run_with_live_runtime_output_timeout_context",
+        _run_with_timeout_context,
     )
 
     def _delegate(request: Any, *, on_live_output: Any) -> prompt_runtime.RunResult:
@@ -699,8 +696,8 @@ def test_runtime_client_session_entrypoints_delegate_wrapped_live_runtime_output
 
     assert isinstance(outcome.kind, prompt_runtime.Completed)
     assert outcome.result.output == "delegated output"
+    assert timeout_context_calls == [(request.on_live_output, request.timeout_seconds)]
     assert delegated_calls == [(request, wrapped_live_runtime_output)]
-    assert watchdog.stop_calls == 1
 
 
 @pytest.mark.parametrize(
@@ -748,19 +745,20 @@ def test_runtime_client_session_entrypoints_stop_idle_timeout_watchdog_when_dele
     request_factory: Any,
     delegate_name: str,
 ) -> None:
-    class _Watchdog:
-        def __init__(self) -> None:
-            self.stop_calls = 0
+    timeout_context_calls: list[tuple[Any, int]] = []
 
-        def stop_monitoring(self) -> None:
-            self.stop_calls += 1
-
-    watchdog = _Watchdog()
+    def _run_with_timeout_context(
+        on_live_output: Any,
+        timeout_seconds: int,
+        run_once: Any,
+    ) -> Any:
+        timeout_context_calls.append((on_live_output, timeout_seconds))
+        return run_once(on_live_output)
 
     monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_wrap_on_live_output_with_timeout",
-        lambda on_live_output, timeout_seconds: (on_live_output, watchdog),
+        prompt_runtime._live_runtime_output_timeout_context_module,
+        "_run_with_live_runtime_output_timeout_context",
+        _run_with_timeout_context,
     )
 
     def _raise_delegate(
@@ -778,7 +776,7 @@ def test_runtime_client_session_entrypoints_stop_idle_timeout_watchdog_when_dele
     ):
         asyncio.run(getattr(client, f"run_{entrypoint_name}")(request))
 
-    assert watchdog.stop_calls == 1
+    assert timeout_context_calls == [(request.on_live_output, request.timeout_seconds)]
 
 
 def test_session_planning_surface_uses_resumable_vocabulary() -> None:

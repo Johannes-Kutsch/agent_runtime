@@ -5,6 +5,9 @@ from typing import TYPE_CHECKING, Any, Callable
 from . import _time
 from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
+from . import (
+    _live_runtime_output_timeout_context as _live_runtime_output_timeout_context_module,
+)
 from ._session_backed_provider_execution import (
     _run_builtin_new_session,
     _run_builtin_resumed_session,
@@ -213,49 +216,37 @@ class RuntimeClient:
         return RuntimeOutcome(kind=Completed(), result=result)
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
-        _on_live_output, timeout_watchdog = (
-            _builtin_runtime_client_module._wrap_on_live_output_with_timeout(
-                request.on_live_output,
-                request.timeout_seconds,
-            )
-        )
-        try:
-            return _run_builtin_session_outcome(
+        return _live_runtime_output_timeout_context_module._run_with_live_runtime_output_timeout_context(
+            request.on_live_output,
+            request.timeout_seconds,
+            lambda on_live_output: _run_builtin_session_outcome(
                 lambda: _run_builtin_new_session(
                     request,
-                    on_live_output=_on_live_output,
+                    on_live_output=on_live_output,
                 ),
                 service_name=request.provider_selection.service,
                 selected_model=request.provider_selection.model,
                 selected_effort=request.provider_selection.effort,
-            )
-        finally:
-            if timeout_watchdog is not None:
-                timeout_watchdog.stop_monitoring()
+            ),
+        )
 
     async def run_resumed_session(
         self,
         request: ResumedSessionRunRequest,
     ) -> RuntimeOutcome:
-        _on_live_output, timeout_watchdog = (
-            _builtin_runtime_client_module._wrap_on_live_output_with_timeout(
-                request.on_live_output,
-                request.timeout_seconds,
-            )
-        )
-        try:
-            return _run_builtin_session_outcome(
+        return _live_runtime_output_timeout_context_module._run_with_live_runtime_output_timeout_context(
+            request.on_live_output,
+            request.timeout_seconds,
+            lambda on_live_output: _run_builtin_session_outcome(
                 lambda: _run_builtin_resumed_session(
                     request,
-                    on_live_output=_on_live_output,
+                    on_live_output=on_live_output,
                 ),
                 service_name=_session_backed_service_name(request),
                 selected_model=request.model,
                 selected_effort=request.effort,
-            )
-        finally:
-            if timeout_watchdog is not None:
-                timeout_watchdog.stop_monitoring()
+            ),
+        )
 
 
 def _run_builtin_ephemeral(
