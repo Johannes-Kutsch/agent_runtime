@@ -357,6 +357,33 @@ def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases
         exec("from agent_runtime.runtime import OneShotRunRequest", {}, {})
 
 
+def test_runtime_surfaces_do_not_expose_retired_agent_log_names() -> None:
+    exported_root_names: dict[str, object] = {}
+    exported_runtime_names: dict[str, object] = {}
+
+    exec("from agent_runtime import *", {}, exported_root_names)
+    exec("from agent_runtime.runtime import *", {}, exported_runtime_names)
+
+    for removed_name in (
+        "AgentInvocationLog",
+        "LogicalAgentInvocationLog",
+        "WorkInvocationLog",
+    ):
+        assert removed_name not in runtime.__all__
+        assert removed_name not in prompt_runtime.__all__
+        assert removed_name not in exported_root_names
+        assert removed_name not in exported_runtime_names
+        assert not hasattr(runtime, removed_name)
+        assert not hasattr(prompt_runtime, removed_name)
+        with pytest.raises(ImportError):
+            exec(f"from agent_runtime import {removed_name}", {}, {})
+        with pytest.raises(ImportError):
+            exec(f"from agent_runtime.runtime import {removed_name}", {}, {})
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_runtime.agent_log")
+
+
 @pytest.mark.parametrize(
     "removed_name",
     [
