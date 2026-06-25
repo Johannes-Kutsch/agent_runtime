@@ -1,33 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, cast
 
 import pytest
 
-import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.contracts import (
-    ExecutionProvider,
-    ResumabilityProvider,
     ServiceSelectionProvider,
 )
-from agent_runtime._provider_session_adapter import ProviderSessionPlanningRequest
 from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import (
-    RunKind,
     normalize_state_dir_relpath,
     provider_state_relpath,
     provider_state_session_id_path,
 )
-from agent_runtime.session_planning import (
-    ResumableSessionPlanRequest,
-    plan_resumable_session,
-)
 from agent_runtime.types import ProviderSelection as InternalStageSelection
 from tests.runtime_boundary_fakes import (
-    ResidentPlanningProviderSessionAdapterFake as _ResidentPlanningProviderSessionAdapter,
     SelectionServiceFake as _Service,
 )
 
@@ -54,122 +43,6 @@ def test_runtime_service_identities_reject_unsafe_labels(label: str) -> None:
                 )
             }
         )
-
-
-@pytest.mark.parametrize("label", [" ", "a/b", "../escape"])
-def test_provider_session_namespace_seams_preserve_empty_default_and_reject_unsafe_non_empty_values(
-    label: str,
-    execution_service_factory: Callable[..., ExecutionProvider],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    assert (
-        ProviderSessionPlanningRequest(
-            worktree=Path("."),
-            namespace="",
-        ).namespace
-        == ""
-    )
-    assert (
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            namespace="",
-            service=execution_service_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        ).namespace
-        == ""
-    )
-
-    with pytest.raises(ValueError):
-        ProviderSessionPlanningRequest(
-            worktree=Path("."),
-            namespace=label,
-        )
-
-    with pytest.raises(ValueError):
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            namespace=label,
-            service=execution_service_factory(),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-
-
-def test_provider_session_planning_returns_immutable_decision_value(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    provider_session_decision = session_planning_runtime.plan_provider_session(
-        session_planning_runtime.ProviderSessionPlanRequest(
-            worktree=Path("."),
-            namespace="main",
-            resumability_service=cast(
-                ResumabilityProvider,
-                execution_service_factory(),
-            ),
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    assert (
-        provider_session_decision
-        == session_planning_runtime.ProviderSessionDecision(
-            run_kind=RunKind.RESUME,
-            provider_session_id="recovered-session",
-            state_dir_relpath="state/",
-            state_dir_path=Path("state"),
-            service_state_dir=Path("state"),
-            exact_transcript_match=False,
-        )
-    )
-    with pytest.raises(FrozenInstanceError):
-        setattr(provider_session_decision, "provider_session_id", "other")
-
-
-def test_resumable_session_plan_exposes_public_value_fields_only(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    service = execution_service_factory()
-
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            namespace="main",
-            service=service,
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    assert session_plan.worktree == Path(".")
-    assert session_plan.namespace == "main"
-    assert session_plan.service is service
-    assert session_plan.run_kind is RunKind.RESUME
-    assert session_plan.provider_state_dir == Path("state")
-    assert session_plan.provider_session_id == "recovered-session"
-    assert session_plan.exact_transcript_match is False
-    with pytest.raises(FrozenInstanceError):
-        setattr(session_plan, "provider_state_dir", Path("other-state"))
-
-
-def test_resumable_session_plan_hides_container_state_selection_metadata(
-    execution_service_factory: Callable[..., ExecutionProvider],
-    resident_provider_session_adapter: _ResidentPlanningProviderSessionAdapter,
-) -> None:
-    service = execution_service_factory()
-
-    session_plan = plan_resumable_session(
-        ResumableSessionPlanRequest(
-            worktree=Path("."),
-            namespace="main",
-            service=service,
-            provider_session_adapter=resident_provider_session_adapter,
-        )
-    )
-
-    field_names = {field.name for field in fields(session_plan)}
-
-    assert "service_state_dir" not in field_names
-    assert "use_service_state_dir_for_container" not in field_names
 
 
 @pytest.mark.parametrize("service_name", ["", " ", "a/b", "../escape"])

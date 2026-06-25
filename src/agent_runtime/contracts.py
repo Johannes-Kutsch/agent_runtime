@@ -243,14 +243,6 @@ class ResumableExecutionProvider(
     pass
 
 
-class SessionPlanningProvider(
-    ResumabilityProvider,
-    Protocol,
-):
-    @property
-    def name(self) -> str: ...
-
-
 __all__ = [
     "AssistantTurn",
     "CredentialFailure",
@@ -264,7 +256,6 @@ __all__ = [
     "Result",
     "ResumabilityProvider",
     "ServiceSelectionProvider",
-    "SessionPlanningProvider",
     "ToolPolicy",
     "ToolAccess",
     "ToolPolicyProfile",

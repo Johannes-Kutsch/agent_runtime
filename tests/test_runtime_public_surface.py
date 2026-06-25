@@ -17,7 +17,6 @@ import agent_runtime._provider_session_adapter as internal_provider_session_adap
 import agent_runtime._portable_continuation_payload as continuation_payload_module
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
-import agent_runtime.session_planning as session_planning_runtime
 from agent_runtime.errors import AgentRuntimeError
 from agent_runtime.provider_usage import ProviderUsage
 from agent_runtime.session import RunKind
@@ -790,38 +789,6 @@ def test_runtime_client_session_entrypoints_propagate_delegated_execution_errors
         prompt_runtime.RuntimeConfigurationError, match="delegated failure"
     ):
         asyncio.run(getattr(client, f"run_{entrypoint_name}")(request))
-
-
-def test_session_planning_surface_uses_resumable_vocabulary() -> None:
-    assert not hasattr(session_planning_runtime, "ResidentSessionPlan")
-    assert not hasattr(session_planning_runtime, "ResidentSessionPlanRequest")
-    assert not hasattr(session_planning_runtime, "plan_resident_session")
-    assert {
-        "ResumableSessionPlan",
-        "ResumableSessionPlanRequest",
-        "plan_resumable_session",
-    } <= set(session_planning_runtime.__all__)
-
-
-def test_provider_session_planning_surface_exposes_immutable_decision_only() -> None:
-    assert session_planning_runtime.ProviderSessionPlanRequest.__name__ == (
-        "ProviderSessionPlanRequest"
-    )
-    assert not hasattr(session_planning_runtime, "ProviderRunStatePlan")
-    assert not hasattr(session_planning_runtime, "plan_provider_run_state")
-    assert not hasattr(
-        session_planning_runtime,
-        "record_observed_provider_session_id",
-    )
-    assert not hasattr(
-        session_planning_runtime,
-        "record_successful_provider_session_metadata",
-    )
-    assert {
-        "ProviderSessionDecision",
-        "ProviderSessionPlanRequest",
-        "plan_provider_session",
-    } <= set(session_planning_runtime.__all__)
 
 
 def test_provider_session_dtos_remain_on_focused_session_seam() -> None:
