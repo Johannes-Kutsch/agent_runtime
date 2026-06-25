@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import os
 import queue
 import shutil
 import subprocess
@@ -158,6 +159,15 @@ def _nonzero_exit_message(returncode: int, observed_lines: list[str]) -> str:
 
 
 class ProductionProviderInvocationAdapter:
+    def _windows_process_base_env(self) -> dict[str, str]:
+        if os.name != "nt":
+            return {}
+        return {
+            key: os.environ[key]
+            for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
+            if key in os.environ and os.environ[key]
+        }
+
     def execute(
         self,
         request: ProviderInvocationRequest,
@@ -167,6 +177,12 @@ class ProductionProviderInvocationAdapter:
         prompt_file_created = use_shell and prompt_path is not None
         if prompt_file_created and prompt_path is not None:
             prompt_path.write_text(request.prompt.content, encoding="utf-8")
+
+        environment = dict(request.environment)
+        environment = {
+            **self._windows_process_base_env(),
+            **environment,
+        }
 
         work_invocation_context = (
             nullcontext()
@@ -180,7 +196,6 @@ class ProductionProviderInvocationAdapter:
 
         try:
             with work_invocation_context as work_invocation_log:
-                environment = dict(request.environment)
                 if use_shell:
                     process = subprocess.Popen(
                         request.command,

@@ -8,12 +8,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 import re
+from typing import Any
 from typing import cast
 
 import pytest
 
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
+import agent_runtime._builtin_runtime_client as builtin_runtime_client_runtime
 import agent_runtime._builtin_provider_rendering as builtin_provider_rendering_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
@@ -3484,6 +3486,129 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
     )
+
+
+@pytest.mark.parametrize(
+    "entrypoint",
+    ["new", "resumed"],
+)
+def test_runtime_client_runs_codex_session_invocations_with_windows_host_process_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint: str,
+) -> None:
+    captured_env: dict[str, str] = {}
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdin = None
+            self.stdout = iter(
+                [
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\n'
+                ]
+            )
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: tuple[str, ...] | str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+        stdin: Any = None,
+    ) -> _Process:
+        captured_env.clear()
+        captured_env.update(env)
+        return _Process()
+
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.ProductionProviderInvocationAdapter,
+        "_windows_process_base_env",
+        lambda self: {
+            "PATH": "host/path",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+            "SystemRoot": "C:\\Windows",
+            "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+            "WINDIR": "C:\\Windows",
+        },
+    )
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(
+        builtin_runtime_client_runtime,
+        "_default_provider_invocation_adapter",
+        provider_invocation_runtime.ProductionProviderInvocationAdapter,
+    )
+
+    monkeypatch.setenv("PATH", "host/path")
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    monkeypatch.setenv("SystemRoot", "C:\\Windows")
+    monkeypatch.setenv("ComSpec", "C:\\Windows\\System32\\cmd.exe")
+    monkeypatch.setenv("WINDIR", "C:\\Windows")
+
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+    provider_state_dir = runtime_state_dir / "implementer" / "main" / "codex"
+
+    if entrypoint == "new":
+        outcome = asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                harness.start_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                        tmp_path,
+                        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+                    ),
+                )
+            )
+        )
+    else:
+        continuation = harness.codex_continuation()
+        RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+            provider_state_dir,
+            continuation.provider_resume_state["provider_session_id"],
+        )
+        outcome = asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                harness.resume_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=continuation,
+                )
+            )
+        )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="codex",
+        model="gpt-5.4",
+        effort="medium",
+    )
+
+    assert captured_env["PATH"] == "host/path"
+    assert captured_env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
+    assert captured_env["SystemRoot"] == "C:\\Windows"
+    assert captured_env["ComSpec"] == "C:\\Windows\\System32\\cmd.exe"
+    assert captured_env["WINDIR"] == "C:\\Windows"
+    assert captured_env["CODEX_HOME"] == str(provider_state_dir)
 
 
 def test_runtime_client_rejects_codex_resumed_session_without_usable_provider_session_id(

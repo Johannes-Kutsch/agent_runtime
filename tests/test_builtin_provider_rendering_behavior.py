@@ -303,7 +303,7 @@ def test_render_claude_invocation_uses_provider_prompt_path_and_claude_only_envi
         ),
     ],
 )
-def test_render_built_in_provider_invocation_layers_windows_host_allowlist_for_every_provider(
+def test_render_built_in_provider_invocation_keeps_windows_host_environment_out_of_scope(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     service: str,
@@ -345,13 +345,11 @@ def test_render_built_in_provider_invocation_layers_windows_host_allowlist_for_e
         )
     )
 
-    assert rendered_invocation.environment["PATH"] == "path-value"
-    assert rendered_invocation.environment["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
-    assert rendered_invocation.environment["SystemRoot"] == "C:\\Windows"
-    assert (
-        rendered_invocation.environment["ComSpec"] == "C:\\Windows\\System32\\cmd.exe"
-    )
-    assert rendered_invocation.environment["WINDIR"] == "C:\\Windows"
+    assert "PATH" not in rendered_invocation.environment
+    assert "PATHEXT" not in rendered_invocation.environment
+    assert "SystemRoot" not in rendered_invocation.environment
+    assert "ComSpec" not in rendered_invocation.environment
+    assert "WINDIR" not in rendered_invocation.environment
     assert "SHOULD_NOT_LEAK" not in rendered_invocation.environment
 
     if service == "opencode":
@@ -361,11 +359,6 @@ def test_render_built_in_provider_invocation_layers_windows_host_allowlist_for_e
         assert rendered_invocation.environment["OPENCODE_GO_API_KEY"] == "go-key"
         assert rendered_invocation.environment["OPENCODE_CONFIG_CONTENT"]
         assert set(rendered_invocation.environment) == {
-            "PATH",
-            "PATHEXT",
-            "SystemRoot",
-            "ComSpec",
-            "WINDIR",
             "TZ",
             "OPENCODE_HOME",
             "OPENCODE_GO_API_KEY",
@@ -374,15 +367,8 @@ def test_render_built_in_provider_invocation_layers_windows_host_allowlist_for_e
         return
 
     assert rendered_invocation.environment == {
-        "PATH": "path-value",
-        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
-        "SystemRoot": "C:\\Windows",
-        "ComSpec": "C:\\Windows\\System32\\cmd.exe",
-        "WINDIR": "C:\\Windows",
-        **{
-            key: (str(provider_state_dir) if value == "provider-state" else value)
-            for key, value in expected_provider_environment.items()
-        },
+        key: (str(provider_state_dir) if value == "provider-state" else value)
+        for key, value in expected_provider_environment.items()
     }
 
 
@@ -489,39 +475,6 @@ def test_render_built_in_provider_invocation_keeps_posix_environment_provider_on
     assert rendered_invocation.environment == {
         key: (str(provider_state_dir) if value == "provider-state" else value)
         for key, value in expected_environment.items()
-    }
-
-
-def test_finalized_built_in_provider_environment_prefers_provider_values_on_key_collision() -> (
-    None
-):
-    finalized_environment = (
-        built_in_provider_rendering._finalize_built_in_provider_invocation_environment(
-            environment={
-                "PATH": "provider-path",
-                "WINDIR": "provider-windir",
-                "TZ": "UTC",
-            },
-            host_facts=built_in_provider_rendering.BuiltInProviderHostFacts(
-                os_name="nt",
-                environment={
-                    "PATH": "host-path",
-                    "PATHEXT": ".COM;.EXE;.BAT;.CMD",
-                    "SystemRoot": "C:\\Windows",
-                    "ComSpec": "C:\\Windows\\System32\\cmd.exe",
-                    "WINDIR": "C:\\Windows",
-                },
-            ),
-        )
-    )
-
-    assert finalized_environment == {
-        "PATH": "provider-path",
-        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
-        "SystemRoot": "C:\\Windows",
-        "ComSpec": "C:\\Windows\\System32\\cmd.exe",
-        "WINDIR": "provider-windir",
-        "TZ": "UTC",
     }
 
 
@@ -889,7 +842,7 @@ def test_render_codex_without_provider_state_dir_uses_host_codex_home_for_auth_r
     }
 
 
-def test_render_codex_without_provider_state_dir_keeps_windows_host_allowlist_surgical(
+def test_render_codex_without_provider_state_dir_keeps_windows_host_allowlist_out_of_scope(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -928,11 +881,6 @@ def test_render_codex_without_provider_state_dir_keeps_windows_host_allowlist_su
     )
 
     assert rendered_invocation.environment == {
-        "PATH": "path-value",
-        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
-        "SystemRoot": "C:\\Windows",
-        "ComSpec": "C:\\Windows\\System32\\cmd.exe",
-        "WINDIR": "C:\\Windows",
         "TZ": "UTC",
         "CODEX_HOME": str(host_home / ".codex"),
     }
@@ -1302,7 +1250,7 @@ def test_render_opencode_tool_policy_profile_maps_to_current_permission_content(
     assert config.get("permission") == expected_permission
 
 
-def test_render_opencode_uses_windows_executable_and_process_launch_env_allowlist(
+def test_render_opencode_uses_windows_executable_without_process_launch_allowlist(
     tmp_path: Path,
 ) -> None:
     rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
@@ -1336,11 +1284,6 @@ def test_render_opencode_uses_windows_executable_and_process_launch_env_allowlis
 
     assert rendered_invocation.canonical_argv[0] == "opencode.cmd"
     assert rendered_invocation.environment == {
-        "PATH": "path-value",
-        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
-        "SystemRoot": "C:\\Windows",
-        "ComSpec": "C:\\Windows\\System32\\cmd.exe",
-        "WINDIR": "C:\\Windows",
         "TZ": "UTC",
         "OPENCODE_HOME": str(tmp_path / "provider-state"),
         "OPENCODE_GO_API_KEY": "go-key",

@@ -278,21 +278,6 @@ def _opencode_go_config_content(
     return json.dumps(config, sort_keys=True, separators=(",", ":"))
 
 
-def _windows_process_base_env(
-    *,
-    os_name: str | None = None,
-    environ: Mapping[str, str] | None = None,
-) -> dict[str, str]:
-    if (os_name or os.name) != "nt":
-        return {}
-    source_env = os.environ if environ is None else environ
-    return {
-        key: source_env[key]
-        for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
-        if key in source_env and source_env[key]
-    }
-
-
 def _opencode_environment(
     *,
     auth: ProviderAuth | None,
@@ -528,19 +513,6 @@ def _render_opencode_invocation(
     )
 
 
-def _finalize_built_in_provider_invocation_environment(
-    environment: Mapping[str, str],
-    host_facts: BuiltInProviderHostFacts | None,
-) -> Mapping[str, str]:
-    return {
-        **_windows_process_base_env(
-            os_name=None if host_facts is None else host_facts.os_name,
-            environ=None if host_facts is None else host_facts.environment,
-        ),
-        **environment,
-    }
-
-
 def render_built_in_provider_invocation(
     request: BuiltInProviderRenderRequest,
 ) -> BuiltInProviderRenderedInvocation:
@@ -554,10 +526,4 @@ def render_built_in_provider_invocation(
         raise RuntimeConfigurationError(
             f"Unsupported built-in provider {request.provider_selection.service!r}."
         )
-    return dataclasses.replace(
-        rendered_invocation,
-        environment=_finalize_built_in_provider_invocation_environment(
-            rendered_invocation.environment,
-            request.host_facts,
-        ),
-    )
+    return rendered_invocation

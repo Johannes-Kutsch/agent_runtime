@@ -1271,6 +1271,206 @@ def test_production_adapter_terminates_silent_subprocess_after_idle_timeout(
         os.kill(child_pid, 0)
 
 
+def test_provider_invocation_request_layers_windows_host_process_allowlist_for_built_in_invocations(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("PATH", "host/path")
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    monkeypatch.setenv("SystemRoot", "C:\\Windows")
+    monkeypatch.setenv("ComSpec", "C:\\Windows\\System32\\cmd.exe")
+    monkeypatch.setenv("WINDIR", "C:\\Windows")
+    monkeypatch.setattr(
+        provider_invocation_runtime.ProductionProviderInvocationAdapter,
+        "_windows_process_base_env",
+        lambda self: {
+            "PATH": "host/path",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+            "SystemRoot": "C:\\Windows",
+            "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+            "WINDIR": "C:\\Windows",
+        },
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(["output line\n"])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _Process:
+        captured["env"] = env
+        return _Process()
+
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        provider_invocation_runtime.ProviderInvocationRequest(
+            command="provider",
+            worktree=tmp_path,
+            environment={"TZ": "UTC", "PATH": "provider/path"},
+            prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+                content="rendered prompt",
+                path=tmp_path / ".provider_prompt",
+                cleanup_path=True,
+            ),
+            run_kind=RunKind.FRESH,
+            log_context=None,
+            provider_session_id=None,
+            output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+                reduce_output=lambda lines: ("".join(lines), None)
+            ),
+        )
+    )
+
+    assert captured["env"] == {
+        "PATH": "provider/path",
+        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+        "SystemRoot": "C:\\Windows",
+        "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+        "WINDIR": "C:\\Windows",
+        "TZ": "UTC",
+    }
+
+
+def test_provider_invocation_request_keeps_provider_environment_values_when_windows_keys_collide(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PATH", "host/path")
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    monkeypatch.setenv("SystemRoot", "C:\\Windows")
+    monkeypatch.setenv("ComSpec", "C:\\Windows\\System32\\cmd.exe")
+    monkeypatch.setenv("WINDIR", "C:\\Windows")
+    monkeypatch.setattr(
+        provider_invocation_runtime.ProductionProviderInvocationAdapter,
+        "_windows_process_base_env",
+        lambda self: {
+            "PATH": "host/path",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+            "SystemRoot": "C:\\Windows",
+            "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+            "WINDIR": "C:\\Windows",
+        },
+    )
+
+    captured: dict[str, dict[str, str]] = {}
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(["output line\n"])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _Process:
+        captured["env"] = env
+        return _Process()
+
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        provider_invocation_runtime.ProviderInvocationRequest(
+            command="provider",
+            worktree=Path("/tmp"),
+            environment={"PATH": "provider-path", "WINDIR": "provider-windir"},
+            prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+                content="rendered prompt",
+                path=Path("/tmp/.provider_prompt"),
+                cleanup_path=True,
+            ),
+            run_kind=RunKind.FRESH,
+            log_context=None,
+            provider_session_id=None,
+            output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+                reduce_output=lambda lines: ("".join(lines), None)
+            ),
+        )
+    )
+
+    assert captured["env"]["PATH"] == "provider-path"
+    assert captured["env"]["WINDIR"] == "provider-windir"
+
+
+def test_provider_invocation_request_keeps_provider_environment_unchanged_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PATH", "host/path")
+    monkeypatch.setattr(
+        provider_invocation_runtime.ProductionProviderInvocationAdapter,
+        "_windows_process_base_env",
+        lambda self: {},
+    )
+
+    captured: dict[str, dict[str, str]] = {}
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(["output line\n"])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str,
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+    ) -> _Process:
+        captured["env"] = env
+        return _Process()
+
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        provider_invocation_runtime.ProviderInvocationRequest(
+            command="provider",
+            worktree=Path("/tmp"),
+            environment={"TZ": "UTC", "PATH": "provider/path"},
+            prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+                content="rendered prompt",
+                path=Path("/tmp/.provider_prompt"),
+                cleanup_path=True,
+            ),
+            run_kind=RunKind.FRESH,
+            log_context=None,
+            provider_session_id=None,
+            output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+                reduce_output=lambda lines: ("".join(lines), None)
+            ),
+        )
+    )
+
+    assert captured["env"] == {"TZ": "UTC", "PATH": "provider/path"}
+
+
 def test_production_adapter_resets_idle_timeout_on_stderr_activity(
     tmp_path: Path,
 ) -> None:
