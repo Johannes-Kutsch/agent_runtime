@@ -764,6 +764,60 @@ def _invoke_provider(
     )
 
 
+def _invoke_claude_session_provider(
+    *,
+    provider_invocation_adapter: ProviderInvocationAdapter,
+    invocation_dir: Path,
+    prompt: str,
+    model: str,
+    effort: str,
+    tool_access: ToolAccess,
+    auth: ProviderAuth | None,
+    provider_state_dir: Path | None,
+    run_kind: RunKind,
+    provider_session_id: str,
+    on_live_output: Callable[[AgentEvent], None] | None = None,
+) -> ProviderInvocationResult | ProviderInvocationFailure:
+    rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
+        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
+            provider_selection=(
+                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+                    service="claude",
+                    model=model,
+                    effort=effort,
+                )
+            ),
+            run_kind=run_kind,
+            tool_access=tool_access,
+            auth=auth,
+            invocation_dir=invocation_dir,
+            provider_state_dir=provider_state_dir,
+            provider_session_id=provider_session_id,
+        )
+    )
+    stream_interpretation = _with_observed_output(
+        _claude_stream_interpretation(),
+        on_live_output,
+    )
+    return _invoke_provider(
+        provider_invocation_adapter=provider_invocation_adapter,
+        command=rendered.legacy_command_text or "",
+        command_argv=rendered.canonical_argv,
+        prefer_argv=rendered.prefer_argv,
+        worktree=invocation_dir,
+        environment=dict(rendered.environment),
+        prompt_content=prompt,
+        prompt_path=rendered.prompt_path,
+        cleanup_prompt_path=(
+            rendered.prompt_cleanup_choice
+            is _builtin_provider_rendering_module.PromptCleanupChoice.DELETE_AFTER_INVOCATION
+        ),
+        run_kind=run_kind,
+        provider_session_id=provider_session_id,
+        stream_interpretation=stream_interpretation,
+    )
+
+
 def _invoke_claude_new_session_provider(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter,
@@ -774,39 +828,18 @@ def _invoke_claude_new_session_provider(
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    stream_interpretation = _with_observed_output(
-        _claude_stream_interpretation(),
-        on_live_output,
-    )
-    return _invoke_provider(
+    return _invoke_claude_session_provider(
         provider_invocation_adapter=provider_invocation_adapter,
-        command=_claude_legacy_command_text(
-            model=stage.model,
-            effort=stage.effort,
-            tool_access=request.tool_access,
-            prompt_path=_builtin_provider_prompt_path(request.invocation_dir),
-            run_kind=run_kind,
-            session_uuid=provider_session_id,
-        ),
-        command_argv=_claude_command(
-            model=stage.model,
-            effort=stage.effort,
-            tool_access=request.tool_access,
-            run_kind=run_kind,
-            session_uuid=provider_session_id,
-        ),
-        prefer_argv=True,
-        worktree=request.invocation_dir,
-        environment=_claude_env(
-            auth=_selection_auth(stage),
-            state_dir_container_path=str(provider_state_dir),
-        ),
-        prompt_content=request.prompt,
-        prompt_path=_builtin_provider_prompt_path(request.invocation_dir),
-        cleanup_prompt_path=True,
+        invocation_dir=request.invocation_dir,
+        prompt=request.prompt,
+        model=stage.model,
+        effort=stage.effort,
+        tool_access=request.tool_access,
+        auth=_selection_auth(stage),
+        provider_state_dir=provider_state_dir,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
-        stream_interpretation=stream_interpretation,
+        on_live_output=on_live_output,
     )
 
 

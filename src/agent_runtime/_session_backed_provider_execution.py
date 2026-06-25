@@ -946,48 +946,31 @@ def _run_builtin_resumed_session(
             state_dir_session_id=state_dir_session_id,
         )
         run_kind = RunKind.RESUME
-    prompt_path = _builtin_runtime_client_module._builtin_provider_prompt_path(
-        request.invocation_dir
-    )
-
     if continuation_service == "claude":
-        command_argv = _builtin_runtime_client_module._claude_command(
-            model=request.model,
-            effort=request.effort,
-            tool_access=request.tool_access,
-            run_kind=run_kind,
-            session_uuid=provider_session_id,
-        )
-        command = _builtin_runtime_client_module._claude_legacy_command_text(
-            model=request.model,
-            effort=request.effort,
-            tool_access=request.tool_access,
-            prompt_path=prompt_path,
-            run_kind=run_kind,
-            session_uuid=provider_session_id,
-        )
-        environment = _builtin_runtime_client_module._claude_env(
-            auth=request.provider_auth,
-            state_dir_container_path=(
-                str(provider_state_dir) if provider_state_dir is not None else None
-            ),
-        )
-
-        stream_interpretation = _builtin_runtime_client_module._with_observed_output(
-            _builtin_runtime_client_module._claude_stream_interpretation(),
-            on_live_output,
+        invocation_result = (
+            _builtin_runtime_client_module._invoke_claude_session_provider(
+                provider_invocation_adapter=invocation_adapter,
+                invocation_dir=request.invocation_dir,
+                prompt=request.prompt,
+                model=request.model,
+                effort=request.effort,
+                tool_access=request.tool_access,
+                auth=request.provider_auth,
+                provider_state_dir=provider_state_dir,
+                run_kind=run_kind,
+                provider_session_id=provider_session_id,
+                on_live_output=on_live_output,
+            )
         )
     else:
+        prompt_path = _builtin_runtime_client_module._builtin_provider_prompt_path(
+            request.invocation_dir
+        )
         command_argv = _builtin_runtime_client_module._opencode_command(
             model=request.model,
             effort=request.effort,
             run_kind=run_kind,
             session_uuid=provider_session_id,
-        )
-        command = _builtin_runtime_client_module._legacy_command_text(
-            command_argv,
-            prompt_path,
-            opencode_prompt_substitution=True,
         )
         environment = _builtin_runtime_client_module._opencode_env(
             auth=request.provider_auth,
@@ -1000,24 +983,24 @@ def _run_builtin_resumed_session(
                 fallback_provider_session_id=provider_session_id,
             )
         )
+        invocation_result = _builtin_runtime_client_module._invoke_provider(
+            provider_invocation_adapter=invocation_adapter,
+            command="",
+            command_argv=command_argv,
+            prefer_argv=True,
+            worktree=request.invocation_dir,
+            environment=environment,
+            prompt_content=request.prompt,
+            prompt_path=prompt_path,
+            cleanup_prompt_path=True,
+            run_kind=run_kind,
+            provider_session_id=provider_session_id,
+            stream_interpretation=stream_interpretation,
+        )
     active_provider_session_interpretation = (
         _builtin_runtime_client_module._stream_interpretation_for_service(
             continuation_service
         )
-    )
-    invocation_result = _builtin_runtime_client_module._invoke_provider(
-        provider_invocation_adapter=invocation_adapter,
-        command="" if continuation_service == "opencode" else command,
-        command_argv=command_argv,
-        prefer_argv=(continuation_service in {"claude", "opencode"}),
-        worktree=request.invocation_dir,
-        environment=environment,
-        prompt_content=request.prompt,
-        prompt_path=prompt_path,
-        cleanup_prompt_path=True,
-        run_kind=run_kind,
-        provider_session_id=provider_session_id,
-        stream_interpretation=stream_interpretation,
     )
     if isinstance(invocation_result, ProviderInvocationFailure):
         provider_session_id = _resolve_active_provider_session_id(
