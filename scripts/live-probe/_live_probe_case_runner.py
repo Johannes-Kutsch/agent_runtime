@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from traceback import format_exc
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Awaitable, Callable, Protocol, TextIO
 
 from agent_runtime.runtime import (
     Continuation,
@@ -126,6 +126,26 @@ LIVE_FEED_FILENAME = "live_feed.json"
 _DISPLAYED_EVENT_TYPES = ("agent_message", "agent_tool_call")
 
 
+class _LiveProbeFeedWriter:
+    def __init__(self, path: Path, output: _LiveProbeOutput) -> None:
+        self._sink: TextIO = path.open("w", encoding="utf-8")
+        self._output = output
+
+    def append(self, event: Any) -> None:
+        record = {
+            "type": getattr(event, "type", ""),
+            "display_message": getattr(event, "display_message", ""),
+            "raw_provider_output": getattr(event, "raw_provider_output", ""),
+        }
+        self._sink.write(json.dumps(record) + "\n")
+        self._sink.flush()
+        if record["type"] in _DISPLAYED_EVENT_TYPES:
+            self._output.line(f"  {record['display_message']}")
+
+    def close(self) -> None:
+        self._sink.close()
+
+
 def _resolve_runtime_outcome(awaitable: Any) -> Any:
     return asyncio.run(awaitable)
 
@@ -170,21 +190,10 @@ def run_case(
     request.invocation_dir.mkdir(parents=True, exist_ok=True)
 
     feed_path = request.case_dir / LIVE_FEED_FILENAME
-    feed_sink = feed_path.open("w", encoding="utf-8")
+    feed_writer = _LiveProbeFeedWriter(feed_path, request.output)
     outcome: Any | None = None
     category = "error"
     traceback: str | None = None
-
-    def _on_live_output(event: Any) -> None:
-        record = {
-            "type": getattr(event, "type", ""),
-            "display_message": getattr(event, "display_message", ""),
-            "raw_provider_output": getattr(event, "raw_provider_output", ""),
-        }
-        feed_sink.write(json.dumps(record) + "\n")
-        feed_sink.flush()
-        if record["type"] in _DISPLAYED_EVENT_TYPES:
-            request.output.line(f"  {record['display_message']}")
 
     selection = request.case.provider_selection
     auth = getattr(selection, "auth", None) or ProviderAuth()
@@ -201,7 +210,7 @@ def run_case(
                         provider_selection=selection,
                         tool_policy=tool_policy,
                         timeout_seconds=request.timeout_seconds,
-                        on_live_output=_on_live_output,
+                        on_live_output=feed_writer.append,
                     )
                 )
             )
@@ -214,7 +223,7 @@ def run_case(
                         provider_selection=selection,
                         tool_policy=tool_policy,
                         timeout_seconds=request.timeout_seconds,
-                        on_live_output=_on_live_output,
+                        on_live_output=feed_writer.append,
                     )
                 )
             )
@@ -232,7 +241,7 @@ def run_case(
                         continuation=request.continuation,
                         provider_auth=auth,
                         timeout_seconds=request.timeout_seconds,
-                        on_live_output=_on_live_output,
+                        on_live_output=feed_writer.append,
                     )
                 )
             )
@@ -245,7 +254,7 @@ def run_case(
     except Exception:
         traceback = format_exc()
     finally:
-        feed_sink.close()
+        feed_writer.close()
 
     if outcome is None:
         return ProbeCaseRunResult(
