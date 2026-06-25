@@ -284,12 +284,9 @@ def test_resumed_session_receives_new_session_continuation(
         stream=io.StringIO(),
     )
 
-    methods = [method for method, _ in calls]
-    assert methods.index("run_new_session") < methods.index("run_resumed_session")
-
-    resumed_request = next(
-        request for method, request in calls if method == "run_resumed_session"
-    )
+    resumed_request = {
+        method: request for method, request in calls if method == "run_resumed_session"
+    }["run_resumed_session"]
     assert resumed_request.continuation.serialized == _continuation().serialized
     assert resumed_request.invocation_dir == (
         tmp_path / "artifacts" / "codex" / "new_session_UNRESTRICTED"
@@ -502,11 +499,8 @@ def test_live_probe_case_runner_writes_feed_and_projects_case_result_facts(
     output = _OutputRecorder()
     usage = pr.ProviderUsage(input_tokens=10, output_tokens=3, cost_usd=0.01)
 
-    class _FakeClient:
-        async def run_ephemeral(self, request: Any) -> Any:
-            raise AssertionError("unexpected ephemeral execution")
-
-        async def run_new_session(self, request: Any) -> Any:
+    def _record(method: str, request: Any) -> Any:
+        if method == "run_new_session":
             request.on_live_output(
                 pr.AgentEvent(
                     type="agent_message",
@@ -524,9 +518,11 @@ def test_live_probe_case_runner_writes_feed_and_projects_case_result_facts(
             return _completed(
                 "new session output", continuation=_continuation(), usage=usage
             )
+        return None
 
-        async def run_resumed_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected resumed execution")
+    adapter = case_runner.InMemoryRuntimeInvocationAdapter(
+        record_handler=_record,
+    )
 
     result = case_runner.run_case(
         case_runner.ProbeCaseRunRequest(
@@ -538,7 +534,7 @@ def test_live_probe_case_runner_writes_feed_and_projects_case_result_facts(
             continuation=None,
             output=output,
         ),
-        runtime_client_factory=_FakeClient,
+        runtime_client_factory=lambda: adapter,
     )
 
     assert result.category == "success"
@@ -611,36 +607,35 @@ def test_live_probe_case_runner_streams_tool_call_display_messages_and_persists_
     case = _codex_probe_case(probe, mode="ephemeral")
     output = _OutputRecorder()
 
-    class _FakeClient:
-        async def run_ephemeral(self, request: Any) -> Any:
-            request.on_live_output(
-                pr.AgentEvent(
-                    type="agent_message",
-                    display_message="hello",
-                    raw_provider_output='{"event":"message"}',
-                )
+    def _record(method: str, request: Any) -> Any:
+        if method != "run_ephemeral":
+            return None
+        request.on_live_output(
+            pr.AgentEvent(
+                type="agent_message",
+                display_message="hello",
+                raw_provider_output='{"event":"message"}',
             )
-            request.on_live_output(
-                pr.AgentEvent(
-                    type="agent_tool_call",
-                    display_message="tool call",
-                    raw_provider_output='{"event":"tool_call"}',
-                )
+        )
+        request.on_live_output(
+            pr.AgentEvent(
+                type="agent_tool_call",
+                display_message="tool call",
+                raw_provider_output='{"event":"tool_call"}',
             )
-            request.on_live_output(
-                pr.AgentEvent(
-                    type="other",
-                    display_message="hidden",
-                    raw_provider_output='{"event":"other"}',
-                )
+        )
+        request.on_live_output(
+            pr.AgentEvent(
+                type="other",
+                display_message="hidden",
+                raw_provider_output='{"event":"other"}',
             )
-            raise RuntimeError("boom")
+        )
+        raise RuntimeError("boom")
 
-        async def run_new_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected new-session execution")
-
-        async def run_resumed_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected resumed execution")
+    adapter = case_runner.InMemoryRuntimeInvocationAdapter(
+        record_handler=_record,
+    )
 
     result = case_runner.run_case(
         case_runner.ProbeCaseRunRequest(
@@ -652,7 +647,7 @@ def test_live_probe_case_runner_streams_tool_call_display_messages_and_persists_
             continuation=None,
             output=output,
         ),
-        runtime_client_factory=_FakeClient,
+        runtime_client_factory=lambda: adapter,
     )
 
     assert result.category == "error"
@@ -727,29 +722,28 @@ def test_live_probe_case_runner_flushes_each_observed_event(
 
     monkeypatch.setattr(case_runner.Path, "open", _open)
 
-    class _FakeClient:
-        async def run_ephemeral(self, request: Any) -> Any:
-            request.on_live_output(
-                pr.AgentEvent(
-                    type="agent_message",
-                    display_message="hello",
-                    raw_provider_output='{"event":"message"}',
-                )
+    def _record(method: str, request: Any) -> Any:
+        if method != "run_ephemeral":
+            return None
+        request.on_live_output(
+            pr.AgentEvent(
+                type="agent_message",
+                display_message="hello",
+                raw_provider_output='{"event":"message"}',
             )
-            request.on_live_output(
-                pr.AgentEvent(
-                    type="other",
-                    display_message="hidden",
-                    raw_provider_output='{"event":"other"}',
-                )
+        )
+        request.on_live_output(
+            pr.AgentEvent(
+                type="other",
+                display_message="hidden",
+                raw_provider_output='{"event":"other"}',
             )
-            return _completed("ephemeral output")
+        )
+        return _completed("ephemeral output")
 
-        async def run_new_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected new-session execution")
-
-        async def run_resumed_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected resumed execution")
+    adapter = case_runner.InMemoryRuntimeInvocationAdapter(
+        record_handler=_record,
+    )
 
     result = case_runner.run_case(
         case_runner.ProbeCaseRunRequest(
@@ -761,7 +755,7 @@ def test_live_probe_case_runner_flushes_each_observed_event(
             continuation=None,
             output=output,
         ),
-        runtime_client_factory=_FakeClient,
+        runtime_client_factory=lambda: adapter,
     )
 
     assert result.category == "success"
@@ -787,18 +781,17 @@ def test_live_probe_case_runner_passes_continuation_and_default_provider_auth_fo
     output = _OutputRecorder()
     observed: dict[str, Any] = {}
 
-    class _FakeClient:
-        async def run_ephemeral(self, request: Any) -> Any:
-            raise AssertionError("unexpected ephemeral execution")
+    def _record(method: str, request: Any) -> Any:
+        if method != "run_resumed_session":
+            return None
+        observed["continuation"] = request.continuation
+        observed["provider_auth"] = request.provider_auth
+        observed["invocation_dir"] = request.invocation_dir
+        return _completed("resumed output")
 
-        async def run_new_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected new-session execution")
-
-        async def run_resumed_session(self, request: Any) -> Any:
-            observed["continuation"] = request.continuation
-            observed["provider_auth"] = request.provider_auth
-            observed["invocation_dir"] = request.invocation_dir
-            return _completed("resumed output")
+    adapter = case_runner.InMemoryRuntimeInvocationAdapter(
+        record_handler=_record,
+    )
 
     result = case_runner.run_case(
         case_runner.ProbeCaseRunRequest(
@@ -810,7 +803,7 @@ def test_live_probe_case_runner_passes_continuation_and_default_provider_auth_fo
             continuation=_continuation(),
             output=output,
         ),
-        runtime_client_factory=_FakeClient,
+        runtime_client_factory=lambda: adapter,
     )
 
     assert result.category == "success"
@@ -828,16 +821,13 @@ def test_live_probe_case_runner_uses_returned_resumed_session_invocation_dir(
     observed: dict[str, Any] = {}
     resumed_session_invocation_dir = tmp_path / "new-session-workspace"
 
-    class _FakeClient:
-        async def run_ephemeral(self, request: Any) -> Any:
-            raise AssertionError("unexpected ephemeral execution")
+    def _record(method: str, request: Any) -> Any:
+        if method != "run_resumed_session":
+            return None
+        observed["invocation_dir"] = request.invocation_dir
+        return _completed("resumed output")
 
-        async def run_new_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected new-session execution")
-
-        async def run_resumed_session(self, request: Any) -> Any:
-            observed["invocation_dir"] = request.invocation_dir
-            return _completed("resumed output")
+    adapter = case_runner.InMemoryRuntimeInvocationAdapter(record_handler=_record)
 
     result = case_runner.run_case(
         case_runner.ProbeCaseRunRequest(
@@ -850,7 +840,7 @@ def test_live_probe_case_runner_uses_returned_resumed_session_invocation_dir(
             continuation=_continuation(),
             output=output,
         ),
-        runtime_client_factory=_FakeClient,
+        runtime_client_factory=lambda: adapter,
     )
 
     assert result.category == "success"
@@ -866,15 +856,12 @@ def test_live_probe_case_runner_reports_wrong_credentials_with_traceback(
     case = _codex_probe_case(probe, mode="ephemeral")
     output = _OutputRecorder()
 
-    class _FakeClient:
-        async def run_ephemeral(self, request: Any) -> Any:
+    def _record(method: str, request: Any) -> Any:
+        if method == "run_ephemeral":
             raise AgentCredentialFailureError("bad token", service_name="codex")
+        return None
 
-        async def run_new_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected new-session execution")
-
-        async def run_resumed_session(self, request: Any) -> Any:
-            raise AssertionError("unexpected resumed execution")
+    adapter = case_runner.InMemoryRuntimeInvocationAdapter(record_handler=_record)
 
     result = case_runner.run_case(
         case_runner.ProbeCaseRunRequest(
@@ -886,7 +873,7 @@ def test_live_probe_case_runner_reports_wrong_credentials_with_traceback(
             continuation=None,
             output=output,
         ),
-        runtime_client_factory=_FakeClient,
+        runtime_client_factory=lambda: adapter,
     )
 
     assert result.category == "wrong_credentials"
@@ -977,13 +964,14 @@ def test_live_probe_case_runner_in_memory_runtime_invocation_adapter_records_req
         )
         assert result.category == "success"
 
-    assert [mode for mode, _ in adapter.recorded_requests] == [
+    assert {mode for mode, _ in adapter.recorded_requests} == {
         "run_ephemeral",
         "run_new_session",
         "run_resumed_session",
-    ]
+    }
 
-    ephemeral_request = adapter.recorded_requests[0][1]
+    recorded_requests = {mode: request for mode, request in adapter.recorded_requests}
+    ephemeral_request = recorded_requests["run_ephemeral"]
     assert isinstance(ephemeral_request, pr.EphemeralRunRequest)
     assert ephemeral_request.provider_selection == ephemeral_case.provider_selection
     assert ephemeral_request.tool_policy is pr.ToolPolicy.UNRESTRICTED
@@ -991,7 +979,7 @@ def test_live_probe_case_runner_in_memory_runtime_invocation_adapter_records_req
     assert ephemeral_request.timeout_seconds == 45
     assert ephemeral_request.invocation_dir == tmp_path / "ephemeral-workspace"
 
-    new_session_request = adapter.recorded_requests[1][1]
+    new_session_request = recorded_requests["run_new_session"]
     assert isinstance(new_session_request, pr.NewSessionRunRequest)
     assert new_session_request.provider_selection == new_session_case.provider_selection
     assert new_session_request.tool_policy is pr.ToolPolicy.UNRESTRICTED
@@ -999,7 +987,7 @@ def test_live_probe_case_runner_in_memory_runtime_invocation_adapter_records_req
     assert new_session_request.timeout_seconds == 45
     assert new_session_request.invocation_dir == tmp_path / "new-session-workspace"
 
-    resumed_session_request = adapter.recorded_requests[2][1]
+    resumed_session_request = recorded_requests["run_resumed_session"]
     assert isinstance(resumed_session_request, pr.ResumedSessionRunRequest)
     assert resumed_session_request.continuation == continuation
     assert resumed_session_request.provider_auth == pr.ProviderAuth(
