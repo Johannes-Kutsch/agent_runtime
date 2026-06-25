@@ -1243,7 +1243,7 @@ def _invoke_opencode_new_session_provider(
     run_kind: RunKind,
     provider_session_id: str,
     on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> tuple[ProviderInvocationResult | ProviderInvocationFailure, str]:
+) -> ProviderInvocationResult | ProviderInvocationFailure:
     stream_interpretation = _opencode_stream_interpretation(
         on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
@@ -1273,12 +1273,7 @@ def _invoke_opencode_new_session_provider(
         provider_session_id=provider_session_id,
         stream_interpretation=stream_interpretation,
     )
-    if isinstance(invocation_result, ProviderInvocationFailure):
-        return invocation_result, provider_session_id
-    return (
-        invocation_result,
-        invocation_result.provider_session_id or provider_session_id,
-    )
+    return invocation_result
 
 
 def _run_builtin_ephemeral(

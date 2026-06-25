@@ -4,13 +4,12 @@ from pathlib import Path
 from typing import cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
-from ._builtin_provider_stream_interpretation import (
-    resolve_built_in_provider_session_id,
-)
+from ._builtin_provider_stream_interpretation import BuiltInProviderStreamInterpretation
 from ._portable_continuation_payload import read_portable_continuation_payload
 from ._provider_invocation import (
     ProviderInvocationAdapter,
     ProviderInvocationFailure,
+    ProviderInvocationResult,
 )
 from ._runtime_lifecycle import (
     Completed,
@@ -25,6 +24,25 @@ from .errors import RuntimeConfigurationError
 from .invocation_progress import InvocationProgress
 from .session import RunKind
 from .types import ProviderSelection, ResolvedProvider
+
+
+def _resolve_active_provider_session_id(
+    *,
+    stream_interpretation: BuiltInProviderStreamInterpretation,
+    invocation_result: ProviderInvocationResult | ProviderInvocationFailure,
+    prepared_or_continuation_provider_session_id: str | None,
+) -> str | None:
+    if stream_interpretation.extract_provider_session_id is not None:
+        observed_provider_session_id = (
+            stream_interpretation.extract_provider_session_id(
+                list(invocation_result.stdout_lines)
+            )
+        )
+        if observed_provider_session_id is not None:
+            return observed_provider_session_id
+    if invocation_result.provider_session_id is not None:
+        return invocation_result.provider_session_id
+    return prepared_or_continuation_provider_session_id
 
 
 def _completed_outcome(
@@ -147,11 +165,12 @@ def _run_builtin_new_session(
                 )
             )
             if isinstance(invocation_result, ProviderInvocationFailure):
-                provider_session_id = resolve_built_in_provider_session_id(
-                    _builtin_runtime_client_module._codex_stream_interpretation(),
-                    list(invocation_result.stdout_lines),
-                    provider_session_id=invocation_result.provider_session_id,
-                    fallback_provider_session_id=provider_session_id,
+                provider_session_id = _resolve_active_provider_session_id(
+                    stream_interpretation=(
+                        _builtin_runtime_client_module._codex_stream_interpretation()
+                    ),
+                    invocation_result=invocation_result,
+                    prepared_or_continuation_provider_session_id=provider_session_id,
                 )
                 failure_error = _builtin_runtime_client_module._provider_invocation_error_from_failure(
                     "codex",
@@ -175,11 +194,12 @@ def _run_builtin_new_session(
                 )
                 raise failure_error
             else:
-                provider_session_id = resolve_built_in_provider_session_id(
-                    _builtin_runtime_client_module._codex_stream_interpretation(),
-                    list(invocation_result.stdout_lines),
-                    provider_session_id=invocation_result.provider_session_id,
-                    fallback_provider_session_id=None,
+                provider_session_id = _resolve_active_provider_session_id(
+                    stream_interpretation=(
+                        _builtin_runtime_client_module._codex_stream_interpretation()
+                    ),
+                    invocation_result=invocation_result,
+                    prepared_or_continuation_provider_session_id=None,
                 )
                 result_text = invocation_result.output
                 usage = invocation_result.usage
@@ -288,7 +308,7 @@ def _run_builtin_new_session(
             )
         else:
             assert provider_session_id is not None
-            invocation_result, provider_session_id = (
+            invocation_result = (
                 _builtin_runtime_client_module._invoke_opencode_new_session_provider(
                     provider_invocation_adapter=invocation_adapter,
                     request=request,
@@ -299,14 +319,16 @@ def _run_builtin_new_session(
                     on_live_output=_on_live_output,
                 )
             )
+        stream_interpretation = (
+            _builtin_runtime_client_module._stream_interpretation_for_service(
+                selected_stage.service
+            )
+        )
         if isinstance(invocation_result, ProviderInvocationFailure):
-            provider_session_id = resolve_built_in_provider_session_id(
-                _builtin_runtime_client_module._stream_interpretation_for_service(
-                    selected_stage.service
-                ),
-                list(invocation_result.stdout_lines),
-                provider_session_id=invocation_result.provider_session_id,
-                fallback_provider_session_id=provider_session_id,
+            provider_session_id = _resolve_active_provider_session_id(
+                stream_interpretation=stream_interpretation,
+                invocation_result=invocation_result,
+                prepared_or_continuation_provider_session_id=provider_session_id,
             )
             if selected_stage.service == "opencode" and provider_session_id is not None:
                 _builtin_runtime_client_module._persist_opencode_session_id(
@@ -341,11 +363,12 @@ def _run_builtin_new_session(
                     )
                 )
             raise failure_error
-        if selected_stage.service == "claude":
-            provider_session_id = (
-                invocation_result.provider_session_id or provider_session_id
-            )
-        elif provider_session_id is not None:
+        provider_session_id = _resolve_active_provider_session_id(
+            stream_interpretation=stream_interpretation,
+            invocation_result=invocation_result,
+            prepared_or_continuation_provider_session_id=provider_session_id,
+        )
+        if selected_stage.service == "opencode" and provider_session_id is not None:
             _builtin_runtime_client_module._persist_opencode_session_id(
                 provider_state_dir, provider_session_id
             )
@@ -463,11 +486,14 @@ def _run_builtin_resumed_session(
             )
         )
         if isinstance(invocation_result, ProviderInvocationFailure):
-            active_provider_session_id = resolve_built_in_provider_session_id(
-                _builtin_runtime_client_module._codex_stream_interpretation(),
-                list(invocation_result.stdout_lines),
-                provider_session_id=invocation_result.provider_session_id,
-                fallback_provider_session_id=active_provider_session_id,
+            active_provider_session_id = _resolve_active_provider_session_id(
+                stream_interpretation=(
+                    _builtin_runtime_client_module._codex_stream_interpretation()
+                ),
+                invocation_result=invocation_result,
+                prepared_or_continuation_provider_session_id=(
+                    active_provider_session_id
+                ),
             )
             failure_error = (
                 _builtin_runtime_client_module._provider_invocation_error_from_failure(
@@ -491,11 +517,12 @@ def _run_builtin_resumed_session(
             )
             raise failure_error
         else:
-            active_provider_session_id = resolve_built_in_provider_session_id(
-                _builtin_runtime_client_module._codex_stream_interpretation(),
-                list(invocation_result.stdout_lines),
-                provider_session_id=invocation_result.provider_session_id,
-                fallback_provider_session_id=provider_session_id,
+            active_provider_session_id = _resolve_active_provider_session_id(
+                stream_interpretation=(
+                    _builtin_runtime_client_module._codex_stream_interpretation()
+                ),
+                invocation_result=invocation_result,
+                prepared_or_continuation_provider_session_id=provider_session_id,
             )
             result_text = invocation_result.output
             usage = invocation_result.usage
@@ -635,6 +662,11 @@ def _run_builtin_resumed_session(
                 fallback_provider_session_id=provider_session_id,
             )
         )
+    active_provider_session_interpretation = (
+        _builtin_runtime_client_module._stream_interpretation_for_service(
+            continuation_service
+        )
+    )
     invocation_result = _builtin_runtime_client_module._invoke_provider(
         provider_invocation_adapter=invocation_adapter,
         command="" if continuation_service == "opencode" else command,
@@ -650,11 +682,10 @@ def _run_builtin_resumed_session(
         stream_interpretation=stream_interpretation,
     )
     if isinstance(invocation_result, ProviderInvocationFailure):
-        provider_session_id = resolve_built_in_provider_session_id(
-            stream_interpretation,
-            list(invocation_result.stdout_lines),
-            provider_session_id=invocation_result.provider_session_id,
-            fallback_provider_session_id=provider_session_id,
+        provider_session_id = _resolve_active_provider_session_id(
+            stream_interpretation=active_provider_session_interpretation,
+            invocation_result=invocation_result,
+            prepared_or_continuation_provider_session_id=provider_session_id,
         )
         if continuation_service == "opencode":
             exact_transcript_match = (
@@ -698,8 +729,12 @@ def _run_builtin_resumed_session(
             failure_error.continuation = None
         cleanup_opencode_state_dir()
         raise failure_error
+    provider_session_id = _resolve_active_provider_session_id(
+        stream_interpretation=active_provider_session_interpretation,
+        invocation_result=invocation_result,
+        prepared_or_continuation_provider_session_id=provider_session_id,
+    )
     if continuation_service == "opencode":
-        provider_session_id = invocation_result.provider_session_id
         assert provider_session_id is not None
         assert provider_state_dir is not None
         exact_transcript_match = (
@@ -711,10 +746,6 @@ def _run_builtin_resumed_session(
         )
         _builtin_runtime_client_module._persist_opencode_session_id(
             provider_state_dir, provider_session_id
-        )
-    if continuation_service == "claude":
-        provider_session_id = (
-            invocation_result.provider_session_id or provider_session_id
         )
     assert provider_session_id is not None
     result_text = invocation_result.output
