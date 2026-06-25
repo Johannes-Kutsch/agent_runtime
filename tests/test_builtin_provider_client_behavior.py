@@ -20,6 +20,7 @@ import agent_runtime._builtin_runtime_client as builtin_runtime_client_runtime
 import agent_runtime._builtin_provider_rendering as builtin_provider_rendering_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
+from agent_runtime._runtime_lifecycle import ProviderAuth
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 from agent_runtime.errors import (
     AgentCancelledError,
@@ -4027,7 +4028,7 @@ def test_runtime_client_runs_ephemeral_built_in_provider_through_invocation_seam
     assert list((tmp_path / "logs").glob("*.log")) == []
 
 
-def test_runtime_client_runs_ephemeral_codex_with_host_codex_home_when_portable_state_is_absent(
+def test_runtime_client_runs_ephemeral_codex_with_isolated_provider_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4064,10 +4065,198 @@ def test_runtime_client_runs_ephemeral_codex_with_host_codex_home_when_portable_
 
     assert isinstance(outcome.kind, prompt_runtime.Completed)
     assert outcome.result.output == "ephemeral output"
-    assert harness.recorded_request().environment == {
-        "TZ": "UTC",
-        "CODEX_HOME": str(tmp_path / "host-home" / ".codex"),
-    }
+    recorded_environment = harness.recorded_request().environment
+    assert recorded_environment["TZ"] == "UTC"
+    assert recorded_environment["CODEX_HOME"] != str(tmp_path / "host-home" / ".codex")
+
+
+def test_runtime_client_ephemeral_codex_seeds_host_auth_into_isolated_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+
+    class _CapturingAdapter:
+        request: provider_invocation_runtime.ProviderInvocationRequest | None = None
+        seeded_auth_content: str | None = None
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.request = request
+            code_home = Path(request.environment["CODEX_HOME"])
+            self.seeded_auth_content = (code_home / "auth.json").read_text(
+                encoding="utf-8"
+            )
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output="ephemeral output",
+                usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+                stdout_lines=(
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"ephemeral output"}}\n',
+                    '{"type":"turn.completed"}\n',
+                ),
+            )
+
+    adapter = _CapturingAdapter()
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            RuntimeClientExecutionHarness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=None,
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "ephemeral output"
+    assert adapter.request is not None
+    assert Path(adapter.request.environment["CODEX_HOME"]) != host_home.parent
+    assert adapter.seeded_auth_content == '{"token":"host-auth"}\n'
+
+
+def test_runtime_client_ephemeral_isolated_home_is_cleaned_up_after_failed_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+
+    class _FailingAdapter:
+        provider_state_dir: Path | None = None
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.provider_state_dir = Path(request.environment["CODEX_HOME"])
+            raise RuntimeError("invocation failed")
+
+    adapter = _FailingAdapter()
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    with pytest.raises(RuntimeError, match="invocation failed"):
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                RuntimeClientExecutionHarness.ephemeral_run_request(
+                    invocation_dir=tmp_path,
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    provider_auth=None,
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    assert adapter.provider_state_dir is not None
+    assert not adapter.provider_state_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("service_name", "model", "effort", "auth", "state_dir_name", "state_key"),
+    [
+        ("codex", "gpt-5.4", "medium", None, ".codex", "CODEX_HOME"),
+        (
+            "claude",
+            "sonnet",
+            "medium",
+            ProviderAuth(claude_code_oauth_token="token"),
+            ".claude",
+            "CLAUDE_CONFIG_DIR",
+        ),
+    ],
+)
+def test_runtime_client_ephemeral_runs_do_not_touch_host_provider_history(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    service_name: str,
+    model: str,
+    effort: str,
+    auth: ProviderAuth | None,
+    state_dir_name: str,
+    state_key: str,
+) -> None:
+    host_home = RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    ).parent
+    host_home = host_home.parent
+    host_state_dir = host_home / state_dir_name
+    host_probe_path = host_state_dir / "history-probe.txt"
+    host_state_dir.mkdir(parents=True, exist_ok=True)
+    host_probe_path.write_text("host history", encoding="utf-8")
+
+    class _ProbeAdapter:
+        provider_state_dir: Path | None = None
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            self.provider_state_dir = Path(request.environment[state_key])
+            (self.provider_state_dir / "history-probe.txt").write_text(
+                "ephemeral run history",
+                encoding="utf-8",
+            )
+            return provider_invocation_runtime.ProviderInvocationResult(
+                output="ephemeral output",
+                usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+                stdout_lines=(
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"ephemeral output"}}\n',
+                    '{"type":"turn.completed"}\n',
+                ),
+            )
+
+    adapter = _ProbeAdapter()
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: adapter,
+    )
+
+    request = RuntimeClientExecutionHarness.ephemeral_run_request(
+        invocation_dir=tmp_path,
+        provider_selection=InternalStageSelection(
+            service=service_name,
+            model=model,
+            effort=effort,
+        ),
+        provider_auth=auth,
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+    )
+    outcome = asyncio.run(runtime.RuntimeClient().run_ephemeral(request))
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert adapter.provider_state_dir is not None
+    assert adapter.provider_state_dir != host_state_dir
+    assert host_probe_path.read_text(encoding="utf-8") == "host history"
 
 
 def test_runtime_client_ephemeral_execution_remains_available_when_session_backed_support_disabled(
