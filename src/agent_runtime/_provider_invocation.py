@@ -232,27 +232,29 @@ class ProductionProviderInvocationAdapter:
                     )
                     stdout_lines.extend(stderr_lines)
 
-                def _observed_provider_session_id() -> str | None:
+                def _extracted_provider_session_id() -> str | None:
+                    if request.output_hooks.extract_provider_session_id is None:
+                        return None
+                    return request.output_hooks.extract_provider_session_id(
+                        stdout_lines
+                    )
+
+                def _active_provider_session_id() -> str | None:
                     provider_session_id = request.provider_session_id
-                    if request.output_hooks.extract_provider_session_id is not None:
-                        provider_session_id = (
-                            request.output_hooks.extract_provider_session_id(
-                                stdout_lines
-                            )
-                            or provider_session_id
-                        )
+                    extracted_provider_session_id = _extracted_provider_session_id()
+                    if extracted_provider_session_id is not None:
+                        provider_session_id = extracted_provider_session_id
                     return provider_session_id
 
                 if work_invocation_log is None:
                     try:
                         output, usage = request.output_hooks.reduce_output(stdout_lines)
                     except Exception as exc:
-                        observed_provider_session_id = _observed_provider_session_id()
                         if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
                             return _provider_invocation_failure_from_error(
                                 exc,
                                 stdout_lines=tuple(stdout_lines),
-                                provider_session_id=observed_provider_session_id,
+                                provider_session_id=_extracted_provider_session_id(),
                             )
                         raise
                 else:
@@ -267,16 +269,15 @@ class ProductionProviderInvocationAdapter:
                     try:
                         output, usage = reducer(stdout_lines, work_invocation_log)
                     except Exception as exc:
-                        observed_provider_session_id = _observed_provider_session_id()
                         if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
                             return _provider_invocation_failure_from_error(
                                 exc,
                                 stdout_lines=tuple(stdout_lines),
-                                provider_session_id=observed_provider_session_id,
+                                provider_session_id=_extracted_provider_session_id(),
                             )
                         raise
                 returncode = process.returncode
-                observed_provider_session_id = _observed_provider_session_id()
+                observed_provider_session_id = _active_provider_session_id()
                 if returncode != 0:
                     error = HardAgentError(
                         f"Provider subprocess exited with exit code {returncode}.",
@@ -329,16 +330,17 @@ class InMemoryProviderInvocationAdapter:
             stdout_lines = list(prepared.stdout_lines)
             _consume_new_stdout_lines(request.output_hooks.reduce_output, stdout_lines)
 
-            def _observed_provider_session_id() -> str | None:
-                provider_session_id = (
-                    prepared.provider_session_id or request.provider_session_id
+            def _extracted_provider_session_id() -> str | None:
+                if request.output_hooks.extract_provider_session_id is None:
+                    return None
+                return request.output_hooks.extract_provider_session_id(stdout_lines)
+
+            def _active_provider_session_id() -> str | None:
+                return (
+                    _extracted_provider_session_id()
+                    or prepared.provider_session_id
+                    or request.provider_session_id
                 )
-                if request.output_hooks.extract_provider_session_id is not None:
-                    provider_session_id = (
-                        request.output_hooks.extract_provider_session_id(stdout_lines)
-                        or provider_session_id
-                    )
-                return provider_session_id
 
             work_invocation_context = (
                 nullcontext()
@@ -370,18 +372,20 @@ class InMemoryProviderInvocationAdapter:
                 try:
                     output, usage = reducer()
                 except Exception as exc:
-                    observed_provider_session_id = _observed_provider_session_id()
                     if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
                         return _provider_invocation_failure_from_error(
                             exc,
                             stdout_lines=tuple(stdout_lines),
-                            provider_session_id=observed_provider_session_id,
+                            provider_session_id=(
+                                _extracted_provider_session_id()
+                                or prepared.provider_session_id
+                            ),
                         )
                     raise
             return ProviderInvocationResult(
                 output=output,
                 usage=usage,
                 stdout_lines=tuple(stdout_lines),
-                provider_session_id=_observed_provider_session_id(),
+                provider_session_id=_active_provider_session_id(),
             )
         return prepared

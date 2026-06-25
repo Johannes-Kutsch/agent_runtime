@@ -1612,6 +1612,8 @@ def _provider_invocation_failure_started(
     service_name: str,
     failure: ProviderInvocationFailure,
 ) -> bool:
+    if failure.provider_session_id is not None:
+        return True
     if _provider_session_id_from_stdout_lines(service_name, failure.stdout_lines):
         return True
     parsed_events: list[Any]

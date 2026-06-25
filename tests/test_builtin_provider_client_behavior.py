@@ -3337,6 +3337,58 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
     )
 
 
+def test_runtime_client_keeps_claude_continuation_when_provider_invocation_failure_only_reports_provider_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "session-uuid",
+    )
+    _install_in_memory_provider_invocation_adapter(
+        monkeypatch,
+        provider_invocation_runtime.ProviderInvocationFailure(
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
+            provider_session_id="observed-session",
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            prompt_runtime.NewSessionRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                runtime_state_dir=tmp_path / ".agent-runtime" / "state",
+                provider_selection=_selection_with_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                session_namespace="main",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.result.continuation == prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "observed-session",
+            "exact_transcript_match": False,
+        },
+    )
+
+
 def test_runtime_client_keeps_recoverable_codex_resumed_session_id_when_invocation_seam_has_no_observed_session_id(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
