@@ -120,6 +120,13 @@ class BuiltInProviderRenderedInvocation:
         object.__setattr__(self, "environment", _freeze_mapping(self.environment))
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class BuiltInProviderRenderedToolPolicy:
+    claude_profile: ToolPolicyProfile
+    codex_sandbox: str
+    opencode_permission: dict[str, str] | str | None
+
+
 def _builtin_provider_prompt_path(invocation_dir: Path) -> Path:
     return invocation_dir / _BUILTIN_PROVIDER_PROMPT_FILENAME
 
@@ -129,15 +136,7 @@ def _codex_provider_prompt_path() -> Path:
 
 
 def _claude_tool_policy_profile(tool_access: ToolAccess) -> ToolPolicyProfile:
-    if isinstance(tool_access.tool_policy, ToolPolicy):
-        if tool_access.tool_policy is ToolPolicy.NONE:
-            return ToolPolicyProfile(disallowed_tools=("all",))
-        if tool_access.tool_policy is ToolPolicy.INSPECT_ONLY:
-            return ToolPolicyProfile(allowed_tools=("Read", "Glob"))
-        if tool_access.tool_policy is ToolPolicy.NO_FILE_MUTATION:
-            return ToolPolicyProfile(disallowed_tools=("Edit", "Write", "NotebookEdit"))
-        return ToolPolicyProfile()
-    return tool_access.tool_policy
+    return render_built_in_provider_tool_policy(tool_access.tool_policy).claude_profile
 
 
 def _validate_claude_selection(
@@ -243,16 +242,7 @@ def _opencode_go_model_ref(model: str) -> str:
 def _opencode_tool_policy_permission(
     tool_policy: ToolPolicy | ToolPolicyProfile,
 ) -> dict[str, str] | str | None:
-    profile = (
-        tool_policy.profile if isinstance(tool_policy, ToolPolicy) else tool_policy
-    )
-    if profile == ToolPolicy.NONE.profile:
-        return "deny"
-    if profile == ToolPolicy.INSPECT_ONLY.profile:
-        return {"edit": "deny", "bash": "deny"}
-    if profile == ToolPolicy.NO_FILE_MUTATION.profile:
-        return {"edit": "deny"}
-    return None
+    return render_built_in_provider_tool_policy(tool_policy).opencode_permission
 
 
 def _opencode_go_config_content(
@@ -323,22 +313,57 @@ def _opencode_environment(
 
 
 def _codex_sandbox(tool_policy: ToolPolicy | ToolPolicyProfile) -> str:
+    return render_built_in_provider_tool_policy(tool_policy).codex_sandbox
+
+
+def render_built_in_provider_tool_policy(
+    tool_policy: ToolPolicy | ToolPolicyProfile,
+) -> BuiltInProviderRenderedToolPolicy:
+    profile = (
+        tool_policy.profile if isinstance(tool_policy, ToolPolicy) else tool_policy
+    )
     if isinstance(tool_policy, ToolPolicy):
-        if tool_policy in {
-            ToolPolicy.NONE,
-            ToolPolicy.INSPECT_ONLY,
-            ToolPolicy.NO_FILE_MUTATION,
-        }:
-            return "read-only"
-        return "danger-full-access"
-    profile = tool_policy
+        claude_profile = (
+            ToolPolicyProfile(disallowed_tools=("all",))
+            if tool_policy is ToolPolicy.NONE
+            else profile
+        )
+        codex_sandbox = (
+            "read-only"
+            if tool_policy
+            in {
+                ToolPolicy.NONE,
+                ToolPolicy.INSPECT_ONLY,
+                ToolPolicy.NO_FILE_MUTATION,
+            }
+            else "danger-full-access"
+        )
+    else:
+        claude_profile = profile
+        codex_sandbox = (
+            "read-only"
+            if profile
+            in {
+                ToolPolicy.NONE.profile,
+                ToolPolicy.INSPECT_ONLY.profile,
+                ToolPolicy.NO_FILE_MUTATION.profile,
+            }
+            else "danger-full-access"
+        )
+    opencode_permission: dict[str, str] | str | None
     if profile == ToolPolicy.NONE.profile:
-        return "read-only"
-    if profile == ToolPolicy.INSPECT_ONLY.profile:
-        return "read-only"
-    if profile == ToolPolicy.NO_FILE_MUTATION.profile:
-        return "read-only"
-    return "danger-full-access"
+        opencode_permission = "deny"
+    elif profile == ToolPolicy.INSPECT_ONLY.profile:
+        opencode_permission = {"edit": "deny", "bash": "deny"}
+    elif profile == ToolPolicy.NO_FILE_MUTATION.profile:
+        opencode_permission = {"edit": "deny"}
+    else:
+        opencode_permission = None
+    return BuiltInProviderRenderedToolPolicy(
+        claude_profile=claude_profile,
+        codex_sandbox=codex_sandbox,
+        opencode_permission=opencode_permission,
+    )
 
 
 def _render_claude_invocation(

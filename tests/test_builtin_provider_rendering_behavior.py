@@ -338,17 +338,75 @@ def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() ->
     )
 
 
-def test_render_tool_policy_none_produces_current_provider_facts() -> None:
+@pytest.mark.parametrize(
+    (
+        "tool_policy",
+        "expected_claude_profile",
+        "expected_codex_sandbox",
+        "expected_opencode_permission",
+    ),
+    [
+        pytest.param(
+            runtime.ToolPolicy.NONE,
+            ToolPolicyProfile(disallowed_tools=("all",)),
+            "read-only",
+            "deny",
+            id="none",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.INSPECT_ONLY,
+            ToolPolicyProfile(allowed_tools=("Read", "Glob")),
+            "read-only",
+            {"bash": "deny", "edit": "deny"},
+            id="inspect-only",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.NO_FILE_MUTATION,
+            ToolPolicyProfile(disallowed_tools=("Edit", "Write", "NotebookEdit")),
+            "read-only",
+            {"edit": "deny"},
+            id="no-file-mutation",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.UNRESTRICTED,
+            ToolPolicyProfile(),
+            "danger-full-access",
+            None,
+            id="unrestricted",
+        ),
+    ],
+)
+def test_render_built_in_provider_tool_policy_produces_current_provider_facts(
+    tool_policy: runtime.ToolPolicy,
+    expected_claude_profile: ToolPolicyProfile,
+    expected_codex_sandbox: str,
+    expected_opencode_permission: object,
+) -> None:
     rendered_policy = built_in_provider_rendering.render_built_in_provider_tool_policy(
-        runtime.ToolPolicy.NONE
+        tool_policy
     )
 
-    assert (
-        rendered_policy.claude_profile
-        == ToolPolicyProfile(disallowed_tools=("all",))
+    assert rendered_policy.claude_profile == expected_claude_profile
+    assert rendered_policy.codex_sandbox == expected_codex_sandbox
+    assert rendered_policy.opencode_permission == expected_opencode_permission
+
+
+def test_render_built_in_provider_tool_policy_preserves_custom_profile_support() -> (
+    None
+):
+    custom_profile = ToolPolicyProfile(
+        allowed_tools=("Read", "Glob", "Bash"),
+        disallowed_tools=("Edit",),
+        strict_mcp_config=False,
     )
-    assert rendered_policy.codex_sandbox == "read-only"
-    assert rendered_policy.opencode_permission == "deny"
+
+    rendered_policy = built_in_provider_rendering.render_built_in_provider_tool_policy(
+        custom_profile
+    )
+
+    assert rendered_policy.claude_profile == custom_profile
+    assert rendered_policy.codex_sandbox == "danger-full-access"
+    assert rendered_policy.opencode_permission is None
 
 
 def test_render_claude_invocation_places_provider_session_ids_for_fresh_and_resume() -> (
