@@ -302,6 +302,27 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         setattr(result, "output", "changed")
 
 
+def test_built_in_provider_invocation_request_signature_excludes_logging_context() -> (
+    None
+):
+    assert tuple(
+        inspect.signature(
+            provider_invocation_runtime.ProviderInvocationRequest
+        ).parameters
+    ) == (
+        "worktree",
+        "environment",
+        "prompt",
+        "run_kind",
+        "provider_session_id",
+        "output_hooks",
+        "command",
+        "argv",
+        "prefer_argv",
+        "timeout_seconds",
+    )
+
+
 def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases_fail_direct_import() -> (
     None
 ):

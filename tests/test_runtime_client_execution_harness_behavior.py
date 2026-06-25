@@ -81,6 +81,38 @@ def test_runtime_client_execution_harness_records_built_in_provider_invocation_r
     assert harness.recorded_request().worktree == tmp_path
 
 
+def test_runtime_client_execution_harness_records_provider_invocation_request_without_logging_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_result(
+        provider_invocation_runtime.ProviderInvocationResult(output="done")
+    )
+
+    asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=_claude_selection(),
+            )
+        )
+    )
+
+    assert tuple(harness.recorded_request().__dataclass_fields__) == (
+        "worktree",
+        "environment",
+        "prompt",
+        "run_kind",
+        "provider_session_id",
+        "output_hooks",
+        "command",
+        "argv",
+        "prefer_argv",
+        "timeout_seconds",
+    )
+
+
 @pytest.mark.parametrize(
     ("prepare", "run_request", "expected_kind", "expected_output"),
     [
