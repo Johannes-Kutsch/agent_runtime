@@ -16,6 +16,7 @@ import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
+from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 from agent_runtime.errors import (
     AgentCancelledError,
     AgentCredentialFailureError,
@@ -57,16 +58,22 @@ def _install_in_memory_provider_invocation_adapter(
         | provider_invocation_runtime.ProviderInvocationFailure
         | provider_invocation_runtime.ProviderInvocationPreparedStream
     ),
-) -> provider_invocation_runtime.InMemoryProviderInvocationAdapter:
-    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
-        prepared_invocations=list(prepared_invocations)
-    )
-    monkeypatch.setattr(
-        prompt_runtime._builtin_runtime_client_module,
-        "_default_provider_invocation_adapter",
-        lambda: adapter,
-    )
-    return adapter
+) -> RuntimeClientExecutionHarness:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    for prepared_invocation in prepared_invocations:
+        if isinstance(
+            prepared_invocation,
+            provider_invocation_runtime.ProviderInvocationResult,
+        ):
+            harness.prepare_result(prepared_invocation)
+        elif isinstance(
+            prepared_invocation,
+            provider_invocation_runtime.ProviderInvocationFailure,
+        ):
+            harness.prepare_failure(prepared_invocation)
+        else:
+            harness.prepare_prepared_stream(prepared_invocation)
+    return harness
 
 
 @dataclasses.dataclass
