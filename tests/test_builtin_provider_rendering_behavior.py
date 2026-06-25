@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any, cast
@@ -703,6 +704,242 @@ def test_render_codex_fails_for_missing_host_auth_and_unsupported_selection(
                 run_kind=RunKind.FRESH,
                 tool_access=ToolAccess.workspace_backed(tmp_path),
                 auth=None,
+                invocation_dir=tmp_path,
+            )
+        )
+
+
+def test_render_opencode_fresh_invocation_returns_canonical_argv_and_current_config(
+    tmp_path: Path,
+) -> None:
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="opencode",
+                model="glm-5.2",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(tmp_path),
+            auth=ProviderAuth(opencode_api_key="go-key"),
+            invocation_dir=tmp_path,
+            provider_state_dir=tmp_path / "provider-state",
+        )
+    )
+
+    assert rendered_invocation.canonical_argv == (
+        "opencode",
+        "run",
+        "--format",
+        "json",
+        "--model",
+        "opencode-go/glm-5.2",
+    )
+    assert rendered_invocation.legacy_command_text == (
+        'opencode run --format json --model opencode-go/glm-5.2 "$(cat '
+        + str(tmp_path / ".provider_prompt")
+        + ')"'
+    )
+    assert rendered_invocation.environment["TZ"] == "UTC"
+    assert rendered_invocation.environment["OPENCODE_HOME"] == str(
+        tmp_path / "provider-state"
+    )
+    assert rendered_invocation.environment["OPENCODE_GO_API_KEY"] == "go-key"
+    config = json.loads(rendered_invocation.environment["OPENCODE_CONFIG_CONTENT"])
+    provider = config["provider"]["opencode-go"]
+    assert provider["models"]["glm-5.2"] == {"name": "glm-5.2"}
+    assert provider["models"]["deepseek-v4-flash"] == {"name": "deepseek-v4-flash"}
+    assert "glm-5" not in provider["models"]
+    assert "qwen3.5-plus" not in provider["models"]
+    assert rendered_invocation.prompt_path == tmp_path / ".provider_prompt"
+    assert rendered_invocation.prompt_cleanup_choice is (
+        built_in_provider_rendering.PromptCleanupChoice.DELETE_AFTER_INVOCATION
+    )
+    assert rendered_invocation.prompt_transport_preference is (
+        built_in_provider_rendering.PromptTransportPreference.PROMPT_FILE
+    )
+    assert rendered_invocation.provider_session_id_placement is (
+        built_in_provider_rendering.ProviderSessionIdPlacement.NONE
+    )
+    assert rendered_invocation.prefer_argv is True
+
+
+def test_render_opencode_resumed_invocation_places_and_carries_provider_session_id(
+    tmp_path: Path,
+) -> None:
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="opencode",
+                model="glm-5.2",
+                effort="medium",
+            ),
+            run_kind=RunKind.RESUME,
+            tool_access=ToolAccess.workspace_backed(tmp_path),
+            auth=ProviderAuth(opencode_api_key="go-key"),
+            invocation_dir=tmp_path,
+            provider_session_id="provider-session-123",
+        )
+    )
+
+    assert rendered_invocation.canonical_argv == (
+        "opencode",
+        "run",
+        "--format",
+        "json",
+        "--session",
+        "provider-session-123",
+        "--model",
+        "opencode-go/glm-5.2",
+    )
+    assert rendered_invocation.provider_session_id_placement is (
+        built_in_provider_rendering.ProviderSessionIdPlacement.CLI_FLAG
+    )
+    assert rendered_invocation.provider_session_id == "provider-session-123"
+
+
+def test_render_opencode_fails_for_missing_credentials_and_unsupported_selection(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(AgentCredentialFailureError, match="Missing OpenCode API key."):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(tmp_path),
+                auth=None,
+                invocation_dir=tmp_path,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_permission"),
+    [
+        pytest.param(runtime.ToolPolicy.NONE, "deny", id="none"),
+        pytest.param(
+            runtime.ToolPolicy.INSPECT_ONLY,
+            {"bash": "deny", "edit": "deny"},
+            id="inspect-only",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.NO_FILE_MUTATION,
+            {"edit": "deny"},
+            id="no-file-mutation",
+        ),
+        pytest.param(runtime.ToolPolicy.UNRESTRICTED, None, id="unrestricted"),
+    ],
+)
+def test_render_opencode_tool_policy_maps_to_current_permission_content(
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_permission: object,
+) -> None:
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="opencode",
+                model="glm-5.2",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(tmp_path, tool_policy=tool_policy),
+            auth=ProviderAuth(opencode_api_key="go-key"),
+            invocation_dir=tmp_path,
+        )
+    )
+
+    config = json.loads(rendered_invocation.environment["OPENCODE_CONFIG_CONTENT"])
+    assert config.get("permission") == expected_permission
+
+
+def test_render_opencode_uses_windows_executable_and_process_launch_env_allowlist(
+    tmp_path: Path,
+) -> None:
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="opencode",
+                model="glm-5.2",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(
+                tmp_path,
+                tool_policy=runtime.ToolPolicy.INSPECT_ONLY,
+            ),
+            auth=ProviderAuth(opencode_api_key="go-key"),
+            invocation_dir=tmp_path,
+            provider_state_dir=tmp_path / "provider-state",
+            host_facts=built_in_provider_rendering.BuiltInProviderHostFacts(
+                os_name="nt",
+                environment={
+                    "PATH": "path-value",
+                    "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+                    "SystemRoot": "C:\\Windows",
+                    "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+                    "WINDIR": "C:\\Windows",
+                    "SHOULD_NOT_LEAK": "host-value",
+                },
+            ),
+        )
+    )
+
+    assert rendered_invocation.canonical_argv[0] == "opencode.cmd"
+    assert rendered_invocation.environment == {
+        "PATH": "path-value",
+        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+        "SystemRoot": "C:\\Windows",
+        "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+        "WINDIR": "C:\\Windows",
+        "TZ": "UTC",
+        "OPENCODE_HOME": str(tmp_path / "provider-state"),
+        "OPENCODE_GO_API_KEY": "go-key",
+        "OPENCODE_CONFIG_CONTENT": rendered_invocation.environment[
+            "OPENCODE_CONFIG_CONTENT"
+        ],
+    }
+
+    with pytest.raises(
+        RuntimeConfigurationError, match=r"Unsupported OpenCode model 'glm-5'\."
+    ):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="opencode",
+                        model="glm-5",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(tmp_path),
+                auth=ProviderAuth(opencode_api_key="go-key"),
+                invocation_dir=tmp_path,
+            )
+        )
+
+    with pytest.raises(
+        RuntimeConfigurationError, match=r"Unsupported OpenCode effort 'high'\."
+    ):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="high",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(tmp_path),
+                auth=ProviderAuth(opencode_api_key="go-key"),
                 invocation_dir=tmp_path,
             )
         )

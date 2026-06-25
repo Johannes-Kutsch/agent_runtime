@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import logging
-import os
 import shlex
 import tempfile
 import subprocess as _subprocess
@@ -69,28 +67,12 @@ _CLAUDE_VALID_MODELS = _builtin_provider_rendering_module._CLAUDE_VALID_MODELS
 _CLAUDE_VALID_EFFORTS = _builtin_provider_rendering_module._CLAUDE_VALID_EFFORTS
 _CODEX_VALID_MODELS = _builtin_provider_rendering_module._CODEX_VALID_MODELS
 _CODEX_VALID_EFFORTS = _builtin_provider_rendering_module._CODEX_VALID_EFFORTS
-_OPENCODE_GO_PROVIDER_ID = "opencode-go"
-_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
+_OPENCODE_GO_PROVIDER_ID = _builtin_provider_rendering_module._OPENCODE_GO_PROVIDER_ID
+_OPENCODE_GO_BASE_URL = _builtin_provider_rendering_module._OPENCODE_GO_BASE_URL
 _OPENCODE_SESSION_ID_FILENAME = "session_id"
 _BUILTIN_PROVIDER_PROMPT_FILENAME = ".provider_prompt"
-_OPENCODE_GO_MODELS = frozenset(
-    {
-        "deepseek-v4-flash",
-        "deepseek-v4-pro",
-        "glm-5.1",
-        "glm-5.2",
-        "kimi-k2.6",
-        "kimi-k2.7-code",
-        "mimo-v2.5",
-        "mimo-v2.5-pro",
-        "minimax-m2.7",
-        "minimax-m3",
-        "qwen3.6-plus",
-        "qwen3.7-max",
-        "qwen3.7-plus",
-    }
-)
-_OPENCODE_VALID_EFFORTS = frozenset({"medium"})
+_OPENCODE_GO_MODELS = _builtin_provider_rendering_module._OPENCODE_GO_MODELS
+_OPENCODE_VALID_EFFORTS = _builtin_provider_rendering_module._OPENCODE_VALID_EFFORTS
 _SUPPORTED_BUILTIN_SERVICES = frozenset({"claude", "codex", "opencode"})
 _PORTABLE_CONTINUATION_PROVIDERS = frozenset({"claude", "codex", "opencode"})
 _WAKE_TIME_BUFFER = timedelta(minutes=2)
@@ -206,12 +188,13 @@ def _validate_codex_stage(stage: ProviderSelection) -> None:
 
 
 def _validate_opencode_stage(stage: ProviderSelection) -> None:
-    if stage.model not in _OPENCODE_GO_MODELS:
-        raise RuntimeConfigurationError(f"Unsupported OpenCode model {stage.model!r}.")
-    if stage.effort not in _OPENCODE_VALID_EFFORTS:
-        raise RuntimeConfigurationError(
-            f"Unsupported OpenCode effort {stage.effort!r}."
+    _builtin_provider_rendering_module._validate_opencode_selection(
+        _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+            service=stage.service,
+            model=stage.model,
+            effort=stage.effort,
         )
+    )
 
 
 def _claude_command(
@@ -324,51 +307,24 @@ def _codex_env(
 
 
 def _opencode_go_model_ref(model: str) -> str:
-    if "/" in model:
-        return model
-    return f"{_OPENCODE_GO_PROVIDER_ID}/{model}"
+    return _builtin_provider_rendering_module._opencode_go_model_ref(model)
 
 
 def _opencode_tool_policy_permission(
     tool_policy: ToolPolicy | ToolPolicyProfile,
 ) -> dict[str, str] | str | None:
-    profile = (
-        tool_policy.profile if isinstance(tool_policy, ToolPolicy) else tool_policy
+    return _builtin_provider_rendering_module._opencode_tool_policy_permission(
+        tool_policy
     )
-    if profile == ToolPolicy.NONE.profile:
-        return "deny"
-    if profile == ToolPolicy.INSPECT_ONLY.profile:
-        return {"edit": "deny", "bash": "deny"}
-    if profile == ToolPolicy.NO_FILE_MUTATION.profile:
-        return {"edit": "deny"}
-    return None
 
 
 def _opencode_go_config_content(
     *,
     tool_policy: ToolPolicy | ToolPolicyProfile | None = None,
 ) -> str:
-    config: dict[str, Any] = {
-        "$schema": "https://opencode.ai/config.json",
-        "provider": {
-            _OPENCODE_GO_PROVIDER_ID: {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "OpenCode Go",
-                "options": {
-                    "baseURL": _OPENCODE_GO_BASE_URL,
-                    "apiKey": "{env:OPENCODE_GO_API_KEY}",
-                },
-                "models": {
-                    model: {"name": model} for model in sorted(_OPENCODE_GO_MODELS)
-                },
-            }
-        },
-    }
-    if tool_policy is not None:
-        permission = _opencode_tool_policy_permission(tool_policy)
-        if permission is not None:
-            config["permission"] = permission
-    return json.dumps(config, sort_keys=True, separators=(",", ":"))
+    return _builtin_provider_rendering_module._opencode_go_config_content(
+        tool_policy=tool_policy
+    )
 
 
 def _opencode_command(
@@ -380,13 +336,25 @@ def _opencode_command(
     os_name: str | None = None,
 ) -> tuple[str, ...]:
     del effort
-    executable = "opencode.cmd" if (os_name or os.name) == "nt" else "opencode"
-    parts = [executable, "run", "--format", "json"]
-    if run_kind == RunKind.RESUME and session_uuid:
-        parts.extend(["--session", session_uuid])
-    if model:
-        parts.extend(["--model", _opencode_go_model_ref(model)])
-    return tuple(parts)
+    return _builtin_provider_rendering_module._render_opencode_invocation(
+        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
+            provider_selection=(
+                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+                    service="opencode",
+                    model=model,
+                    effort="medium",
+                )
+            ),
+            run_kind=run_kind,
+            tool_access=ToolAccess.no_tools(),
+            auth=ProviderAuth(opencode_api_key="token"),
+            invocation_dir=Path("/tmp"),
+            provider_session_id=session_uuid,
+            host_facts=_builtin_provider_rendering_module.BuiltInProviderHostFacts(
+                os_name=os_name,
+            ),
+        )
+    ).canonical_argv
 
 
 def _windows_process_base_env(
@@ -394,14 +362,10 @@ def _windows_process_base_env(
     os_name: str | None = None,
     environ: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    if (os_name or os.name) != "nt":
-        return {}
-    source_env = os.environ if environ is None else environ
-    return {
-        key: source_env[key]
-        for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
-        if key in source_env and source_env[key]
-    }
+    return _builtin_provider_rendering_module._windows_process_base_env(
+        os_name=os_name,
+        environ=environ,
+    )
 
 
 def _legacy_command_text(
@@ -424,19 +388,17 @@ def _opencode_env(
     os_name: str | None = None,
     environ: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    env: dict[str, str] = {
-        **_windows_process_base_env(os_name=os_name, environ=environ),
-        "TZ": "UTC",
-    }
-    if state_dir_container_path:
-        env["OPENCODE_HOME"] = state_dir_container_path
-    api_key = None if auth is None else auth.opencode_api_key
-    if api_key:
-        env["OPENCODE_GO_API_KEY"] = api_key
-        env["OPENCODE_CONFIG_CONTENT"] = _opencode_go_config_content(
-            tool_policy=tool_policy
-        )
-    return env
+    return _builtin_provider_rendering_module._opencode_environment(
+        auth=auth,
+        provider_state_dir=(
+            None if state_dir_container_path is None else Path(state_dir_container_path)
+        ),
+        tool_policy=tool_policy,
+        host_facts=_builtin_provider_rendering_module.BuiltInProviderHostFacts(
+            os_name=os_name,
+            environment=environ,
+        ),
+    )
 
 
 class _IdleTimeoutWatchdog:
@@ -1137,14 +1099,7 @@ def _new_session_runtime_state_dir(
 
 
 def _require_opencode_auth(auth: ProviderAuth | None) -> None:
-    if auth is not None and auth.opencode_api_key:
-        return
-    message = "Missing OpenCode API key."
-    raise AgentCredentialFailureError(
-        message=message,
-        service_name="opencode",
-        classification="operator_actionable_agent_credential_failure",
-    )
+    _builtin_provider_rendering_module._require_opencode_auth(auth)
 
 
 def _selection_auth(selection: ProviderSelection) -> ProviderAuth | None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import json
 import os
 import shlex
 from collections.abc import Mapping
@@ -26,6 +27,26 @@ _CODEX_VALID_MODELS = frozenset(
     }
 )
 _CODEX_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
+_OPENCODE_GO_PROVIDER_ID = "opencode-go"
+_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
+_OPENCODE_GO_MODELS = frozenset(
+    {
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "glm-5.1",
+        "glm-5.2",
+        "kimi-k2.6",
+        "kimi-k2.7-code",
+        "mimo-v2.5",
+        "mimo-v2.5-pro",
+        "minimax-m2.7",
+        "minimax-m3",
+        "qwen3.6-plus",
+        "qwen3.7-max",
+        "qwen3.7-plus",
+    }
+)
+_OPENCODE_VALID_EFFORTS = frozenset({"medium"})
 _BUILTIN_PROVIDER_PROMPT_FILENAME = ".provider_prompt"
 
 
@@ -145,6 +166,19 @@ def _validate_codex_selection(
         )
 
 
+def _validate_opencode_selection(
+    provider_selection: BuiltInProviderSelectionFacts,
+) -> None:
+    if provider_selection.model not in _OPENCODE_GO_MODELS:
+        raise RuntimeConfigurationError(
+            f"Unsupported OpenCode model {provider_selection.model!r}."
+        )
+    if provider_selection.effort not in _OPENCODE_VALID_EFFORTS:
+        raise RuntimeConfigurationError(
+            f"Unsupported OpenCode effort {provider_selection.effort!r}."
+        )
+
+
 def _require_claude_auth(auth: ProviderAuth | None) -> None:
     if auth is not None and auth.claude_code_oauth_token:
         return
@@ -171,6 +205,15 @@ def _require_codex_auth() -> None:
     raise _missing_codex_auth_error()
 
 
+def _require_opencode_auth(auth: ProviderAuth | None) -> None:
+    if auth is not None and auth.opencode_api_key:
+        return
+    raise AgentCredentialFailureError(
+        "Missing OpenCode API key.",
+        service_name="opencode",
+    )
+
+
 def _claude_environment(
     auth: ProviderAuth | None,
     provider_state_dir: Path | None,
@@ -188,6 +231,94 @@ def _codex_environment(provider_state_dir: Path | None) -> dict[str, str]:
     environment = {"TZ": "UTC"}
     if provider_state_dir is not None:
         environment["CODEX_HOME"] = str(provider_state_dir)
+    return environment
+
+
+def _opencode_go_model_ref(model: str) -> str:
+    if "/" in model:
+        return model
+    return f"{_OPENCODE_GO_PROVIDER_ID}/{model}"
+
+
+def _opencode_tool_policy_permission(
+    tool_policy: ToolPolicy | ToolPolicyProfile,
+) -> dict[str, str] | str | None:
+    profile = (
+        tool_policy.profile if isinstance(tool_policy, ToolPolicy) else tool_policy
+    )
+    if profile == ToolPolicy.NONE.profile:
+        return "deny"
+    if profile == ToolPolicy.INSPECT_ONLY.profile:
+        return {"edit": "deny", "bash": "deny"}
+    if profile == ToolPolicy.NO_FILE_MUTATION.profile:
+        return {"edit": "deny"}
+    return None
+
+
+def _opencode_go_config_content(
+    *,
+    tool_policy: ToolPolicy | ToolPolicyProfile | None = None,
+) -> str:
+    config: dict[str, object] = {
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {
+            _OPENCODE_GO_PROVIDER_ID: {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "OpenCode Go",
+                "options": {
+                    "baseURL": _OPENCODE_GO_BASE_URL,
+                    "apiKey": "{env:OPENCODE_GO_API_KEY}",
+                },
+                "models": {
+                    model: {"name": model} for model in sorted(_OPENCODE_GO_MODELS)
+                },
+            }
+        },
+    }
+    if tool_policy is not None:
+        permission = _opencode_tool_policy_permission(tool_policy)
+        if permission is not None:
+            config["permission"] = permission
+    return json.dumps(config, sort_keys=True, separators=(",", ":"))
+
+
+def _windows_process_base_env(
+    *,
+    os_name: str | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    if (os_name or os.name) != "nt":
+        return {}
+    source_env = os.environ if environ is None else environ
+    return {
+        key: source_env[key]
+        for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
+        if key in source_env and source_env[key]
+    }
+
+
+def _opencode_environment(
+    *,
+    auth: ProviderAuth | None,
+    provider_state_dir: Path | None,
+    tool_policy: ToolPolicy | ToolPolicyProfile | None,
+    host_facts: BuiltInProviderHostFacts | None,
+) -> dict[str, str]:
+    environment: dict[str, str] = {
+        **_windows_process_base_env(
+            os_name=None if host_facts is None else host_facts.os_name,
+            environ=None if host_facts is None else host_facts.environment,
+        ),
+        "TZ": "UTC",
+    }
+    if provider_state_dir is not None:
+        environment["OPENCODE_HOME"] = str(provider_state_dir)
+    api_key = None if auth is None else auth.opencode_api_key
+    if api_key:
+        environment["OPENCODE_GO_API_KEY"] = api_key
+        environment["OPENCODE_CONFIG_CONTENT"] = _opencode_go_config_content(
+            tool_policy=tool_policy
+        )
     return environment
 
 
@@ -333,6 +464,47 @@ def _render_codex_invocation(
     )
 
 
+def _render_opencode_invocation(
+    request: BuiltInProviderRenderRequest,
+) -> BuiltInProviderRenderedInvocation:
+    _validate_opencode_selection(request.provider_selection)
+    _require_opencode_auth(request.auth)
+    executable = (
+        "opencode.cmd"
+        if ((request.host_facts.os_name if request.host_facts else None) or os.name)
+        == "nt"
+        else "opencode"
+    )
+    prompt_path = _builtin_provider_prompt_path(request.invocation_dir)
+    flags = ["run", "--format", "json"]
+    if request.run_kind is RunKind.RESUME and request.provider_session_id:
+        flags.extend(["--session", request.provider_session_id])
+    flags.extend(["--model", _opencode_go_model_ref(request.provider_selection.model)])
+    return BuiltInProviderRenderedInvocation(
+        canonical_argv=(executable, *flags),
+        legacy_command_text=(
+            " ".join(shlex.quote(part) for part in (executable, *flags))
+            + f' "$(cat {shlex.quote(str(prompt_path))})"'
+        ),
+        environment=_opencode_environment(
+            auth=request.auth,
+            provider_state_dir=request.provider_state_dir,
+            tool_policy=request.tool_access.tool_policy,
+            host_facts=request.host_facts,
+        ),
+        prompt_path=prompt_path,
+        prompt_cleanup_choice=PromptCleanupChoice.DELETE_AFTER_INVOCATION,
+        prompt_transport_preference=PromptTransportPreference.PROMPT_FILE,
+        provider_session_id_placement=(
+            ProviderSessionIdPlacement.CLI_FLAG
+            if request.run_kind is RunKind.RESUME and request.provider_session_id
+            else ProviderSessionIdPlacement.NONE
+        ),
+        provider_session_id=request.provider_session_id,
+        prefer_argv=True,
+    )
+
+
 def render_built_in_provider_invocation(
     request: BuiltInProviderRenderRequest,
 ) -> BuiltInProviderRenderedInvocation:
@@ -340,6 +512,8 @@ def render_built_in_provider_invocation(
         return _render_claude_invocation(request)
     if request.provider_selection.service == "codex":
         return _render_codex_invocation(request)
+    if request.provider_selection.service == "opencode":
+        return _render_opencode_invocation(request)
     raise RuntimeConfigurationError(
         f"Unsupported built-in provider {request.provider_selection.service!r}."
     )
