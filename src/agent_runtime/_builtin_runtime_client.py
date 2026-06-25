@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from . import _time as _time_module
+from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
     classify_built_in_provider_invocation_progress,
@@ -64,8 +65,8 @@ from .types import ProviderSelection
 
 _log = logging.getLogger(__name__)
 subprocess = _subprocess
-_CLAUDE_VALID_MODELS = frozenset({"haiku", "sonnet", "opus"})
-_CLAUDE_VALID_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+_CLAUDE_VALID_MODELS = _builtin_provider_rendering_module._CLAUDE_VALID_MODELS
+_CLAUDE_VALID_EFFORTS = _builtin_provider_rendering_module._CLAUDE_VALID_EFFORTS
 _CODEX_VALID_MODELS = frozenset(
     {
         "gpt-5.5",
@@ -194,10 +195,13 @@ def supported_builtin_provider_selection(
 
 
 def _validate_claude_stage(stage: ProviderSelection) -> None:
-    if stage.model not in _CLAUDE_VALID_MODELS:
-        raise RuntimeConfigurationError(f"Unsupported Claude model {stage.model!r}.")
-    if stage.effort not in _CLAUDE_VALID_EFFORTS:
-        raise RuntimeConfigurationError(f"Unsupported Claude effort {stage.effort!r}.")
+    _builtin_provider_rendering_module._validate_claude_selection(
+        _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+            service=stage.service,
+            model=stage.model,
+            effort=stage.effort,
+        )
+    )
 
 
 def _validate_codex_stage(stage: ProviderSelection) -> None:
@@ -224,51 +228,22 @@ def _claude_command(
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
 ) -> tuple[str, ...]:
-    profile = _claude_tool_policy_profile(tool_access)
-    flags = [
-        "--verbose",
-        "--dangerously-skip-permissions",
-        "--output-format",
-        "stream-json",
-        "-p",
-        "-",
-        "--disable-slash-commands",
-        "--exclude-dynamic-system-prompt-sections",
-    ]
-    if profile.allowed_tools is not None:
-        flags.extend(["--tools", " ".join(profile.allowed_tools)])
-    if profile.disallowed_tools:
-        flags.extend(["--disallowedTools", " ".join(profile.disallowed_tools)])
-    if profile.strict_mcp_config:
-        flags.extend(
-            [
-                "--strict-mcp-config",
-                "--mcp-config",
-                '{"mcpServers":{}}',
-            ]
+    return _builtin_provider_rendering_module.render_built_in_provider_invocation(
+        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
+            provider_selection=(
+                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+                    service="claude",
+                    model=model,
+                    effort=effort,
+                )
+            ),
+            run_kind=run_kind,
+            tool_access=tool_access,
+            auth=ProviderAuth(claude_code_oauth_token="token"),
+            invocation_dir=Path("/tmp"),
+            provider_session_id=session_uuid,
         )
-    if model:
-        flags.extend(["--model", model])
-    if effort:
-        flags.extend(["--effort", effort])
-    if session_uuid:
-        if run_kind == RunKind.RESUME:
-            flags.extend(["--resume", session_uuid])
-        else:
-            flags.extend(["--session-id", session_uuid])
-    return ("claude", *flags)
-
-
-def _claude_tool_policy_profile(tool_access: ToolAccess) -> ToolPolicyProfile:
-    if isinstance(tool_access.tool_policy, ToolPolicy):
-        if tool_access.tool_policy is ToolPolicy.NONE:
-            return ToolPolicyProfile(disallowed_tools=("all",))
-        if tool_access.tool_policy is ToolPolicy.INSPECT_ONLY:
-            return ToolPolicyProfile(allowed_tools=("Read", "Glob"))
-        if tool_access.tool_policy is ToolPolicy.NO_FILE_MUTATION:
-            return ToolPolicyProfile(disallowed_tools=("Edit", "Write", "NotebookEdit"))
-        return ToolPolicyProfile()
-    return tool_access.tool_policy
+    ).canonical_argv
 
 
 def _claude_legacy_command_text(
@@ -280,27 +255,24 @@ def _claude_legacy_command_text(
     run_kind: RunKind = RunKind.FRESH,
     session_uuid: str | None = None,
 ) -> str:
-    profile = _claude_tool_policy_profile(tool_access)
-    flags = (
-        "--verbose --dangerously-skip-permissions --output-format stream-json -p -"
-        " --disable-slash-commands --exclude-dynamic-system-prompt-sections"
+    rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
+        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
+            provider_selection=(
+                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+                    service="claude",
+                    model=model,
+                    effort=effort,
+                )
+            ),
+            run_kind=run_kind,
+            tool_access=tool_access,
+            auth=ProviderAuth(claude_code_oauth_token="token"),
+            invocation_dir=prompt_path.parent,
+            provider_session_id=session_uuid,
+        )
     )
-    if profile.allowed_tools is not None:
-        flags += f" --tools {shlex.quote(' '.join(profile.allowed_tools))}"
-    if profile.disallowed_tools:
-        flags += f' --disallowedTools "{" ".join(profile.disallowed_tools)}"'
-    if profile.strict_mcp_config:
-        flags += " --strict-mcp-config --mcp-config '{\"mcpServers\":{}}'"
-    if model:
-        flags += f" --model {model}"
-    if effort:
-        flags += f" --effort {effort}"
-    if session_uuid:
-        if run_kind == RunKind.RESUME:
-            flags += f" --resume {shlex.quote(session_uuid)}"
-        else:
-            flags += f" --session-id {shlex.quote(session_uuid)}"
-    return f"claude {flags} < {shlex.quote(str(prompt_path))}"
+    assert rendered.legacy_command_text is not None
+    return rendered.legacy_command_text
 
 
 def _claude_env(
@@ -308,13 +280,27 @@ def _claude_env(
     auth: ProviderAuth | None,
     state_dir_container_path: str | None = None,
 ) -> dict[str, str]:
-    env: dict[str, str] = {}
-    token = None if auth is None else auth.claude_code_oauth_token
-    if token:
-        env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-    if state_dir_container_path:
-        env["CLAUDE_CONFIG_DIR"] = state_dir_container_path
-    return env
+    rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
+        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
+            provider_selection=(
+                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                )
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(Path("/tmp")),
+            auth=auth,
+            invocation_dir=Path("/tmp"),
+            provider_state_dir=(
+                None
+                if state_dir_container_path is None
+                else Path(state_dir_container_path)
+            ),
+        )
+    )
+    return dict(rendered.environment)
 
 
 def _codex_command(

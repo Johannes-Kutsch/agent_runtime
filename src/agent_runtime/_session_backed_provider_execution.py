@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
+from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from ._builtin_provider_stream_interpretation import BuiltInProviderStreamInterpretation
 from ._portable_continuation_payload import (
     create_portable_continuation_payload,
@@ -25,7 +26,7 @@ from ._runtime_lifecycle import (
     ResumedSessionRunRequest,
     RunResult,
 )
-from .errors import AgentCredentialFailureError, RuntimeConfigurationError
+from .errors import RuntimeConfigurationError
 from .invocation_progress import InvocationProgress
 from .session import RunKind, provider_state_relpath
 from .contracts import ToolAccess
@@ -379,12 +380,7 @@ def _build_claude_continuation(
 
 
 def _require_claude_auth(auth: ProviderAuth | None) -> None:
-    if auth is not None and auth.claude_code_oauth_token:
-        return
-    raise AgentCredentialFailureError(
-        message="Missing Claude Code OAuth token.",
-        service_name="claude",
-    )
+    _builtin_provider_rendering_module._require_claude_auth(auth)
 
 
 def _session_backed_service_name(request: ResumedSessionRunRequest) -> str:

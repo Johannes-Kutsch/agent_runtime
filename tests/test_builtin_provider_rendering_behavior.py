@@ -10,7 +10,8 @@ import agent_runtime as runtime
 import agent_runtime._builtin_provider_rendering as built_in_provider_rendering
 import agent_runtime.runtime as runtime_module
 from agent_runtime._runtime_lifecycle import ProviderAuth
-from agent_runtime.contracts import ToolAccess
+from agent_runtime.contracts import ToolAccess, ToolPolicyProfile
+from agent_runtime.errors import AgentCredentialFailureError, RuntimeConfigurationError
 from agent_runtime.session import RunKind
 
 
@@ -140,3 +141,304 @@ def test_built_in_provider_rendering_values_allow_missing_optional_facts() -> No
     assert request.host_facts is None
     assert rendered_invocation.legacy_command_text is None
     assert rendered_invocation.prompt_path is None
+
+
+def test_render_claude_invocation_returns_canonical_argv_and_compatibility_command() -> (
+    None
+):
+    invocation_dir = Path("/tmp/invocation")
+
+    rendered_invocation = (
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(invocation_dir),
+                auth=ProviderAuth(claude_code_oauth_token="token"),
+                invocation_dir=invocation_dir,
+            )
+        )
+    )
+
+    assert (
+        rendered_invocation
+        == built_in_provider_rendering.BuiltInProviderRenderedInvocation(
+            canonical_argv=(
+                "claude",
+                "--verbose",
+                "--dangerously-skip-permissions",
+                "--output-format",
+                "stream-json",
+                "-p",
+                "-",
+                "--disable-slash-commands",
+                "--exclude-dynamic-system-prompt-sections",
+                "--strict-mcp-config",
+                "--mcp-config",
+                '{"mcpServers":{}}',
+                "--model",
+                "sonnet",
+                "--effort",
+                "medium",
+            ),
+            legacy_command_text=(
+                "claude --verbose --dangerously-skip-permissions --output-format "
+                "stream-json -p - --disable-slash-commands "
+                "--exclude-dynamic-system-prompt-sections --strict-mcp-config "
+                "--mcp-config '{\"mcpServers\":{}}' --model sonnet --effort medium "
+                "< /tmp/invocation/.provider_prompt"
+            ),
+            environment={"CLAUDE_CODE_OAUTH_TOKEN": "token"},
+            prompt_path=invocation_dir / ".provider_prompt",
+            prompt_cleanup_choice=(
+                built_in_provider_rendering.PromptCleanupChoice.DELETE_AFTER_INVOCATION
+            ),
+            prompt_transport_preference=(
+                built_in_provider_rendering.PromptTransportPreference.STDIN
+            ),
+            provider_session_id_placement=(
+                built_in_provider_rendering.ProviderSessionIdPlacement.NONE
+            ),
+            prefer_argv=True,
+        )
+    )
+
+
+def test_render_claude_invocation_uses_provider_prompt_path_and_claude_only_environment() -> (
+    None
+):
+    invocation_dir = Path("/tmp/invocation")
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(invocation_dir),
+            auth=ProviderAuth(claude_code_oauth_token="token"),
+            invocation_dir=invocation_dir,
+            provider_state_dir=Path("/tmp/provider-state"),
+            host_facts=built_in_provider_rendering.BuiltInProviderHostFacts(
+                os_name="posix",
+                environment={
+                    "HOME": "/tmp/home",
+                    "PATH": "/usr/bin",
+                    "CLAUDE_CODE_OAUTH_TOKEN": "host-token",
+                },
+            ),
+        ),
+    )
+
+    assert rendered_invocation.prompt_path == invocation_dir / ".provider_prompt"
+    assert (
+        rendered_invocation.prompt_cleanup_choice
+        is built_in_provider_rendering.PromptCleanupChoice.DELETE_AFTER_INVOCATION
+    )
+    assert rendered_invocation.environment == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "token",
+        "CLAUDE_CONFIG_DIR": "/tmp/provider-state",
+    }
+
+
+def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() -> None:
+    invocation_dir = Path("/tmp/invocation")
+
+    inspect_only_invocation = (
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(
+                    invocation_dir,
+                    tool_policy=runtime.ToolPolicy.INSPECT_ONLY,
+                ),
+                auth=ProviderAuth(claude_code_oauth_token="token"),
+                invocation_dir=invocation_dir,
+            )
+        )
+    )
+    custom_profile_invocation = (
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(
+                    invocation_dir,
+                    tool_policy=ToolPolicyProfile(
+                        allowed_tools=("Read", "Glob", "Bash"),
+                        disallowed_tools=("Edit",),
+                        strict_mcp_config=False,
+                    ),
+                ),
+                auth=ProviderAuth(claude_code_oauth_token="token"),
+                invocation_dir=invocation_dir,
+            )
+        )
+    )
+
+    assert inspect_only_invocation.canonical_argv == (
+        "claude",
+        "--verbose",
+        "--dangerously-skip-permissions",
+        "--output-format",
+        "stream-json",
+        "-p",
+        "-",
+        "--disable-slash-commands",
+        "--exclude-dynamic-system-prompt-sections",
+        "--tools",
+        "Read Glob",
+        "--strict-mcp-config",
+        "--mcp-config",
+        '{"mcpServers":{}}',
+        "--model",
+        "sonnet",
+        "--effort",
+        "medium",
+    )
+    assert custom_profile_invocation.canonical_argv == (
+        "claude",
+        "--verbose",
+        "--dangerously-skip-permissions",
+        "--output-format",
+        "stream-json",
+        "-p",
+        "-",
+        "--disable-slash-commands",
+        "--exclude-dynamic-system-prompt-sections",
+        "--tools",
+        "Read Glob Bash",
+        "--disallowedTools",
+        "Edit",
+        "--model",
+        "sonnet",
+        "--effort",
+        "medium",
+    )
+
+
+def test_render_claude_invocation_places_provider_session_ids_for_fresh_and_resume() -> (
+    None
+):
+    invocation_dir = Path("/tmp/invocation")
+
+    fresh_render = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(invocation_dir),
+            auth=ProviderAuth(claude_code_oauth_token="token"),
+            invocation_dir=invocation_dir,
+            provider_session_id="session-fresh",
+        )
+    )
+    resumed_render = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="claude",
+                model="sonnet",
+                effort="medium",
+            ),
+            run_kind=RunKind.RESUME,
+            tool_access=ToolAccess.workspace_backed(invocation_dir),
+            auth=ProviderAuth(claude_code_oauth_token="token"),
+            invocation_dir=invocation_dir,
+            provider_session_id="session-resume",
+        )
+    )
+
+    assert fresh_render.provider_session_id_placement is (
+        built_in_provider_rendering.ProviderSessionIdPlacement.CLI_FLAG
+    )
+    assert fresh_render.canonical_argv[-2:] == ("--session-id", "session-fresh")
+    assert resumed_render.provider_session_id_placement is (
+        built_in_provider_rendering.ProviderSessionIdPlacement.CLI_FLAG
+    )
+    assert resumed_render.canonical_argv[-2:] == ("--resume", "session-resume")
+
+
+def test_render_claude_invocation_fails_for_missing_credentials_and_unsupported_selection() -> (
+    None
+):
+    invocation_dir = Path("/tmp/invocation")
+
+    with pytest.raises(
+        AgentCredentialFailureError, match="Missing Claude Code OAuth token."
+    ):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(invocation_dir),
+                auth=None,
+                invocation_dir=invocation_dir,
+            )
+        )
+
+    with pytest.raises(
+        RuntimeConfigurationError, match=r"Unsupported Claude model 'invalid'\."
+    ):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="claude",
+                        model="invalid",
+                        effort="medium",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(invocation_dir),
+                auth=ProviderAuth(claude_code_oauth_token="token"),
+                invocation_dir=invocation_dir,
+            )
+        )
+
+    with pytest.raises(
+        RuntimeConfigurationError, match=r"Unsupported Claude effort 'invalid'\."
+    ):
+        built_in_provider_rendering.render_built_in_provider_invocation(
+            built_in_provider_rendering.BuiltInProviderRenderRequest(
+                provider_selection=(
+                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                        service="claude",
+                        model="sonnet",
+                        effort="invalid",
+                    )
+                ),
+                run_kind=RunKind.FRESH,
+                tool_access=ToolAccess.workspace_backed(invocation_dir),
+                auth=ProviderAuth(claude_code_oauth_token="token"),
+                invocation_dir=invocation_dir,
+            )
+        )
