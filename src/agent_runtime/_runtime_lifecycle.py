@@ -278,22 +278,17 @@ class EphemeralRunRequest:
         on_live_output: Callable[[AgentEvent], None] | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
-        argv_transform = compatibility_kwargs.pop("argv_transform", None)
-        resolved_invocation_dir = _resolve_public_invocation_dir(
-            invocation_dir,
-            compatibility_kwargs,
-            context="EphemeralRunRequest",
-        )
-        normalized_request = _lifecycle_request_facts_module._provider_selection_request_facts(
+        normalized_request = _lifecycle_request_facts_module._ephemeral_run_request_facts(
+            invocation_dir=invocation_dir,
+            compatibility_kwargs=compatibility_kwargs,
             provider_selection=provider_selection,
-            worktree=resolved_invocation_dir,
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=_MISSING_TOOL_POLICY,
             session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
             context="EphemeralRunRequest",
             missing_message="EphemeralRunRequest requires an explicit `tool_policy` value.",
-            workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
+            public_invocation_dir_name=_PUBLIC_INVOCATION_DIR_NAME,
         )
 
         object.__setattr__(self, "prompt", prompt)
@@ -311,7 +306,7 @@ class EphemeralRunRequest:
         object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
-        object.__setattr__(self, "argv_transform", argv_transform)
+        object.__setattr__(self, "argv_transform", normalized_request.argv_transform)
 
     @property
     def mount_path(self) -> Path:

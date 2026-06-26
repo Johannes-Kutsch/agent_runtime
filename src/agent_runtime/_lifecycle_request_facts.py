@@ -26,6 +26,11 @@ class _ProviderSelectionLifecycleRequestFacts(_LifecycleRequestFacts):
 
 
 @dataclasses.dataclass(frozen=True)
+class _EphemeralRunRequestFacts(_ProviderSelectionLifecycleRequestFacts):
+    argv_transform: Any
+
+
+@dataclasses.dataclass(frozen=True)
 class _ResumedLifecycleRequestFacts(_LifecycleRequestFacts):
     model: str
     effort: str
@@ -59,6 +64,55 @@ def _provider_selection_request_facts(
         provider_selection=normalized_request.provider_selection,
         tool_access=normalized_request.tool_access,
         session_namespace=normalized_request.session_namespace,
+    )
+
+
+def _ephemeral_run_request_facts(
+    *,
+    invocation_dir: Path | None,
+    compatibility_kwargs: dict[str, Any],
+    provider_selection: ProviderSelection | None,
+    tool_access: Any,
+    tool_policy: Any,
+    missing_sentinel: object,
+    session_namespace: str,
+    context: str,
+    missing_message: str,
+    public_invocation_dir_name: str,
+) -> _EphemeralRunRequestFacts:
+    argv_transform = compatibility_kwargs.pop("argv_transform", None)
+    legacy_worktree = compatibility_kwargs.pop("worktree", None)
+    if compatibility_kwargs:
+        unexpected_argument = next(iter(compatibility_kwargs))
+        raise TypeError(
+            f"{context} got an unexpected keyword argument '{unexpected_argument}'."
+        )
+    if invocation_dir is not None and legacy_worktree is not None:
+        raise TypeError(
+            f"{context} received conflicting `{public_invocation_dir_name}` and `worktree` values."
+        )
+    resolved_invocation_dir = (
+        invocation_dir if invocation_dir is not None else legacy_worktree
+    )
+    if resolved_invocation_dir is None:
+        raise TypeError(f"{context} requires an `{public_invocation_dir_name}` value.")
+    normalized_request = _provider_selection_request_facts(
+        provider_selection=provider_selection,
+        worktree=resolved_invocation_dir,
+        tool_access=tool_access,
+        tool_policy=tool_policy,
+        missing_sentinel=missing_sentinel,
+        session_namespace=session_namespace,
+        context=context,
+        missing_message=missing_message,
+        workspace_name=public_invocation_dir_name,
+    )
+    return _EphemeralRunRequestFacts(
+        invocation_dir=normalized_request.invocation_dir,
+        provider_selection=normalized_request.provider_selection,
+        tool_access=normalized_request.tool_access,
+        session_namespace=normalized_request.session_namespace,
+        argv_transform=argv_transform,
     )
 
 
