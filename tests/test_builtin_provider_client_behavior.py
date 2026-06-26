@@ -3590,7 +3590,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     )
 
 
-def _run_new_session_recorded_request(
+def _run_start_session_recorded_request(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     *,
@@ -3662,7 +3662,7 @@ def test_runtime_client_forces_codex_danger_full_access_when_already_sandboxed(
     tmp_path: Path,
     tool_policy: runtime.ToolPolicy,
 ) -> None:
-    recorded_request = _run_new_session_recorded_request(
+    recorded_request = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
         already_sandboxed=True,
@@ -3687,7 +3687,7 @@ def test_runtime_client_uses_codex_read_only_when_not_already_sandboxed_and_rest
     tool_policy: runtime.ToolPolicy,
     expected_sandbox: str,
 ) -> None:
-    recorded_request = _run_new_session_recorded_request(
+    recorded_request = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
         already_sandboxed=False,
@@ -3701,7 +3701,7 @@ def test_runtime_client_keeps_codex_unrestricted_sandbox_mode_same_with_or_witho
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    recorded_with_outer_sandbox = _run_new_session_recorded_request(
+    recorded_with_outer_sandbox = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
         already_sandboxed=False,
@@ -3710,7 +3710,7 @@ def test_runtime_client_keeps_codex_unrestricted_sandbox_mode_same_with_or_witho
     )
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     runtime_state_dir.mkdir(parents=True, exist_ok=True)
-    recorded_with_inner_sandbox = _run_new_session_recorded_request(
+    recorded_with_inner_sandbox = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
         already_sandboxed=True,
@@ -3749,7 +3749,7 @@ def test_runtime_client_keeps_non_codex_argv_and_environment_unchanged_with_alre
 ) -> None:
     runtime_state_dir_without_toggle = tmp_path / "state-false"
     runtime_state_dir_with_toggle = tmp_path / "state-true"
-    recorded_request_without_toggle = _run_new_session_recorded_request(
+    recorded_request_without_toggle = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
         already_sandboxed=False,
@@ -3759,7 +3759,7 @@ def test_runtime_client_keeps_non_codex_argv_and_environment_unchanged_with_alre
         runtime_state_dir=runtime_state_dir_without_toggle,
         provider_session_id="session-id",
     )
-    recorded_request_with_toggle = _run_new_session_recorded_request(
+    recorded_request_with_toggle = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
         already_sandboxed=True,
@@ -3779,6 +3779,98 @@ def test_runtime_client_keeps_non_codex_argv_and_environment_unchanged_with_alre
         for key, value in recorded_request_with_toggle.environment.items()
         if key not in {"CLAUDE_CONFIG_DIR", "OPENCODE_HOME"}
     }
+
+
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_sandbox"),
+    [
+        (runtime.ToolPolicy.NONE, "danger-full-access"),
+        (runtime.ToolPolicy.NO_FILE_MUTATION, "danger-full-access"),
+        (runtime.ToolPolicy.UNRESTRICTED, "danger-full-access"),
+    ],
+)
+def test_runtime_client_ephemeral_codex_uses_danger_full_access_in_already_sandboxed_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_sandbox: str,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_result(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="ephemeral output",
+            usage=runtime.ProviderUsage(output_tokens=1),
+        )
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient(already_sandboxed=True).run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                    tmp_path,
+                    tool_policy=tool_policy,
+                ),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert _extract_codex_sandbox(harness.recorded_request().argv) == expected_sandbox
+
+
+@pytest.mark.parametrize(
+    ("already_sandboxed", "expected_sandbox"),
+    [
+        (False, "read-only"),
+        (True, "danger-full-access"),
+    ],
+)
+def test_runtime_client_resumed_session_codex_uses_constructor_sandbox_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    already_sandboxed: bool,
+    expected_sandbox: str,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_result(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="resumed output",
+            usage=runtime.ProviderUsage(output_tokens=1),
+        )
+    )
+    runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+    provider_state_dir = harness.prepare_provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
+    harness.prepare_codex_rollout_state(provider_state_dir, "selected-thread")
+    continuation = RuntimeClientExecutionHarness.codex_continuation(
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
+            tmp_path,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        )
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient(already_sandboxed=already_sandboxed).run_resumed_session(
+            harness.resume_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert _extract_codex_sandbox(harness.recorded_request().argv) == expected_sandbox
 
 
 @pytest.mark.parametrize(
