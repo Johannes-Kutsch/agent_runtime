@@ -4260,6 +4260,29 @@ def test_runtime_client_rejects_resumed_session_with_malformed_continuation_data
     assert str(exc_info.value) == "Continuation data is not valid JSON."
 
 
+def test_runtime_client_rejects_resumed_session_with_legacy_inspect_only_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                harness.resume_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
+                    continuation=prompt_runtime.Continuation(
+                        serialized='{"effort":"medium","model":"gpt-5.4","provider_resume_state":{"run_kind":"resume"},"service_name":"codex","tool_access":{"kind":"none","workspace":null,"tool_policy":{"kind":"tool_policy","value":"inspect_only"}}}'
+                    ),
+                ),
+            )
+        )
+
+    assert str(exc_info.value) == (
+        "Continuation data contains legacy tool-policy value `inspect_only`."
+    )
+
+
 def test_runtime_client_rejects_new_session_for_unsupported_session_backed_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

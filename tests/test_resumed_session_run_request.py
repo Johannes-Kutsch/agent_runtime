@@ -291,6 +291,12 @@ def test_resumed_session_run_request_rejects_missing_continuation() -> None:
             ),
             "Continuation data is malformed.",
         ),
+        (
+            prompt_runtime.Continuation(
+                serialized='{"effort":"medium","model":"gpt-5.4","provider_resume_state":{"run_kind":"resume"},"service_name":"codex","tool_access":{"kind":"none","workspace":null,"tool_policy":{"kind":"tool_policy","value":"inspect_only"}}}'
+            ),
+            "Continuation data contains legacy tool-policy value `inspect_only`.",
+        ),
     ],
 )
 def test_resumed_session_run_request_surfaces_malformed_continuation_through_runtime_configuration_error(

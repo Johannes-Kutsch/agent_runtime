@@ -44,6 +44,34 @@ def test_portable_continuation_payload_round_trips_current_continuation_contents
     assert payload.to_continuation() == continuation
 
 
+def test_continuation_exposes_portable_resume_facts_through_module_interface() -> None:
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=tool_access,
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "thread-123",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+        },
+    )
+
+    assert continuation.service_name == "codex"
+    assert continuation.model == "gpt-5.4"
+    assert continuation.effort == "medium"
+    assert continuation.tool_access == tool_access
+    assert continuation.provider_resume_state == {
+        "run_kind": "resume",
+        "provider_session_id": "thread-123",
+        "provider_state_dir_relpath": "implementer/main/codex/",
+    }
+
+
 def test_portable_continuation_payload_create_keeps_current_continuation_schema() -> (
     None
 ):
@@ -152,6 +180,45 @@ def test_portable_continuation_payload_rejects_legacy_inspect_only_tool_policy()
 
     with pytest.raises(TypeError, match="legacy tool-policy value `inspect_only`"):
         read_portable_continuation_payload(continuation)
+
+
+@pytest.mark.parametrize(
+    "attribute", ["service_name", "model", "effort", "tool_access"]
+)
+def test_continuation_properties_preserve_malformed_token_errors(
+    attribute: str,
+) -> None:
+    continuation = prompt_runtime.Continuation(serialized="{not-json")
+
+    with pytest.raises(TypeError, match="Continuation data is not valid JSON."):
+        getattr(continuation, attribute)
+
+
+@pytest.mark.parametrize("attribute", ["service_name", "tool_access"])
+def test_continuation_properties_reject_legacy_inspect_only_tool_policy(
+    attribute: str,
+) -> None:
+    continuation = prompt_runtime.Continuation(
+        serialized=json.dumps(
+            {
+                "service_name": "codex",
+                "model": "gpt-5.4",
+                "effort": "low",
+                "tool_access": {
+                    "kind": "none",
+                    "workspace": None,
+                    "tool_policy": {
+                        "kind": "tool_policy",
+                        "value": "inspect_only",
+                    },
+                },
+                "provider_resume_state": {},
+            }
+        )
+    )
+
+    with pytest.raises(TypeError, match="legacy tool-policy value `inspect_only`"):
+        getattr(continuation, attribute)
 
 
 def test_portable_continuation_payload_rejects_unsupported_tool_policy_value() -> None:
