@@ -159,6 +159,57 @@ def _windows_process_base_env() -> dict[str, str]:
     }
 
 
+@dataclasses.dataclass(slots=True)
+class _ProviderInvocationOutputFinalizer:
+    request: ProviderInvocationRequest
+    stdout_lines: list[str]
+    success_fallback_provider_session_id: str | None = None
+    failure_fallback_provider_session_id: str | None = None
+
+    def consume_observed_lines(self) -> None:
+        _consume_new_stdout_lines(
+            self.request.output_hooks.reduce_output,
+            self.stdout_lines,
+        )
+
+    def _extracted_provider_session_id(self) -> str | None:
+        if self.request.output_hooks.extract_provider_session_id is None:
+            return None
+        return self.request.output_hooks.extract_provider_session_id(self.stdout_lines)
+
+    def _success_provider_session_id(self) -> str | None:
+        extracted_provider_session_id = self._extracted_provider_session_id()
+        if extracted_provider_session_id is not None:
+            return extracted_provider_session_id
+        if self.success_fallback_provider_session_id is not None:
+            return self.success_fallback_provider_session_id
+        return self.request.provider_session_id
+
+    def _failure_provider_session_id(self) -> str | None:
+        extracted_provider_session_id = self._extracted_provider_session_id()
+        if extracted_provider_session_id is not None:
+            return extracted_provider_session_id
+        return self.failure_fallback_provider_session_id
+
+    def finalize(self) -> ProviderInvocationResult | ProviderInvocationFailure:
+        try:
+            output, usage = self.request.output_hooks.reduce_output(self.stdout_lines)
+        except Exception as exc:
+            if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
+                return _provider_invocation_failure_from_error(
+                    exc,
+                    stdout_lines=tuple(self.stdout_lines),
+                    provider_session_id=self._failure_provider_session_id(),
+                )
+            raise
+        return ProviderInvocationResult(
+            output=output,
+            usage=usage,
+            stdout_lines=tuple(self.stdout_lines),
+            provider_session_id=self._success_provider_session_id(),
+        )
+
+
 class ProductionProviderInvocationAdapter:
     def _windows_process_base_env(self) -> dict[str, str]:
         return _windows_process_base_env()
@@ -305,31 +356,17 @@ class ProductionProviderInvocationAdapter:
                     request.output_hooks.reduce_output, stderr_lines
                 )
                 stdout_lines.extend(stderr_lines)
-
-            def _extracted_provider_session_id() -> str | None:
-                if request.output_hooks.extract_provider_session_id is None:
-                    return None
-                return request.output_hooks.extract_provider_session_id(stdout_lines)
-
-            def _active_provider_session_id() -> str | None:
-                provider_session_id = request.provider_session_id
-                extracted_provider_session_id = _extracted_provider_session_id()
-                if extracted_provider_session_id is not None:
-                    provider_session_id = extracted_provider_session_id
-                return provider_session_id
-
-            try:
-                output, usage = request.output_hooks.reduce_output(stdout_lines)
-            except Exception as exc:
-                if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
-                    return _provider_invocation_failure_from_error(
-                        exc,
-                        stdout_lines=tuple(stdout_lines),
-                        provider_session_id=_extracted_provider_session_id(),
-                    )
-                raise
+            output_finalizer = _ProviderInvocationOutputFinalizer(
+                request=request,
+                stdout_lines=stdout_lines,
+            )
+            result = output_finalizer.finalize()
+            if isinstance(result, ProviderInvocationFailure):
+                return result
             returncode = process.returncode
-            observed_provider_session_id = _active_provider_session_id()
+            observed_provider_session_id = (
+                output_finalizer._success_provider_session_id()
+            )
             if returncode != 0:
                 hard_error = HardAgentError(
                     _nonzero_exit_message(returncode, stdout_lines),
@@ -340,7 +377,7 @@ class ProductionProviderInvocationAdapter:
                     observed_provider_session_id,
                 )
                 raise hard_error
-            if not output.strip():
+            if not result.output.strip():
                 hard_error = HardAgentError(
                     "Provider subprocess completed without producing output.",
                 )
@@ -350,12 +387,7 @@ class ProductionProviderInvocationAdapter:
                     observed_provider_session_id,
                 )
                 raise hard_error
-            return ProviderInvocationResult(
-                output=output,
-                usage=usage,
-                stdout_lines=tuple(stdout_lines),
-                provider_session_id=observed_provider_session_id,
-            )
+            return result
         finally:
             if (
                 request.prompt.cleanup_path
@@ -407,37 +439,12 @@ class InMemoryProviderInvocationAdapter:
             return prepared
         if isinstance(prepared, ProviderInvocationPreparedStream):
             stdout_lines = list(prepared.stdout_lines)
-            _consume_new_stdout_lines(request.output_hooks.reduce_output, stdout_lines)
-
-            def _extracted_provider_session_id() -> str | None:
-                if request.output_hooks.extract_provider_session_id is None:
-                    return None
-                return request.output_hooks.extract_provider_session_id(stdout_lines)
-
-            def _active_provider_session_id() -> str | None:
-                return (
-                    _extracted_provider_session_id()
-                    or prepared.provider_session_id
-                    or request.provider_session_id
-                )
-
-            try:
-                output, usage = request.output_hooks.reduce_output(stdout_lines)
-            except Exception as exc:
-                if isinstance(exc, (UsageLimitError, ProviderUnavailableError)):
-                    return _provider_invocation_failure_from_error(
-                        exc,
-                        stdout_lines=tuple(stdout_lines),
-                        provider_session_id=(
-                            _extracted_provider_session_id()
-                            or prepared.provider_session_id
-                        ),
-                    )
-                raise
-            return ProviderInvocationResult(
-                output=output,
-                usage=usage,
-                stdout_lines=tuple(stdout_lines),
-                provider_session_id=_active_provider_session_id(),
+            output_finalizer = _ProviderInvocationOutputFinalizer(
+                request=request,
+                stdout_lines=stdout_lines,
+                success_fallback_provider_session_id=prepared.provider_session_id,
+                failure_fallback_provider_session_id=prepared.provider_session_id,
             )
+            output_finalizer.consume_observed_lines()
+            return output_finalizer.finalize()
         return prepared
