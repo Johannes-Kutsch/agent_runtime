@@ -93,6 +93,9 @@ class RuntimeClientExecutionHarness:
         timeout_seconds: int = 300,
         token: Any = None,
         on_live_output: Callable[[prompt_runtime.AgentEvent], None] | None = None,
+        argv_transform: (
+            Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+        ) = None,
     ) -> prompt_runtime.EphemeralRunRequest:
         if provider_auth is not None:
             provider_selection = cls.attach_provider_auth(
@@ -112,6 +115,7 @@ class RuntimeClientExecutionHarness:
             request_kwargs["tool_policy"] = tool_policy
         else:
             request_kwargs["tool_access"] = tool_access
+        request_kwargs["argv_transform"] = argv_transform
 
         return prompt_runtime.EphemeralRunRequest(**request_kwargs)
 
@@ -174,6 +178,9 @@ class RuntimeClientExecutionHarness:
         timeout_seconds: int = 300,
         token: Any = None,
         on_live_output: Callable[[prompt_runtime.AgentEvent], None] | None = None,
+        argv_transform: (
+            Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+        ) = None,
     ) -> prompt_runtime.NewSessionRunRequest:
         if provider_auth is not None:
             provider_selection = cls.attach_provider_auth(
@@ -195,6 +202,7 @@ class RuntimeClientExecutionHarness:
             request_kwargs["tool_policy"] = tool_policy
         else:
             request_kwargs["tool_access"] = tool_access
+        request_kwargs["argv_transform"] = argv_transform
 
         return prompt_runtime.NewSessionRunRequest(**request_kwargs)
 
@@ -211,6 +219,9 @@ class RuntimeClientExecutionHarness:
         timeout_seconds: int = 300,
         token: Any = None,
         on_live_output: Callable[[prompt_runtime.AgentEvent], None] | None = None,
+        argv_transform: (
+            Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+        ) = None,
     ) -> prompt_runtime.ResumedSessionRunRequest:
         return prompt_runtime.ResumedSessionRunRequest(
             prompt=prompt,
@@ -222,6 +233,7 @@ class RuntimeClientExecutionHarness:
             timeout_seconds=timeout_seconds,
             token=token,
             on_live_output=on_live_output,
+            argv_transform=argv_transform,
         )
 
     @staticmethod

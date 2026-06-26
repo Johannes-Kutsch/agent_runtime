@@ -132,8 +132,8 @@ def _reduce_opencode_stream(
 
 
 class RuntimeClient:
-    def __init__(self, *, already_sandboxed: bool = False) -> None:
-        self.already_sandboxed = already_sandboxed
+    def __init__(self) -> None:
+        pass
 
     async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         selected_provider_selection = _supported_builtin_provider_selection(
@@ -151,7 +151,6 @@ class RuntimeClient:
         return _fold_runtime_outcome(
             lambda: _run_builtin_ephemeral(
                 request,
-                already_sandboxed=self.already_sandboxed,
             ),
             selected_provider=selected,
             preserve_continuation=False,
@@ -166,7 +165,6 @@ class RuntimeClient:
             lambda: _run_builtin_new_session(
                 request,
                 on_live_output=request.on_live_output,
-                already_sandboxed=self.already_sandboxed,
             ),
             selected_provider=ResolvedProvider(
                 service=request.provider_selection.service,
@@ -187,7 +185,6 @@ class RuntimeClient:
             lambda: _run_builtin_resumed_session(
                 request,
                 on_live_output=request.on_live_output,
-                already_sandboxed=self.already_sandboxed,
             ),
             selected_provider=ResolvedProvider(
                 service=read_portable_continuation_payload(
@@ -201,14 +198,11 @@ class RuntimeClient:
 
 def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
-    *,
-    already_sandboxed: bool = False,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     select_builtin_stage: Any = _select_builtin_stage,
 ) -> RunResult:
     return _builtin_runtime_client_module._run_builtin_ephemeral(
         request,
-        already_sandboxed=already_sandboxed,
         provider_invocation_adapter=provider_invocation_adapter,
         select_builtin_stage=select_builtin_stage,
         reduce_claude_stream=_reduce_claude_stream,

@@ -5,7 +5,7 @@ import enum
 import json
 import os
 import shlex
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import MappingProxyType
 
@@ -100,7 +100,6 @@ class BuiltInProviderRenderRequest:
     invocation_dir: Path
     provider_state_dir: Path | None = None
     provider_session_id: str | None = None
-    already_sandboxed: bool = False
     host_facts: BuiltInProviderHostFacts | None = None
 
 
@@ -423,6 +422,9 @@ def _render_codex_invocation(
     request: BuiltInProviderRenderRequest,
     *,
     validate_auth: bool = True,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
 ) -> BuiltInProviderRenderedInvocation:
     _validate_codex_selection(request.provider_selection)
     if validate_auth:
@@ -437,7 +439,7 @@ def _render_codex_invocation(
     flags: list[str] = []
     codex_sandbox = (
         "danger-full-access"
-        if request.already_sandboxed
+        if argv_transform is not None
         else _codex_sandbox(request.tool_access.tool_policy)
     )
     is_resumed_session = (
@@ -520,11 +522,17 @@ def _render_opencode_invocation(
 
 def render_built_in_provider_invocation(
     request: BuiltInProviderRenderRequest,
+    *,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
 ) -> BuiltInProviderRenderedInvocation:
     if request.provider_selection.service == "claude":
         rendered_invocation = _render_claude_invocation(request)
     elif request.provider_selection.service == "codex":
-        rendered_invocation = _render_codex_invocation(request)
+        rendered_invocation = _render_codex_invocation(
+            request, argv_transform=argv_transform
+        )
     elif request.provider_selection.service == "opencode":
         rendered_invocation = _render_opencode_invocation(request)
     else:

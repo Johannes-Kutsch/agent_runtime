@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import re
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 from typing import cast
 
 import pytest
@@ -57,6 +57,14 @@ def _normalize_tool_policy_profile(
         if isinstance(tool_policy, runtime.ToolPolicy)
         else tool_policy
     )
+
+
+def _preserve_argv_transform(
+    argv: tuple[str, ...],
+    _invocation_dir: Path,
+    _env: dict[str, str],
+) -> tuple[str, ...]:
+    return argv
 
 
 def _opencode_tool_access(
@@ -1229,10 +1237,8 @@ def test_runtime_client_ephemeral_run_maps_provider_cancelled_interruption_to_ca
 
     def _cancel_run_ephemeral(
         request: prompt_runtime.EphemeralRunRequest,
-        *,
-        already_sandboxed: bool = False,
     ) -> prompt_runtime.RunResult:
-        del request, already_sandboxed
+        del request
         raise provider_cancelled
 
     monkeypatch.setattr(prompt_runtime, "_run_builtin_ephemeral", _cancel_run_ephemeral)
@@ -1284,10 +1290,8 @@ def test_runtime_client_ephemeral_run_drops_continuation_from_usage_limited_inte
 
     def _usage_limit_run_ephemeral(
         request: prompt_runtime.EphemeralRunRequest,
-        *,
-        already_sandboxed: bool = False,
     ) -> prompt_runtime.RunResult:
-        del request, already_sandboxed
+        del request
         raise usage_limited
 
     monkeypatch.setattr(
@@ -3750,7 +3754,8 @@ def _run_start_session_recorded_request(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     *,
-    already_sandboxed: bool,
+    argv_transform: Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]]
+    | None = None,
     service: str,
     tool_policy: runtime.ToolPolicy,
     provider_auth: ProviderAuth | None = None,
@@ -3780,7 +3785,7 @@ def _run_start_session_recorded_request(
         else runtime_state_dir
     )
     outcome = asyncio.run(
-        runtime.RuntimeClient(already_sandboxed=already_sandboxed).run_new_session(
+        runtime.RuntimeClient().run_new_session(
             harness.start_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
@@ -3798,6 +3803,7 @@ def _run_start_session_recorded_request(
                     tmp_path,
                     tool_policy=tool_policy,
                 ),
+                argv_transform=argv_transform,
             )
         )
     )
@@ -3813,7 +3819,7 @@ def _run_start_session_recorded_request(
         runtime.ToolPolicy.UNRESTRICTED,
     ],
 )
-def test_runtime_client_forces_codex_danger_full_access_when_already_sandboxed(
+def test_runtime_client_forces_codex_danger_full_access_when_argv_transform_is_set(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     tool_policy: runtime.ToolPolicy,
@@ -3821,7 +3827,7 @@ def test_runtime_client_forces_codex_danger_full_access_when_already_sandboxed(
     recorded_request = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
-        already_sandboxed=True,
+        argv_transform=_preserve_argv_transform,
         service="codex",
         tool_policy=tool_policy,
     )
@@ -3837,7 +3843,7 @@ def test_runtime_client_forces_codex_danger_full_access_when_already_sandboxed(
         (runtime.ToolPolicy.NO_FILE_MUTATION, "read-only"),
     ],
 )
-def test_runtime_client_uses_codex_read_only_when_not_already_sandboxed_and_restrictive_policy(
+def test_runtime_client_uses_codex_read_only_when_transform_is_not_set(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     tool_policy: runtime.ToolPolicy,
@@ -3846,21 +3852,19 @@ def test_runtime_client_uses_codex_read_only_when_not_already_sandboxed_and_rest
     recorded_request = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
-        already_sandboxed=False,
         service="codex",
         tool_policy=tool_policy,
     )
     assert _extract_codex_sandbox(recorded_request.argv) == expected_sandbox
 
 
-def test_runtime_client_keeps_codex_unrestricted_sandbox_mode_same_with_or_without_already_sandboxed(
+def test_runtime_client_keeps_codex_unrestricted_sandbox_mode_same_with_or_without_argv_transform(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     recorded_with_outer_sandbox = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
-        already_sandboxed=False,
         service="codex",
         tool_policy=runtime.ToolPolicy.UNRESTRICTED,
     )
@@ -3869,7 +3873,7 @@ def test_runtime_client_keeps_codex_unrestricted_sandbox_mode_same_with_or_witho
     recorded_with_inner_sandbox = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
-        already_sandboxed=True,
+        argv_transform=_preserve_argv_transform,
         service="codex",
         tool_policy=runtime.ToolPolicy.UNRESTRICTED,
         runtime_state_dir=runtime_state_dir,
@@ -3896,19 +3900,18 @@ def test_runtime_client_keeps_codex_unrestricted_sandbox_mode_same_with_or_witho
         runtime.ToolPolicy.UNRESTRICTED,
     ],
 )
-def test_runtime_client_keeps_non_codex_argv_and_environment_unchanged_with_already_sandboxed_toggle(
+def test_runtime_client_keeps_non_codex_argv_and_environment_unchanged_with_optional_argv_transform(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     service: str,
     provider_auth: ProviderAuth,
     tool_policy: runtime.ToolPolicy,
 ) -> None:
-    runtime_state_dir_without_toggle = tmp_path / "state-false"
-    runtime_state_dir_with_toggle = tmp_path / "state-true"
+    runtime_state_dir_without_toggle = tmp_path / "state-none"
+    runtime_state_dir_with_toggle = tmp_path / "state-transformed"
     recorded_request_without_toggle = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
-        already_sandboxed=False,
         service=service,
         tool_policy=tool_policy,
         provider_auth=provider_auth,
@@ -3918,7 +3921,7 @@ def test_runtime_client_keeps_non_codex_argv_and_environment_unchanged_with_alre
     recorded_request_with_toggle = _run_start_session_recorded_request(
         monkeypatch,
         tmp_path,
-        already_sandboxed=True,
+        argv_transform=_preserve_argv_transform,
         service=service,
         tool_policy=tool_policy,
         provider_auth=provider_auth,
@@ -3945,7 +3948,7 @@ def test_runtime_client_keeps_non_codex_argv_and_environment_unchanged_with_alre
         (runtime.ToolPolicy.UNRESTRICTED, "danger-full-access"),
     ],
 )
-def test_runtime_client_ephemeral_codex_uses_danger_full_access_in_already_sandboxed_execution(
+def test_runtime_client_ephemeral_codex_uses_danger_full_access_with_argv_transform(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     tool_policy: runtime.ToolPolicy,
@@ -3961,7 +3964,7 @@ def test_runtime_client_ephemeral_codex_uses_danger_full_access_in_already_sandb
     )
 
     outcome = asyncio.run(
-        runtime.RuntimeClient(already_sandboxed=True).run_ephemeral(
+        runtime.RuntimeClient().run_ephemeral(
             harness.ephemeral_run_request(
                 invocation_dir=tmp_path,
                 provider_selection=InternalStageSelection(
@@ -3973,6 +3976,7 @@ def test_runtime_client_ephemeral_codex_uses_danger_full_access_in_already_sandb
                     tmp_path,
                     tool_policy=tool_policy,
                 ),
+                argv_transform=_preserve_argv_transform,
             )
         )
     )
@@ -3982,16 +3986,17 @@ def test_runtime_client_ephemeral_codex_uses_danger_full_access_in_already_sandb
 
 
 @pytest.mark.parametrize(
-    ("already_sandboxed", "expected_sandbox"),
+    ("argv_transform", "expected_sandbox"),
     [
-        (False, "read-only"),
-        (True, "danger-full-access"),
+        (None, "read-only"),
+        (_preserve_argv_transform, "danger-full-access"),
     ],
 )
-def test_runtime_client_resumed_session_codex_uses_constructor_sandbox_setting(
+def test_runtime_client_resumed_session_codex_uses_argv_transform_for_sandbox_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    already_sandboxed: bool,
+    argv_transform: Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]]
+    | None,
     expected_sandbox: str,
 ) -> None:
     RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
@@ -4016,11 +4021,12 @@ def test_runtime_client_resumed_session_codex_uses_constructor_sandbox_setting(
     )
 
     outcome = asyncio.run(
-        runtime.RuntimeClient(already_sandboxed=already_sandboxed).run_resumed_session(
+        runtime.RuntimeClient().run_resumed_session(
             harness.resume_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
                 continuation=continuation,
+                argv_transform=argv_transform,
             )
         )
     )
@@ -6510,7 +6516,7 @@ def test_runtime_client_ephemeral_silent_invocation_timeout_without_live_runtime
     monkeypatch.setattr(
         builtin_provider_rendering_runtime,
         "render_built_in_provider_invocation",
-        lambda _request: (
+        lambda _request, *_args, **_kwargs: (
             builtin_provider_rendering_runtime.BuiltInProviderRenderedInvocation(
                 canonical_argv=(sys.executable, str(script_path)),
                 legacy_command_text=None,
@@ -6718,7 +6724,7 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
         ),
     ],
 )
-def test_built_in_runtime_client_keeps_render_requests_outside_already_sandboxed_execution(
+def test_built_in_runtime_client_keeps_render_requests_without_sandbox_toggle_kwargs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     service: str,
@@ -6765,4 +6771,6 @@ def test_built_in_runtime_client_keeps_render_requests_outside_already_sandboxed
     )
     invoke(adapter, tmp_path)
 
-    assert [request.already_sandboxed for request in captured_requests] == [False]
+    assert all(
+        not hasattr(request, "already_sandboxed") for request in captured_requests
+    )

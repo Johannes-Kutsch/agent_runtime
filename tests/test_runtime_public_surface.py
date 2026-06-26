@@ -182,20 +182,16 @@ def test_removed_value_object_compatibility_names_fail_on_ordinary_runtime_surfa
         getattr(imported_module, removed_name)
 
 
-def test_runtime_client_constructor_accepts_already_sandboxed_keyword_argument_and_keeps_default_surface() -> (
+def test_runtime_client_constructor_rejects_already_sandboxed_keyword_argument() -> (
     None
 ):
     signature = inspect.signature(runtime.RuntimeClient)
-    assert list(signature.parameters.keys()) == ["already_sandboxed"]
-    assert signature.parameters["already_sandboxed"].default is False
+    assert list(signature.parameters.keys()) == []
     unexpected_kwargs: dict[str, object] = {"_provider_invocation_adapter": None}
     with pytest.raises(TypeError):
         cast(Any, runtime.RuntimeClient)(**unexpected_kwargs)
-    default_client = runtime.RuntimeClient()
-    sandboxed_client = runtime.RuntimeClient(already_sandboxed=True)
-
-    assert default_client.already_sandboxed is False
-    assert sandboxed_client.already_sandboxed is True
+    with pytest.raises(TypeError):
+        cast(Any, runtime.RuntimeClient)(already_sandboxed=True)
 
 
 def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None:

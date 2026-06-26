@@ -433,7 +433,6 @@ def _run_builtin_new_session(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     on_live_output: Callable[[Any], None] | None = None,
-    already_sandboxed: bool = False,
 ):
     if request.session_store is None:
         raise RuntimeConfigurationError(
@@ -528,9 +527,6 @@ def _run_builtin_new_session(
                     ),
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
-                    already_sandboxed=(
-                        already_sandboxed or request.argv_transform is not None
-                    ),
                 )
             provider_session_id: str | None = None
             invocation_result = _invoke_with_timeout_continuation(
@@ -541,9 +537,6 @@ def _run_builtin_new_session(
                         stage=selected_stage,
                         provider_state_dir=provider_state_dir,
                         argv_transform=request.argv_transform,
-                        already_sandboxed=(
-                            already_sandboxed or request.argv_transform is not None
-                        ),
                         on_live_output=on_live_output,
                     )
                 ),
@@ -846,7 +839,6 @@ def _run_builtin_resumed_session(
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     on_live_output: Callable[[Any], None] | None = None,
-    already_sandboxed: bool = False,
 ):
     if request.session_store is None:
         raise RuntimeConfigurationError(
@@ -918,9 +910,6 @@ def _run_builtin_resumed_session(
                     request=request,
                     provider_state_dir=provider_state_dir,
                     argv_transform=request.argv_transform,
-                    already_sandboxed=(
-                        already_sandboxed or request.argv_transform is not None
-                    ),
                     on_live_output=on_live_output,
                 )
             ),

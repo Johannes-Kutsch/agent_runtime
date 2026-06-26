@@ -68,7 +68,6 @@ def test_built_in_provider_render_request_preserves_optional_rendering_facts() -
     assert request.invocation_dir == Path("/tmp/invocation")
     assert request.provider_state_dir == Path("/tmp/provider-state")
     assert request.provider_session_id == "session-123"
-    assert request.already_sandboxed is False
     assert request.host_facts == built_in_provider_rendering.BuiltInProviderHostFacts(
         os_name="posix",
         environment={"HOME": "/tmp/home"},
@@ -140,7 +139,6 @@ def test_built_in_provider_rendering_values_allow_missing_optional_facts() -> No
 
     assert request.provider_state_dir is None
     assert request.provider_session_id is None
-    assert request.already_sandboxed is False
     assert request.host_facts is None
     assert rendered_invocation.legacy_command_text is None
     assert rendered_invocation.prompt_path is None
