@@ -1265,6 +1265,66 @@ def test_runtime_client_ephemeral_run_maps_provider_cancelled_interruption_to_ca
     )
 
 
+def test_runtime_client_ephemeral_run_drops_continuation_from_usage_limited_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    usage_limited = runtime.UsageLimitError(
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        service_name="codex",
+        usage=runtime.ProviderUsage(input_tokens=1, output_tokens=2),
+        continuation=runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={"provider_session_id": "should-not-preserve"},
+        ),
+    )
+
+    def _usage_limit_run_ephemeral(
+        request: prompt_runtime.EphemeralRunRequest,
+        *,
+        already_sandboxed: bool = False,
+    ) -> prompt_runtime.RunResult:
+        del request, already_sandboxed
+        raise usage_limited
+
+    monkeypatch.setattr(
+        prompt_runtime,
+        "_run_builtin_ephemeral",
+        _usage_limit_run_ephemeral,
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.UsageLimited)
+    assert outcome.kind.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc)
+    assert outcome.result == runtime.RunResult(
+        output="",
+        usage=usage_limited.usage,
+        continuation=None,
+        selected=runtime.ResolvedProvider(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+    )
+
+
 def test_runtime_client_start_session_run_calls_live_output_observer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
