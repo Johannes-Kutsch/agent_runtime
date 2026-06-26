@@ -10,12 +10,9 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, cast
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .provider_usage import ProviderUsage
-from ._request_normalization import (
-    normalize_continuation_request,
-    normalize_provider_selection_request,
-)
+from . import _lifecycle_request_facts as _lifecycle_request_facts_module
 from .types import ProviderSelection, ResolvedProvider
-from .errors import ProviderUnavailableReason, RuntimeConfigurationError
+from .errors import ProviderUnavailableReason
 
 __all__ = [
     "AgentEvent",
@@ -287,7 +284,7 @@ class EphemeralRunRequest:
             compatibility_kwargs,
             context="EphemeralRunRequest",
         )
-        normalized_request = normalize_provider_selection_request(
+        normalized_request = _lifecycle_request_facts_module._provider_selection_request_facts(
             provider_selection=provider_selection,
             worktree=resolved_invocation_dir,
             tool_access=tool_access,
@@ -303,7 +300,7 @@ class EphemeralRunRequest:
         object.__setattr__(
             self,
             _PUBLIC_INVOCATION_DIR_NAME,
-            normalized_request.worktree.path,
+            normalized_request.invocation_dir,
         )
         object.__setattr__(
             self,
@@ -389,7 +386,7 @@ class NewSessionRunRequest:
             compatibility_kwargs,
             context="NewSessionRunRequest",
         )
-        normalized_request = normalize_provider_selection_request(
+        normalized_request = _lifecycle_request_facts_module._provider_selection_request_facts(
             provider_selection=provider_selection,
             worktree=resolved_invocation_dir,
             tool_access=tool_access,
@@ -405,7 +402,7 @@ class NewSessionRunRequest:
         object.__setattr__(
             self,
             _PUBLIC_INVOCATION_DIR_NAME,
-            normalized_request.worktree.path,
+            normalized_request.invocation_dir,
         )
         object.__setattr__(self, "session_store", session_store)
         object.__setattr__(
@@ -511,33 +508,25 @@ class ResumedSessionRunRequest:
             raise TypeError(
                 "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
             )
-        from ._portable_continuation_payload import (
-            read_portable_continuation_payload,
-        )
-
-        try:
-            continuation_payload = read_portable_continuation_payload(continuation)
-            normalized_request = normalize_continuation_request(
+        normalized_request = (
+            _lifecycle_request_facts_module._resumed_session_request_facts(
+                continuation=continuation,
                 worktree=resolved_invocation_dir,
-                tool_access=continuation_payload.tool_access,
                 session_namespace=_session_namespace,
                 context="ResumedSessionRunRequest",
                 workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
             )
-            resolved_model = continuation_payload.model
-            resolved_effort = continuation_payload.effort
-        except TypeError as exc:
-            raise RuntimeConfigurationError(str(exc)) from exc
+        )
 
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(
             self,
             _PUBLIC_INVOCATION_DIR_NAME,
-            normalized_request.worktree.path,
+            normalized_request.invocation_dir,
         )
         object.__setattr__(self, "session_store", session_store)
-        object.__setattr__(self, "model", resolved_model)
-        object.__setattr__(self, "effort", resolved_effort)
+        object.__setattr__(self, "model", normalized_request.model)
+        object.__setattr__(self, "effort", normalized_request.effort)
         object.__setattr__(
             self,
             "_session_namespace",
