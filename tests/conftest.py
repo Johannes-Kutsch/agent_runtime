@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -10,13 +9,11 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
-from agent_runtime.contracts import ExecutionProvider, ServiceSelectionProvider
-from agent_runtime._service_registry import ServiceRegistry
+from agent_runtime.contracts import ExecutionProvider
 from agent_runtime.types import ProviderSelection as InternalStageSelection
 
 from tests.runtime_boundary_fakes import (
     ExecutionServiceFake,
-    SelectionServiceFake,
 )
 
 
@@ -62,34 +59,6 @@ def provider_selection_factory() -> Callable[..., runtime.ProviderSelection]:
 def execution_service_factory() -> Callable[[str], ExecutionProvider]:
     def _factory(service_name: str = "codex") -> ExecutionProvider:
         return cast(ExecutionProvider, ExecutionServiceFake(service_name))
-
-    return _factory
-
-
-@pytest.fixture
-def service_registry_factory() -> Callable[..., ServiceRegistry]:
-    def _factory(
-        *service_names: str,
-        unavailable: set[str] | None = None,
-        wake_times: dict[str, datetime] | None = None,
-    ) -> ServiceRegistry:
-        unavailable_names = unavailable or set()
-        per_service_wake_times = wake_times or {}
-        services = {
-            service_name: cast(
-                ServiceSelectionProvider,
-                SelectionServiceFake(
-                    service_name,
-                    available=service_name not in unavailable_names,
-                    wake_time=per_service_wake_times.get(
-                        service_name,
-                        datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                ),
-            )
-            for service_name in service_names
-        }
-        return ServiceRegistry(services)
 
     return _factory
 

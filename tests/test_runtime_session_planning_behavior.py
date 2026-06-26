@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Callable, cast
-
 import pytest
 
-from agent_runtime.contracts import (
-    ServiceSelectionProvider,
-)
-from agent_runtime._service_registry import ServiceRegistry
 from agent_runtime.session import (
     provider_state_relpath,
 )
 from agent_runtime.types import ProviderSelection as InternalStageSelection
-from tests.runtime_boundary_fakes import (
-    SelectionServiceFake as _Service,
-)
 
 
 @pytest.mark.parametrize("label", ["", " ", "a/b", "../escape"])
@@ -25,20 +15,6 @@ def test_runtime_service_identities_reject_unsafe_labels(label: str) -> None:
             service=label,
             model="provider model / ../ still allowed",
             effort="high effort / ../ still allowed",
-        )
-
-    with pytest.raises(ValueError):
-        ServiceRegistry(
-            {
-                label: cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "codex",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                )
-            }
         )
 
 
@@ -80,120 +56,6 @@ def test_public_provider_selection_rejects_path_like_service_name() -> None:
             model="gpt-5.4",
             effort="medium",
         )
-
-
-def test_service_registry_rejects_invalid_public_service_name_configuration() -> None:
-    with pytest.raises(ValueError, match="ServiceRegistry service name"):
-        ServiceRegistry(
-            {
-                "bad/name": cast(
-                    ServiceSelectionProvider,
-                    _Service(
-                        "bad/name",
-                        available=True,
-                        wake_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    ),
-                ),
-            }
-        )
-
-
-def test_application_can_render_service_availability_summary_from_registry(
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    registry = service_registry_factory(
-        "codex",
-        "claude",
-        unavailable={"codex"},
-        wake_times={
-            "codex": datetime(2026, 1, 2, tzinfo=timezone.utc),
-            "claude": datetime(2026, 1, 3, tzinfo=timezone.utc),
-        },
-    )
-
-    summary_lines = [
-        f"{name}: {'available' if service.is_available(now=now) else 'unavailable'}"
-        for name, service in registry.services.items()
-    ]
-
-    assert summary_lines == [
-        "codex: unavailable",
-        "claude: available",
-    ]
-
-
-def test_service_registry_resolves_single_provider_selection_unchanged(
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    registry = service_registry_factory("codex", unavailable={"codex"})
-    provider_selection = InternalStageSelection(
-        service="codex",
-        model="gpt-5.4",
-        effort="medium",
-    )
-
-    assert (
-        registry.resolve(
-            provider_selection,
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-        )
-        is provider_selection
-    )
-
-
-def test_service_registry_scopes_availability_to_selected_provider(
-    service_registry_factory: Callable[..., ServiceRegistry],
-) -> None:
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    registry = service_registry_factory(
-        "codex",
-        "claude",
-        unavailable={"codex"},
-        wake_times={"codex": datetime(2026, 1, 2, tzinfo=timezone.utc)},
-    )
-
-    assert (
-        registry.has_available_for(
-            InternalStageSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-            ),
-            now,
-        )
-        is False
-    )
-    assert registry.next_wake_time_for(
-        InternalStageSelection(
-            service="codex",
-            model="gpt-5.4",
-            effort="medium",
-        ),
-        now,
-    ) == datetime(2026, 1, 2, tzinfo=timezone.utc)
-    assert (
-        registry.has_available_for(
-            InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="high",
-            ),
-            now,
-        )
-        is True
-    )
-    assert (
-        registry.next_wake_time_for(
-            InternalStageSelection(
-                service="claude",
-                model="sonnet",
-                effort="high",
-            ),
-            now,
-        )
-        is None
-    )
 
 
 def test_provider_state_relpath_supports_session_root_layout() -> None:

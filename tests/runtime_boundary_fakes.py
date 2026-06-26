@@ -1,43 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
+from datetime import datetime
 from typing import Any
 
 from agent_runtime.session import RunKind
-
-
-class SelectionServiceFake:
-    def __init__(self, name: str, *, available: bool, wake_time: datetime) -> None:
-        self.name = name
-        self._available = available
-        self._wake_time = wake_time
-
-    def is_available(self, now: datetime | None = None) -> bool:
-        del now
-        return self._available
-
-    def next_wake_time(self) -> datetime:
-        return self._wake_time
-
-    def mark_exhausted(self, reset_time: datetime | None) -> None:
-        self._available = False
-        if reset_time is not None:
-            self._wake_time = reset_time
-
-    def state_dir_relpath(self, role: str, namespace: str = "") -> str | None:
-        del role, namespace
-        return None
-
-    def is_resumable(self, state_dir: Path) -> bool:
-        del state_dir
-        return False
-
-    def valid_models(self) -> frozenset[str]:
-        return frozenset()
-
-    def valid_efforts(self) -> frozenset[str]:
-        return frozenset()
 
 
 class ExecutionServiceFake:
