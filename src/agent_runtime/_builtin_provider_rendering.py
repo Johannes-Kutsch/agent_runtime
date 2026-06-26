@@ -435,26 +435,30 @@ def _render_codex_invocation(
     )
     prompt_path = _codex_provider_prompt_path()
     flags: list[str] = []
-    if request.run_kind is RunKind.RESUME and request.provider_session_id:
-        flags.extend(["resume", request.provider_session_id])
+    codex_sandbox = _codex_sandbox(request.tool_access.tool_policy)
+    is_resumed_session = (
+        request.run_kind is RunKind.RESUME and request.provider_session_id is not None
+    )
+    if is_resumed_session:
+        assert request.provider_session_id is not None
+        flags.extend(
+            ["--sandbox", codex_sandbox, "resume", request.provider_session_id]
+        )
     if request.provider_selection.model:
         flags.extend(["-m", request.provider_selection.model])
     if request.provider_selection.effort:
         flags.extend(
             ["-c", f"model_reasoning_effort={request.provider_selection.effort}"]
         )
-    flags.extend(
-        [
-            "-c",
-            "approval_policy=never",
-            "--sandbox",
-            _codex_sandbox(request.tool_access.tool_policy),
-            "--json",
-        ]
+    flags.extend(["-c", "approval_policy=never"])
+    if not is_resumed_session:
+        flags.extend(["--sandbox", codex_sandbox])
+    flags.append("--json")
+    provider_session_id_placement = (
+        ProviderSessionIdPlacement.CLI_FLAG
+        if is_resumed_session
+        else ProviderSessionIdPlacement.NONE
     )
-    provider_session_id_placement = ProviderSessionIdPlacement.NONE
-    if request.run_kind is RunKind.RESUME and request.provider_session_id:
-        provider_session_id_placement = ProviderSessionIdPlacement.CLI_FLAG
     return BuiltInProviderRenderedInvocation(
         canonical_argv=(executable, "exec", *flags),
         legacy_command_text=" ".join(

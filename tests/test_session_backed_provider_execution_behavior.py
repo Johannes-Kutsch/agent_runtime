@@ -184,8 +184,8 @@ def test_session_backed_codex_new_session_recovers_provider_state_through_module
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "thread-123"
     assert recorded_request.command == (
-        f"{'codex.cmd' if os.name == 'nt' else 'codex'} exec resume thread-123 -m gpt-5.4 "
-        "-c model_reasoning_effort=medium -c approval_policy=never --sandbox read-only --json"
+        f"{'codex.cmd' if os.name == 'nt' else 'codex'} exec --sandbox read-only resume thread-123 -m gpt-5.4 "
+        "-c model_reasoning_effort=medium -c approval_policy=never --json"
     )
 
 

@@ -22,6 +22,7 @@ import pytest
 from agent_runtime.contracts import ToolAccess
 from agent_runtime.errors import AgentCredentialFailureError
 from agent_runtime import runtime as pr
+import agent_runtime._provider_invocation as provider_invocation_runtime
 from agent_runtime.errors import ProviderUnavailableReason
 
 SCRIPT_PATH = (
@@ -1201,6 +1202,70 @@ def test_live_probe_resumed_session_case_reaches_classified_outcome_when_session
     assert payload["category"] == "success"
     assert payload["kind"] == "Completed"
     assert len(calls) == 5
+
+
+def test_live_probe_resumed_session_case_uses_sandbox_before_resume_token(
+    probe: Any, case_runner: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    resumed_session_case = _probe_case(
+        probe,
+        provider="codex",
+        mode="resumed_session",
+        codex_auth_present=True,
+    )
+    session_store = tmp_path / "session-store"
+
+    class _CheckingAdapter(
+        provider_invocation_runtime.InMemoryProviderInvocationAdapter
+    ):
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> (
+            provider_invocation_runtime.ProviderInvocationResult
+            | provider_invocation_runtime.ProviderInvocationFailure
+        ):
+            if request.argv[:3] != ("codex", "exec", "--sandbox"):
+                raise RuntimeError("unexpected argument '--sandbox' found")
+            return super().execute(request)
+
+    adapter = _CheckingAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationResult(
+                output="resumed output",
+                stdout_lines=(
+                    '{"type":"thread.started","thread_id":"codex-session"}\n',
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"resumed output"}}\n',
+                    '{"type":"turn.completed"}\n',
+                ),
+                provider_session_id="codex-session",
+            )
+        ]
+    )
+
+    def _runtime_client_factory() -> pr.RuntimeClient:
+        monkeypatch.setattr(
+            pr._builtin_runtime_client_module,
+            "_default_provider_invocation_adapter",
+            lambda: adapter,
+        )
+        return pr.RuntimeClient()
+
+    result = case_runner.run_case(
+        case_runner.ProbeCaseRunRequest(
+            case=resumed_session_case,
+            case_dir=tmp_path / "resumed-session",
+            invocation_dir=tmp_path / "resumed-session-workspace",
+            prompt="resumed prompt",
+            timeout_seconds=45,
+            continuation=_continuation(),
+            session_store=session_store,
+            output=_OutputRecorder(),
+        ),
+        runtime_client_factory=_runtime_client_factory,
+    )
+
+    assert result.category == "success"
 
 
 def test_live_probe_uses_one_per_session_store_for_new_and_resumed_session_cases(
