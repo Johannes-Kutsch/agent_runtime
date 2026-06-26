@@ -618,6 +618,7 @@ def _invoke_claude_session_provider(
             invocation_dir=invocation_dir,
             provider_state_dir=provider_state_dir,
             provider_session_id=provider_session_id,
+            already_sandboxed=False,
         )
     )
     stream_interpretation = _with_observed_output(
@@ -732,6 +733,7 @@ def _invoke_codex_session_provider(
             invocation_dir=invocation_dir,
             provider_state_dir=provider_state_dir,
             provider_session_id=provider_session_id,
+            already_sandboxed=False,
         ),
         validate_auth=False,
     )
@@ -815,6 +817,7 @@ def _invoke_opencode_session_provider(
             invocation_dir=invocation_dir,
             provider_state_dir=provider_state_dir,
             provider_session_id=provider_session_id,
+            already_sandboxed=False,
         )
     )
     try:
@@ -900,6 +903,7 @@ def _render_ephemeral_provider_invocation(
                 request.invocation_dir,
             ),
             provider_state_dir=provider_state_dir,
+            already_sandboxed=False,
         )
     )
 
