@@ -5,16 +5,13 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 from . import _time
 from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
-from ._live_runtime_output_exceptions import is_live_runtime_output_exception
 from ._session_backed_provider_execution import (
     _run_builtin_new_session,
     _run_builtin_resumed_session,
 )
 from .contracts import ToolPolicy
 from .errors import (
-    AgentCancelledError,
     AgentTimeoutError,
-    ProviderUnavailableError,
     RuntimeConfigurationError,
     UsageLimitError,
 )
@@ -37,6 +34,10 @@ from ._runtime_lifecycle import (
 from .types import ProviderSelection, ResolvedProvider
 
 from ._portable_continuation_payload import read_portable_continuation_payload
+from ._runtime_outcome_folding import (
+    _fold_runtime_outcome,
+    _raise_if_live_runtime_output_exception,
+)
 
 if TYPE_CHECKING:
     from ._provider_invocation import ProviderInvocationAdapter
@@ -104,15 +105,6 @@ _supported_builtin_provider_selection = (
 )
 
 
-def _interrupted_result(exc: Any, selected: ResolvedProvider) -> RunResult:
-    return RunResult(
-        output="",
-        usage=exc.usage,
-        continuation=exc.continuation,
-        selected=selected,
-    )
-
-
 def _parse_claude_event(line: str) -> list[Any]:
     return _stream_interpretation_module.parse_claude_event_with_dependencies(
         line,
@@ -143,8 +135,16 @@ def _reduce_opencode_stream(
 
 
 def _raise_if_live_output_exception(exc: BaseException) -> None:
-    if is_live_runtime_output_exception(exc):
-        raise exc
+    _raise_if_live_runtime_output_exception(exc)
+
+
+def _interrupted_result(exc: Any, selected: ResolvedProvider) -> RunResult:
+    return RunResult(
+        output="",
+        usage=exc.usage,
+        continuation=exc.continuation,
+        selected=selected,
+    )
 
 
 def _run_builtin_session_outcome(
@@ -161,32 +161,10 @@ def _run_builtin_session_outcome(
             effort=selected_effort,
         )
 
-    try:
-        return RuntimeOutcome(kind=Completed(), result=call())
-    except AgentCancelledError as exc:
-        _raise_if_live_output_exception(exc)
-        return RuntimeOutcome(
-            kind=Cancelled(),
-            result=_interrupted_result(exc, _selected()),
-        )
-    except AgentTimeoutError as exc:
-        _raise_if_live_output_exception(exc)
-        return RuntimeOutcome(
-            kind=TimedOut(),
-            result=_interrupted_result(exc, _selected()),
-        )
-    except ProviderUnavailableError as exc:
-        _raise_if_live_output_exception(exc)
-        return RuntimeOutcome(
-            kind=ProviderUnavailable(reason=exc.reason, detail=str(exc)),
-            result=_interrupted_result(exc, _selected(exc.service_name)),
-        )
-    except UsageLimitError as exc:
-        _raise_if_live_output_exception(exc)
-        return RuntimeOutcome(
-            kind=UsageLimited(reset_time=exc.reset_time),
-            result=_interrupted_result(exc, _selected(exc.service_name)),
-        )
+    return _fold_runtime_outcome(
+        call,
+        selected_provider=_selected,
+    )
 
 
 class RuntimeClient:
