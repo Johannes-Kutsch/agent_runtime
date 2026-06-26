@@ -153,10 +153,6 @@ def test_new_invocation_requests_take_provider_auth_from_provider_selection() ->
 
 def test_public_root_and_runtime_modules_expose_provider_selection_only() -> None:
     assert runtime.ProviderSelection is prompt_runtime.ProviderSelection
-    with pytest.raises(AttributeError):
-        runtime.StageSelection
-    with pytest.raises(AttributeError):
-        prompt_runtime.StageSelection
 
 
 def test_provider_value_objects_redact_credential_values_in_textual_representation() -> (

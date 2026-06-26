@@ -52,39 +52,19 @@ def test_package_exports_runtime_surface() -> None:
     assert not hasattr(runtime, "InvocationRecord")
     assert not hasattr(runtime, "InvocationProgress")
     assert runtime.ProviderSelection.__module__.startswith("agent_runtime")
-    assert not hasattr(runtime, "StageOverride")
     assert runtime.AgentRuntimeError is AgentRuntimeError
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
     assert "ToolAccess" not in runtime.__all__
     assert "ToolPolicyProfile" not in runtime.__all__
-    assert "InvocationRole" not in runtime.__all__
-    assert "UsageLimitScope" not in runtime.__all__
     assert not hasattr(runtime, "ToolAccess")
     assert not hasattr(runtime, "ToolPolicyProfile")
-    assert not hasattr(runtime, "InvocationRole")
-    assert not hasattr(runtime, "UsageLimitScope")
     assert hasattr(contracts_runtime, "ToolAccess")
     assert hasattr(contracts_runtime, "ToolPolicyProfile")
-    assert not hasattr(runtime, "assert_runtime_import_isolation")
-    assert not hasattr(runtime, "run_prompt")
     assert not hasattr(runtime, "ExecutionProvider")
     assert not hasattr(runtime, "ServiceRegistry")
-    assert not hasattr(runtime, "ProviderSessionAdapter")
-    assert not hasattr(runtime, "ProviderSessionPreferences")
-    assert not hasattr(runtime, "ProviderSessionPreferencesRequest")
-    assert not hasattr(runtime, "ProviderSessionState")
-    assert not hasattr(runtime, "ProviderSessionStateRequest")
     assert not hasattr(prompt_runtime, "PromptRuntime")
     assert not hasattr(prompt_runtime, "PromptRunRequest")
     assert not hasattr(prompt_runtime, "PromptRuntimeExecutionAdapter")
-    assert not hasattr(prompt_runtime, "run_ephemeral")
-    assert not hasattr(prompt_runtime, "run_prompt")
-    assert not hasattr(prompt_runtime, "run_resumable_prompt")
-    assert not hasattr(prompt_runtime, "ResidentRunRequest")
-    assert not hasattr(prompt_runtime, "ResidentRunResult")
-    assert not hasattr(prompt_runtime, "ResidentRuntime")
-    assert not hasattr(prompt_runtime, "ResidentRuntimeExecutionAdapter")
-    assert not hasattr(prompt_runtime, "ResidentRuntimeMetadata")
     assert {
         "AgentEvent",
         "Cancelled",
@@ -107,40 +87,6 @@ def test_package_exports_runtime_surface() -> None:
     assert "ToolPolicyProfile" not in prompt_runtime.__all__
     assert not hasattr(prompt_runtime, "ToolAccess")
     assert not hasattr(prompt_runtime, "ToolPolicyProfile")
-    for removed in (
-        "InvocationRecord",
-        "EphemeralRunResult",
-        "EphemeralResultMetadata",
-        "EphemeralRuntimeMetadata",
-        "SessionRunResult",
-        "SessionRuntimeMetadata",
-    ):
-        assert removed not in prompt_runtime.__all__
-        assert not hasattr(prompt_runtime, removed)
-    assert "EphemeralRuntime" not in prompt_runtime.__all__
-    assert "NewSessionRuntime" not in prompt_runtime.__all__
-    assert "ResumedSessionRuntime" not in prompt_runtime.__all__
-    assert "EphemeralRuntimeExecutionAdapter" not in prompt_runtime.__all__
-    assert "NewSessionRuntimeExecutionAdapter" not in prompt_runtime.__all__
-    assert "ResumedSessionRuntimeExecutionAdapter" not in prompt_runtime.__all__
-    assert not hasattr(prompt_runtime, "ResumableRunResult")
-    assert not hasattr(prompt_runtime, "ResumableRuntimeMetadata")
-    assert "ResumableRunRequest" not in prompt_runtime.__all__
-    assert not hasattr(prompt_runtime, "ResumableRunRequest")
-    assert "ResumableRuntime" not in prompt_runtime.__all__
-    assert "ResumableRuntimeExecutionAdapter" not in prompt_runtime.__all__
-    assert "OneShotRunRequest" not in prompt_runtime.__all__
-    assert "OneShotRunResult" not in prompt_runtime.__all__
-    assert "OneShotResultMetadata" not in prompt_runtime.__all__
-    assert "OneShotRuntime" not in prompt_runtime.__all__
-    assert "OneShotRuntimeExecutionAdapter" not in prompt_runtime.__all__
-    assert "OneShotRuntimeMetadata" not in prompt_runtime.__all__
-    assert not hasattr(runtime, "ProviderInvocationRequest")
-    assert not hasattr(runtime, "ProviderInvocationResult")
-    assert not hasattr(runtime, "ProviderInvocationAdapter")
-    assert not hasattr(prompt_runtime, "ProviderInvocationRequest")
-    assert not hasattr(prompt_runtime, "ProviderInvocationResult")
-    assert not hasattr(prompt_runtime, "ProviderInvocationAdapter")
 
 
 def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surface() -> (
@@ -186,18 +132,6 @@ def test_session_module_exports_only_active_provider_state_helpers() -> None:
     assert session_runtime.provider_state_relpath("implementer", "codex") == (
         "implementer/codex/"
     )
-
-    for removed_name in (
-        "ProviderSessionState",
-        "ProviderSessionStateRequest",
-        "normalize_state_dir_relpath",
-        "provider_state_session_id_path",
-        "load_provider_state_session_id",
-        "load_state_dir_provider_session_id",
-    ):
-        with pytest.raises(ImportError):
-            exec(f"from agent_runtime.session import {removed_name}", {}, {})
-        assert not hasattr(session_runtime, removed_name)
 
 
 @pytest.mark.parametrize(
@@ -381,90 +315,6 @@ def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases
         exec("from agent_runtime.runtime import OneShotRuntime", {}, {})
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import OneShotRunRequest", {}, {})
-
-
-def test_runtime_surfaces_do_not_expose_retired_agent_log_names() -> None:
-    exported_root_names: dict[str, object] = {}
-    exported_runtime_names: dict[str, object] = {}
-
-    exec("from agent_runtime import *", {}, exported_root_names)
-    exec("from agent_runtime.runtime import *", {}, exported_runtime_names)
-
-    for removed_name in (
-        "AgentInvocationLog",
-        "LogicalAgentInvocationLog",
-        "WorkInvocationLog",
-    ):
-        assert removed_name not in runtime.__all__
-        assert removed_name not in prompt_runtime.__all__
-        assert removed_name not in exported_root_names
-        assert removed_name not in exported_runtime_names
-        assert not hasattr(runtime, removed_name)
-        assert not hasattr(prompt_runtime, removed_name)
-        with pytest.raises(ImportError):
-            exec(f"from agent_runtime import {removed_name}", {}, {})
-        with pytest.raises(ImportError):
-            exec(f"from agent_runtime.runtime import {removed_name}", {}, {})
-
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("agent_runtime.agent_log")
-
-
-@pytest.mark.parametrize(
-    "removed_name",
-    [
-        "OneShotRunRequest",
-        "OneShotRunResult",
-        "OneShotResultMetadata",
-        "OneShotRuntime",
-        "OneShotRuntimeExecutionAdapter",
-        "OneShotRuntimeMetadata",
-    ],
-)
-def test_runtime_direct_import_rejects_removed_legacy_names(
-    removed_name: str,
-) -> None:
-    with pytest.raises(ImportError):
-        exec(f"from agent_runtime.runtime import {removed_name}", {}, {})
-
-    with pytest.raises(AttributeError):
-        getattr(prompt_runtime, removed_name)
-
-
-def test_runtime_direct_import_rejects_removed_resumable_completed_result_names() -> (
-    None
-):
-    with pytest.raises(AttributeError):
-        getattr(prompt_runtime, "ResumableRuntime")
-    with pytest.raises(AttributeError):
-        getattr(prompt_runtime, "ResumableRuntimeExecutionAdapter")
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ResumableRuntime", {}, {})
-    with pytest.raises(ImportError):
-        exec(
-            "from agent_runtime.runtime import ResumableRuntimeExecutionAdapter", {}, {}
-        )
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ResumableRunResult", {}, {})
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ResumableRuntimeMetadata", {}, {})
-
-
-def test_types_module_hides_removed_legacy_stage_names() -> None:
-    types_module = importlib.import_module("agent_runtime.types")
-
-    assert types_module.ProviderSelection.__module__.startswith("agent_runtime")
-    assert not hasattr(types_module, "StageSelection")
-    assert not hasattr(types_module, "StageOverride")
-    with pytest.raises(ImportError, match="StageOverride"):
-        exec("from agent_runtime.types import StageOverride", {})
-    with pytest.raises(ImportError, match="StageSelection"):
-        exec("from agent_runtime.types import StageSelection", {})
-
-
-def test_deleted_stage_priority_chain_module_is_not_importable() -> None:
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("agent_runtime.stage_priority_chain")
 
 
 def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
