@@ -145,6 +145,15 @@ def test_retired_public_adapter_modules_do_not_expose_runtime_seams(
     assert module.__all__ == []
 
 
+def test_retired_service_registry_compatibility_module_stays_empty() -> None:
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.service_registry import ServiceRegistry", {}, {})
+
+    module = importlib.import_module("agent_runtime.service_registry")
+    with pytest.raises(AttributeError, match="Runtime Consumer Surface"):
+        getattr(module, "ServiceRegistry")
+
+
 def test_session_module_exports_only_active_provider_state_helpers() -> None:
     assert session_runtime.__all__ == ["RunKind", "provider_state_relpath"]
     assert session_runtime.RunKind is RunKind
@@ -513,6 +522,8 @@ def test_contracts_expose_execution_provider_as_canonical_public_protocol_name()
 ):
     contracts = importlib.import_module("agent_runtime.contracts")
 
+    assert "ServiceSelectionProvider" in contracts.__all__
+    assert "ResumabilityProvider" in contracts.__all__
     assert "ExecutionProvider" in contracts.__all__
     assert "ResumableExecutionProvider" in contracts.__all__
     assert not hasattr(contracts, "ExecutionService")
