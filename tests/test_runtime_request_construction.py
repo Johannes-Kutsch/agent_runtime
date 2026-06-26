@@ -785,6 +785,35 @@ def test_new_session_run_request_keeps_legacy_start_session_run_compatibility_in
     assert request.argv_transform is argv_transform
 
 
+def test_resumed_session_run_request_keeps_legacy_resume_session_run_compatibility_inputs() -> (
+    None
+):
+    def argv_transform(
+        argv: tuple[str, ...],
+        cwd: Path,
+        env: Mapping[str, str],
+    ) -> tuple[str, ...]:
+        return argv
+
+    request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        worktree=Path("/repo"),
+        runtime_state_dir=Path("/state"),
+        session_namespace="main",
+        continuation=_continuation(),
+        argv_transform=argv_transform,
+    )
+
+    assert request.invocation_dir == Path("/repo")
+    assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
+    assert request.session_store == Path("/state")
+    assert request._runtime_state_dir == Path("/state")
+    assert request._session_namespace == "main"
+    assert request.model == "gpt-5.4"
+    assert request.effort == "medium"
+    assert request.argv_transform is argv_transform
+
+
 @pytest.mark.parametrize(
     "request_factory",
     [
@@ -846,6 +875,24 @@ def test_new_session_run_request_rejects_conflicting_private_and_compatibility_s
                 effort="medium",
             ),
             tool_policy=runtime.ToolPolicy.NONE,
+            _session_namespace="main",
+            session_namespace="other",
+        )
+
+
+def test_resumed_session_run_request_rejects_conflicting_private_and_compatibility_session_namespace_values() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "ResumedSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
+        ),
+    ):
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            continuation=_continuation(),
             _session_namespace="main",
             session_namespace="other",
         )
