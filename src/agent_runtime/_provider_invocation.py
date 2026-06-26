@@ -174,10 +174,6 @@ class ProductionProviderInvocationAdapter:
         requested_argv = request.argv
         use_shell = not (request.prefer_argv and request.argv)
         prompt_path = request.prompt.path
-        prompt_file_created = use_shell and prompt_path is not None
-        if prompt_file_created and prompt_path is not None:
-            prompt_path.write_text(request.prompt.content, encoding="utf-8")
-
         environment = dict(request.environment)
         environment = {
             **_windows_process_base_env(),
@@ -193,12 +189,9 @@ class ProductionProviderInvocationAdapter:
             )
             requested_command = ""
             use_shell = False
-            request = dataclasses.replace(
-                request,
-                command=requested_command,
-                argv=requested_argv,
-                prefer_argv=True,
-            )
+        prompt_file_created = use_shell and prompt_path is not None
+        if prompt_file_created and prompt_path is not None:
+            prompt_path.write_text(request.prompt.content, encoding="utf-8")
 
         try:
             if use_shell:

@@ -287,7 +287,7 @@ def test_production_adapter_applies_argv_transform_before_execution_and_forces_s
         prompt=provider_invocation_runtime.ProviderInvocationPrompt(
             content="rendered prompt",
             path=prompt_path,
-            cleanup_path=True,
+            cleanup_path=False,
         ),
         run_kind=RunKind.FRESH,
         provider_session_id=None,
@@ -313,6 +313,7 @@ def test_production_adapter_applies_argv_transform_before_execution_and_forces_s
     assert captured_cwd == tmp_path
     assert process.stdin.writes == ["rendered prompt"]
     assert process.stdin.closed is True
+    assert not prompt_path.exists()
 
 
 def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_input(

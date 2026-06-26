@@ -587,14 +587,7 @@ def _execute_rendered_provider_invocation(
     )
     if argv_transform is None:
         return provider_invocation_adapter.execute(request)
-    try:
-        return provider_invocation_adapter.execute(
-            request, argv_transform=argv_transform
-        )
-    except TypeError as exc:
-        if "unexpected keyword argument 'argv_transform'" not in str(exc):
-            raise
-        return provider_invocation_adapter.execute(request)
+    return provider_invocation_adapter.execute(request, argv_transform=argv_transform)
 
 
 def _invoke_claude_session_provider(
