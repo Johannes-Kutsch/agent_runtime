@@ -719,6 +719,75 @@ def test_in_memory_prepared_stream_preserves_live_reducer_failure_with_extracted
     )
 
 
+def test_in_memory_prepared_stream_preserves_live_reducer_failure_with_prepared_provider_session_id(
+    tmp_path: Path,
+) -> None:
+    output_line = "usage limit line\n"
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationPreparedStream(
+                stdout_lines=(output_line,),
+                provider_session_id="prepared-session",
+            )
+        ]
+    )
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.RESUME,
+        provider_session_id="existing-session",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=(
+                lambda _lines: (_ for _ in ()).throw(
+                    UsageLimitError(raw_message="usage limited")
+                )
+            ),
+        ),
+    )
+
+    result = adapter.execute(request)
+
+    assert result == provider_invocation_runtime.ProviderInvocationFailure(
+        kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+        detail="usage limited",
+        stdout_lines=(output_line,),
+        provider_session_id="prepared-session",
+        usage=None,
+        reset_time=None,
+    )
+
+
+def test_in_memory_adapter_records_request_before_empty_prepared_queue_failure(
+    tmp_path: Path,
+) -> None:
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter()
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.FRESH,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+    )
+
+    with pytest.raises(
+        AssertionError,
+        match="No prepared provider invocation remains.",
+    ):
+        adapter.execute(request)
+
+    assert adapter.recorded_requests == [request]
+
+
 @pytest.mark.parametrize(
     ("adapter_factory", "needs_monkeypatch"),
     [
@@ -809,6 +878,54 @@ def test_provider_invocation_seam_consumes_stdout_lines_before_final_reduction(
         expected_steps.append("wait")
     expected_steps.append("reduce")
     assert observed_steps == expected_steps
+
+
+def test_production_adapter_keeps_first_observed_provider_session_id_on_hard_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_line = "provider output\n"
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter([output_line])
+            self.stderr = iter(())
+            self.returncode = 23
+
+        def wait(self) -> int:
+            return 23
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+    observed_provider_session_ids = iter(
+        ("provider-session-123", "provider-session-456")
+    )
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.RESUME,
+        provider_session_id="existing-session",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+            extract_provider_session_id=lambda _lines: next(
+                observed_provider_session_ids
+            ),
+        ),
+    )
+
+    with pytest.raises(HardAgentError) as exc_info:
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+    assert getattr(exc_info.value, "provider_session_id") == "provider-session-123"
 
 
 @pytest.mark.parametrize("failure_mode", ["start_failure", "reduction_failure"])

@@ -364,9 +364,7 @@ class ProductionProviderInvocationAdapter:
             if isinstance(result, ProviderInvocationFailure):
                 return result
             returncode = process.returncode
-            observed_provider_session_id = (
-                output_finalizer._success_provider_session_id()
-            )
+            observed_provider_session_id = result.provider_session_id
             if returncode != 0:
                 hard_error = HardAgentError(
                     _nonzero_exit_message(returncode, stdout_lines),
