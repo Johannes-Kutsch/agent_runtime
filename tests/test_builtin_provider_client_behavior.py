@@ -5468,6 +5468,73 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
     assert len(adapter.recorded_requests) == 2
 
 
+@pytest.mark.parametrize(
+    ("detail", "expected_reason"),
+    [
+        (
+            "No configured service candidates are currently available.",
+            ProviderUnavailableReason.SERVICE_NOT_AVAILABLE,
+        ),
+        (
+            "temporary provider failure",
+            ProviderUnavailableReason.TRANSIENT_API_ERROR,
+        ),
+    ],
+)
+def test_runtime_client_reused_after_provider_unavailable_ephemeral_call_still_invokes_selected_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    detail: str,
+    expected_reason: ProviderUnavailableReason,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
+    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationFailure(
+            kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
+            detail=detail,
+        ),
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="completed on retry",
+            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=2),
+        ),
+    )
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=tmp_path,
+        provider_selection=InternalStageSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+    )
+
+    client = runtime.RuntimeClient()
+    first_outcome = asyncio.run(client.run_ephemeral(request))
+    second_outcome = asyncio.run(client.run_ephemeral(request))
+
+    assert first_outcome.kind == prompt_runtime.ProviderUnavailable(
+        reason=expected_reason,
+        detail=detail,
+    )
+    assert first_outcome.result.output == ""
+    assert first_outcome.result.usage is None
+    assert first_outcome.result.selected == runtime.ResolvedProvider(
+        service="codex", model="gpt-5.4", effort="medium"
+    )
+    assert first_outcome.result.continuation is None
+    assert isinstance(second_outcome.kind, prompt_runtime.Completed)
+    assert second_outcome.result.output == "completed on retry"
+    assert second_outcome.result.usage == runtime.ProviderUsage(
+        input_tokens=3, output_tokens=2
+    )
+    assert second_outcome.result.selected == runtime.ResolvedProvider(
+        service="codex", model="gpt-5.4", effort="medium"
+    )
+    assert second_outcome.result.continuation is None
+    assert len(adapter.recorded_requests) == 2
+
+
 def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_provider_omits_service_name(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
