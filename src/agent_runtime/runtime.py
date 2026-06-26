@@ -132,9 +132,6 @@ def _reduce_opencode_stream(
 
 
 class RuntimeClient:
-    def __init__(self) -> None:
-        pass
-
     async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         selected_provider_selection = _supported_builtin_provider_selection(
             request.provider_selection

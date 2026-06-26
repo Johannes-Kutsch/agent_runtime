@@ -997,6 +997,41 @@ def test_render_codex_resumed_invocation_uses_expected_sandbox_flag(
     )
 
 
+def test_render_codex_invocation_uses_danger_full_access_when_argv_transform_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(
+                tmp_path,
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            ),
+            auth=None,
+            invocation_dir=tmp_path,
+        ),
+        argv_transform=lambda argv, _cwd, _env: argv,
+    )
+
+    assert rendered_invocation.canonical_argv[-3:] == (
+        "--sandbox",
+        "danger-full-access",
+        "--json",
+    )
+
+
 @pytest.mark.parametrize(
     ("tool_policy", "expected_sandbox"),
     [
