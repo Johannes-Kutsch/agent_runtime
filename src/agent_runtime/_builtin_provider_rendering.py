@@ -439,14 +439,13 @@ def _render_codex_invocation(
     prompt_path = _codex_provider_prompt_path()
     flags: list[str] = []
     codex_sandbox = _codex_sandbox(request.tool_access.tool_policy)
-    if request.run_kind is RunKind.RESUME and request.provider_session_id:
+    is_resumed_session = (
+        request.run_kind is RunKind.RESUME and request.provider_session_id is not None
+    )
+    if is_resumed_session:
+        assert request.provider_session_id is not None
         flags.extend(
-            [
-                "--sandbox",
-                codex_sandbox,
-                "resume",
-                request.provider_session_id,
-            ]
+            ["--sandbox", codex_sandbox, "resume", request.provider_session_id]
         )
     if request.provider_selection.model:
         flags.extend(["-m", request.provider_selection.model])
@@ -454,21 +453,15 @@ def _render_codex_invocation(
         flags.extend(
             ["-c", f"model_reasoning_effort={request.provider_selection.effort}"]
         )
-    if request.run_kind is RunKind.RESUME and request.provider_session_id:
-        flags.extend(["-c", "approval_policy=never", "--json"])
-    else:
-        flags.extend(
-            [
-                "-c",
-                "approval_policy=never",
-                "--sandbox",
-                codex_sandbox,
-                "--json",
-            ]
-        )
-    provider_session_id_placement = ProviderSessionIdPlacement.NONE
-    if request.run_kind is RunKind.RESUME and request.provider_session_id:
-        provider_session_id_placement = ProviderSessionIdPlacement.CLI_FLAG
+    flags.extend(["-c", "approval_policy=never"])
+    if not is_resumed_session:
+        flags.extend(["--sandbox", codex_sandbox])
+    flags.append("--json")
+    provider_session_id_placement = (
+        ProviderSessionIdPlacement.CLI_FLAG
+        if is_resumed_session
+        else ProviderSessionIdPlacement.NONE
+    )
     return BuiltInProviderRenderedInvocation(
         canonical_argv=(executable, "exec", *flags),
         legacy_command_text=" ".join(
