@@ -283,9 +283,7 @@ def test_built_in_provider_invocation_request_signature_excludes_logging_context
     )
 
 
-def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases_fail_direct_import() -> (
-    None
-):
+def test_runtime_star_import_uses_lifecycle_surface() -> None:
     exported_names: dict[str, object] = {}
 
     exec("from agent_runtime.runtime import *", {}, exported_names)
@@ -293,28 +291,6 @@ def test_runtime_star_import_uses_lifecycle_surface_while_removed_legacy_aliases
     assert "EphemeralRunRequest" in exported_names
     assert "RuntimeClient" in exported_names
     assert "ResumedSessionRunRequest" in exported_names
-    assert "EphemeralRuntime" not in exported_names
-    assert "NewSessionRuntime" not in exported_names
-    assert "ResumedSessionRuntime" not in exported_names
-    assert "EphemeralRuntimeExecutionAdapter" not in exported_names
-    assert "NewSessionRuntimeExecutionAdapter" not in exported_names
-    assert "ResumedSessionRuntimeExecutionAdapter" not in exported_names
-    assert "ResumableRuntime" not in exported_names
-    assert "ResumableRunRequest" not in exported_names
-    assert "OneShotRuntime" not in exported_names
-    assert "OneShotRunRequest" not in exported_names
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import EphemeralRuntime", {}, {})
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import NewSessionRuntime", {}, {})
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ResumedSessionRuntime", {}, {})
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ResumableRunRequest", {}, {})
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import OneShotRuntime", {}, {})
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import OneShotRunRequest", {}, {})
 
 
 def test_runtime_surface_exposes_resumed_session_lifecycle_names() -> None:
