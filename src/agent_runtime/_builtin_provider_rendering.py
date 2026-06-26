@@ -438,23 +438,34 @@ def _render_codex_invocation(
     )
     prompt_path = _codex_provider_prompt_path()
     flags: list[str] = []
+    codex_sandbox = _codex_sandbox(request.tool_access.tool_policy)
     if request.run_kind is RunKind.RESUME and request.provider_session_id:
-        flags.extend(["resume", request.provider_session_id])
+        flags.extend(
+            [
+                "--sandbox",
+                codex_sandbox,
+                "resume",
+                request.provider_session_id,
+            ]
+        )
     if request.provider_selection.model:
         flags.extend(["-m", request.provider_selection.model])
     if request.provider_selection.effort:
         flags.extend(
             ["-c", f"model_reasoning_effort={request.provider_selection.effort}"]
         )
-    flags.extend(
-        [
-            "-c",
-            "approval_policy=never",
-            "--sandbox",
-            _codex_sandbox(request.tool_access.tool_policy),
-            "--json",
-        ]
-    )
+    if request.run_kind is RunKind.RESUME and request.provider_session_id:
+        flags.extend(["-c", "approval_policy=never", "--json"])
+    else:
+        flags.extend(
+            [
+                "-c",
+                "approval_policy=never",
+                "--sandbox",
+                codex_sandbox,
+                "--json",
+            ]
+        )
     provider_session_id_placement = ProviderSessionIdPlacement.NONE
     if request.run_kind is RunKind.RESUME and request.provider_session_id:
         provider_session_id_placement = ProviderSessionIdPlacement.CLI_FLAG

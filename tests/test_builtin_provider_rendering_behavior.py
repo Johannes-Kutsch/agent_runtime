@@ -914,16 +914,84 @@ def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
         )
     )
 
-    assert rendered_invocation.canonical_argv[:4] == (
+    assert rendered_invocation.canonical_argv == (
         "codex",
         "exec",
+        "--sandbox",
+        "read-only",
         "resume",
         "thread-123",
+        "-m",
+        "gpt-5.4",
+        "-c",
+        "model_reasoning_effort=medium",
+        "-c",
+        "approval_policy=never",
+        "--json",
     )
     assert rendered_invocation.provider_session_id_placement is (
         built_in_provider_rendering.ProviderSessionIdPlacement.CLI_FLAG
     )
     assert rendered_invocation.provider_session_id == "thread-123"
+
+
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_sandbox"),
+    [
+        pytest.param(runtime.ToolPolicy.NONE, "read-only", id="none"),
+        pytest.param(runtime.ToolPolicy.INSPECT_ONLY, "read-only", id="inspect-only"),
+        pytest.param(
+            runtime.ToolPolicy.NO_FILE_MUTATION,
+            "read-only",
+            id="no-file-mutation",
+        ),
+        pytest.param(
+            runtime.ToolPolicy.UNRESTRICTED, "danger-full-access", id="unrestricted"
+        ),
+    ],
+)
+def test_render_codex_resumed_invocation_uses_expected_sandbox_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_sandbox: str,
+) -> None:
+    host_home = tmp_path / "host-home"
+    host_auth_path = host_home / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+    monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
+
+    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            run_kind=RunKind.RESUME,
+            tool_access=ToolAccess.workspace_backed(tmp_path, tool_policy=tool_policy),
+            auth=None,
+            invocation_dir=tmp_path,
+            provider_session_id="thread-123",
+        )
+    )
+
+    assert rendered_invocation.canonical_argv == (
+        "codex",
+        "exec",
+        "--sandbox",
+        expected_sandbox,
+        "resume",
+        "thread-123",
+        "-m",
+        "gpt-5.4",
+        "-c",
+        "model_reasoning_effort=medium",
+        "-c",
+        "approval_policy=never",
+        "--json",
+    )
 
 
 @pytest.mark.parametrize(

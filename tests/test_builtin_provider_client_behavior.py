@@ -2482,8 +2482,13 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
     assert recorded_request.worktree == tmp_path
     assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "selected-thread"
+    expected_sandbox = (
+        "danger-full-access"
+        if tool_access.tool_policy is runtime.ToolPolicy.UNRESTRICTED
+        else "read-only"
+    )
     assert recorded_request.command.startswith(
-        f"{_codex_executable()} exec resume selected-thread -m gpt-5.4 "
+        f"{_codex_executable()} exec --sandbox {expected_sandbox} resume selected-thread -m gpt-5.4 "
     )
     assert (provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
         '{"token":"host-auth"}\n'
@@ -2609,8 +2614,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         f"{_codex_executable()} exec -m gpt-5.4"
     )
     assert harness.recorded_request(1).command == (
-        f"{_codex_executable()} exec resume thread-123 -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox read-only --json"
+        f"{_codex_executable()} exec --sandbox read-only resume thread-123 -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never --json"
     )
 
 
@@ -2677,8 +2681,7 @@ def test_runtime_client_runs_codex_resumed_session_from_continuation_without_por
         "CODEX_HOME": str(tmp_path / "host-home" / ".codex"),
     }
     assert harness.recorded_request().command == (
-        f"{_codex_executable()} exec resume selected-thread -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never "
-        "--sandbox read-only --json"
+        f"{_codex_executable()} exec --sandbox read-only resume selected-thread -m gpt-5.4 -c model_reasoning_effort=medium -c approval_policy=never --json"
     )
 
 
