@@ -17,6 +17,7 @@ from .errors import (
     AgentTimeoutError,
     HardAgentError,
     ProviderUnavailableError,
+    ProviderUnavailableReason,
     UsageLimitError,
 )
 from .provider_usage import ProviderUsage
@@ -104,6 +105,7 @@ class ProviderInvocationFailure:
     provider_session_id: str | None = None
     usage: ProviderUsage | None = None
     reset_time: datetime | None = None
+    provider_unavailable_reason: ProviderUnavailableReason | None = None
 
 
 class ProviderInvocationAdapter(Protocol):
@@ -138,6 +140,7 @@ def _provider_invocation_failure_from_error(
         provider_session_id=provider_session_id,
         usage=error.usage,
         reset_time=None,
+        provider_unavailable_reason=error.reason,
     )
 
 

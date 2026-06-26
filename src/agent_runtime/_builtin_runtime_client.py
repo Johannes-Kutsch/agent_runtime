@@ -365,9 +365,12 @@ def _provider_invocation_error_from_failure(
         error = ProviderUnavailableError(
             failure.detail,
             reason=(
-                ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
-                if failure.detail == _SERVICE_NOT_AVAILABLE_DETAIL
-                else ProviderUnavailableReason.TRANSIENT_API_ERROR
+                failure.provider_unavailable_reason
+                or (
+                    ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
+                    if failure.detail == _SERVICE_NOT_AVAILABLE_DETAIL
+                    else ProviderUnavailableReason.TRANSIENT_API_ERROR
+                )
             ),
             service_name=service_name,
             invocation_progress=invocation_progress,

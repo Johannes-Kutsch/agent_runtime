@@ -1746,6 +1746,42 @@ def test_runtime_client_new_session_maps_provider_unavailable_outcomes(
     )
 
 
+def test_runtime_client_new_session_uses_provider_unavailable_reason_from_adapter_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationFailure(
+            kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
+            detail="provider overloaded",
+            provider_unavailable_reason=ProviderUnavailableReason.SERVICE_NOT_AVAILABLE,
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            harness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert outcome.kind == prompt_runtime.ProviderUnavailable(
+        reason=ProviderUnavailableReason.SERVICE_NOT_AVAILABLE,
+        detail="provider overloaded",
+    )
+
+
 def test_runtime_client_ephemeral_run_calls_live_output_observer_for_claude(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

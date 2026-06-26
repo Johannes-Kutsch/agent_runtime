@@ -1554,6 +1554,7 @@ def test_production_adapter_preserves_reducer_classification_on_nonzero_exit(
             provider_session_id=None,
             usage=classified_failure.usage,
             reset_time=None,
+            provider_unavailable_reason=classified_failure.reason,
         )
 
     assert result == expected
@@ -1610,6 +1611,172 @@ def test_production_completed_output_returns_classified_interruption_before_hard
         provider_session_id="provider-session-123",
         usage=None,
         reset_time=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("adapter_factory", "needs_monkeypatch"),
+    [
+        (
+            lambda output_line: (
+                provider_invocation_runtime.ProductionProviderInvocationAdapter()
+            ),
+            True,
+        ),
+        (
+            lambda output_line: (
+                provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+                    prepared_invocations=[
+                        provider_invocation_runtime.ProviderInvocationPreparedStream(
+                            stdout_lines=(output_line,),
+                            provider_session_id="prepared-session",
+                        )
+                    ]
+                )
+            ),
+            False,
+        ),
+    ],
+)
+def test_provider_invocation_failure_preserves_provider_unavailable_reason_after_observed_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    adapter_factory: Any,
+    needs_monkeypatch: bool,
+) -> None:
+    output_line = '{"session":"provider-session-123"}\n'
+    usage = ProviderUsage(input_tokens=11, output_tokens=7)
+    classified_failure = ProviderUnavailableError(
+        "temporary provider failure",
+        reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
+        service_name="codex",
+        usage=usage,
+    )
+
+    if needs_monkeypatch:
+
+        class _Process:
+            def __init__(self) -> None:
+                self.stdout = iter([output_line])
+                self.stderr = iter(())
+                self.returncode = 0
+
+            def wait(self) -> int:
+                return 0
+
+        monkeypatch.setattr(
+            provider_invocation_runtime.subprocess,
+            "Popen",
+            lambda *args, **kwargs: _Process(),
+        )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.RESUME,
+        provider_session_id="existing-session",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda _lines: (_ for _ in ()).throw(classified_failure),
+            extract_provider_session_id=lambda _lines: "provider-session-123",
+        ),
+    )
+
+    result = adapter_factory(output_line).execute(request)
+
+    assert result == provider_invocation_runtime.ProviderInvocationFailure(
+        kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
+        detail="temporary provider failure",
+        stdout_lines=(output_line,),
+        provider_session_id="provider-session-123",
+        usage=usage,
+        reset_time=None,
+        provider_unavailable_reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
+    )
+
+
+@pytest.mark.parametrize(
+    ("adapter_factory", "needs_monkeypatch"),
+    [
+        (
+            lambda output_line: (
+                provider_invocation_runtime.ProductionProviderInvocationAdapter()
+            ),
+            True,
+        ),
+        (
+            lambda output_line: (
+                provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+                    prepared_invocations=[
+                        provider_invocation_runtime.ProviderInvocationPreparedStream(
+                            stdout_lines=(output_line,),
+                            provider_session_id="prepared-session",
+                        )
+                    ]
+                )
+            ),
+            False,
+        ),
+    ],
+)
+def test_provider_invocation_failure_preserves_usage_limit_metadata_after_observed_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    adapter_factory: Any,
+    needs_monkeypatch: bool,
+) -> None:
+    output_line = '{"session":"provider-session-123"}\n'
+    usage = ProviderUsage(input_tokens=13, output_tokens=5)
+    reset_time = datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc)
+    classified_failure = UsageLimitError(
+        reset_time=reset_time,
+        usage=usage,
+    )
+
+    if needs_monkeypatch:
+
+        class _Process:
+            def __init__(self) -> None:
+                self.stdout = iter([output_line])
+                self.stderr = iter(())
+                self.returncode = 19
+
+            def wait(self) -> int:
+                return 19
+
+        monkeypatch.setattr(
+            provider_invocation_runtime.subprocess,
+            "Popen",
+            lambda *args, **kwargs: _Process(),
+        )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.RESUME,
+        provider_session_id="existing-session",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda _lines: (_ for _ in ()).throw(classified_failure),
+            extract_provider_session_id=lambda _lines: "provider-session-123",
+        ),
+    )
+
+    result = adapter_factory(output_line).execute(request)
+
+    assert result == provider_invocation_runtime.ProviderInvocationFailure(
+        kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+        detail=str(classified_failure),
+        stdout_lines=(output_line,),
+        provider_session_id="provider-session-123",
+        usage=usage,
+        reset_time=reset_time,
     )
 
 
