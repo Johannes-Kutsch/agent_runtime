@@ -215,15 +215,17 @@ class RuntimeClient:
             raise RuntimeConfigurationError(
                 "RuntimeClient Start Session Run requires a `session_store`."
             )
-        return _run_builtin_session_outcome(
+        return _fold_runtime_outcome(
             lambda: _run_builtin_new_session(
                 request,
                 on_live_output=request.on_live_output,
                 already_sandboxed=self.already_sandboxed,
             ),
-            service_name=request.provider_selection.service,
-            selected_model=request.provider_selection.model,
-            selected_effort=request.provider_selection.effort,
+            selected_provider=ResolvedProvider(
+                service=request.provider_selection.service,
+                model=request.provider_selection.model,
+                effort=request.provider_selection.effort,
+            ),
         )
 
     async def run_resumed_session(
@@ -234,17 +236,19 @@ class RuntimeClient:
             raise RuntimeConfigurationError(
                 "RuntimeClient Resume Session Run requires a `session_store`."
             )
-        return _run_builtin_session_outcome(
+        return _fold_runtime_outcome(
             lambda: _run_builtin_resumed_session(
                 request,
                 on_live_output=request.on_live_output,
                 already_sandboxed=self.already_sandboxed,
             ),
-            service_name=read_portable_continuation_payload(
-                cast(Continuation, request.continuation)
-            ).service_name,
-            selected_model=request.model,
-            selected_effort=request.effort,
+            selected_provider=ResolvedProvider(
+                service=read_portable_continuation_payload(
+                    cast(Continuation, request.continuation)
+                ).service_name,
+                model=request.model,
+                effort=request.effort,
+            ),
         )
 
 
