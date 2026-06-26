@@ -227,6 +227,43 @@ def test_runtime_client_ephemeral_run_returns_provider_unavailable_outcome_on_in
     assert outcome.result.continuation is None
 
 
+def test_runtime_client_ephemeral_run_returns_service_not_available_outcome_before_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_failure(
+        provider_invocation_runtime.ProviderInvocationFailure(
+            kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
+            detail="No configured service candidates are currently available.",
+        )
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=_claude_selection(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
+    assert (
+        outcome.kind.detail
+        == "No configured service candidates are currently available."
+    )
+    assert outcome.result.output == ""
+    assert outcome.result.usage is None
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="claude",
+        model="sonnet",
+        effort="medium",
+    )
+    assert outcome.result.continuation is None
+
+
 def test_runtime_session_requests_require_session_store_for_session_backed_lifecycle(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
