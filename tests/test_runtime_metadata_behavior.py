@@ -5,9 +5,8 @@ from pathlib import Path
 import pytest
 
 from agent_runtime.errors import (
-    AgentFailedError,
-    AgentRuntimeError,
     AgentCredentialFailureError,
+    AgentRuntimeError,
     AgentTimeoutError,
     HardAgentError,
     ProviderUnavailableError,
@@ -15,28 +14,6 @@ from agent_runtime.errors import (
     TransientAgentError,
     UsageLimitError,
 )
-
-
-def test_agent_failed_error_rejects_unsafe_session_namespace_before_building_diagnostics() -> (
-    None
-):
-    with pytest.raises(ValueError):
-        AgentFailedError(
-            invocation_role="implementer",
-            worktree_path=Path("."),
-            namespace="../escape",
-        )
-
-
-def test_agent_failed_error_rejects_unsafe_service_name_before_building_diagnostics() -> (
-    None
-):
-    with pytest.raises(ValueError):
-        AgentFailedError(
-            invocation_role="implementer",
-            worktree_path=Path("."),
-            service_name="a/b",
-        )
 
 
 def test_agent_timeout_error_exposes_invocation_role_metadata() -> None:
@@ -47,38 +24,6 @@ def test_agent_timeout_error_exposes_invocation_role_metadata() -> None:
     )
 
     assert timeout.invocation_role == "reviewer"
-
-
-def test_agent_failed_error_exposes_invocation_role_metadata() -> None:
-    failed = AgentFailedError(
-        invocation_role="reviewer",
-        worktree_path=Path("worktree"),
-    )
-
-    assert failed.invocation_role == "reviewer"
-
-
-def test_agent_failed_error_builds_session_dir_from_namespace_metadata() -> None:
-    failed = AgentFailedError(
-        invocation_role="reviewer",
-        worktree_path=Path("worktree"),
-        namespace="main",
-    )
-
-    assert failed.session_dir == "reviewer/main"
-
-
-def test_agent_failed_error_builds_session_dir_from_namespace_and_service_name_metadata() -> (
-    None
-):
-    failed = AgentFailedError(
-        invocation_role="reviewer",
-        worktree_path=Path("worktree"),
-        namespace="main",
-        service_name="codex",
-    )
-
-    assert failed.session_dir == "reviewer/main/codex"
 
 
 @pytest.mark.parametrize("service_name", [" ", "a/b", "../escape"])
@@ -141,9 +86,3 @@ def test_agent_credential_failure_error_omits_provider_diagnostic_metadata() -> 
 
     assert not hasattr(credential_failure, "status_code")
     assert not hasattr(credential_failure, "observations")
-
-
-def test_agent_failed_error_builds_session_dir_from_service_name_metadata() -> None:
-    failed = AgentFailedError("implementer", Path("worktree"), service_name="codex")
-
-    assert failed.session_dir == "implementer/codex"

@@ -7,7 +7,6 @@ from ._import_isolation import (
 from .contracts import ToolPolicy
 from .errors import (
     AgentCredentialFailureError,
-    AgentFailedError,
     AgentRuntimeError,
     AgentTimeoutError,
     HardAgentError,
@@ -36,7 +35,6 @@ from .types import ClaudeCodeOAuthToken, ResolvedProvider
 __all__ = [
     "AgentCredentialFailureError",
     "AgentEvent",
-    "AgentFailedError",
     "AgentRuntimeError",
     "AgentTimeoutError",
     "Cancelled",

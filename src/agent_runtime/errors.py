@@ -5,7 +5,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .identity import validate_runtime_identity_label, validate_session_namespace
+from .identity import validate_runtime_identity_label
 from .invocation_progress import InvocationProgress
 from .provider_usage import ProviderUsage
 
@@ -147,49 +147,9 @@ class AgentCredentialFailureError(HardAgentError):
         )
 
 
-class AgentFailedError(AgentRuntimeError):
-    def __init__(
-        self,
-        invocation_role: str,
-        worktree_path: Path,
-        namespace: str = "",
-        failure_class: str = "",
-        service_name: str = "",
-        provider_session_path: str | None = None,
-        session_root: str = "",
-    ) -> None:
-        validate_session_namespace(namespace)
-        if service_name:
-            validate_runtime_identity_label(
-                service_name,
-                kind="AgentFailedError service name",
-            )
-        super().__init__(f"Agent {invocation_role!r} failed irrecoverably")
-        self.invocation_role = invocation_role
-        self.worktree_path = worktree_path
-        self.namespace = namespace
-        self.failure_class = failure_class
-        self.service_name = service_name
-        self.provider_session_path = provider_session_path
-        self.session_root = session_root
-
-    @property
-    def session_dir(self) -> str:
-        if self.provider_session_path is not None:
-            return self.provider_session_path
-        parts = [
-            self.session_root,
-            self.invocation_role,
-            self.namespace,
-            self.service_name,
-        ]
-        return "/".join(part for part in parts if part)
-
-
 __all__ = [
     "AgentCancelledError",
     "AgentCredentialFailureError",
-    "AgentFailedError",
     "AgentRuntimeError",
     "AgentTimeoutError",
     "HardAgentError",

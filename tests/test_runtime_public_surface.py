@@ -25,7 +25,6 @@ def test_package_exports_runtime_surface() -> None:
     assert runtime.__all__ == [
         "AgentCredentialFailureError",
         "AgentEvent",
-        "AgentFailedError",
         "AgentRuntimeError",
         "AgentTimeoutError",
         "Cancelled",
