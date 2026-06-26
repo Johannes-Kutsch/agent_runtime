@@ -761,6 +761,88 @@ def test_in_memory_prepared_stream_preserves_live_reducer_failure_with_prepared_
     )
 
 
+def test_production_completed_output_matches_prepared_stream_finalization_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    process_lines = ['{"session":"provider-session-123"}\n', "final line\n"]
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter(process_lines)
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    observed_steps: list[str] = []
+
+    class _Reducer:
+        def __call__(self, lines: list[str]) -> tuple[str, ProviderUsage | None]:
+            observed_steps.append(f"reduce:{len(lines)}")
+            return ("normalized output", ProviderUsage(output_tokens=7))
+
+        def consume_stdout_lines(self, lines: list[str]) -> None:
+            observed_steps.extend(f"consume:{line.rstrip()}" for line in lines)
+
+    output_hooks = provider_invocation_runtime.ProviderOutputReductionHooks(
+        reduce_output=_Reducer(),
+        extract_provider_session_id=lambda _lines: "provider-session-123",
+    )
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={"PROVIDER_TOKEN": "secret"},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.RESUME,
+        provider_session_id="existing-session",
+        output_hooks=output_hooks,
+    )
+
+    production_result = (
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+    )
+    prepared_stream_result = (
+        provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+            prepared_invocations=[
+                provider_invocation_runtime.ProviderInvocationPreparedStream(
+                    stdout_lines=tuple(process_lines),
+                    provider_session_id="prepared-session",
+                )
+            ]
+        ).execute(request)
+    )
+
+    expected = provider_invocation_runtime.ProviderInvocationResult(
+        output="normalized output",
+        usage=ProviderUsage(output_tokens=7),
+        stdout_lines=tuple(process_lines),
+        provider_session_id="provider-session-123",
+    )
+
+    assert production_result == expected
+    assert prepared_stream_result == expected
+    assert observed_steps == [
+        'consume:{"session":"provider-session-123"}',
+        "consume:final line",
+        "reduce:2",
+        'consume:{"session":"provider-session-123"}',
+        "consume:final line",
+        "reduce:2",
+    ]
+
+
 def test_in_memory_adapter_records_request_before_empty_prepared_queue_failure(
     tmp_path: Path,
 ) -> None:
@@ -1475,6 +1557,60 @@ def test_production_adapter_preserves_reducer_classification_on_nonzero_exit(
         )
 
     assert result == expected
+
+
+def test_production_completed_output_returns_classified_interruption_before_hard_exit_handling(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_line = '{"session":"provider-session-123"}\n'
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = iter([output_line])
+            self.stderr = iter(())
+            self.returncode = 19
+
+        def wait(self) -> int:
+            return 19
+
+    monkeypatch.setattr(
+        provider_invocation_runtime.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _Process(),
+    )
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider --run",
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+        ),
+        run_kind=RunKind.RESUME,
+        provider_session_id="existing-session",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=(
+                lambda _lines: (_ for _ in ()).throw(
+                    UsageLimitError(raw_message="usage limited")
+                )
+            ),
+            extract_provider_session_id=lambda _lines: "provider-session-123",
+        ),
+    )
+
+    result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        request
+    )
+
+    assert result == provider_invocation_runtime.ProviderInvocationFailure(
+        kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+        detail="usage limited",
+        stdout_lines=(output_line,),
+        provider_session_id="provider-session-123",
+        usage=None,
+        reset_time=None,
+    )
 
 
 def test_provider_invocation_request_requires_command_or_argv() -> None:
