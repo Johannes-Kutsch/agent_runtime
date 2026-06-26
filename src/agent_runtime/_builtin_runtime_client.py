@@ -565,6 +565,9 @@ def _execute_rendered_provider_invocation(
     provider_invocation_adapter: ProviderInvocationAdapter,
     rendered: _builtin_provider_rendering_module.BuiltInProviderRenderedInvocation,
     invocation_dir: Path,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
     prompt: str,
     run_kind: RunKind,
     provider_session_id: str | None,
@@ -572,20 +575,26 @@ def _execute_rendered_provider_invocation(
     normalize_prompt_file_command_for_argv: bool = False,
     timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    return provider_invocation_adapter.execute(
-        _provider_invocation_request_from_rendered_invocation(
-            rendered=rendered,
-            invocation_dir=invocation_dir,
-            prompt=prompt,
-            run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            stream_interpretation=stream_interpretation,
-            normalize_prompt_file_command_for_argv=(
-                normalize_prompt_file_command_for_argv
-            ),
-            timeout_seconds=timeout_seconds,
-        )
+    request = _provider_invocation_request_from_rendered_invocation(
+        rendered=rendered,
+        invocation_dir=invocation_dir,
+        prompt=prompt,
+        run_kind=run_kind,
+        provider_session_id=provider_session_id,
+        stream_interpretation=stream_interpretation,
+        normalize_prompt_file_command_for_argv=(normalize_prompt_file_command_for_argv),
+        timeout_seconds=timeout_seconds,
     )
+    if argv_transform is None:
+        return provider_invocation_adapter.execute(request)
+    try:
+        return provider_invocation_adapter.execute(
+            request, argv_transform=argv_transform
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument 'argv_transform'" not in str(exc):
+            raise
+        return provider_invocation_adapter.execute(request)
 
 
 def _invoke_claude_session_provider(
@@ -600,6 +609,9 @@ def _invoke_claude_session_provider(
     provider_state_dir: Path | None,
     run_kind: RunKind,
     provider_session_id: str,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
     timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
@@ -635,6 +647,7 @@ def _invoke_claude_session_provider(
             provider_invocation_adapter=provider_invocation_adapter,
             rendered=rendered,
             invocation_dir=invocation_dir,
+            argv_transform=argv_transform,
             prompt=prompt,
             run_kind=run_kind,
             provider_session_id=provider_session_id,
@@ -654,6 +667,9 @@ def _invoke_claude_new_session_provider(
     provider_state_dir: Path,
     run_kind: RunKind,
     provider_session_id: str,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_claude_session_provider(
@@ -667,6 +683,7 @@ def _invoke_claude_new_session_provider(
         provider_state_dir=provider_state_dir,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
+        argv_transform=argv_transform,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
     )
@@ -678,6 +695,9 @@ def _invoke_codex_new_session_provider(
     request: NewSessionRunRequest,
     stage: ProviderSelection,
     provider_state_dir: Path,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
     already_sandboxed: bool = False,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
@@ -691,6 +711,7 @@ def _invoke_codex_new_session_provider(
         provider_state_dir=provider_state_dir,
         run_kind=RunKind.FRESH,
         provider_session_id=None,
+        argv_transform=argv_transform,
         already_sandboxed=already_sandboxed,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
@@ -708,6 +729,9 @@ def _invoke_codex_session_provider(
     provider_state_dir: Path | None,
     run_kind: RunKind,
     provider_session_id: str | None,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
     already_sandboxed: bool = False,
     on_live_output: Callable[[AgentEvent], None] | None = None,
     timeout_seconds: int = 300,
@@ -745,6 +769,7 @@ def _invoke_codex_session_provider(
             provider_invocation_adapter=provider_invocation_adapter,
             rendered=rendered,
             invocation_dir=invocation_dir,
+            argv_transform=argv_transform,
             prompt=prompt,
             run_kind=run_kind,
             provider_session_id=provider_session_id,
@@ -762,6 +787,9 @@ def _invoke_codex_resumed_session_provider(
     request: ResumedSessionRunRequest,
     provider_state_dir: Path | None,
     provider_session_id: str,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
     already_sandboxed: bool = False,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
@@ -775,6 +803,7 @@ def _invoke_codex_resumed_session_provider(
         provider_state_dir=provider_state_dir,
         run_kind=RunKind.RESUME,
         provider_session_id=provider_session_id,
+        argv_transform=argv_transform,
         already_sandboxed=already_sandboxed,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
@@ -793,6 +822,9 @@ def _invoke_opencode_session_provider(
     provider_state_dir: Path | None,
     run_kind: RunKind,
     provider_session_id: str,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
     timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
@@ -830,6 +862,7 @@ def _invoke_opencode_session_provider(
             provider_invocation_adapter=provider_invocation_adapter,
             rendered=rendered,
             invocation_dir=invocation_dir,
+            argv_transform=argv_transform,
             prompt=prompt,
             run_kind=run_kind,
             provider_session_id=rendered.provider_session_id,
@@ -849,6 +882,9 @@ def _invoke_opencode_new_session_provider(
     provider_state_dir: Path,
     run_kind: RunKind,
     provider_session_id: str,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_opencode_session_provider(
@@ -862,6 +898,7 @@ def _invoke_opencode_new_session_provider(
         provider_state_dir=provider_state_dir,
         run_kind=run_kind,
         provider_session_id=provider_session_id,
+        argv_transform=argv_transform,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
     )
@@ -951,7 +988,13 @@ def _run_builtin_ephemeral(
             request,
             selected_stage,
             provider_state_dir=provider_state_dir,
-            already_sandboxed=already_sandboxed,
+            already_sandboxed=(
+                already_sandboxed
+                or (
+                    request.argv_transform is not None
+                    and selected_stage.service == "codex"
+                )
+            ),
         )
         stream_interpretation: BuiltInProviderStreamInterpretation
         if selected_stage.service == "codex":
@@ -982,6 +1025,7 @@ def _run_builtin_ephemeral(
             provider_invocation_adapter=invocation_adapter,
             rendered=rendered,
             invocation_dir=request.invocation_dir,
+            argv_transform=request.argv_transform,
             prompt=request.prompt,
             run_kind=RunKind.FRESH,
             provider_session_id=rendered.provider_session_id,

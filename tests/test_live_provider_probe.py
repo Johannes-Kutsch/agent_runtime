@@ -15,7 +15,7 @@ import io
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
@@ -1221,13 +1221,17 @@ def test_live_probe_resumed_session_case_uses_sandbox_before_resume_token(
         def execute(
             self,
             request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform: (
+                Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]]
+                | None
+            ) = None,
         ) -> (
             provider_invocation_runtime.ProviderInvocationResult
             | provider_invocation_runtime.ProviderInvocationFailure
         ):
             if request.argv[:3] != ("codex", "exec", "--sandbox"):
                 raise RuntimeError("unexpected argument '--sandbox' found")
-            return super().execute(request)
+            return super().execute(request, argv_transform=argv_transform)
 
     adapter = _CheckingAdapter(
         prepared_invocations=[

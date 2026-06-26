@@ -211,6 +211,110 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
     }
 
 
+def test_production_adapter_applies_argv_transform_before_execution_and_forces_stdin_prompt_input(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prompt_path = tmp_path / ".provider_prompt"
+    captured: dict[str, Any] = {}
+    captured_env: dict[str, Any] = {}
+
+    class _Stdin:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.closed = False
+
+        def write(self, content: str) -> None:
+            self.writes.append(content)
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdin = _Stdin()
+            self.stdout = iter(["line 1\n"])
+            self.stderr = iter(())
+            self.returncode = 0
+            self.wait_called = False
+
+        def wait(self) -> int:
+            self.wait_called = True
+            return 0
+
+    process = _Process()
+
+    def _fake_popen(
+        command: list[str] | tuple[str, ...],
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        text: bool,
+        stdin: Any,
+    ) -> _Process:
+        captured["command"] = command
+        captured["shell"] = shell
+        captured["cwd"] = cwd
+        captured_env.update(env)
+        captured["stdout"] = stdout
+        captured["stderr"] = stderr
+        captured["text"] = text
+        captured["stdin"] = stdin
+        return process
+
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(provider_invocation_runtime.shutil, "which", lambda _name: None)
+
+    captured_cwd: Path | None = None
+
+    def _argv_transform(
+        argv: tuple[str, ...],
+        cwd: Path,
+        _env: dict[str, str],
+    ) -> tuple[str, ...]:
+        nonlocal captured_cwd
+        captured_cwd = cwd
+        return ("transformed", "provider")
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        command="provider < /tmp/provider_prompt",
+        argv=(),
+        worktree=tmp_path,
+        environment={"PROVIDER_TOKEN": "secret"},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+            content="rendered prompt",
+            path=prompt_path,
+            cleanup_path=True,
+        ),
+        run_kind=RunKind.FRESH,
+        provider_session_id=None,
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+    )
+
+    result = provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        request,
+        argv_transform=_argv_transform,
+    )
+
+    assert result == provider_invocation_runtime.ProviderInvocationResult(
+        output="line 1\n",
+        usage=None,
+        stdout_lines=("line 1\n",),
+        provider_session_id=None,
+    )
+    assert tuple(captured["command"]) == ("transformed", "provider")
+    assert captured["shell"] is False
+    assert captured["stdin"] is provider_invocation_runtime.subprocess.PIPE
+    assert captured_cwd == tmp_path
+    assert process.stdin.writes == ["rendered prompt"]
+    assert process.stdin.closed is True
+
+
 def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_input(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

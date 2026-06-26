@@ -110,6 +110,9 @@ class ProviderInvocationAdapter(Protocol):
     def execute(
         self,
         request: ProviderInvocationRequest,
+        argv_transform: (
+            Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+        ) = None,
     ) -> ProviderInvocationResult | ProviderInvocationFailure: ...
 
 
@@ -146,20 +149,29 @@ def _nonzero_exit_message(returncode: int, observed_lines: list[str]) -> str:
     return f"{message} Provider output:\n{observed_output}"
 
 
+def _windows_process_base_env() -> dict[str, str]:
+    if os.name != "nt":
+        return {}
+    return {
+        key: os.environ[key]
+        for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
+        if key in os.environ and os.environ[key]
+    }
+
+
 class ProductionProviderInvocationAdapter:
     def _windows_process_base_env(self) -> dict[str, str]:
-        if os.name != "nt":
-            return {}
-        return {
-            key: os.environ[key]
-            for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
-            if key in os.environ and os.environ[key]
-        }
+        return _windows_process_base_env()
 
     def execute(
         self,
         request: ProviderInvocationRequest,
+        argv_transform: (
+            Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+        ) = None,
     ) -> ProviderInvocationResult | ProviderInvocationFailure:
+        requested_command = request.command
+        requested_argv = request.argv
         use_shell = not (request.prefer_argv and request.argv)
         prompt_path = request.prompt.path
         prompt_file_created = use_shell and prompt_path is not None
@@ -168,14 +180,30 @@ class ProductionProviderInvocationAdapter:
 
         environment = dict(request.environment)
         environment = {
-            **self._windows_process_base_env(),
+            **_windows_process_base_env(),
             **environment,
         }
+        if argv_transform is not None:
+            requested_argv = tuple(
+                argv_transform(
+                    requested_argv,
+                    request.worktree,
+                    environment,
+                )
+            )
+            requested_command = ""
+            use_shell = False
+            request = dataclasses.replace(
+                request,
+                command=requested_command,
+                argv=requested_argv,
+                prefer_argv=True,
+            )
 
         try:
             if use_shell:
                 process = subprocess.Popen(
-                    request.command,
+                    requested_command,
                     shell=True,
                     cwd=request.worktree,
                     env=environment,
@@ -190,7 +218,7 @@ class ProductionProviderInvocationAdapter:
                 # shim (e.g. claude.cmd) is never found from the bare name
                 # "claude". shutil.which returns the resolvable shim path;
                 # fall back to the original name when it cannot be resolved.
-                resolved_argv = list(request.argv)
+                resolved_argv = list(requested_argv)
                 resolved_executable = shutil.which(resolved_argv[0])
                 if resolved_executable is not None:
                     resolved_argv[0] = resolved_executable
@@ -358,7 +386,26 @@ class InMemoryProviderInvocationAdapter:
     def execute(
         self,
         request: ProviderInvocationRequest,
+        argv_transform: (
+            Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+        ) = None,
     ) -> ProviderInvocationResult | ProviderInvocationFailure:
+        if argv_transform is not None:
+            request = dataclasses.replace(
+                request,
+                command="",
+                argv=tuple(
+                    argv_transform(
+                        request.argv,
+                        request.worktree,
+                        {
+                            **_windows_process_base_env(),
+                            **dict(request.environment),
+                        },
+                    )
+                ),
+                prefer_argv=True,
+            )
         self.recorded_requests.append(request)
         if not self.prepared_invocations:
             raise AssertionError("No prepared provider invocation remains.")

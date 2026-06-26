@@ -6131,7 +6131,7 @@ def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
 
 
 @pytest.mark.parametrize("run_kind", ["ephemeral", "new_session", "resumed_session"])
-def test_runtime_client_ignores_execution_argv_transform_until_wired_through(
+def test_runtime_client_applies_execution_argv_transform_for_all_request_kinds(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     run_kind: str,
@@ -6263,8 +6263,96 @@ def test_runtime_client_ignores_execution_argv_transform_until_wired_through(
     transformed_outcome = asyncio.run(run(transformed_request))
 
     assert baseline_outcome == transformed_outcome
-    assert harness.recorded_requests[0].argv == harness.recorded_requests[1].argv
-    assert transform_called is False
+    baseline_argv = harness.recorded_requests[0].argv
+    transformed_request_argv = harness.recorded_requests[1].argv
+    assert transformed_request_argv == ("transformed", *baseline_argv)
+    assert transform_called is True
+
+
+def test_runtime_client_argv_transform_receives_rendered_opencode_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(_opencode_text_output_line("same output"),),
+        ),
+    )
+
+    seen_env: dict[str, str] | None = None
+    seen_cwd: Path | None = None
+
+    def argv_transform(
+        argv: tuple[str, ...],
+        cwd: Path,
+        env: dict[str, str],
+    ) -> tuple[str, ...]:
+        nonlocal seen_env, seen_cwd
+        seen_env = dict(env)
+        seen_cwd = cwd
+        return argv
+
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=tmp_path,
+        provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+            InternalStageSelection(
+                service="opencode",
+                model="glm-5.2",
+                effort="medium",
+            ),
+            runtime.ProviderAuth(opencode_api_key="opencode-api-key"),
+        ),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        argv_transform=argv_transform,
+    )
+
+    outcome = asyncio.run(runtime.RuntimeClient().run_ephemeral(request))
+    assert outcome.result is not None
+    assert outcome.result.output == "same output"
+    assert seen_cwd == tmp_path
+    assert seen_env is not None
+    assert seen_env.get("OPENCODE_GO_API_KEY") == "opencode-api-key"
+    assert (
+        "OPENCODE_CONFIG_CONTENT" in seen_env
+        and "opencode-go" in seen_env["OPENCODE_CONFIG_CONTENT"]
+    )
+
+
+def test_runtime_client_uses_danger_full_access_for_codex_when_argv_transform_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
+
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "same output"}) + "\n",
+            ),
+        ),
+    )
+
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=tmp_path,
+        provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+            InternalStageSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="low",
+            ),
+            runtime.ProviderAuth(),
+        ),
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        argv_transform=lambda argv, _cwd, _env: ("transformed", *argv),
+    )
+
+    asyncio.run(runtime.RuntimeClient().run_ephemeral(request))
+
+    recorded_argv = harness.recorded_requests[0].argv
+    sandbox_index = recorded_argv.index("--sandbox")
+    assert recorded_argv[sandbox_index + 1] == "danger-full-access"
 
 
 def test_runtime_client_threads_timeout_seconds_into_provider_invocation_request(

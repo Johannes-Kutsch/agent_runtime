@@ -523,11 +523,14 @@ def _run_builtin_new_session(
                         provider_auth=selected_stage_auth,
                         on_live_output=on_live_output,
                         timeout_seconds=0,
+                        argv_transform=request.argv_transform,
                         _session_namespace=request._session_namespace,
                     ),
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
-                    already_sandboxed=already_sandboxed,
+                    already_sandboxed=(
+                        already_sandboxed or request.argv_transform is not None
+                    ),
                 )
             provider_session_id: str | None = None
             invocation_result = _invoke_with_timeout_continuation(
@@ -537,7 +540,10 @@ def _run_builtin_new_session(
                         request=request,
                         stage=selected_stage,
                         provider_state_dir=provider_state_dir,
-                        already_sandboxed=already_sandboxed,
+                        argv_transform=request.argv_transform,
+                        already_sandboxed=(
+                            already_sandboxed or request.argv_transform is not None
+                        ),
                         on_live_output=on_live_output,
                     )
                 ),
@@ -634,6 +640,7 @@ def _run_builtin_new_session(
                         session_store=runtime_state_dir,
                         on_live_output=on_live_output,
                         timeout_seconds=0,
+                        argv_transform=request.argv_transform,
                         continuation=_build_claude_continuation(
                             model=selected_stage.model,
                             effort=selected_stage.effort,
@@ -697,6 +704,7 @@ def _run_builtin_new_session(
                         provider_state_dir=provider_state_dir,
                         run_kind=run_kind,
                         provider_session_id=cast(str, provider_session_id),
+                        argv_transform=request.argv_transform,
                         on_live_output=on_live_output,
                     )
                 ),
@@ -724,6 +732,7 @@ def _run_builtin_new_session(
                         provider_state_dir=provider_state_dir,
                         run_kind=run_kind,
                         provider_session_id=cast(str, provider_session_id),
+                        argv_transform=request.argv_transform,
                         on_live_output=on_live_output,
                     )
                 ),
@@ -908,7 +917,10 @@ def _run_builtin_resumed_session(
                     provider_session_id=cast(str, provider_session_id),
                     request=request,
                     provider_state_dir=provider_state_dir,
-                    already_sandboxed=already_sandboxed,
+                    argv_transform=request.argv_transform,
+                    already_sandboxed=(
+                        already_sandboxed or request.argv_transform is not None
+                    ),
                     on_live_output=on_live_output,
                 )
             ),
@@ -1051,6 +1063,7 @@ def _run_builtin_resumed_session(
                     provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
                     provider_session_id=cast(str, provider_session_id),
+                    argv_transform=request.argv_transform,
                     on_live_output=on_live_output,
                     timeout_seconds=request.timeout_seconds,
                 )
@@ -1081,6 +1094,7 @@ def _run_builtin_resumed_session(
                     provider_state_dir=provider_state_dir,
                     run_kind=run_kind,
                     provider_session_id=cast(str, provider_session_id),
+                    argv_transform=request.argv_transform,
                     on_live_output=on_live_output,
                     timeout_seconds=request.timeout_seconds,
                 )
