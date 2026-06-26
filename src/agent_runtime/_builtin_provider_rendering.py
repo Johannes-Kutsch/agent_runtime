@@ -100,6 +100,7 @@ class BuiltInProviderRenderRequest:
     invocation_dir: Path
     provider_state_dir: Path | None = None
     provider_session_id: str | None = None
+    already_sandboxed: bool = False
     host_facts: BuiltInProviderHostFacts | None = None
 
 

@@ -5957,3 +5957,134 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
         cost_usd=None,
         duration_seconds=None,
     )
+
+
+@pytest.mark.parametrize(
+    ("service", "invoke"),
+    [
+        pytest.param(
+            "claude",
+            lambda adapter, invocation_dir: (
+                builtin_runtime_client_runtime._invoke_claude_session_provider(
+                    provider_invocation_adapter=adapter,
+                    invocation_dir=invocation_dir,
+                    prompt="prompt",
+                    model="sonnet",
+                    effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    auth=ProviderAuth(claude_code_oauth_token="oauth-token"),
+                    provider_state_dir=invocation_dir / "provider-state",
+                    run_kind=RunKind.RESUME,
+                    provider_session_id="claude-session-123",
+                )
+            ),
+            id="claude-session-run",
+        ),
+        pytest.param(
+            "codex",
+            lambda adapter, invocation_dir: (
+                builtin_runtime_client_runtime._invoke_codex_session_provider(
+                    provider_invocation_adapter=adapter,
+                    invocation_dir=invocation_dir,
+                    prompt="prompt",
+                    model="gpt-5.4",
+                    effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_state_dir=invocation_dir / "provider-state",
+                    run_kind=RunKind.RESUME,
+                    provider_session_id="codex-thread-123",
+                )
+            ),
+            id="codex-session-run",
+        ),
+        pytest.param(
+            "opencode",
+            lambda adapter, invocation_dir: (
+                builtin_runtime_client_runtime._invoke_opencode_session_provider(
+                    provider_invocation_adapter=adapter,
+                    invocation_dir=invocation_dir,
+                    prompt="prompt",
+                    model="glm-5.2",
+                    effort="medium",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    auth=ProviderAuth(opencode_api_key="go-key"),
+                    provider_state_dir=invocation_dir / "provider-state",
+                    run_kind=RunKind.RESUME,
+                    provider_session_id="opencode-session-123",
+                )
+            ),
+            id="opencode-session-run",
+        ),
+        pytest.param(
+            "ephemeral-codex",
+            lambda _adapter, invocation_dir: (
+                builtin_runtime_client_runtime._render_ephemeral_provider_invocation(
+                    RuntimeClientExecutionHarness.ephemeral_run_request(
+                        invocation_dir=invocation_dir,
+                        provider_selection=InternalStageSelection(
+                            service="codex",
+                            model="gpt-5.4",
+                            effort="medium",
+                        ),
+                        tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    ),
+                    InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    provider_state_dir=invocation_dir / "provider-state",
+                )
+            ),
+            id="ephemeral-render",
+        ),
+    ],
+)
+def test_built_in_runtime_client_keeps_render_requests_outside_already_sandboxed_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    service: str,
+    invoke: Any,
+) -> None:
+    captured_requests: list[
+        builtin_provider_rendering_runtime.BuiltInProviderRenderRequest
+    ] = []
+    rendered_invocation = builtin_provider_rendering_runtime.BuiltInProviderRenderedInvocation(
+        canonical_argv=("provider",),
+        legacy_command_text="provider",
+        environment={},
+        prompt_path=None,
+        prompt_cleanup_choice=builtin_provider_rendering_runtime.PromptCleanupChoice.KEEP,
+        prompt_transport_preference=builtin_provider_rendering_runtime.PromptTransportPreference.STDIN,
+        provider_session_id_placement=builtin_provider_rendering_runtime.ProviderSessionIdPlacement.NONE,
+        prefer_argv=True,
+    )
+
+    def _capture_render_request(
+        request: builtin_provider_rendering_runtime.BuiltInProviderRenderRequest,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> builtin_provider_rendering_runtime.BuiltInProviderRenderedInvocation:
+        captured_requests.append(request)
+        return rendered_invocation
+
+    monkeypatch.setattr(
+        builtin_provider_rendering_runtime,
+        (
+            "_render_codex_invocation"
+            if service == "codex"
+            else "render_built_in_provider_invocation"
+        ),
+        _capture_render_request,
+    )
+
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
+        prepared_invocations=[
+            provider_invocation_runtime.ProviderInvocationPreparedStream(
+                stdout_lines=(),
+            )
+        ]
+    )
+    invoke(adapter, tmp_path)
+
+    assert [request.already_sandboxed for request in captured_requests] == [False]
