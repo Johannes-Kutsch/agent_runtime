@@ -795,7 +795,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
     assert resumed_request.provider_session_id == "session-uuid"
 
 
-def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invocation_adapter(
+def test_runtime_client_runs_claude_new_session_through_runtime_client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -805,7 +805,6 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
         lambda: "session-uuid",
     )
     harness = RuntimeClientExecutionHarness.install(monkeypatch)
-    adapter = harness._adapter
     harness.prepare_result(
         provider_invocation_runtime.ProviderInvocationResult(
             output="final output",
@@ -821,21 +820,21 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
     )
 
     runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
-    request = harness.start_session_run_request(
-        invocation_dir=tmp_path,
-        runtime_state_dir=runtime_state_dir,
-        provider_selection=InternalStageSelection(
-            service="claude",
-            model="sonnet",
-            effort="medium",
-        ),
-        provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-    )
-    outcome = prompt_runtime._run_builtin_session_outcome(
-        lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
-            request,
-            provider_invocation_adapter=adapter,
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            harness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -867,7 +866,7 @@ def test_runtime_client_runs_claude_new_session_through_in_memory_provider_invoc
     assert recorded_request.provider_session_id == "session-uuid"
 
 
-def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_invocation_adapter(
+def test_runtime_client_runs_opencode_new_session_through_runtime_client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -903,21 +902,19 @@ def test_runtime_client_runs_opencode_new_session_through_in_memory_provider_inv
     )
 
     runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
-    request = harness.start_session_run_request(
-        invocation_dir=tmp_path,
-        runtime_state_dir=runtime_state_dir,
-        provider_selection=InternalStageSelection(
-            service="opencode",
-            model="glm-5.2",
-            effort="medium",
-        ),
-        provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-    )
-    outcome = prompt_runtime._run_builtin_session_outcome(
-        lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
-            request,
-            provider_invocation_adapter=harness.provider_invocation_adapter,
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            harness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="glm-5.2",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="opencode-key"),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
         )
     )
 
@@ -2889,7 +2886,7 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
     )
 
 
-def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_provider_invocation_failure(
+def test_runtime_client_returns_started_usage_limited_outcome_from_new_session_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2898,25 +2895,23 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
         "_new_provider_session_id",
         lambda: "session-uuid",
     )
-    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter(
-        prepared_invocations=[
-            provider_invocation_runtime.ProviderInvocationFailure(
-                kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
-                detail="Usage limit reached (reset_time=None)",
-                usage=runtime.ProviderUsage(
-                    input_tokens=3,
-                    output_tokens=1,
-                ),
-                stdout_lines=(
-                    '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}\n',
-                ),
-                provider_session_id="observed-session",
-            )
-        ]
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_failure(
+        provider_invocation_runtime.ProviderInvocationFailure(
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
+            usage=runtime.ProviderUsage(
+                input_tokens=3,
+                output_tokens=1,
+            ),
+            stdout_lines=(
+                '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}\n',
+            ),
+            provider_session_id="observed-session",
+        )
     )
 
-    outcome = prompt_runtime._run_builtin_session_outcome(
-        lambda: prompt_runtime._builtin_runtime_client_module._run_builtin_new_session(
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
             prompt_runtime.NewSessionRunRequest(
                 prompt="already rendered prompt",
                 invocation_dir=tmp_path,
@@ -2931,8 +2926,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
                 ),
                 session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
-            ),
-            provider_invocation_adapter=adapter,
+            )
         )
     )
 
@@ -2944,7 +2938,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_in_memory_pro
         output_tokens=1,
     )
     assert outcome.result.selected == runtime.ResolvedProvider(
-        service="claude", model="", effort=""
+        service="claude", model="sonnet", effort="medium"
     )
     assert outcome.result.continuation == prompt_runtime.Continuation(
         selected_service="claude",

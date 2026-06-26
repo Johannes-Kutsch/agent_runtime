@@ -148,26 +148,6 @@ def _interrupted_result(exc: Any, selected: ResolvedProvider) -> RunResult:
     )
 
 
-def _run_builtin_session_outcome(
-    call: Any,
-    *,
-    service_name: str = "",
-    selected_model: str = "",
-    selected_effort: str = "",
-) -> RuntimeOutcome:
-    def _selected(service: str | None = None) -> ResolvedProvider:
-        return ResolvedProvider(
-            service=service or service_name,
-            model=selected_model,
-            effort=selected_effort,
-        )
-
-    return _fold_runtime_outcome(
-        call,
-        selected_provider=_selected,
-    )
-
-
 class RuntimeClient:
     def __init__(self, *, already_sandboxed: bool = False) -> None:
         self.already_sandboxed = already_sandboxed
