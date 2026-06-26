@@ -209,8 +209,6 @@ def _resumed_session_run_request_facts(
     context: str,
     public_invocation_dir_name: str,
 ) -> _ResumedLifecycleRequestFacts:
-    from ._portable_continuation_payload import read_portable_continuation_payload
-
     argv_transform = compatibility_kwargs.pop("argv_transform", None)
     compatibility_session_namespace = compatibility_kwargs.pop(
         "session_namespace",
@@ -241,12 +239,14 @@ def _resumed_session_run_request_facts(
             f"{context} derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
         )
     try:
-        continuation_payload = read_portable_continuation_payload(continuation)
+        continuation_tool_access = continuation.tool_access
+        continuation_model = continuation.model
+        continuation_effort = continuation.effort
     except TypeError as exc:
         raise RuntimeConfigurationError(str(exc)) from exc
     normalized_request = normalize_continuation_request(
         invocation_dir=resolved_invocation_dir,
-        tool_access=continuation_payload.tool_access,
+        tool_access=continuation_tool_access,
         session_namespace=compatibility_session_namespace,
         context=context,
         workspace_name=public_invocation_dir_name,
@@ -255,8 +255,8 @@ def _resumed_session_run_request_facts(
         invocation_dir=normalized_request.invocation_dir,
         tool_access=normalized_request.tool_access,
         session_namespace=normalized_request.session_namespace,
-        model=continuation_payload.model,
-        effort=continuation_payload.effort,
+        model=continuation_model,
+        effort=continuation_effort,
         session_store=compatibility_runtime_state_dir,
         argv_transform=argv_transform,
     )

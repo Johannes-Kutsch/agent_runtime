@@ -8,10 +8,6 @@ from typing import Any, Callable, TypeVar, cast
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from ._builtin_provider_stream_interpretation import BuiltInProviderStreamInterpretation
-from ._portable_continuation_payload import (
-    create_portable_continuation_payload,
-    read_portable_continuation_payload,
-)
 from ._provider_invocation import (
     ProviderInvocationAdapter,
     ProviderInvocationFailure,
@@ -128,13 +124,13 @@ def _build_opencode_continuation(
         provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
     if exact_transcript_match is not None:
         provider_resume_state["exact_transcript_match"] = exact_transcript_match
-    return create_portable_continuation_payload(
-        service_name="opencode",
-        model=model,
-        effort=effort,
+    return Continuation(
+        selected_service="opencode",
+        selected_model=model,
+        selected_effort=effort,
         tool_access=tool_access,
         provider_resume_state=provider_resume_state,
-    ).to_continuation()
+    )
 
 
 def _persist_opencode_session_id(state_dir: Path, provider_session_id: str) -> None:
@@ -265,13 +261,13 @@ def _build_codex_continuation(
     }
     if provider_state_dir_relpath is not None:
         provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
-    return create_portable_continuation_payload(
-        service_name="codex",
-        model=model,
-        effort=effort,
+    return Continuation(
+        selected_service="codex",
+        selected_model=model,
+        selected_effort=effort,
         tool_access=tool_access,
         provider_resume_state=provider_resume_state,
-    ).to_continuation()
+    )
 
 
 def _claude_provider_state_dir_relpath(
@@ -324,13 +320,13 @@ def _build_claude_continuation(
     }
     if provider_state_dir_relpath is not None:
         provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
-    return create_portable_continuation_payload(
-        service_name="claude",
-        model=model,
-        effort=effort,
+    return Continuation(
+        selected_service="claude",
+        selected_model=model,
+        selected_effort=effort,
         tool_access=tool_access,
         provider_resume_state=provider_resume_state,
-    ).to_continuation()
+    )
 
 
 def _require_claude_auth(auth: ProviderAuth | None) -> None:
@@ -856,14 +852,16 @@ def _run_builtin_resumed_session(
             "RuntimeClient resumed-session execution requires a continuation."
         )
     try:
-        continuation_payload = read_portable_continuation_payload(continuation)
+        continuation_service = continuation.service_name
+        provider_resume_state = cast(
+            dict[str, Any],
+            continuation.provider_resume_state,
+        )
     except TypeError as exc:
         raise RuntimeConfigurationError(str(exc)) from exc
-    continuation_service = continuation_payload.service_name
     _builtin_runtime_client_module._require_portable_continuation_support(
         continuation_service
     )
-    provider_resume_state = continuation_payload.provider_resume_state
     provider_session_id: str | None
     provider_state_dir_relpath: str | None = None
     provider_state_dir: Path | None = None

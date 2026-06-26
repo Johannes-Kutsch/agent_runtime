@@ -146,6 +146,18 @@ class Continuation:
         object.__setattr__(self, "serialized", serialized)
 
     @property
+    def service_name(self) -> str:
+        return self._payload().service_name
+
+    @property
+    def model(self) -> str:
+        return self._payload().model
+
+    @property
+    def effort(self) -> str:
+        return self._payload().effort
+
+    @property
     def provider_resume_state(self) -> Any:
         return self._payload().provider_resume_state
 

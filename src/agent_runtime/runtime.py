@@ -30,8 +30,6 @@ from ._runtime_lifecycle import (
     UsageLimited,
 )
 from .types import ProviderSelection, ResolvedProvider
-
-from ._portable_continuation_payload import read_portable_continuation_payload
 from ._runtime_outcome_folding import (
     _fold_runtime_outcome,
 )
@@ -184,9 +182,7 @@ class RuntimeClient:
                 on_live_output=request.on_live_output,
             ),
             selected_provider=ResolvedProvider(
-                service=read_portable_continuation_payload(
-                    cast(Continuation, request.continuation)
-                ).service_name,
+                service=cast(Continuation, request.continuation).service_name,
                 model=request.model,
                 effort=request.effort,
             ),
