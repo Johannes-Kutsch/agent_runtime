@@ -72,6 +72,120 @@ def test_continuation_exposes_portable_resume_facts_through_module_interface() -
     }
 
 
+@pytest.mark.parametrize(
+    (
+        "service",
+        "model",
+        "effort",
+        "provider_session_id",
+        "provider_state_dir_relpath",
+        "exact_transcript_match",
+        "run_kind",
+        "expected_provider_resume_state",
+    ),
+    [
+        (
+            "codex",
+            "gpt-5.4",
+            "medium",
+            "thread-123",
+            "implementer/main/codex/",
+            False,
+            "resume",
+            {
+                "run_kind": "resume",
+                "provider_session_id": "thread-123",
+                "provider_state_dir_relpath": "implementer/main/codex/",
+                "exact_transcript_match": False,
+            },
+        ),
+        (
+            "claude",
+            "sonnet",
+            "high",
+            "claude-session-1",
+            "implementer/main/claude/",
+            False,
+            "resume",
+            {
+                "run_kind": "resume",
+                "provider_session_id": "claude-session-1",
+                "provider_state_dir_relpath": "implementer/main/claude/",
+                "exact_transcript_match": False,
+            },
+        ),
+        (
+            "opencode",
+            "glm-5.2",
+            "medium",
+            "persisted-session-1",
+            "implementer/main/opencode/",
+            True,
+            None,
+            {
+                "provider_session_id": "persisted-session-1",
+                "provider_state_dir_relpath": "implementer/main/opencode/",
+                "exact_transcript_match": True,
+            },
+        ),
+    ],
+)
+def test_continuation_builds_session_backed_provider_resume_facts_through_module_interface(
+    service: str,
+    model: str,
+    effort: str,
+    provider_session_id: str,
+    provider_state_dir_relpath: str,
+    exact_transcript_match: bool,
+    run_kind: str | None,
+    expected_provider_resume_state: dict[str, object],
+) -> None:
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+
+    continuation = prompt_runtime.Continuation.for_session_backed_provider(
+        selected_service=service,
+        selected_model=model,
+        selected_effort=effort,
+        tool_access=tool_access,
+        provider_session_id=provider_session_id,
+        provider_state_dir_relpath=provider_state_dir_relpath,
+        exact_transcript_match=exact_transcript_match,
+        run_kind=run_kind,
+    )
+
+    assert continuation.provider_resume_state == expected_provider_resume_state
+    assert continuation == prompt_runtime.Continuation(
+        selected_service=service,
+        selected_model=model,
+        selected_effort=effort,
+        tool_access=tool_access,
+        provider_resume_state=expected_provider_resume_state,
+    )
+    assert continuation.session_backed_facts.selected == runtime.ResolvedProvider(
+        service=service,
+        model=model,
+        effort=effort,
+    )
+    assert continuation.session_backed_facts.tool_access == tool_access
+    assert (
+        continuation.session_backed_facts.provider_resume_state
+        == expected_provider_resume_state
+    )
+    assert continuation.session_backed_facts.provider_session_id == provider_session_id
+    assert (
+        continuation.session_backed_facts.provider_state_dir_relpath
+        == provider_state_dir_relpath
+    )
+    assert (
+        continuation.session_backed_facts.exact_transcript_match
+        == exact_transcript_match
+    )
+    assert continuation.session_backed_facts.run_kind == run_kind
+
+
 def test_portable_continuation_payload_create_keeps_current_continuation_schema() -> (
     None
 ):
@@ -151,6 +265,25 @@ def test_portable_continuation_payload_rejects_non_object_provider_resume_state(
 
     with pytest.raises(TypeError) as exc_info:
         read_portable_continuation_payload(continuation)
+
+    assert str(exc_info.value) == (
+        "Continuation provider_resume_state must be a JSON object."
+    )
+
+
+def test_continuation_session_backed_facts_reject_non_object_provider_resume_state() -> (
+    None
+):
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state=["resume"],
+    )
+
+    with pytest.raises(TypeError) as exc_info:
+        _ = continuation.session_backed_facts
 
     assert str(exc_info.value) == (
         "Continuation provider_resume_state must be a JSON object."
