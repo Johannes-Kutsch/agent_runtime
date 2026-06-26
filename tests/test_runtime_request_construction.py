@@ -631,6 +631,28 @@ def test_lifecycle_request_construction_requires_explicit_tool_policy() -> None:
         )
 
 
+def test_ephemeral_run_request_rejects_conflicting_tool_access_and_tool_policy() -> (
+    None
+):
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "EphemeralRunRequest received conflicting `tool_access` and `tool_policy` values."
+        ),
+    ):
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            tool_policy=runtime.ToolPolicy.NONE,
+        )
+
+
 def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for_other_invocation_dir() -> (
     None
 ):
@@ -702,6 +724,30 @@ def test_lifecycle_request_construction_keeps_legacy_worktree_kwarg_outside_publ
     request = cast(Any, request_factory())
 
     assert request.invocation_dir == Path("/repo")
+
+
+def test_ephemeral_run_request_keeps_legacy_worktree_argv_transform_storage() -> None:
+    def argv_transform(
+        argv: tuple[str, ...],
+        cwd: Path,
+        env: Mapping[str, str],
+    ) -> tuple[str, ...]:
+        return argv
+
+    request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        worktree=Path("/repo"),
+        provider_selection=runtime.ProviderSelection(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+        tool_policy=runtime.ToolPolicy.NONE,
+        argv_transform=argv_transform,
+    )
+
+    assert request.invocation_dir == Path("/repo")
+    assert request.argv_transform is argv_transform
 
 
 @pytest.mark.parametrize(
