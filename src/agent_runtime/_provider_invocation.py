@@ -210,6 +210,25 @@ class _ProviderInvocationOutputFinalizer:
         )
 
 
+def _finalize_provider_invocation_output(
+    *,
+    request: ProviderInvocationRequest,
+    stdout_lines: list[str],
+    success_fallback_provider_session_id: str | None = None,
+    failure_fallback_provider_session_id: str | None = None,
+    consume_observed_lines: bool = False,
+) -> ProviderInvocationResult | ProviderInvocationFailure:
+    output_finalizer = _ProviderInvocationOutputFinalizer(
+        request=request,
+        stdout_lines=stdout_lines,
+        success_fallback_provider_session_id=success_fallback_provider_session_id,
+        failure_fallback_provider_session_id=failure_fallback_provider_session_id,
+    )
+    if consume_observed_lines:
+        output_finalizer.consume_observed_lines()
+    return output_finalizer.finalize()
+
+
 class ProductionProviderInvocationAdapter:
     def _windows_process_base_env(self) -> dict[str, str]:
         return _windows_process_base_env()
@@ -356,11 +375,11 @@ class ProductionProviderInvocationAdapter:
                     request.output_hooks.reduce_output, stderr_lines
                 )
                 stdout_lines.extend(stderr_lines)
-            output_finalizer = _ProviderInvocationOutputFinalizer(
+            result = _finalize_provider_invocation_output(
                 request=request,
                 stdout_lines=stdout_lines,
+                consume_observed_lines=False,
             )
-            result = output_finalizer.finalize()
             if isinstance(result, ProviderInvocationFailure):
                 return result
             returncode = process.returncode
@@ -437,12 +456,11 @@ class InMemoryProviderInvocationAdapter:
             return prepared
         if isinstance(prepared, ProviderInvocationPreparedStream):
             stdout_lines = list(prepared.stdout_lines)
-            output_finalizer = _ProviderInvocationOutputFinalizer(
+            return _finalize_provider_invocation_output(
                 request=request,
                 stdout_lines=stdout_lines,
                 success_fallback_provider_session_id=prepared.provider_session_id,
                 failure_fallback_provider_session_id=prepared.provider_session_id,
+                consume_observed_lines=True,
             )
-            output_finalizer.consume_observed_lines()
-            return output_finalizer.finalize()
         return prepared
