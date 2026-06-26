@@ -40,6 +40,8 @@ class _NewSessionRunRequestFacts(_ProviderSelectionLifecycleRequestFacts):
 class _ResumedLifecycleRequestFacts(_LifecycleRequestFacts):
     model: str
     effort: str
+    session_store: Path | None
+    argv_transform: Any
 
 
 def _resolve_invocation_dir(
@@ -196,26 +198,58 @@ def _new_session_run_request_facts(
     )
 
 
-def _resumed_session_request_facts(
+def _resumed_session_run_request_facts(
     *,
+    invocation_dir: Path | None,
+    compatibility_kwargs: dict[str, Any],
     continuation: Any,
-    worktree: Path,
+    tool_access: Any,
+    session_store: Path | None,
     session_namespace: str,
     context: str,
-    workspace_name: str = "worktree",
+    public_invocation_dir_name: str,
 ) -> _ResumedLifecycleRequestFacts:
     from ._portable_continuation_payload import read_portable_continuation_payload
 
+    argv_transform = compatibility_kwargs.pop("argv_transform", None)
+    compatibility_session_namespace = compatibility_kwargs.pop(
+        "session_namespace",
+        session_namespace,
+    )
+    compatibility_runtime_state_dir = compatibility_kwargs.pop(
+        "runtime_state_dir",
+        session_store,
+    )
+    if session_namespace and compatibility_session_namespace != session_namespace:
+        raise TypeError(
+            f"{context} received conflicting `session_namespace` and `_session_namespace` values."
+        )
+    if session_store is not None and compatibility_runtime_state_dir != session_store:
+        raise TypeError(
+            f"{context} received conflicting `runtime_state_dir` and `session_store` values."
+        )
+    resolved_invocation_dir = _resolve_invocation_dir(
+        invocation_dir=invocation_dir,
+        compatibility_kwargs=compatibility_kwargs,
+        context=context,
+        public_invocation_dir_name=public_invocation_dir_name,
+    )
+    if continuation is None:
+        raise TypeError(f"{context} requires a `continuation` value.")
+    if isinstance(tool_access, ToolAccess):
+        raise TypeError(
+            f"{context} derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
+        )
     try:
         continuation_payload = read_portable_continuation_payload(continuation)
     except TypeError as exc:
         raise RuntimeConfigurationError(str(exc)) from exc
     normalized_request = normalize_continuation_request(
-        worktree=worktree,
+        worktree=resolved_invocation_dir,
         tool_access=continuation_payload.tool_access,
-        session_namespace=session_namespace,
+        session_namespace=compatibility_session_namespace,
         context=context,
-        workspace_name=workspace_name,
+        workspace_name=public_invocation_dir_name,
     )
     return _ResumedLifecycleRequestFacts(
         invocation_dir=normalized_request.worktree.path,
@@ -223,4 +257,6 @@ def _resumed_session_request_facts(
         session_namespace=normalized_request.session_namespace,
         model=continuation_payload.model,
         effort=continuation_payload.effort,
+        session_store=compatibility_runtime_state_dir,
+        argv_transform=argv_transform,
     )

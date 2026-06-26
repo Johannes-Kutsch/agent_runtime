@@ -60,30 +60,6 @@ def _redacted_credential_value(value: str | None) -> str:
     return "None" if value is None else "'<redacted>'"
 
 
-def _resolve_public_invocation_dir(
-    invocation_dir: Path | None,
-    compatibility_kwargs: dict[str, Any],
-    *,
-    context: str,
-) -> Path:
-    legacy_worktree = compatibility_kwargs.pop("worktree", None)
-    if compatibility_kwargs:
-        unexpected_argument = next(iter(compatibility_kwargs))
-        raise TypeError(
-            f"{context} got an unexpected keyword argument '{unexpected_argument}'."
-        )
-    if invocation_dir is not None and legacy_worktree is not None:
-        raise TypeError(
-            f"{context} received conflicting `{_PUBLIC_INVOCATION_DIR_NAME}` and `worktree` values."
-        )
-    resolved_invocation_dir = (
-        invocation_dir if invocation_dir is not None else legacy_worktree
-    )
-    if resolved_invocation_dir is None:
-        raise TypeError(f"{context} requires an `{_PUBLIC_INVOCATION_DIR_NAME}` value.")
-    return resolved_invocation_dir
-
-
 def _public_request_signature(
     *parameter_names: str,
 ) -> inspect.Signature:
@@ -445,46 +421,16 @@ class ResumedSessionRunRequest:
         token: CancellationToken | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
-        argv_transform = compatibility_kwargs.pop("argv_transform", None)
-        compatibility_session_namespace = compatibility_kwargs.pop(
-            "session_namespace",
-            _session_namespace,
-        )
-        compatibility_runtime_state_dir = compatibility_kwargs.pop(
-            "runtime_state_dir",
-            session_store,
-        )
-        if _session_namespace and compatibility_session_namespace != _session_namespace:
-            raise TypeError(
-                "ResumedSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
-            )
-        if (
-            session_store is not None
-            and compatibility_runtime_state_dir != session_store
-        ):
-            raise TypeError(
-                "ResumedSessionRunRequest received conflicting `runtime_state_dir` and `session_store` values."
-            )
-        _session_namespace = compatibility_session_namespace
-        session_store = compatibility_runtime_state_dir
-        resolved_invocation_dir = _resolve_public_invocation_dir(
-            invocation_dir,
-            compatibility_kwargs,
-            context="ResumedSessionRunRequest",
-        )
-        if continuation is None:
-            raise TypeError("ResumedSessionRunRequest requires a `continuation` value.")
-        if "tool_policy" in compatibility_kwargs or isinstance(tool_access, ToolAccess):
-            raise TypeError(
-                "ResumedSessionRunRequest derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
-            )
         normalized_request = (
-            _lifecycle_request_facts_module._resumed_session_request_facts(
+            _lifecycle_request_facts_module._resumed_session_run_request_facts(
+                invocation_dir=invocation_dir,
+                compatibility_kwargs=compatibility_kwargs,
                 continuation=continuation,
-                worktree=resolved_invocation_dir,
+                tool_access=tool_access,
+                session_store=session_store,
                 session_namespace=_session_namespace,
                 context="ResumedSessionRunRequest",
-                workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
+                public_invocation_dir_name=_PUBLIC_INVOCATION_DIR_NAME,
             )
         )
 
@@ -494,7 +440,7 @@ class ResumedSessionRunRequest:
             _PUBLIC_INVOCATION_DIR_NAME,
             normalized_request.invocation_dir,
         )
-        object.__setattr__(self, "session_store", session_store)
+        object.__setattr__(self, "session_store", normalized_request.session_store)
         object.__setattr__(self, "model", normalized_request.model)
         object.__setattr__(self, "effort", normalized_request.effort)
         object.__setattr__(
@@ -511,7 +457,7 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
-        object.__setattr__(self, "argv_transform", argv_transform)
+        object.__setattr__(self, "argv_transform", normalized_request.argv_transform)
 
     @property
     def mount_path(self) -> Path:
