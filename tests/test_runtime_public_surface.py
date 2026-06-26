@@ -13,7 +13,6 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
-import agent_runtime._portable_continuation_payload as continuation_payload_module
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 from agent_runtime.errors import AgentRuntimeError
@@ -467,20 +466,17 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_probe_env(
             provider_selection=provider_selection,
             tool_policy=prompt_runtime.ToolPolicy.UNRESTRICTED,
         )
-        continuation_payload = (
-            continuation_payload_module.create_portable_continuation_payload(
-                service_name="claude",
-                model="haiku",
-                effort="low",
-                tool_access=contracts_runtime.ToolAccess.no_tools(),
-                provider_resume_state={},
-            ).serialized
-        )
         resumed_request = prompt_runtime.ResumedSessionRunRequest(
             prompt="hello",
             invocation_dir=tmp_path / "resumed-session",
             runtime_state_dir=tmp_path / "resumed-session" / "runtime-state",
-            continuation=prompt_runtime.Continuation(serialized=continuation_payload),
+            continuation=prompt_runtime.Continuation(
+                selected_service="claude",
+                selected_model="haiku",
+                selected_effort="low",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={},
+            ),
         )
 
         client = prompt_runtime.RuntimeClient()
@@ -592,13 +588,11 @@ def test_runtime_module_omits_retired_provider_protocol_names_from_public_surfac
                 invocation_dir=tmp_path / "resumed-session",
                 runtime_state_dir=tmp_path / "runtime-state",
                 continuation=prompt_runtime.Continuation(
-                    serialized=continuation_payload_module.create_portable_continuation_payload(
-                        service_name="claude",
-                        model="haiku",
-                        effort="low",
-                        tool_access=contracts_runtime.ToolAccess.no_tools(),
-                        provider_resume_state={},
-                    ).serialized
+                    selected_service="claude",
+                    selected_model="haiku",
+                    selected_effort="low",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={},
                 ),
                 timeout_seconds=7,
             ),
@@ -670,13 +664,11 @@ def test_runtime_client_session_entrypoints_delegate_directly_to_execution(
                 invocation_dir=tmp_path / "resumed-session",
                 runtime_state_dir=tmp_path / "runtime-state",
                 continuation=prompt_runtime.Continuation(
-                    serialized=continuation_payload_module.create_portable_continuation_payload(
-                        service_name="claude",
-                        model="haiku",
-                        effort="low",
-                        tool_access=contracts_runtime.ToolAccess.no_tools(),
-                        provider_resume_state={},
-                    ).serialized
+                    selected_service="claude",
+                    selected_model="haiku",
+                    selected_effort="low",
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    provider_resume_state={},
                 ),
                 timeout_seconds=7,
             ),

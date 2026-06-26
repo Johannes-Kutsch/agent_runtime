@@ -8,15 +8,9 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
-from agent_runtime._portable_continuation_payload import (
-    create_portable_continuation_payload,
-    read_portable_continuation_payload,
-)
 
 
-def test_portable_continuation_payload_round_trips_current_continuation_contents() -> (
-    None
-):
+def test_continuation_serialization_keeps_current_portable_resume_schema() -> None:
     continuation = prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
@@ -34,14 +28,43 @@ def test_portable_continuation_payload_round_trips_current_continuation_contents
         },
     )
 
-    payload = read_portable_continuation_payload(continuation)
-
-    assert payload.service_name == "codex"
-    assert payload.model == "gpt-5.4"
-    assert payload.effort == "medium"
-    assert payload.tool_access == continuation.tool_access
-    assert payload.provider_resume_state == continuation.provider_resume_state
-    assert payload.to_continuation() == continuation
+    assert json.loads(continuation.serialized) == {
+        "service_name": "codex",
+        "model": "gpt-5.4",
+        "effort": "medium",
+        "tool_access": {
+            "kind": "workspace_backed",
+            "workspace": "/repo",
+            "tool_policy": {
+                "kind": "tool_policy",
+                "value": "no_file_mutation",
+            },
+        },
+        "provider_resume_state": {
+            "run_kind": "resume",
+            "provider_session_id": "thread-123",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+            "exact_transcript_match": False,
+            "metadata": {"attempt": 1, "notes": None},
+        },
+    }
+    assert continuation.service_name == "codex"
+    assert continuation.model == "gpt-5.4"
+    assert continuation.effort == "medium"
+    assert continuation.tool_access == contracts_runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+    )
+    assert continuation.provider_resume_state == {
+        "run_kind": "resume",
+        "provider_session_id": "thread-123",
+        "provider_state_dir_relpath": "implementer/main/codex/",
+        "exact_transcript_match": False,
+        "metadata": {"attempt": 1, "notes": None},
+    }
+    assert (
+        prompt_runtime.Continuation(serialized=continuation.serialized) == continuation
+    )
 
 
 def test_continuation_exposes_portable_resume_facts_through_module_interface() -> None:
@@ -186,29 +209,12 @@ def test_continuation_builds_session_backed_provider_resume_facts_through_module
     assert continuation.session_backed_facts.run_kind == run_kind
 
 
-def test_portable_continuation_payload_create_keeps_current_continuation_schema() -> (
-    None
-):
-    tool_access = contracts_runtime.ToolAccess.no_tools()
-
-    payload = create_portable_continuation_payload(
-        service_name="claude",
-        model="sonnet",
-        effort="medium",
-        tool_access=tool_access,
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "session-123",
-            "provider_state_dir_relpath": "implementer/main/claude/",
-            "exact_transcript_match": False,
-        },
-    )
-
-    assert payload.to_continuation() == prompt_runtime.Continuation(
+def test_continuation_serialized_round_trip_keeps_current_portable_schema() -> None:
+    continuation = prompt_runtime.Continuation(
         selected_service="claude",
         selected_model="sonnet",
         selected_effort="medium",
-        tool_access=tool_access,
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "session-123",
@@ -217,14 +223,27 @@ def test_portable_continuation_payload_create_keeps_current_continuation_schema(
         },
     )
 
+    assert prompt_runtime.Continuation(serialized=continuation.serialized) == (
+        prompt_runtime.Continuation(
+            selected_service="claude",
+            selected_model="sonnet",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={
+                "run_kind": "resume",
+                "provider_session_id": "session-123",
+                "provider_state_dir_relpath": "implementer/main/claude/",
+                "exact_transcript_match": False,
+            },
+        )
+    )
 
-def test_portable_continuation_payload_serialization_omits_provider_selection_and_credentials() -> (
-    None
-):
-    payload = create_portable_continuation_payload(
-        service_name="opencode",
-        model="glm-5.2",
-        effort="medium",
+
+def test_continuation_serialization_omits_provider_selection_and_credentials() -> None:
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         provider_resume_state={
             "provider_session_id": "session-123",
@@ -232,7 +251,7 @@ def test_portable_continuation_payload_serialization_omits_provider_selection_an
         },
     )
 
-    serialized_payload = json.loads(payload.serialized)
+    serialized_payload = json.loads(continuation.serialized)
 
     assert serialized_payload == {
         "service_name": "opencode",
@@ -252,9 +271,7 @@ def test_portable_continuation_payload_serialization_omits_provider_selection_an
     assert "provider_auth" not in serialized_payload
 
 
-def test_portable_continuation_payload_rejects_non_object_provider_resume_state() -> (
-    None
-):
+def test_continuation_resume_facts_reject_non_object_provider_resume_state() -> None:
     continuation = prompt_runtime.Continuation(
         selected_service="opencode",
         selected_model="glm-5.2",
@@ -264,7 +281,7 @@ def test_portable_continuation_payload_rejects_non_object_provider_resume_state(
     )
 
     with pytest.raises(TypeError) as exc_info:
-        read_portable_continuation_payload(continuation)
+        _ = continuation.resume_facts
 
     assert str(exc_info.value) == (
         "Continuation provider_resume_state must be a JSON object."
@@ -290,9 +307,7 @@ def test_continuation_session_backed_facts_reject_non_object_provider_resume_sta
     )
 
 
-def test_portable_continuation_payload_rejects_legacy_inspect_only_tool_policy() -> (
-    None
-):
+def test_continuation_resume_facts_reject_legacy_inspect_only_tool_policy() -> None:
     raw_payload = json.dumps(
         {
             "service_name": "codex",
@@ -312,7 +327,7 @@ def test_portable_continuation_payload_rejects_legacy_inspect_only_tool_policy()
     continuation = prompt_runtime.Continuation(serialized=raw_payload)
 
     with pytest.raises(TypeError, match="legacy tool-policy value `inspect_only`"):
-        read_portable_continuation_payload(continuation)
+        _ = continuation.resume_facts
 
 
 @pytest.mark.parametrize(
@@ -354,7 +369,7 @@ def test_continuation_properties_reject_legacy_inspect_only_tool_policy(
         getattr(continuation, attribute)
 
 
-def test_portable_continuation_payload_rejects_unsupported_tool_policy_value() -> None:
+def test_continuation_resume_facts_reject_unsupported_tool_policy_value() -> None:
     raw_payload = json.dumps(
         {
             "service_name": "codex",
@@ -377,4 +392,4 @@ def test_portable_continuation_payload_rejects_unsupported_tool_policy_value() -
         TypeError,
         match="unsupported tool-policy value 'workspace_write_only'",
     ):
-        read_portable_continuation_payload(continuation)
+        _ = continuation.resume_facts
