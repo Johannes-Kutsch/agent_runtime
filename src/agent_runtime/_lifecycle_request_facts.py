@@ -239,14 +239,12 @@ def _resumed_session_run_request_facts(
             f"{context} derives fixed tool access from `continuation` and does not accept `tool_access` or `tool_policy` overrides."
         )
     try:
-        continuation_tool_access = continuation.tool_access
-        continuation_model = continuation.model
-        continuation_effort = continuation.effort
+        continuation_resume_facts = continuation.resume_facts
     except TypeError as exc:
         raise RuntimeConfigurationError(str(exc)) from exc
     normalized_request = normalize_continuation_request(
         invocation_dir=resolved_invocation_dir,
-        tool_access=continuation_tool_access,
+        tool_access=continuation_resume_facts.tool_access,
         session_namespace=compatibility_session_namespace,
         context=context,
         workspace_name=public_invocation_dir_name,
@@ -255,8 +253,8 @@ def _resumed_session_run_request_facts(
         invocation_dir=normalized_request.invocation_dir,
         tool_access=normalized_request.tool_access,
         session_namespace=normalized_request.session_namespace,
-        model=continuation_model,
-        effort=continuation_effort,
+        model=continuation_resume_facts.selected.model,
+        effort=continuation_resume_facts.selected.effort,
         session_store=compatibility_runtime_state_dir,
         argv_transform=argv_transform,
     )

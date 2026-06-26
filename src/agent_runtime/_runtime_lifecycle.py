@@ -146,24 +146,37 @@ class Continuation:
         object.__setattr__(self, "serialized", serialized)
 
     @property
+    def resume_facts(self) -> ContinuationResumeFacts:
+        payload = self._payload()
+        return ContinuationResumeFacts(
+            selected=ResolvedProvider(
+                service=payload.service_name,
+                model=payload.model,
+                effort=payload.effort,
+            ),
+            tool_access=payload.tool_access,
+            provider_resume_state=payload.provider_resume_state,
+        )
+
+    @property
     def service_name(self) -> str:
-        return self._payload().service_name
+        return self.resume_facts.selected.service
 
     @property
     def model(self) -> str:
-        return self._payload().model
+        return self.resume_facts.selected.model
 
     @property
     def effort(self) -> str:
-        return self._payload().effort
+        return self.resume_facts.selected.effort
 
     @property
     def provider_resume_state(self) -> Any:
-        return self._payload().provider_resume_state
+        return self.resume_facts.provider_resume_state
 
     @property
     def tool_access(self) -> ToolAccess:
-        return self._payload().tool_access
+        return self.resume_facts.tool_access
 
     def _payload(self) -> "PortableContinuationPayload":
         from ._portable_continuation_payload import PortableContinuationPayload
@@ -173,6 +186,13 @@ class Continuation:
     @property
     def serialized_payload(self) -> "PortableContinuationPayload":
         return self._payload()
+
+
+@dataclasses.dataclass(frozen=True)
+class ContinuationResumeFacts:
+    selected: ResolvedProvider
+    tool_access: ToolAccess
+    provider_resume_state: Any
 
 
 @dataclasses.dataclass(frozen=True)

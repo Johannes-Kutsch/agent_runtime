@@ -181,10 +181,11 @@ class RuntimeClient:
                 request,
                 on_live_output=request.on_live_output,
             ),
-            selected_provider=ResolvedProvider(
-                service=cast(Continuation, request.continuation).service_name,
-                model=request.model,
-                effort=request.effort,
+            selected_provider=lambda: (
+                cast(
+                    Continuation,
+                    request.continuation,
+                ).resume_facts.selected
             ),
         )
 
