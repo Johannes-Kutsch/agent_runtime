@@ -859,6 +859,11 @@ def test_tool_policy_does_not_include_inspect_only_value() -> None:
     assert "inspect_only" not in values
 
 
+def test_tool_policy_inspect_only_attribute_is_removed_from_public_surface() -> None:
+    with pytest.raises(AttributeError):
+        getattr(runtime.ToolPolicy, "INSPECT_ONLY")
+
+
 def test_tool_policy_none_resolves_to_closed_no_tools_profile() -> None:
     profile = runtime.ToolPolicy.NONE.profile
 

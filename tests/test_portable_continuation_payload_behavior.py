@@ -152,3 +152,29 @@ def test_portable_continuation_payload_rejects_legacy_inspect_only_tool_policy()
 
     with pytest.raises(TypeError, match="legacy tool-policy value `inspect_only`"):
         read_portable_continuation_payload(continuation)
+
+
+def test_portable_continuation_payload_rejects_unsupported_tool_policy_value() -> None:
+    raw_payload = json.dumps(
+        {
+            "service_name": "codex",
+            "model": "gpt-5.4",
+            "effort": "low",
+            "tool_access": {
+                "kind": "none",
+                "workspace": None,
+                "tool_policy": {
+                    "kind": "tool_policy",
+                    "value": "workspace_write_only",
+                },
+            },
+            "provider_resume_state": {},
+        }
+    )
+    continuation = prompt_runtime.Continuation(serialized=raw_payload)
+
+    with pytest.raises(
+        TypeError,
+        match="unsupported tool-policy value 'workspace_write_only'",
+    ):
+        read_portable_continuation_payload(continuation)
