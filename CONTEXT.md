@@ -18,7 +18,7 @@
 | `ProviderSelection` | Public request value selecting one service, model, effort, and provider credentials for one invocation. |
 | `OpenCode Go Integration` | Built-in `opencode` service integration for OpenCode Go subscription access. |
 | `Consumer Fallback` | Consuming-project orchestration choosing whether to start a separate runtime invocation after a prior one completes or fails. |
-| `ToolPolicy` | Closed public value: `NONE`, `INSPECT_ONLY`, `NO_FILE_MUTATION`, or `UNRESTRICTED`. |
+| `ToolPolicy` | Closed public value: `NONE`, `NO_FILE_MUTATION`, or `UNRESTRICTED`. |
 | `Invocation Directory` | Host directory where runtime launches a provider command; request field `invocation_dir`. |
 | `Tool Workspace` | Invocation Directory when runtime exposes it through provider tools. |
 | `Idle Timeout` | Per-run liveness watchdog owned by Built-in Provider Invocation: max seconds without any raw provider output line before the runtime terminates the provider subprocess and yields a `timed_out` outcome. Reset by any raw output line, not by interpreted `Agent Event`s. Consumer-configurable; default 300s. |
@@ -32,13 +32,14 @@
 | `Live Runtime Output` | Live feed of typed `Agent Event` observations emitted during invocation; the runtime's only output-observation channel. |
 | `Agent Event` | One observed signal in Live Runtime Output: closed type (agent message, agent tool call, other agent life sign), single human-readable display message, raw provider output it derived from. |
 | `RuntimeClient` | Caller-owned runtime object executing requests without durable provider session storage or cross-call availability policy. |
+| `Already-Sandboxed Execution` | `RuntimeClient` constructor configuration signalling that the execution environment already provides OS-level isolation (e.g. a Docker container). When set, Built-in Provider Rendering skips Codex's OS sandbox creation and passes `--sandbox danger-full-access` regardless of `ToolPolicy`; Claude and OpenCode rendering are unaffected. `ToolPolicy` continues to shape agent behavior; the outer container is the hard enforcement boundary. |
 | `RuntimeOutcome` | One invocation's outcome: discriminated `kind` plus `RunResult`. `kind` is closed — completion, usage limits, provider unavailability (with closed reason), cancellation, timeout; credential and hard failures are exceptions. |
 | `ProviderUnavailable` | RuntimeOutcome kind for temporary provider failures: closed reason (`SERVICE_NOT_AVAILABLE`, `TRANSIENT_API_ERROR`) plus raw detail string. |
 | `RunResult` | Run facts carried by every `RuntimeOutcome`, even after interruption: final output, provider usage, resume continuation (none for ephemeral), `ResolvedProvider`. |
 | `ResolvedProvider` | Credential-free identity of the provider actually run: service, model, effort. Distinct from `ProviderSelection`; canonical wherever that triple appears. |
 | `Live Provider Probe` | Opt-in manual debugging tool (not CI, not default tests, not Runtime Public Surface) exercising real built-in providers; streams events live, writes per-case JSON artifacts wiped on rerun. |
 | `Live Probe Case Runner` | Private Live Provider Probe module/interface that executes one planned probe case through the Runtime Public Surface, writes per-case live feed and result artifacts, classifies the outcome, captures traceback, and returns only facts needed by provider-level sequencing and terminal display. It is not Runtime Public Surface. |
-| `Live Probe Case Matrix` | Per-service: three entry paths at `UNRESTRICTED`, plus ephemeral under each remaining `ToolPolicy` — six cases, deduplicated on `ephemeral_UNRESTRICTED`. |
+| `Live Probe Case Matrix` | Per-service: three entry paths at `UNRESTRICTED`, plus ephemeral under each remaining `ToolPolicy` — five cases, deduplicated on `ephemeral_UNRESTRICTED`. |
 | `Live Probe Default` | Cost-first runtime-supported provider/model/effort tuple used by the probe absent CLI override. |
 | `ProviderUsage` | Provider-reported usage: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, optional provider duration. |
 
@@ -95,6 +96,7 @@
 - Resumed-session execution keeps service, model, effort, `ToolPolicy` fixed from continuation; credentials received separately.
 - Runtime requests require explicit `ToolPolicy`; non-`NONE` policies grant Invocation Directory as Tool Workspace.
 - `ToolPolicy` is an invocation permission grant, not part of ProviderSelection identity.
+- Already-Sandboxed Execution is a `RuntimeClient` constructor fact, not a per-run request field; it applies uniformly to all invocations on that client.
 - `ProviderSelection` is the canonical single-candidate selection value for one invocation.
 - Runtime Compatibility Aliases are not Runtime Public Surface promises and may be removed before release.
 - Live Provider Probe is opt-in manual debugging — not CI, default tests, or Runtime Public Surface. Proves invocation, not answer quality or tool usefulness. Live Probe Defaults prefer cheapest runtime-supported tuple; prompts must stay simple enough for those defaults.
@@ -114,7 +116,8 @@
 - `ToolPolicyProfile`: use **ToolPolicy**; provider flag profiles are internal.
 - `InvocationRole`, `UsageLimitScope`, `SessionNamespace`: outside Runtime Consumer Surface.
 - `runtime_state_dir` / `_runtime_state_dir`: use **Session Store**; it is caller-owned and a public, required input for session-backed runs, not an internal field.
-- `ToolPolicy.RESTRICTED`, `.PARTIAL`, `.FULL`: use `.INSPECT_ONLY`, `.NO_FILE_MUTATION`, `.UNRESTRICTED`.
+- `ToolPolicy.RESTRICTED`, `.PARTIAL`, `.FULL`: use `.NO_FILE_MUTATION`, `.UNRESTRICTED`.
+- `ToolPolicy.INSPECT_ONLY`: retired; use `NO_FILE_MUTATION` (bash permitted, file mutations denied) or `NONE` (no tools).
 - `RetryableProviderFailure`, `RetryableProviderFailureError`: use **ProviderUnavailable** / `ProviderUnavailableError`.
 - `NoServiceAvailable`, `NoServiceAvailableError`: use **ProviderUnavailable** with reason `SERVICE_NOT_AVAILABLE`.
 - `ProviderErrorObservation`, `observations`: retired; diagnostics use raw error messages only.
