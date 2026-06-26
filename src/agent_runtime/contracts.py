@@ -87,7 +87,6 @@ class ToolPolicyProfile:
 
 class ToolPolicy(enum.Enum):
     NONE = "none"
-    INSPECT_ONLY = "inspect_only"
     NO_FILE_MUTATION = "no_file_mutation"
     UNRESTRICTED = "unrestricted"
 
@@ -95,8 +94,6 @@ class ToolPolicy(enum.Enum):
     def profile(self) -> ToolPolicyProfile:
         if self is ToolPolicy.NONE:
             return _NO_TOOLS_POLICY
-        if self is ToolPolicy.INSPECT_ONLY:
-            return ToolPolicyProfile(allowed_tools=("Read", "Glob"))
         if self is ToolPolicy.NO_FILE_MUTATION:
             return ToolPolicyProfile(disallowed_tools=("Edit", "Write", "NotebookEdit"))
         return ToolPolicyProfile()

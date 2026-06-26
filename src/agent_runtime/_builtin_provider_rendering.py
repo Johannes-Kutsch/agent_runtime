@@ -317,7 +317,6 @@ def render_built_in_provider_tool_policy(
             if tool_policy
             in {
                 ToolPolicy.NONE,
-                ToolPolicy.INSPECT_ONLY,
                 ToolPolicy.NO_FILE_MUTATION,
             }
             else "danger-full-access"
@@ -329,7 +328,6 @@ def render_built_in_provider_tool_policy(
             if profile
             in {
                 ToolPolicy.NONE.profile,
-                ToolPolicy.INSPECT_ONLY.profile,
                 ToolPolicy.NO_FILE_MUTATION.profile,
             }
             else "danger-full-access"
@@ -337,8 +335,6 @@ def render_built_in_provider_tool_policy(
     opencode_permission: dict[str, str] | str | None
     if profile == ToolPolicy.NONE.profile:
         opencode_permission = "deny"
-    elif profile == ToolPolicy.INSPECT_ONLY.profile:
-        opencode_permission = {"edit": "deny", "bash": "deny"}
     elif profile == ToolPolicy.NO_FILE_MUTATION.profile:
         opencode_permission = {"edit": "deny"}
     else:

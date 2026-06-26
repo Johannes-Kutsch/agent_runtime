@@ -127,3 +127,28 @@ def test_portable_continuation_payload_rejects_non_object_provider_resume_state(
     assert str(exc_info.value) == (
         "Continuation provider_resume_state must be a JSON object."
     )
+
+
+def test_portable_continuation_payload_rejects_legacy_inspect_only_tool_policy() -> (
+    None
+):
+    raw_payload = json.dumps(
+        {
+            "service_name": "codex",
+            "model": "gpt-5.4",
+            "effort": "low",
+            "tool_access": {
+                "kind": "none",
+                "workspace": None,
+                "tool_policy": {
+                    "kind": "tool_policy",
+                    "value": "inspect_only",
+                },
+            },
+            "provider_resume_state": {},
+        }
+    )
+    continuation = prompt_runtime.Continuation(serialized=raw_payload)
+
+    with pytest.raises(TypeError, match="legacy tool-policy value `inspect_only`"):
+        read_portable_continuation_payload(continuation)

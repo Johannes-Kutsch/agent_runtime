@@ -125,7 +125,17 @@ def _deserialize_tool_access(value: Any) -> ToolAccess:
     if profile_type == "tool_policy":
         if not isinstance(policy.get("value"), str):
             raise TypeError("Continuation data is malformed.")
-        tool_policy = ToolPolicy(policy["value"])
+        policy_value = policy["value"]
+        if policy_value == "inspect_only":
+            raise TypeError(
+                "Continuation data contains legacy tool-policy value `inspect_only`."
+            )
+        try:
+            tool_policy = ToolPolicy(policy_value)
+        except ValueError as exc:
+            raise TypeError(
+                f"Continuation data contains unsupported tool-policy value {policy_value!r}."
+            ) from exc
     elif profile_type == "tool_policy_profile":
         tool_policy = ToolPolicyProfile(
             allowed_tools=tuple(policy.get("allowed_tools") or ()),

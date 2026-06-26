@@ -845,12 +845,18 @@ def test_provider_session_adapter_public_seam_stays_narrow() -> None:
         assert not hasattr(internal_module, removed_name)
 
 
-def test_tool_policy_inspect_only_resolves_to_provider_neutral_profile() -> None:
-    profile = runtime.ToolPolicy.INSPECT_ONLY.profile
+def test_tool_policy_has_three_members_on_public_surface() -> None:
+    assert len(list(runtime.ToolPolicy)) == 3
+    assert {policy.name for policy in runtime.ToolPolicy} == {
+        "NONE",
+        "NO_FILE_MUTATION",
+        "UNRESTRICTED",
+    }
 
-    assert profile.allowed_tools == ("Read", "Glob")
-    assert profile.disallowed_tools == ()
-    assert profile.strict_mcp_config is True
+
+def test_tool_policy_does_not_include_inspect_only_value() -> None:
+    values = {policy.value for policy in runtime.ToolPolicy}
+    assert "inspect_only" not in values
 
 
 def test_tool_policy_none_resolves_to_closed_no_tools_profile() -> None:

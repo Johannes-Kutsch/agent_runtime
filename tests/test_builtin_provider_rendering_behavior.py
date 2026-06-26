@@ -481,7 +481,7 @@ def test_render_built_in_provider_invocation_keeps_posix_environment_provider_on
 def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() -> None:
     invocation_dir = Path("/tmp/invocation")
 
-    inspect_only_invocation = (
+    read_only_profile_invocation = (
         built_in_provider_rendering.render_built_in_provider_invocation(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
@@ -494,7 +494,11 @@ def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() ->
                 run_kind=RunKind.FRESH,
                 tool_access=ToolAccess.workspace_backed(
                     invocation_dir,
-                    tool_policy=runtime.ToolPolicy.INSPECT_ONLY,
+                    tool_policy=ToolPolicyProfile(
+                        allowed_tools=("Read", "Glob"),
+                        disallowed_tools=(),
+                        strict_mcp_config=True,
+                    ),
                 ),
                 auth=ProviderAuth(claude_code_oauth_token="token"),
                 invocation_dir=invocation_dir,
@@ -526,7 +530,7 @@ def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() ->
         )
     )
 
-    assert inspect_only_invocation.canonical_argv == (
+    assert read_only_profile_invocation.canonical_argv == (
         "claude",
         "--verbose",
         "--dangerously-skip-permissions",
@@ -583,13 +587,6 @@ def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() ->
             id="none",
         ),
         pytest.param(
-            runtime.ToolPolicy.INSPECT_ONLY,
-            ToolPolicyProfile(allowed_tools=("Read", "Glob")),
-            "read-only",
-            {"bash": "deny", "edit": "deny"},
-            id="inspect-only",
-        ),
-        pytest.param(
             runtime.ToolPolicy.NO_FILE_MUTATION,
             ToolPolicyProfile(disallowed_tools=("Edit", "Write", "NotebookEdit")),
             "read-only",
@@ -618,6 +615,21 @@ def test_render_built_in_provider_tool_policy_produces_current_provider_facts(
     assert rendered_policy.claude_profile == expected_claude_profile
     assert rendered_policy.codex_sandbox == expected_codex_sandbox
     assert rendered_policy.opencode_permission == expected_opencode_permission
+
+
+def test_render_built_in_provider_tool_policy_render_legacy_inspect_only_profile_as_custom() -> (
+    None
+):
+    rendered_policy = built_in_provider_rendering.render_built_in_provider_tool_policy(
+        ToolPolicyProfile(
+            allowed_tools=("Read", "Glob"),
+            disallowed_tools=(),
+            strict_mcp_config=True,
+        )
+    )
+
+    assert rendered_policy.codex_sandbox == "danger-full-access"
+    assert rendered_policy.opencode_permission is None
 
 
 def test_render_built_in_provider_tool_policy_preserves_custom_profile_support() -> (
@@ -930,7 +942,6 @@ def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
     ("tool_policy", "expected_sandbox"),
     [
         pytest.param(runtime.ToolPolicy.NONE, "read-only", id="none"),
-        pytest.param(runtime.ToolPolicy.INSPECT_ONLY, "read-only", id="inspect-only"),
         pytest.param(
             runtime.ToolPolicy.NO_FILE_MUTATION, "read-only", id="no-file-mutation"
         ),
@@ -1171,11 +1182,6 @@ def test_render_opencode_fails_for_missing_credentials_and_unsupported_selection
     [
         pytest.param(runtime.ToolPolicy.NONE, "deny", id="none"),
         pytest.param(
-            runtime.ToolPolicy.INSPECT_ONLY,
-            {"bash": "deny", "edit": "deny"},
-            id="inspect-only",
-        ),
-        pytest.param(
             runtime.ToolPolicy.NO_FILE_MUTATION,
             {"edit": "deny"},
             id="no-file-mutation",
@@ -1210,11 +1216,6 @@ def test_render_opencode_tool_policy_maps_to_current_permission_content(
     ("tool_policy", "expected_permission"),
     [
         pytest.param(runtime.ToolPolicy.NONE.profile, "deny", id="none-profile"),
-        pytest.param(
-            runtime.ToolPolicy.INSPECT_ONLY.profile,
-            {"bash": "deny", "edit": "deny"},
-            id="inspect-only-profile",
-        ),
         pytest.param(
             runtime.ToolPolicy.NO_FILE_MUTATION.profile,
             {"edit": "deny"},
@@ -1263,7 +1264,7 @@ def test_render_opencode_uses_windows_executable_without_process_launch_allowlis
             run_kind=RunKind.FRESH,
             tool_access=ToolAccess.workspace_backed(
                 tmp_path,
-                tool_policy=runtime.ToolPolicy.INSPECT_ONLY,
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
             ),
             auth=ProviderAuth(opencode_api_key="go-key"),
             invocation_dir=tmp_path,

@@ -332,11 +332,11 @@ def _plan_provider(
 
 
 def probe_cases_for_provider(provider_plan: ProviderPlan) -> tuple[ProbeCase, ...]:
-    """The six-case Live Probe Case Matrix for one provider.
+    """The five-case Live Probe Case Matrix for one provider.
 
-    Three entry paths at ``UNRESTRICTED`` followed by ephemeral under each
-    remaining ``ToolPolicy``. ``new_session`` precedes ``resumed_session`` so
-    the resume case can reuse the new session's continuation.
+    Three entry paths at ``UNRESTRICTED`` followed by ephemeral under each of the
+    remaining public ``ToolPolicy`` values. ``new_session`` precedes
+    ``resumed_session`` so the resume case can reuse the new session's continuation.
     """
 
     def _case(mode: str, policy: str) -> ProbeCase:

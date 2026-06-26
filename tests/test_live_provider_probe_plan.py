@@ -200,7 +200,7 @@ def test_codex_auth_injection_controls_runnable_status(plan: Any) -> None:
     assert missing[0].reason == "provider not configured"
 
 
-def test_probe_case_matrix_is_six_coupled_cases(plan: Any) -> None:
+def test_probe_case_matrix_is_five_coupled_cases(plan: Any) -> None:
     provider_plan = plan.plan_selected_providers(
         plan.parse_provider_selection("claude"),
         env={},
@@ -214,7 +214,6 @@ def test_probe_case_matrix_is_six_coupled_cases(plan: Any) -> None:
         "new_session_UNRESTRICTED",
         "resumed_session_UNRESTRICTED",
         "ephemeral_NONE",
-        "ephemeral_INSPECT_ONLY",
         "ephemeral_NO_FILE_MUTATION",
     ]
     # No duplicate ephemeral_UNRESTRICTED.

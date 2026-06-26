@@ -164,7 +164,26 @@ def _probe_case(
     )
 
 
-def test_full_run_writes_six_cases_with_feed_and_result(
+def test_probe_case_matrix_has_five_cases_for_codex(
+    probe: Any,
+) -> None:
+    provider_plan = probe.plan.plan_selected_providers(
+        probe.plan.parse_provider_selection("codex"),
+        env={},
+        codex_auth_present=True,
+    )[0]
+    cases = probe.plan.probe_cases_for_provider(provider_plan)
+
+    assert [case.label for case in cases] == [
+        "ephemeral_UNRESTRICTED",
+        "new_session_UNRESTRICTED",
+        "resumed_session_UNRESTRICTED",
+        "ephemeral_NONE",
+        "ephemeral_NO_FILE_MUTATION",
+    ]
+
+
+def test_full_run_writes_five_cases_with_feed_and_result(
     probe: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _install_client(probe, monkeypatch, _default_handler)
@@ -183,7 +202,6 @@ def test_full_run_writes_six_cases_with_feed_and_result(
         "new_session_UNRESTRICTED",
         "resumed_session_UNRESTRICTED",
         "ephemeral_NONE",
-        "ephemeral_INSPECT_ONLY",
         "ephemeral_NO_FILE_MUTATION",
     ]
     for label in expected:
@@ -318,7 +336,6 @@ def test_full_run_invokes_live_probe_case_matrix_in_order(
         ("run_new_session", Path("new_session_UNRESTRICTED")),
         ("run_resumed_session", Path("new_session_UNRESTRICTED")),
         ("run_ephemeral", Path("ephemeral_NONE")),
-        ("run_ephemeral", Path("ephemeral_INSPECT_ONLY")),
         ("run_ephemeral", Path("ephemeral_NO_FILE_MUTATION")),
     ]
 
@@ -1183,7 +1200,7 @@ def test_live_probe_resumed_session_case_reaches_classified_outcome_when_session
     )
     assert payload["category"] == "success"
     assert payload["kind"] == "Completed"
-    assert len(calls) == 6
+    assert len(calls) == 5
 
 
 def test_live_probe_uses_one_per_session_store_for_new_and_resumed_session_cases(

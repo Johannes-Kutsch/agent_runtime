@@ -2386,7 +2386,7 @@ def test_runtime_client_runs_claude_resumed_session_from_continuation(
     [
         contracts_runtime.ToolAccess.no_tools(),
         contracts_runtime.ToolAccess.workspace_backed(
-            Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
+            Path("."), tool_policy=runtime.ToolPolicy.NONE
         ),
         contracts_runtime.ToolAccess.workspace_backed(
             Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
@@ -4560,7 +4560,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
     [
         contracts_runtime.ToolAccess.no_tools(),
         contracts_runtime.ToolAccess.workspace_backed(
-            Path("."), tool_policy=runtime.ToolPolicy.INSPECT_ONLY
+            Path("."), tool_policy=runtime.ToolPolicy.NONE
         ),
         contracts_runtime.ToolAccess.workspace_backed(
             Path("."), tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION
