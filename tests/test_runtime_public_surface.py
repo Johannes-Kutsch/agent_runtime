@@ -547,6 +547,26 @@ def test_contracts_expose_only_active_runtime_contracts(
 
 
 @pytest.mark.parametrize(
+    "removed_name",
+    [
+        "ExecutionProvider",
+        "ProviderStatePreparationAction",
+        "ResumabilityProvider",
+        "ResumableExecutionProvider",
+        "ServiceSelectionProvider",
+    ],
+)
+def test_runtime_module_omits_retired_provider_protocol_names_from_public_surface(
+    removed_name: str,
+) -> None:
+    assert removed_name not in prompt_runtime.__all__
+    with pytest.raises(AttributeError):
+        getattr(prompt_runtime, removed_name)
+    with pytest.raises(ImportError):
+        exec(f"from agent_runtime.runtime import {removed_name}", {}, {})
+
+
+@pytest.mark.parametrize(
     ("entrypoint_name", "request_factory", "delegate_name"),
     [
         (
