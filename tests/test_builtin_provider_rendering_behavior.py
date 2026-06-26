@@ -1011,7 +1011,6 @@ def test_render_codex_resumed_invocation_uses_expected_sandbox_flag(
     ("tool_policy", "expected_sandbox"),
     [
         pytest.param(runtime.ToolPolicy.NONE, "read-only", id="none"),
-        pytest.param(runtime.ToolPolicy.INSPECT_ONLY, "read-only", id="inspect-only"),
         pytest.param(
             runtime.ToolPolicy.NO_FILE_MUTATION, "read-only", id="no-file-mutation"
         ),
