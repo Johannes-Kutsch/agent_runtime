@@ -108,6 +108,38 @@ def _require_json_compatible_resume_state(
 class Continuation:
     serialized: str
 
+    @classmethod
+    def for_session_backed_provider(
+        cls,
+        *,
+        selected_service: str,
+        selected_model: str,
+        selected_effort: str,
+        tool_access: ToolAccess,
+        provider_session_id: str | None = None,
+        provider_state_dir_relpath: str | None = None,
+        exact_transcript_match: bool | None = None,
+        run_kind: str | None = None,
+    ) -> Continuation:
+        provider_resume_state: dict[str, Any] = {}
+        if run_kind is not None:
+            provider_resume_state["run_kind"] = run_kind
+        if provider_session_id is not None:
+            provider_resume_state["provider_session_id"] = provider_session_id
+        if provider_state_dir_relpath is not None:
+            provider_resume_state["provider_state_dir_relpath"] = (
+                provider_state_dir_relpath
+            )
+        if exact_transcript_match is not None:
+            provider_resume_state["exact_transcript_match"] = exact_transcript_match
+        return cls(
+            selected_service=selected_service,
+            selected_model=selected_model,
+            selected_effort=selected_effort,
+            tool_access=tool_access,
+            provider_resume_state=provider_resume_state,
+        )
+
     def __init__(
         self,
         serialized: str | None = None,
@@ -159,6 +191,31 @@ class Continuation:
         )
 
     @property
+    def session_backed_facts(self) -> SessionBackedContinuationFacts:
+        resume_facts = self.resume_facts
+        provider_resume_state = resume_facts.provider_resume_state
+        if not isinstance(provider_resume_state, dict):
+            raise TypeError("Continuation provider_resume_state must be a JSON object.")
+        return SessionBackedContinuationFacts(
+            selected=resume_facts.selected,
+            tool_access=resume_facts.tool_access,
+            provider_resume_state=provider_resume_state,
+            provider_session_id=cast(
+                str | None,
+                provider_resume_state.get("provider_session_id"),
+            ),
+            provider_state_dir_relpath=cast(
+                str | None,
+                provider_resume_state.get("provider_state_dir_relpath"),
+            ),
+            exact_transcript_match=cast(
+                bool | None,
+                provider_resume_state.get("exact_transcript_match"),
+            ),
+            run_kind=cast(str | None, provider_resume_state.get("run_kind")),
+        )
+
+    @property
     def service_name(self) -> str:
         return self.resume_facts.selected.service
 
@@ -193,6 +250,17 @@ class ContinuationResumeFacts:
     selected: ResolvedProvider
     tool_access: ToolAccess
     provider_resume_state: Any
+
+
+@dataclasses.dataclass(frozen=True)
+class SessionBackedContinuationFacts:
+    selected: ResolvedProvider
+    tool_access: ToolAccess
+    provider_resume_state: dict[str, Any]
+    provider_session_id: str | None
+    provider_state_dir_relpath: str | None
+    exact_transcript_match: bool | None
+    run_kind: str | None
 
 
 @dataclasses.dataclass(frozen=True)

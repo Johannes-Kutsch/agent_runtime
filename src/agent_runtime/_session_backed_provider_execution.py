@@ -117,19 +117,14 @@ def _build_opencode_continuation(
     provider_state_dir_relpath: str | None = None,
     exact_transcript_match: bool | None = None,
 ) -> Continuation:
-    provider_resume_state: dict[str, Any] = {
-        "provider_session_id": provider_session_id,
-    }
-    if provider_state_dir_relpath is not None:
-        provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
-    if exact_transcript_match is not None:
-        provider_resume_state["exact_transcript_match"] = exact_transcript_match
-    return Continuation(
+    return Continuation.for_session_backed_provider(
         selected_service="opencode",
         selected_model=model,
         selected_effort=effort,
         tool_access=tool_access,
-        provider_resume_state=provider_resume_state,
+        provider_session_id=provider_session_id,
+        provider_state_dir_relpath=provider_state_dir_relpath,
+        exact_transcript_match=exact_transcript_match,
     )
 
 
@@ -254,19 +249,15 @@ def _build_codex_continuation(
     provider_session_id: str,
     provider_state_dir_relpath: str | None = None,
 ) -> Continuation:
-    provider_resume_state: dict[str, Any] = {
-        "run_kind": RunKind.RESUME.value,
-        "provider_session_id": provider_session_id,
-        "exact_transcript_match": False,
-    }
-    if provider_state_dir_relpath is not None:
-        provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
-    return Continuation(
+    return Continuation.for_session_backed_provider(
         selected_service="codex",
         selected_model=model,
         selected_effort=effort,
         tool_access=tool_access,
-        provider_resume_state=provider_resume_state,
+        provider_session_id=provider_session_id,
+        provider_state_dir_relpath=provider_state_dir_relpath,
+        exact_transcript_match=False,
+        run_kind=RunKind.RESUME.value,
     )
 
 
@@ -313,19 +304,15 @@ def _build_claude_continuation(
     provider_session_id: str,
     provider_state_dir_relpath: str | None = None,
 ) -> Continuation:
-    provider_resume_state: dict[str, Any] = {
-        "run_kind": RunKind.RESUME.value,
-        "provider_session_id": provider_session_id,
-        "exact_transcript_match": False,
-    }
-    if provider_state_dir_relpath is not None:
-        provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
-    return Continuation(
+    return Continuation.for_session_backed_provider(
         selected_service="claude",
         selected_model=model,
         selected_effort=effort,
         tool_access=tool_access,
-        provider_resume_state=provider_resume_state,
+        provider_session_id=provider_session_id,
+        provider_state_dir_relpath=provider_state_dir_relpath,
+        exact_transcript_match=False,
+        run_kind=RunKind.RESUME.value,
     )
 
 
@@ -852,13 +839,10 @@ def _run_builtin_resumed_session(
             "RuntimeClient resumed-session execution requires a continuation."
         )
     try:
-        continuation_service = continuation.service_name
-        provider_resume_state = cast(
-            dict[str, Any],
-            continuation.provider_resume_state,
-        )
+        continuation_facts = continuation.session_backed_facts
     except TypeError as exc:
         raise RuntimeConfigurationError(str(exc)) from exc
+    continuation_service = continuation_facts.selected.service
     _builtin_runtime_client_module._require_portable_continuation_support(
         continuation_service
     )
@@ -877,14 +861,8 @@ def _run_builtin_resumed_session(
                 effort=request.effort,
             )
         )
-        provider_state_dir_relpath = cast(
-            str | None,
-            provider_resume_state.get("provider_state_dir_relpath"),
-        )
-        provider_session_id = cast(
-            str | None,
-            provider_resume_state.get("provider_session_id"),
-        )
+        provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
+        provider_session_id = continuation_facts.provider_session_id
         if provider_session_id is not None:
             provider_session_id = provider_session_id.strip() or None
         if runtime_state_dir is not None and provider_state_dir_relpath:
@@ -989,14 +967,11 @@ def _run_builtin_resumed_session(
         )
     provider_session_id = cast(
         str | None,
-        provider_resume_state.get("provider_session_id"),
+        continuation_facts.provider_session_id,
     )
     if continuation_service == "claude":
         _require_claude_auth(request.provider_auth)
-        provider_state_dir_relpath = cast(
-            str | None,
-            provider_resume_state.get("provider_state_dir_relpath"),
-        )
+        provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
         if provider_state_dir_relpath and request.session_store is not None:
             provider_state_dir = request.session_store / provider_state_dir_relpath
             provider_state_dir.mkdir(parents=True, exist_ok=True)
@@ -1010,10 +985,7 @@ def _run_builtin_resumed_session(
         cleanup_opencode_state_dir = _no_cleanup
     else:
         _builtin_runtime_client_module._require_opencode_auth(request.provider_auth)
-        provider_state_dir_relpath = cast(
-            str | None,
-            provider_resume_state.get("provider_state_dir_relpath"),
-        )
+        provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
         provider_state_dir, provider_state_dir_relpath, cleanup_opencode_state_dir = (
             _restore_opencode_state_dir(
                 request=request,
@@ -1022,7 +994,7 @@ def _run_builtin_resumed_session(
         )
         state_dir_session_id = _load_opencode_state_dir_session_id(provider_state_dir)
         saved_exact_transcript_match = bool(
-            provider_resume_state.get("exact_transcript_match", False)
+            continuation_facts.exact_transcript_match or False
         )
         if provider_session_id is None:
             provider_session_id = state_dir_session_id
