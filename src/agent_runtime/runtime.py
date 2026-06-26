@@ -217,6 +217,12 @@ class RuntimeClient:
                 kind=TimedOut(),
                 result=_interrupted_result(exc, selected),
             )
+        except ProviderUnavailableError as exc:
+            _raise_if_live_output_exception(exc)
+            return RuntimeOutcome(
+                kind=ProviderUnavailable(reason=exc.reason, detail=str(exc)),
+                result=_interrupted_result(exc, selected),
+            )
         except UsageLimitError as exc:
             _raise_if_live_output_exception(exc)
             return RuntimeOutcome(
