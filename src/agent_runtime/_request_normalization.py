@@ -15,26 +15,23 @@ if TYPE_CHECKING:
 
 
 @dataclasses.dataclass(frozen=True)
-class NormalizedWorktree:
+class NormalizedInvocationDirectory:
     path: Path
 
 
 @dataclasses.dataclass(frozen=True)
 class NormalizedProviderSelectionRequest:
     provider_selection: ProviderSelection
-    worktree: NormalizedWorktree
+    invocation_dir: NormalizedInvocationDirectory
     tool_access: ToolAccess
     session_namespace: str
 
 
 @dataclasses.dataclass(frozen=True)
 class NormalizedResumedRequest:
-    worktree: NormalizedWorktree
+    invocation_dir: NormalizedInvocationDirectory
     tool_access: ToolAccess
     session_namespace: str
-
-
-NormalizedStageRequest = NormalizedProviderSelectionRequest
 
 
 def normalize_provider_selection(
@@ -55,8 +52,8 @@ def normalize_session_namespace(session_namespace: str) -> str:
     return session_namespace
 
 
-def normalize_worktree(worktree: Path) -> NormalizedWorktree:
-    return NormalizedWorktree(path=worktree)
+def normalize_invocation_dir(invocation_dir: Path) -> NormalizedInvocationDirectory:
+    return NormalizedInvocationDirectory(path=invocation_dir)
 
 
 def normalize_tool_access(
@@ -67,7 +64,7 @@ def normalize_tool_access(
     workspace: Path,
     context: str,
     missing_message: str,
-    workspace_name: str = "worktree",
+    workspace_name: str = "invocation_dir",
 ) -> ToolAccess:
     from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 
@@ -101,7 +98,7 @@ def normalize_resolved_tool_access(
     tool_access: "ToolAccess",
     workspace: Path | None,
     context: str,
-    workspace_name: str = "worktree",
+    workspace_name: str = "invocation_dir",
 ) -> "ToolAccess":
     tool_access.require_workspace(
         workspace,
@@ -114,29 +111,29 @@ def normalize_resolved_tool_access(
 def normalize_provider_selection_request(
     *,
     provider_selection: ProviderSelection | None,
-    worktree: Path,
+    invocation_dir: Path,
     tool_access: Any,
     tool_policy: Any,
     missing_sentinel: object,
     session_namespace: str,
     context: str,
     missing_message: str,
-    validate_stage: bool = True,
-    workspace_name: str = "worktree",
+    validate_provider_selection_request: bool = True,
+    workspace_name: str = "invocation_dir",
 ) -> NormalizedProviderSelectionRequest:
-    normalized_worktree = normalize_worktree(worktree)
+    normalized_invocation_dir = normalize_invocation_dir(invocation_dir)
     return NormalizedProviderSelectionRequest(
         provider_selection=normalize_provider_selection(
             provider_selection,
             context=context,
-            validate=validate_stage,
+            validate=validate_provider_selection_request,
         ),
-        worktree=normalized_worktree,
+        invocation_dir=normalized_invocation_dir,
         tool_access=normalize_tool_access(
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=missing_sentinel,
-            workspace=normalized_worktree.path,
+            workspace=normalized_invocation_dir.path,
             context=context,
             missing_message=missing_message,
             workspace_name=workspace_name,
@@ -147,18 +144,18 @@ def normalize_provider_selection_request(
 
 def normalize_continuation_request(
     *,
-    worktree: Path,
+    invocation_dir: Path,
     tool_access: "ToolAccess",
     session_namespace: str,
     context: str,
-    workspace_name: str = "worktree",
+    workspace_name: str = "invocation_dir",
 ) -> NormalizedResumedRequest:
-    normalized_worktree = normalize_worktree(worktree)
+    normalized_invocation_dir = normalize_invocation_dir(invocation_dir)
     return NormalizedResumedRequest(
-        worktree=normalized_worktree,
+        invocation_dir=normalized_invocation_dir,
         tool_access=normalize_resolved_tool_access(
             tool_access=tool_access,
-            workspace=normalized_worktree.path,
+            workspace=normalized_invocation_dir.path,
             context=context,
             workspace_name=workspace_name,
         ),

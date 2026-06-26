@@ -72,18 +72,18 @@ def _resolve_invocation_dir(
 def _provider_selection_request_facts(
     *,
     provider_selection: ProviderSelection | None,
-    worktree: Path,
+    invocation_dir: Path,
     tool_access: Any,
     tool_policy: Any,
     missing_sentinel: object,
     session_namespace: str,
     context: str,
     missing_message: str,
-    workspace_name: str = "worktree",
+    workspace_name: str = "invocation_dir",
 ) -> _ProviderSelectionLifecycleRequestFacts:
     normalized_request = normalize_provider_selection_request(
         provider_selection=provider_selection,
-        worktree=worktree,
+        invocation_dir=invocation_dir,
         tool_access=tool_access,
         tool_policy=tool_policy,
         missing_sentinel=missing_sentinel,
@@ -93,7 +93,7 @@ def _provider_selection_request_facts(
         workspace_name=workspace_name,
     )
     return _ProviderSelectionLifecycleRequestFacts(
-        invocation_dir=normalized_request.worktree.path,
+        invocation_dir=normalized_request.invocation_dir.path,
         provider_selection=normalized_request.provider_selection,
         tool_access=normalized_request.tool_access,
         session_namespace=normalized_request.session_namespace,
@@ -122,7 +122,7 @@ def _ephemeral_run_request_facts(
     )
     normalized_request = _provider_selection_request_facts(
         provider_selection=provider_selection,
-        worktree=resolved_invocation_dir,
+        invocation_dir=resolved_invocation_dir,
         tool_access=tool_access,
         tool_policy=tool_policy,
         missing_sentinel=missing_sentinel,
@@ -179,7 +179,7 @@ def _new_session_run_request_facts(
     )
     normalized_request = _provider_selection_request_facts(
         provider_selection=provider_selection,
-        worktree=resolved_invocation_dir,
+        invocation_dir=resolved_invocation_dir,
         tool_access=tool_access,
         tool_policy=tool_policy,
         missing_sentinel=missing_sentinel,
@@ -245,14 +245,14 @@ def _resumed_session_run_request_facts(
     except TypeError as exc:
         raise RuntimeConfigurationError(str(exc)) from exc
     normalized_request = normalize_continuation_request(
-        worktree=resolved_invocation_dir,
+        invocation_dir=resolved_invocation_dir,
         tool_access=continuation_payload.tool_access,
         session_namespace=compatibility_session_namespace,
         context=context,
         workspace_name=public_invocation_dir_name,
     )
     return _ResumedLifecycleRequestFacts(
-        invocation_dir=normalized_request.worktree.path,
+        invocation_dir=normalized_request.invocation_dir.path,
         tool_access=normalized_request.tool_access,
         session_namespace=normalized_request.session_namespace,
         model=continuation_payload.model,
