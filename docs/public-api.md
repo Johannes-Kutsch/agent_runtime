@@ -19,7 +19,6 @@ Import path: `agent_runtime`
 The package root exposes stable shared vocabulary and common errors:
 
 - `AgentCredentialFailureError`
-- `AgentFailedError`
 - `AgentRuntimeError`
 - `AgentTimeoutError`
 - `ClaudeCodeOAuthToken`

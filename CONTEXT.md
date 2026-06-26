@@ -118,7 +118,7 @@
 - "worktree": use **Invocation Directory** / **Tool Workspace**.
 - `ToolAccess`: use **ToolPolicy**.
 - `ToolPolicyProfile`: use **ToolPolicy**; provider flag profiles are internal.
-- `InvocationRole`, `UsageLimitScope`, `SessionNamespace`: outside Runtime Consumer Surface.
+- `UsageLimitScope`: outside Runtime Consumer Surface.
 - `runtime_state_dir` / `_runtime_state_dir`: use **Session Store**; it is caller-owned and a public, required input for session-backed runs, not an internal field.
 - `ToolPolicy.RESTRICTED`, `.PARTIAL`, `.FULL`: use `.NO_FILE_MUTATION`, `.UNRESTRICTED`.
 - `ToolPolicy.INSPECT_ONLY`: retired; use `NO_FILE_MUTATION` (bash permitted, file mutations denied) or `NONE` (no tools).
