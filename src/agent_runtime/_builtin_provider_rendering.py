@@ -435,7 +435,11 @@ def _render_codex_invocation(
     )
     prompt_path = _codex_provider_prompt_path()
     flags: list[str] = []
-    codex_sandbox = _codex_sandbox(request.tool_access.tool_policy)
+    codex_sandbox = (
+        "danger-full-access"
+        if request.already_sandboxed
+        else _codex_sandbox(request.tool_access.tool_policy)
+    )
     is_resumed_session = (
         request.run_kind is RunKind.RESUME and request.provider_session_id is not None
     )

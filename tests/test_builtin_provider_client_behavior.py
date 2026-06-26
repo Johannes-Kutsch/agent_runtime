@@ -39,6 +39,16 @@ def _codex_executable() -> str:
     return "codex.cmd" if os.name == "nt" else "codex"
 
 
+def _extract_codex_sandbox(argv: tuple[str, ...]) -> str | None:
+    try:
+        sandbox_index = argv.index("--sandbox")
+    except ValueError:
+        return None
+    if sandbox_index + 1 >= len(argv):
+        return None
+    return argv[sandbox_index + 1]
+
+
 def _normalize_tool_policy_profile(
     tool_policy: runtime.ToolPolicy | contracts_runtime.ToolPolicyProfile,
 ) -> contracts_runtime.ToolPolicyProfile:
@@ -3580,6 +3590,197 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
     )
 
 
+def _run_new_session_recorded_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    already_sandboxed: bool,
+    service: str,
+    tool_policy: runtime.ToolPolicy,
+    provider_auth: ProviderAuth | None = None,
+    runtime_state_dir: Path | None = None,
+    provider_session_id: str | None = None,
+) -> provider_invocation_runtime.ProviderInvocationRequest:
+    if service == "codex":
+        RuntimeClientExecutionHarness.install_local_codex_host_auth(
+            monkeypatch, tmp_path
+        )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    if provider_session_id is not None:
+        RuntimeClientExecutionHarness.install_generated_provider_session_id(
+            monkeypatch,
+            provider_session_id,
+        )
+    harness.prepare_result(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="continued output",
+            usage=runtime.ProviderUsage(output_tokens=1),
+        )
+    )
+
+    runtime_state_dir = (
+        harness.prepare_runtime_state_dir(tmp_path)
+        if runtime_state_dir is None
+        else runtime_state_dir
+    )
+    outcome = asyncio.run(
+        runtime.RuntimeClient(already_sandboxed=already_sandboxed).run_new_session(
+            harness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service=service,
+                    model=(
+                        "gpt-5.4"
+                        if service == "codex"
+                        else ("sonnet" if service == "claude" else "glm-5.2")
+                    ),
+                    effort="medium",
+                ),
+                provider_auth=provider_auth,
+                tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                    tmp_path,
+                    tool_policy=tool_policy,
+                ),
+            )
+        )
+    )
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    return harness.recorded_request()
+
+
+@pytest.mark.parametrize(
+    ("tool_policy"),
+    [
+        runtime.ToolPolicy.NONE,
+        runtime.ToolPolicy.NO_FILE_MUTATION,
+        runtime.ToolPolicy.UNRESTRICTED,
+    ],
+)
+def test_runtime_client_forces_codex_danger_full_access_when_already_sandboxed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+) -> None:
+    recorded_request = _run_new_session_recorded_request(
+        monkeypatch,
+        tmp_path,
+        already_sandboxed=True,
+        service="codex",
+        tool_policy=tool_policy,
+    )
+    assert _extract_codex_sandbox(recorded_request.argv) == "danger-full-access", (
+        recorded_request.argv
+    )
+
+
+@pytest.mark.parametrize(
+    ("tool_policy", "expected_sandbox"),
+    [
+        (runtime.ToolPolicy.NONE, "read-only"),
+        (runtime.ToolPolicy.NO_FILE_MUTATION, "read-only"),
+    ],
+)
+def test_runtime_client_uses_codex_read_only_when_not_already_sandboxed_and_restrictive_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tool_policy: runtime.ToolPolicy,
+    expected_sandbox: str,
+) -> None:
+    recorded_request = _run_new_session_recorded_request(
+        monkeypatch,
+        tmp_path,
+        already_sandboxed=False,
+        service="codex",
+        tool_policy=tool_policy,
+    )
+    assert _extract_codex_sandbox(recorded_request.argv) == expected_sandbox
+
+
+def test_runtime_client_keeps_codex_unrestricted_sandbox_mode_same_with_or_without_already_sandboxed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recorded_with_outer_sandbox = _run_new_session_recorded_request(
+        monkeypatch,
+        tmp_path,
+        already_sandboxed=False,
+        service="codex",
+        tool_policy=runtime.ToolPolicy.UNRESTRICTED,
+    )
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir.mkdir(parents=True, exist_ok=True)
+    recorded_with_inner_sandbox = _run_new_session_recorded_request(
+        monkeypatch,
+        tmp_path,
+        already_sandboxed=True,
+        service="codex",
+        tool_policy=runtime.ToolPolicy.UNRESTRICTED,
+        runtime_state_dir=runtime_state_dir,
+    )
+    assert (
+        _extract_codex_sandbox(recorded_with_inner_sandbox.argv)
+        == _extract_codex_sandbox(recorded_with_outer_sandbox.argv)
+        == "danger-full-access"
+    )
+
+
+@pytest.mark.parametrize(
+    ("service", "provider_auth"),
+    [
+        ("claude", ProviderAuth(claude_code_oauth_token="oauth-token")),
+        ("opencode", ProviderAuth(opencode_api_key="go-key")),
+    ],
+)
+@pytest.mark.parametrize(
+    "tool_policy",
+    [
+        runtime.ToolPolicy.NONE,
+        runtime.ToolPolicy.NO_FILE_MUTATION,
+        runtime.ToolPolicy.UNRESTRICTED,
+    ],
+)
+def test_runtime_client_keeps_non_codex_argv_and_environment_unchanged_with_already_sandboxed_toggle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    service: str,
+    provider_auth: ProviderAuth,
+    tool_policy: runtime.ToolPolicy,
+) -> None:
+    runtime_state_dir_without_toggle = tmp_path / "state-false"
+    runtime_state_dir_with_toggle = tmp_path / "state-true"
+    recorded_request_without_toggle = _run_new_session_recorded_request(
+        monkeypatch,
+        tmp_path,
+        already_sandboxed=False,
+        service=service,
+        tool_policy=tool_policy,
+        provider_auth=provider_auth,
+        runtime_state_dir=runtime_state_dir_without_toggle,
+        provider_session_id="session-id",
+    )
+    recorded_request_with_toggle = _run_new_session_recorded_request(
+        monkeypatch,
+        tmp_path,
+        already_sandboxed=True,
+        service=service,
+        tool_policy=tool_policy,
+        provider_auth=provider_auth,
+        runtime_state_dir=runtime_state_dir_with_toggle,
+        provider_session_id="session-id",
+    )
+    assert recorded_request_without_toggle.argv == recorded_request_with_toggle.argv
+    assert {
+        key: value
+        for key, value in recorded_request_without_toggle.environment.items()
+        if key not in {"CLAUDE_CONFIG_DIR", "OPENCODE_HOME"}
+    } == {
+        key: value
+        for key, value in recorded_request_with_toggle.environment.items()
+        if key not in {"CLAUDE_CONFIG_DIR", "OPENCODE_HOME"}
+    }
+
+
 @pytest.mark.parametrize(
     "entrypoint",
     ["new", "resumed"],
@@ -4334,6 +4535,7 @@ def test_runtime_client_ephemeral_codex_missing_host_auth_cleans_up_isolated_hom
         request: prompt_runtime.EphemeralRunRequest,
         stage: InternalStageSelection,
         provider_state_dir: Path | None,
+        **_kwargs: Any,
     ) -> Any:
         nonlocal captured_provider_state_dir
         captured_provider_state_dir = provider_state_dir

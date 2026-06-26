@@ -5,7 +5,7 @@ import inspect
 import asyncio
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 import unittest.mock
 
 import pytest
@@ -248,12 +248,20 @@ def test_removed_value_object_compatibility_names_fail_on_ordinary_runtime_surfa
         getattr(imported_module, removed_name)
 
 
-def test_runtime_client_constructor_stays_on_public_default_surface() -> None:
+def test_runtime_client_constructor_accepts_already_sandboxed_keyword_argument_and_keeps_default_surface() -> (
+    None
+):
     signature = inspect.signature(runtime.RuntimeClient)
-    assert list(signature.parameters) == []
+    assert list(signature.parameters.keys()) == ["already_sandboxed"]
+    assert signature.parameters["already_sandboxed"].default is False
     unexpected_kwargs: dict[str, object] = {"_provider_invocation_adapter": None}
     with pytest.raises(TypeError):
-        runtime.RuntimeClient(**unexpected_kwargs)
+        cast(Any, runtime.RuntimeClient)(**unexpected_kwargs)
+    default_client = runtime.RuntimeClient()
+    sandboxed_client = runtime.RuntimeClient(already_sandboxed=True)
+
+    assert default_client.already_sandboxed is False
+    assert sandboxed_client.already_sandboxed is True
 
 
 def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None:
@@ -723,7 +731,12 @@ def test_runtime_client_session_entrypoints_delegate_directly_to_execution(
 ) -> None:
     delegated_calls: list[tuple[Any, Any]] = []
 
-    def _delegate(request: Any, *, on_live_output: Any) -> prompt_runtime.RunResult:
+    def _delegate(
+        request: Any,
+        *,
+        on_live_output: Any,
+        **_kwargs: Any,
+    ) -> prompt_runtime.RunResult:
         delegated_calls.append((request, on_live_output))
         return prompt_runtime.RunResult(
             output="delegated output",
@@ -795,7 +808,10 @@ def test_runtime_client_session_entrypoints_propagate_delegated_execution_errors
     delegate_name: str,
 ) -> None:
     def _raise_delegate(
-        request: Any, *, on_live_output: Any
+        request: Any,
+        *,
+        on_live_output: Any,
+        **_kwargs: Any,
     ) -> prompt_runtime.RunResult:
         raise prompt_runtime.RuntimeConfigurationError("delegated failure")
 

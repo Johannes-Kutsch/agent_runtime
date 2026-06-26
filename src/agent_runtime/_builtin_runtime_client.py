@@ -678,6 +678,7 @@ def _invoke_codex_new_session_provider(
     request: NewSessionRunRequest,
     stage: ProviderSelection,
     provider_state_dir: Path,
+    already_sandboxed: bool = False,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_codex_session_provider(
@@ -690,6 +691,7 @@ def _invoke_codex_new_session_provider(
         provider_state_dir=provider_state_dir,
         run_kind=RunKind.FRESH,
         provider_session_id=None,
+        already_sandboxed=already_sandboxed,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
     )
@@ -706,6 +708,7 @@ def _invoke_codex_session_provider(
     provider_state_dir: Path | None,
     run_kind: RunKind,
     provider_session_id: str | None,
+    already_sandboxed: bool = False,
     on_live_output: Callable[[AgentEvent], None] | None = None,
     timeout_seconds: int = 300,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
@@ -733,7 +736,7 @@ def _invoke_codex_session_provider(
             invocation_dir=invocation_dir,
             provider_state_dir=provider_state_dir,
             provider_session_id=provider_session_id,
-            already_sandboxed=False,
+            already_sandboxed=already_sandboxed,
         ),
         validate_auth=False,
     )
@@ -759,6 +762,7 @@ def _invoke_codex_resumed_session_provider(
     request: ResumedSessionRunRequest,
     provider_state_dir: Path | None,
     provider_session_id: str,
+    already_sandboxed: bool = False,
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_codex_session_provider(
@@ -771,6 +775,7 @@ def _invoke_codex_resumed_session_provider(
         provider_state_dir=provider_state_dir,
         run_kind=RunKind.RESUME,
         provider_session_id=provider_session_id,
+        already_sandboxed=already_sandboxed,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
     )
@@ -885,6 +890,8 @@ def _render_ephemeral_provider_invocation(
     request: EphemeralRunRequest,
     stage: ProviderSelection,
     provider_state_dir: Path | None,
+    *,
+    already_sandboxed: bool = False,
 ) -> _builtin_provider_rendering_module.BuiltInProviderRenderedInvocation:
     return _builtin_provider_rendering_module.render_built_in_provider_invocation(
         _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
@@ -903,7 +910,7 @@ def _render_ephemeral_provider_invocation(
                 request.invocation_dir,
             ),
             provider_state_dir=provider_state_dir,
-            already_sandboxed=False,
+            already_sandboxed=already_sandboxed,
         )
     )
 
@@ -912,6 +919,7 @@ def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
+    already_sandboxed: bool = False,
     select_builtin_stage: Callable[
         [ProviderSelection], ProviderSelection
     ] = _select_builtin_stage,
@@ -943,6 +951,7 @@ def _run_builtin_ephemeral(
             request,
             selected_stage,
             provider_state_dir=provider_state_dir,
+            already_sandboxed=already_sandboxed,
         )
         stream_interpretation: BuiltInProviderStreamInterpretation
         if selected_stage.service == "codex":
@@ -1033,12 +1042,14 @@ def _run_builtin_new_session(
     request: NewSessionRunRequest,
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
+    already_sandboxed: bool = False,
 ) -> RuntimeOutcome:
     from . import _session_backed_provider_execution as _module
 
     return _module._run_builtin_new_session(
         request,
         provider_invocation_adapter=provider_invocation_adapter,
+        already_sandboxed=already_sandboxed,
     )
 
 
@@ -1046,10 +1057,12 @@ def _run_builtin_resumed_session(
     request: ResumedSessionRunRequest,
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
+    already_sandboxed: bool = False,
 ) -> RuntimeOutcome:
     from . import _session_backed_provider_execution as _module
 
     return _module._run_builtin_resumed_session(
         request,
         provider_invocation_adapter=provider_invocation_adapter,
+        already_sandboxed=already_sandboxed,
     )

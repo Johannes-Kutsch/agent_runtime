@@ -190,6 +190,9 @@ def _run_builtin_session_outcome(
 
 
 class RuntimeClient:
+    def __init__(self, *, already_sandboxed: bool = False) -> None:
+        self.already_sandboxed = already_sandboxed
+
     async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         selected_provider_selection = _supported_builtin_provider_selection(
             request.provider_selection
@@ -204,7 +207,10 @@ class RuntimeClient:
             effort=selected_provider_selection.effort,
         )
         try:
-            result = _run_builtin_ephemeral(request)
+            result = _run_builtin_ephemeral(
+                request,
+                already_sandboxed=self.already_sandboxed,
+            )
         except AgentTimeoutError as exc:
             _raise_if_live_output_exception(exc)
             return RuntimeOutcome(
@@ -228,6 +234,7 @@ class RuntimeClient:
             lambda: _run_builtin_new_session(
                 request,
                 on_live_output=request.on_live_output,
+                already_sandboxed=self.already_sandboxed,
             ),
             service_name=request.provider_selection.service,
             selected_model=request.provider_selection.model,
@@ -246,6 +253,7 @@ class RuntimeClient:
             lambda: _run_builtin_resumed_session(
                 request,
                 on_live_output=request.on_live_output,
+                already_sandboxed=self.already_sandboxed,
             ),
             service_name=read_portable_continuation_payload(
                 cast(Continuation, request.continuation)
@@ -258,11 +266,13 @@ class RuntimeClient:
 def _run_builtin_ephemeral(
     request: EphemeralRunRequest,
     *,
+    already_sandboxed: bool = False,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     select_builtin_stage: Any = _select_builtin_stage,
 ) -> RunResult:
     return _builtin_runtime_client_module._run_builtin_ephemeral(
         request,
+        already_sandboxed=already_sandboxed,
         provider_invocation_adapter=provider_invocation_adapter,
         select_builtin_stage=select_builtin_stage,
         reduce_claude_stream=_reduce_claude_stream,
