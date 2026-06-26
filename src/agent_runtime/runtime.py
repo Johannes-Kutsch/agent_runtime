@@ -12,6 +12,7 @@ from ._session_backed_provider_execution import (
 from .contracts import ToolPolicy
 from .errors import (
     AgentTimeoutError,
+    ProviderUnavailableError,
     RuntimeConfigurationError,
     UsageLimitError,
 )
