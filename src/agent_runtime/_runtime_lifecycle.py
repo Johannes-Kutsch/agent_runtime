@@ -6,7 +6,7 @@ import inspect
 import math
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, cast
 
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .provider_usage import ProviderUsage
@@ -265,6 +265,9 @@ class EphemeralRunRequest:
     timeout_seconds: int = 300
     on_live_output: Callable[[AgentEvent], None] | None = None
     token: CancellationToken | None = None
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, Mapping[str, str]], tuple[str, ...]] | None
+    ) = None
 
     def __init__(
         self,
@@ -278,6 +281,7 @@ class EphemeralRunRequest:
         on_live_output: Callable[[AgentEvent], None] | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
+        argv_transform = compatibility_kwargs.pop("argv_transform", None)
         resolved_invocation_dir = _resolve_public_invocation_dir(
             invocation_dir,
             compatibility_kwargs,
@@ -310,6 +314,7 @@ class EphemeralRunRequest:
         object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
+        object.__setattr__(self, "argv_transform", argv_transform)
 
     @property
     def mount_path(self) -> Path:
@@ -332,6 +337,9 @@ class NewSessionRunRequest:
     work_body: str = ""
     on_live_output: Callable[[AgentEvent], None] | None = None
     token: CancellationToken | None = None
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, Mapping[str, str]], tuple[str, ...]] | None
+    ) = None
 
     if TYPE_CHECKING:
         session_store: Path | None = None
@@ -354,6 +362,7 @@ class NewSessionRunRequest:
         token: CancellationToken | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
+        argv_transform = compatibility_kwargs.pop("argv_transform", None)
         compatibility_session_namespace = compatibility_kwargs.pop(
             "session_namespace",
             _session_namespace,
@@ -414,6 +423,7 @@ class NewSessionRunRequest:
         object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
+        object.__setattr__(self, "argv_transform", argv_transform)
 
     @property
     def mount_path(self) -> Path:
@@ -443,6 +453,9 @@ class ResumedSessionRunRequest:
     work_body: str = ""
     on_live_output: Callable[[AgentEvent], None] | None = None
     token: CancellationToken | None = None
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, Mapping[str, str]], tuple[str, ...]] | None
+    ) = None
 
     if TYPE_CHECKING:
         session_store: Path | None = None
@@ -465,6 +478,7 @@ class ResumedSessionRunRequest:
         token: CancellationToken | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
+        argv_transform = compatibility_kwargs.pop("argv_transform", None)
         compatibility_session_namespace = compatibility_kwargs.pop(
             "session_namespace",
             _session_namespace,
@@ -538,6 +552,7 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
+        object.__setattr__(self, "argv_transform", argv_transform)
 
     @property
     def mount_path(self) -> Path:
