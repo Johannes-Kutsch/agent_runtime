@@ -358,8 +358,8 @@ def test_runtime_client_execution_harness_prepares_runtime_state_and_codex_rollo
         == provider_state_dir / "sessions" / "2026" / "05" / "30" / "rollout-001.jsonl"
     )
     assert rollout_path.read_text(encoding="utf-8").splitlines() == [
-        json.dumps({"type": "thread.started", "thread_id": "thread-1"}),
-        json.dumps({"type": "thread.started", "thread_id": "thread-2"}),
+        json.dumps({"type": "session_meta", "payload": {"id": "thread-1"}}),
+        json.dumps({"type": "session_meta", "payload": {"id": "thread-2"}}),
     ]
 
 
@@ -375,8 +375,8 @@ def test_runtime_client_execution_harness_writes_exact_codex_rollout_state_conte
     )
     rollout_content = (
         "{not-json\n"
-        '{"type":"thread.started","thread_id":"thread-a"}\n'
-        '{"type":"thread.started","thread_id":"   "}\n'
+        '{"type":"session_meta","payload":{"id":"thread-a"}}\n'
+        '{"type":"session_meta","payload":{"id":"   "}}\n'
     )
 
     rollout_path = RuntimeClientExecutionHarness.write_codex_rollout_state(

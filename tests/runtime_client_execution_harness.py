@@ -308,7 +308,7 @@ class RuntimeClientExecutionHarness:
     @staticmethod
     def prepare_codex_rollout_state(
         provider_state_dir: Path,
-        *thread_ids: str,
+        *session_ids: str,
         date_path: tuple[str, str, str] = ("2026", "05", "30"),
         filename: str = "rollout-001.jsonl",
     ) -> Path:
@@ -319,8 +319,8 @@ class RuntimeClientExecutionHarness:
         rollout_path = rollout_dir / filename
         rollout_path.write_text(
             "\n".join(
-                json.dumps({"type": "thread.started", "thread_id": thread_id})
-                for thread_id in thread_ids
+                json.dumps({"type": "session_meta", "payload": {"id": session_id}})
+                for session_id in session_ids
             )
             + "\n",
             encoding="utf-8",

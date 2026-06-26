@@ -366,16 +366,49 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
     )
 
 
+def test_session_backed_codex_resumed_session_rejects_missing_rollout_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+
+    continuation = RuntimeClientExecutionHarness.codex_continuation()
+
+    with pytest.raises(RuntimeConfigurationError) as exc_info:
+        session_backed_execution._run_builtin_resumed_session(
+            RuntimeClientExecutionHarness.resume_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+            )
+        )
+
+    assert (
+        str(exc_info.value)
+        == "Codex continuation is not recoverable from provider state."
+    )
+    assert harness.recorded_request_count == 0
+
+
 @pytest.mark.parametrize(
     "rollout_lines",
     [
-        ['{"type":"thread.started","thread_id":"thread-a"}\n'],
+        ['{"type":"session_meta","payload":{"id":"thread-a"}}\n'],
         [
             "{not-json\n",
             "[]\n",
             '{"type":"turn.completed"}\n',
-            '{"type":"thread.started","thread_id":"   "}\n',
-            '{"type":"thread.started"}\n',
+            '{"type":"session_meta","payload":{"id":"   "}}\n',
+            '{"type":"session_meta","payload":{}}\n',
         ],
     ],
 )
@@ -402,7 +435,7 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
     if len(rollout_lines) == 1:
         RuntimeClientExecutionHarness.write_codex_rollout_state(
             provider_state_dir,
-            rollout_lines[0] + '{"type":"thread.started","thread_id":"thread-b"}\n',
+            rollout_lines[0] + '{"type":"session_meta","payload":{"id":"thread-b"}}\n',
         )
     else:
         RuntimeClientExecutionHarness.write_codex_rollout_state(
@@ -423,6 +456,67 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
         "Codex continuation is not recoverable from provider state."
     )
     assert harness.recorded_request_count == 0
+
+
+def test_session_backed_codex_resumed_session_recovers_session_id_from_session_meta_rollout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="continued output",
+            usage=runtime.ProviderUsage(input_tokens=7, output_tokens=2),
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "result",
+                        "result": "continued output",
+                    }
+                )
+                + "\n",
+            ),
+            provider_session_id=None,
+        ),
+    )
+
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
+    RuntimeClientExecutionHarness.write_codex_rollout_state(
+        provider_state_dir,
+        json.dumps(
+            {
+                "type": "session_meta",
+                "payload": {"id": "recovered-thread"},
+            }
+        )
+        + "\n",
+    )
+    continuation = RuntimeClientExecutionHarness.codex_continuation(
+        provider_session_id="   "
+    )
+
+    result = session_backed_execution._run_builtin_resumed_session(
+        RuntimeClientExecutionHarness.resume_session_run_request(
+            invocation_dir=tmp_path,
+            runtime_state_dir=runtime_state_dir,
+            continuation=continuation,
+        )
+    )
+
+    assert result.output == "continued output"
+    assert result.usage == runtime.ProviderUsage(input_tokens=7, output_tokens=2)
+    assert harness.recorded_request_count == 1
+    assert harness.recorded_request().provider_session_id == "recovered-thread"
 
 
 def test_session_backed_claude_completion_returns_pointer_to_provider_state_dir_through_module_interface(

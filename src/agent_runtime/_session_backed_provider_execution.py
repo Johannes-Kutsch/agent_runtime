@@ -177,42 +177,45 @@ def _opencode_exact_transcript_match(
     )
 
 
-def _read_codex_rollout_thread_ids(rollout_path: Path) -> set[str]:
-    thread_ids: set[str] = set()
+def _read_codex_rollout_session_ids(rollout_path: Path) -> set[str]:
+    session_ids: set[str] = set()
     if not rollout_path.is_file():
-        return thread_ids
+        return session_ids
     try:
         for line in rollout_path.read_text(encoding="utf-8").splitlines():
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if not isinstance(event, dict) or event.get("type") != "thread.started":
+            if not isinstance(event, dict) or event.get("type") != "session_meta":
                 continue
-            thread_id = event.get("thread_id")
-            if isinstance(thread_id, str):
-                stripped = thread_id.strip()
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            session_id = payload.get("id")
+            if isinstance(session_id, str):
+                stripped = session_id.strip()
                 if stripped:
-                    thread_ids.add(stripped)
+                    session_ids.add(stripped)
     except (OSError, UnicodeDecodeError):
         return set()
-    return thread_ids
+    return session_ids
 
 
-def _recover_codex_rollout_thread_id(state_dir: Path | None) -> str | None:
+def _recover_codex_rollout_session_id(state_dir: Path | None) -> str | None:
     if state_dir is None:
         return None
     sessions_dir = state_dir / "sessions"
     if not sessions_dir.is_dir():
         return None
-    thread_ids: set[str] = set()
+    session_ids: set[str] = set()
     for rollout_path in sessions_dir.rglob("rollout-*.jsonl"):
-        thread_ids.update(_read_codex_rollout_thread_ids(rollout_path))
-        if len(thread_ids) > 1:
+        session_ids.update(_read_codex_rollout_session_ids(rollout_path))
+        if len(session_ids) > 1:
             return None
-    if len(thread_ids) != 1:
+    if len(session_ids) != 1:
         return None
-    return next(iter(thread_ids))
+    return next(iter(session_ids))
 
 
 def _codex_is_resumable(state_dir: Path) -> bool:
@@ -227,14 +230,14 @@ def _resolve_recoverable_codex_session_id(
     provider_state_dir: Path,
     provider_session_id: str | None,
 ) -> str:
-    recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
-    if not _codex_is_resumable(provider_state_dir) or recovered_thread_id is None:
+    recovered_session_id = _recover_codex_rollout_session_id(provider_state_dir)
+    if not _codex_is_resumable(provider_state_dir) or recovered_session_id is None:
         raise RuntimeConfigurationError(
             "Codex continuation is not recoverable from provider state."
         )
     if provider_session_id:
         return provider_session_id
-    return recovered_thread_id
+    return recovered_session_id
 
 
 def _codex_seed_auth(provider_state_dir: Path) -> None:
@@ -497,10 +500,10 @@ def _run_builtin_new_session(
                 )
             )
             _codex_seed_auth(provider_state_dir)
-            recovered_thread_id = _recover_codex_rollout_thread_id(provider_state_dir)
+            recovered_session_id = _recover_codex_rollout_session_id(provider_state_dir)
             if (
                 _codex_is_resumable(provider_state_dir)
-                and recovered_thread_id is not None
+                and recovered_session_id is not None
             ):
                 return _run_builtin_resumed_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
@@ -511,7 +514,7 @@ def _run_builtin_new_session(
                             model=selected_stage.model,
                             effort=selected_stage.effort,
                             tool_access=request.tool_access,
-                            provider_session_id=recovered_thread_id,
+                            provider_session_id=recovered_session_id,
                             provider_state_dir_relpath=_portable_codex_state_dir_relpath(
                                 provider_state_dir_relpath
                             ),
