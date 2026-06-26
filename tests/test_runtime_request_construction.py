@@ -5,11 +5,12 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, fields
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable as TypingCallable, Mapping, cast, get_type_hints
 
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._runtime_lifecycle as runtime_lifecycle_module
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime._runtime_lifecycle import CancellationToken
@@ -58,6 +59,7 @@ def test_ephemeral_run_request_only_accepts_minimal_ephemeral_fields(
         "timeout_seconds",
         "token",
         "on_live_output",
+        "argv_transform",
     )
 
 
@@ -73,6 +75,7 @@ def test_resumed_session_run_request_has_minimal_public_signature() -> None:
         "timeout_seconds",
         "on_live_output",
         "token",
+        "argv_transform",
     )
 
 
@@ -82,7 +85,111 @@ def test_new_session_run_request_signature_exposes_live_output_observer() -> Non
     assert "on_live_output" in parameters
     assert "timeout_seconds" in parameters
     assert "session_store" in parameters
+    assert "argv_transform" in parameters
     assert "provider_session_adapter" not in parameters
+
+
+def test_lifecycle_request_values_store_execution_argv_transform_without_changing_other_defaults(
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
+) -> None:
+    captured: list[tuple[tuple[str, ...], Path, Mapping[str, str]]] = []
+
+    def argv_transform(
+        argv: tuple[str, ...],
+        cwd: Path,
+        env: Mapping[str, str],
+    ) -> tuple[str, ...]:
+        captured.append((argv, cwd, env))
+        return argv
+
+    ephemeral_request = prompt_runtime.EphemeralRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        provider_selection=provider_selection_factory(service="codex"),
+        tool_policy=runtime.ToolPolicy.NONE,
+        argv_transform=argv_transform,
+    )
+    new_session_request = prompt_runtime.NewSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        provider_selection=provider_selection_factory(service="codex"),
+        tool_policy=runtime.ToolPolicy.NONE,
+        argv_transform=argv_transform,
+    )
+    resumed_request = prompt_runtime.ResumedSessionRunRequest(
+        prompt="already rendered prompt",
+        invocation_dir=Path("/repo"),
+        continuation=_continuation(),
+        argv_transform=argv_transform,
+    )
+
+    assert ephemeral_request.argv_transform is argv_transform
+    assert new_session_request.argv_transform is argv_transform
+    assert resumed_request.argv_transform is argv_transform
+    assert captured == []
+
+
+def test_lifecycle_request_values_default_execution_argv_transform_to_none(
+    provider_selection_factory: Callable[..., runtime.ProviderSelection],
+) -> None:
+    assert (
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=provider_selection_factory(service="codex"),
+            tool_policy=runtime.ToolPolicy.NONE,
+        ).argv_transform
+        is None
+    )
+    assert (
+        prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            provider_selection=provider_selection_factory(service="codex"),
+            tool_policy=runtime.ToolPolicy.NONE,
+            argv_transform=None,
+        ).argv_transform
+        is None
+    )
+    assert (
+        prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=Path("/repo"),
+            continuation=_continuation(),
+            argv_transform=None,
+        ).argv_transform
+        is None
+    )
+
+
+def test_lifecycle_request_values_expose_execution_argv_transform_type() -> None:
+    expected_type = (
+        TypingCallable[[tuple[str, ...], Path, Mapping[str, str]], tuple[str, ...]]
+        | None
+    )
+    module_globals = vars(runtime_lifecycle_module)
+
+    assert (
+        get_type_hints(
+            runtime_lifecycle_module.EphemeralRunRequest,
+            globalns=module_globals,
+        )["argv_transform"]
+        == expected_type
+    )
+    assert (
+        get_type_hints(
+            runtime_lifecycle_module.NewSessionRunRequest,
+            globalns=module_globals,
+        )["argv_transform"]
+        == expected_type
+    )
+    assert (
+        get_type_hints(
+            runtime_lifecycle_module.ResumedSessionRunRequest,
+            globalns=module_globals,
+        )["argv_transform"]
+        == expected_type
+    )
 
 
 @pytest.mark.parametrize(

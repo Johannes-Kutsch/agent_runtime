@@ -575,6 +575,7 @@ cast(Any, EphemeralRunRequest).__signature__ = _public_request_signature(
     "timeout_seconds",
     "token",
     "on_live_output",
+    "argv_transform",
 )
 cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "prompt",
@@ -588,6 +589,7 @@ cast(Any, NewSessionRunRequest).__signature__ = _public_request_signature(
     "work_body",
     "token",
     "on_live_output",
+    "argv_transform",
 )
 cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
     "prompt",
@@ -598,4 +600,5 @@ cast(Any, ResumedSessionRunRequest).__signature__ = _public_request_signature(
     "timeout_seconds",
     "on_live_output",
     "token",
+    "argv_transform",
 )

@@ -6130,6 +6130,143 @@ def test_idle_timeout_defaults_to_300_seconds_on_all_lifecycle_requests(
     )
 
 
+@pytest.mark.parametrize("run_kind", ["ephemeral", "new_session", "resumed_session"])
+def test_runtime_client_ignores_execution_argv_transform_until_wired_through(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    run_kind: str,
+) -> None:
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        "session-uuid",
+    )
+    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "same output"}) + "\n",
+            ),
+        ),
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "same output"}) + "\n",
+            ),
+        ),
+    )
+
+    transform_called = False
+
+    def argv_transform(
+        argv: tuple[str, ...],
+        cwd: Path,
+        env: dict[str, str],
+    ) -> tuple[str, ...]:
+        nonlocal transform_called
+        transform_called = True
+        return ("transformed", *argv)
+
+    baseline_request: Any
+    transformed_request: Any
+    run: Any
+
+    if run_kind == "ephemeral":
+        baseline_request = prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=tmp_path,
+            provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+        transformed_request = prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=tmp_path,
+            provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            ),
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            argv_transform=argv_transform,
+        )
+        run = runtime.RuntimeClient().run_ephemeral
+    elif run_kind == "new_session":
+        runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+            tmp_path
+        )
+        baseline_request = prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=tmp_path,
+            runtime_state_dir=runtime_state_dir,
+            provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            ),
+            session_namespace="main",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+        )
+        transformed_request = prompt_runtime.NewSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=tmp_path,
+            runtime_state_dir=runtime_state_dir,
+            provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            ),
+            session_namespace="main",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            argv_transform=argv_transform,
+        )
+        run = runtime.RuntimeClient().run_new_session
+    else:
+        runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+            tmp_path
+        )
+        continuation = RuntimeClientExecutionHarness.claude_continuation(
+            provider_state_dir_relpath="implementer/main/claude/",
+        )
+        baseline_request = prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=tmp_path,
+            runtime_state_dir=runtime_state_dir,
+            continuation=continuation,
+            session_namespace="main",
+            provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+        )
+        transformed_request = prompt_runtime.ResumedSessionRunRequest(
+            prompt="already rendered prompt",
+            invocation_dir=tmp_path,
+            runtime_state_dir=runtime_state_dir,
+            continuation=continuation,
+            session_namespace="main",
+            provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+            argv_transform=argv_transform,
+        )
+        run = runtime.RuntimeClient().run_resumed_session
+
+    baseline_outcome = asyncio.run(run(baseline_request))
+    transformed_outcome = asyncio.run(run(transformed_request))
+
+    assert baseline_outcome == transformed_outcome
+    assert harness.recorded_requests[0].argv == harness.recorded_requests[1].argv
+    assert transform_called is False
+
+
 def test_runtime_client_threads_timeout_seconds_into_provider_invocation_request(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
