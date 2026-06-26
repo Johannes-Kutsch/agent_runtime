@@ -93,7 +93,7 @@ def _provider_selection_request_facts(
         workspace_name=workspace_name,
     )
     return _ProviderSelectionLifecycleRequestFacts(
-        invocation_dir=normalized_request.invocation_dir.path,
+        invocation_dir=normalized_request.invocation_dir,
         provider_selection=normalized_request.provider_selection,
         tool_access=normalized_request.tool_access,
         session_namespace=normalized_request.session_namespace,
@@ -252,7 +252,7 @@ def _resumed_session_run_request_facts(
         workspace_name=public_invocation_dir_name,
     )
     return _ResumedLifecycleRequestFacts(
-        invocation_dir=normalized_request.invocation_dir.path,
+        invocation_dir=normalized_request.invocation_dir,
         tool_access=normalized_request.tool_access,
         session_namespace=normalized_request.session_namespace,
         model=continuation_payload.model,

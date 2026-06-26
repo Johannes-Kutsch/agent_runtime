@@ -677,6 +677,30 @@ def test_lifecycle_request_construction_rejects_workspace_backed_tool_access_for
         )
 
 
+def test_lifecycle_request_construction_keeps_invocation_dir_vocabulary_for_legacy_worktree_input() -> (
+    None
+):
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "EphemeralRunRequest workspace-backed tool access requires invocation_dir /other, got /repo."
+        ),
+    ):
+        prompt_runtime.EphemeralRunRequest(
+            prompt="already rendered prompt",
+            worktree=Path("/repo"),
+            provider_selection=runtime.ProviderSelection(
+                service="codex",
+                model="gpt-5.4",
+                effort="medium",
+            ),
+            tool_access=contracts_runtime.ToolAccess.workspace_backed(
+                Path("/other"),
+                tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+            ),
+        )
+
+
 def test_resumed_session_run_request_keeps_path_invocation_dir() -> None:
     request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",

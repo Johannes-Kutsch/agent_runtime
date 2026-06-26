@@ -15,21 +15,16 @@ if TYPE_CHECKING:
 
 
 @dataclasses.dataclass(frozen=True)
-class NormalizedInvocationDirectory:
-    path: Path
-
-
-@dataclasses.dataclass(frozen=True)
 class NormalizedProviderSelectionRequest:
     provider_selection: ProviderSelection
-    invocation_dir: NormalizedInvocationDirectory
+    invocation_dir: Path
     tool_access: ToolAccess
     session_namespace: str
 
 
 @dataclasses.dataclass(frozen=True)
 class NormalizedResumedRequest:
-    invocation_dir: NormalizedInvocationDirectory
+    invocation_dir: Path
     tool_access: ToolAccess
     session_namespace: str
 
@@ -50,10 +45,6 @@ def normalize_provider_selection(
 def normalize_session_namespace(session_namespace: str) -> str:
     validate_session_namespace(session_namespace)
     return session_namespace
-
-
-def normalize_invocation_dir(invocation_dir: Path) -> NormalizedInvocationDirectory:
-    return NormalizedInvocationDirectory(path=invocation_dir)
 
 
 def normalize_tool_access(
@@ -121,19 +112,18 @@ def normalize_provider_selection_request(
     validate_provider_selection_request: bool = True,
     workspace_name: str = "invocation_dir",
 ) -> NormalizedProviderSelectionRequest:
-    normalized_invocation_dir = normalize_invocation_dir(invocation_dir)
     return NormalizedProviderSelectionRequest(
         provider_selection=normalize_provider_selection(
             provider_selection,
             context=context,
             validate=validate_provider_selection_request,
         ),
-        invocation_dir=normalized_invocation_dir,
+        invocation_dir=invocation_dir,
         tool_access=normalize_tool_access(
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=missing_sentinel,
-            workspace=normalized_invocation_dir.path,
+            workspace=invocation_dir,
             context=context,
             missing_message=missing_message,
             workspace_name=workspace_name,
@@ -150,12 +140,11 @@ def normalize_continuation_request(
     context: str,
     workspace_name: str = "invocation_dir",
 ) -> NormalizedResumedRequest:
-    normalized_invocation_dir = normalize_invocation_dir(invocation_dir)
     return NormalizedResumedRequest(
-        invocation_dir=normalized_invocation_dir,
+        invocation_dir=invocation_dir,
         tool_access=normalize_resolved_tool_access(
             tool_access=tool_access,
-            workspace=normalized_invocation_dir.path,
+            workspace=invocation_dir,
             context=context,
             workspace_name=workspace_name,
         ),
