@@ -33,6 +33,7 @@ def _fold_runtime_outcome(
     call: _Call,
     *,
     selected_provider: _SelectedProviderFacts,
+    preserve_continuation: bool = True,
 ) -> RuntimeOutcome:
     if isinstance(selected_provider, ResolvedProvider):
 
@@ -61,7 +62,7 @@ def _fold_runtime_outcome(
         return RunResult(
             output="",
             usage=exc.usage,
-            continuation=exc.continuation,
+            continuation=exc.continuation if preserve_continuation else None,
             selected=selected(service_name),
         )
 

@@ -11,11 +11,7 @@ from ._session_backed_provider_execution import (
 )
 from .contracts import ToolPolicy
 from .errors import (
-    AgentCancelledError,
-    AgentTimeoutError,
-    ProviderUnavailableError,
     RuntimeConfigurationError,
-    UsageLimitError,
 )
 from ._runtime_lifecycle import (
     AgentEvent,
@@ -38,7 +34,6 @@ from .types import ProviderSelection, ResolvedProvider
 from ._portable_continuation_payload import read_portable_continuation_payload
 from ._runtime_outcome_folding import (
     _fold_runtime_outcome,
-    _raise_if_live_runtime_output_exception,
 )
 
 if TYPE_CHECKING:
@@ -136,19 +131,6 @@ def _reduce_opencode_stream(
     )
 
 
-def _raise_if_live_output_exception(exc: BaseException) -> None:
-    _raise_if_live_runtime_output_exception(exc)
-
-
-def _interrupted_result(exc: Any, selected: ResolvedProvider) -> RunResult:
-    return RunResult(
-        output="",
-        usage=exc.usage,
-        continuation=exc.continuation,
-        selected=selected,
-    )
-
-
 class RuntimeClient:
     def __init__(self, *, already_sandboxed: bool = False) -> None:
         self.already_sandboxed = already_sandboxed
@@ -166,41 +148,14 @@ class RuntimeClient:
             model=selected_provider_selection.model,
             effort=selected_provider_selection.effort,
         )
-        try:
-            result = _run_builtin_ephemeral(
+        return _fold_runtime_outcome(
+            lambda: _run_builtin_ephemeral(
                 request,
                 already_sandboxed=self.already_sandboxed,
-            )
-        except AgentCancelledError as exc:
-            _raise_if_live_output_exception(exc)
-            return RuntimeOutcome(
-                kind=Cancelled(),
-                result=RunResult(
-                    output="",
-                    usage=exc.usage,
-                    continuation=None,
-                    selected=selected,
-                ),
-            )
-        except AgentTimeoutError as exc:
-            _raise_if_live_output_exception(exc)
-            return RuntimeOutcome(
-                kind=TimedOut(),
-                result=_interrupted_result(exc, selected),
-            )
-        except ProviderUnavailableError as exc:
-            _raise_if_live_output_exception(exc)
-            return RuntimeOutcome(
-                kind=ProviderUnavailable(reason=exc.reason, detail=str(exc)),
-                result=_interrupted_result(exc, selected),
-            )
-        except UsageLimitError as exc:
-            _raise_if_live_output_exception(exc)
-            return RuntimeOutcome(
-                kind=UsageLimited(reset_time=exc.reset_time),
-                result=_interrupted_result(exc, selected),
-            )
-        return RuntimeOutcome(kind=Completed(), result=result)
+            ),
+            selected_provider=selected,
+            preserve_continuation=False,
+        )
 
     async def run_new_session(self, request: NewSessionRunRequest) -> RuntimeOutcome:
         if request.session_store is None:
