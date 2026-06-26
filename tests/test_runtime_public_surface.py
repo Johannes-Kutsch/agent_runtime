@@ -53,6 +53,7 @@ def test_package_exports_runtime_surface() -> None:
     assert runtime.ProviderSelection.__module__.startswith("agent_runtime")
     assert runtime.AgentRuntimeError is AgentRuntimeError
     assert runtime.RuntimeOutcome is prompt_runtime.RuntimeOutcome
+    assert not hasattr(runtime, "AgentFailedError")
     assert "ToolAccess" not in runtime.__all__
     assert "ToolPolicyProfile" not in runtime.__all__
     assert not hasattr(runtime, "ToolAccess")
@@ -86,6 +87,25 @@ def test_package_exports_runtime_surface() -> None:
     assert "ToolPolicyProfile" not in prompt_runtime.__all__
     assert not hasattr(prompt_runtime, "ToolAccess")
     assert not hasattr(prompt_runtime, "ToolPolicyProfile")
+
+
+@pytest.mark.parametrize(
+    ("module_name", "removed_name"),
+    [
+        ("agent_runtime", "AgentFailedError"),
+        ("agent_runtime.errors", "AgentFailedError"),
+    ],
+)
+def test_retired_agent_failed_error_is_not_importable_from_runtime_surface(
+    module_name: str,
+    removed_name: str,
+) -> None:
+    with pytest.raises(ImportError):
+        exec(f"from {module_name} import {removed_name}", {}, {})
+
+    imported_module = importlib.import_module(module_name)
+    with pytest.raises(AttributeError):
+        getattr(imported_module, removed_name)
 
 
 def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surface() -> (
