@@ -354,43 +354,18 @@ class NewSessionRunRequest:
         token: CancellationToken | None = None,
         **compatibility_kwargs: Any,
     ) -> None:
-        argv_transform = compatibility_kwargs.pop("argv_transform", None)
-        compatibility_session_namespace = compatibility_kwargs.pop(
-            "session_namespace",
-            _session_namespace,
-        )
-        compatibility_runtime_state_dir = compatibility_kwargs.pop(
-            "runtime_state_dir",
-            session_store,
-        )
-        if _session_namespace and compatibility_session_namespace != _session_namespace:
-            raise TypeError(
-                "NewSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
-            )
-        if (
-            session_store is not None
-            and compatibility_runtime_state_dir != session_store
-        ):
-            raise TypeError(
-                "NewSessionRunRequest received conflicting `runtime_state_dir` and `session_store` values."
-            )
-        _session_namespace = compatibility_session_namespace
-        session_store = compatibility_runtime_state_dir
-        resolved_invocation_dir = _resolve_public_invocation_dir(
-            invocation_dir,
-            compatibility_kwargs,
-            context="NewSessionRunRequest",
-        )
-        normalized_request = _lifecycle_request_facts_module._provider_selection_request_facts(
+        normalized_request = _lifecycle_request_facts_module._new_session_run_request_facts(
+            invocation_dir=invocation_dir,
+            compatibility_kwargs=compatibility_kwargs,
             provider_selection=provider_selection,
-            worktree=resolved_invocation_dir,
             tool_access=tool_access,
             tool_policy=tool_policy,
-            missing_sentinel=_MISSING_TOOL_POLICY,
+            session_store=session_store,
             session_namespace=_session_namespace,
+            missing_sentinel=_MISSING_TOOL_POLICY,
             context="NewSessionRunRequest",
             missing_message="NewSessionRunRequest requires an explicit `tool_policy` value.",
-            workspace_name=_PUBLIC_INVOCATION_DIR_NAME,
+            public_invocation_dir_name=_PUBLIC_INVOCATION_DIR_NAME,
         )
 
         object.__setattr__(self, "prompt", prompt)
@@ -399,7 +374,7 @@ class NewSessionRunRequest:
             _PUBLIC_INVOCATION_DIR_NAME,
             normalized_request.invocation_dir,
         )
-        object.__setattr__(self, "session_store", session_store)
+        object.__setattr__(self, "session_store", normalized_request.session_store)
         object.__setattr__(
             self,
             "provider_selection",
@@ -415,7 +390,7 @@ class NewSessionRunRequest:
         object.__setattr__(self, "timeout_seconds", timeout_seconds)
         object.__setattr__(self, "on_live_output", on_live_output)
         object.__setattr__(self, "token", token)
-        object.__setattr__(self, "argv_transform", argv_transform)
+        object.__setattr__(self, "argv_transform", normalized_request.argv_transform)
 
     @property
     def mount_path(self) -> Path:

@@ -31,9 +31,40 @@ class _EphemeralRunRequestFacts(_ProviderSelectionLifecycleRequestFacts):
 
 
 @dataclasses.dataclass(frozen=True)
+class _NewSessionRunRequestFacts(_ProviderSelectionLifecycleRequestFacts):
+    session_store: Path | None
+    argv_transform: Any
+
+
+@dataclasses.dataclass(frozen=True)
 class _ResumedLifecycleRequestFacts(_LifecycleRequestFacts):
     model: str
     effort: str
+
+
+def _resolve_invocation_dir(
+    *,
+    invocation_dir: Path | None,
+    compatibility_kwargs: dict[str, Any],
+    context: str,
+    public_invocation_dir_name: str,
+) -> Path:
+    legacy_worktree = compatibility_kwargs.pop("worktree", None)
+    if compatibility_kwargs:
+        unexpected_argument = next(iter(compatibility_kwargs))
+        raise TypeError(
+            f"{context} got an unexpected keyword argument '{unexpected_argument}'."
+        )
+    if invocation_dir is not None and legacy_worktree is not None:
+        raise TypeError(
+            f"{context} received conflicting `{public_invocation_dir_name}` and `worktree` values."
+        )
+    resolved_invocation_dir = (
+        invocation_dir if invocation_dir is not None else legacy_worktree
+    )
+    if resolved_invocation_dir is None:
+        raise TypeError(f"{context} requires an `{public_invocation_dir_name}` value.")
+    return resolved_invocation_dir
 
 
 def _provider_selection_request_facts(
@@ -81,21 +112,12 @@ def _ephemeral_run_request_facts(
     public_invocation_dir_name: str,
 ) -> _EphemeralRunRequestFacts:
     argv_transform = compatibility_kwargs.pop("argv_transform", None)
-    legacy_worktree = compatibility_kwargs.pop("worktree", None)
-    if compatibility_kwargs:
-        unexpected_argument = next(iter(compatibility_kwargs))
-        raise TypeError(
-            f"{context} got an unexpected keyword argument '{unexpected_argument}'."
-        )
-    if invocation_dir is not None and legacy_worktree is not None:
-        raise TypeError(
-            f"{context} received conflicting `{public_invocation_dir_name}` and `worktree` values."
-        )
-    resolved_invocation_dir = (
-        invocation_dir if invocation_dir is not None else legacy_worktree
+    resolved_invocation_dir = _resolve_invocation_dir(
+        invocation_dir=invocation_dir,
+        compatibility_kwargs=compatibility_kwargs,
+        context=context,
+        public_invocation_dir_name=public_invocation_dir_name,
     )
-    if resolved_invocation_dir is None:
-        raise TypeError(f"{context} requires an `{public_invocation_dir_name}` value.")
     normalized_request = _provider_selection_request_facts(
         provider_selection=provider_selection,
         worktree=resolved_invocation_dir,
@@ -112,6 +134,64 @@ def _ephemeral_run_request_facts(
         provider_selection=normalized_request.provider_selection,
         tool_access=normalized_request.tool_access,
         session_namespace=normalized_request.session_namespace,
+        argv_transform=argv_transform,
+    )
+
+
+def _new_session_run_request_facts(
+    *,
+    invocation_dir: Path | None,
+    compatibility_kwargs: dict[str, Any],
+    provider_selection: ProviderSelection | None,
+    tool_access: Any,
+    tool_policy: Any,
+    session_store: Path | None,
+    session_namespace: str,
+    missing_sentinel: object,
+    context: str,
+    missing_message: str,
+    public_invocation_dir_name: str,
+) -> _NewSessionRunRequestFacts:
+    argv_transform = compatibility_kwargs.pop("argv_transform", None)
+    compatibility_session_namespace = compatibility_kwargs.pop(
+        "session_namespace",
+        session_namespace,
+    )
+    compatibility_runtime_state_dir = compatibility_kwargs.pop(
+        "runtime_state_dir",
+        session_store,
+    )
+    if session_namespace and compatibility_session_namespace != session_namespace:
+        raise TypeError(
+            f"{context} received conflicting `session_namespace` and `_session_namespace` values."
+        )
+    if session_store is not None and compatibility_runtime_state_dir != session_store:
+        raise TypeError(
+            f"{context} received conflicting `runtime_state_dir` and `session_store` values."
+        )
+    resolved_invocation_dir = _resolve_invocation_dir(
+        invocation_dir=invocation_dir,
+        compatibility_kwargs=compatibility_kwargs,
+        context=context,
+        public_invocation_dir_name=public_invocation_dir_name,
+    )
+    normalized_request = _provider_selection_request_facts(
+        provider_selection=provider_selection,
+        worktree=resolved_invocation_dir,
+        tool_access=tool_access,
+        tool_policy=tool_policy,
+        missing_sentinel=missing_sentinel,
+        session_namespace=compatibility_session_namespace,
+        context=context,
+        missing_message=missing_message,
+        workspace_name=public_invocation_dir_name,
+    )
+    return _NewSessionRunRequestFacts(
+        invocation_dir=normalized_request.invocation_dir,
+        provider_selection=normalized_request.provider_selection,
+        tool_access=normalized_request.tool_access,
+        session_namespace=normalized_request.session_namespace,
+        session_store=compatibility_runtime_state_dir,
         argv_transform=argv_transform,
     )
 
