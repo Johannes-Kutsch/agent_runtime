@@ -3,9 +3,8 @@ from __future__ import annotations
 import logging
 import tempfile
 import subprocess as _subprocess
-import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -73,7 +72,6 @@ _OPENCODE_GO_MODELS = _builtin_provider_rendering_module._OPENCODE_GO_MODELS
 _OPENCODE_VALID_EFFORTS = _builtin_provider_rendering_module._OPENCODE_VALID_EFFORTS
 _SUPPORTED_BUILTIN_SERVICES = frozenset({"claude", "codex", "opencode"})
 _PORTABLE_CONTINUATION_PROVIDERS = frozenset({"claude", "codex", "opencode"})
-_WAKE_TIME_BUFFER = timedelta(minutes=2)
 _SERVICE_NOT_AVAILABLE_DETAIL = (
     "No configured service candidates are currently available."
 )
@@ -85,76 +83,6 @@ def _builtin_provider_prompt_path(invocation_dir: Path) -> Path:
 
 def _builtin_provider_temp_prompt_path() -> Path:
     return _builtin_provider_prompt_path(Path("/tmp"))
-
-
-def compute_wake_time(
-    reset_time: datetime | None,
-    now: datetime,
-) -> tuple[datetime, bool]:
-    if reset_time is not None:
-        return reset_time + _WAKE_TIME_BUFFER, False
-    next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    return next_hour + _WAKE_TIME_BUFFER, True
-
-
-class BuiltInAvailabilityState:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._exhausted_until_by_service: dict[str, datetime] = {}
-
-    def _is_available_locked(self, service_name: str, now: datetime) -> bool:
-        exhausted_until = self._exhausted_until_by_service.get(service_name)
-        if exhausted_until is None:
-            return True
-        if exhausted_until <= now:
-            self._exhausted_until_by_service.pop(service_name, None)
-            return True
-        return False
-
-    def first_available_stage(
-        self,
-        stage: ProviderSelection,
-        *,
-        now: datetime,
-    ) -> ProviderSelection | None:
-        with self._lock:
-            if stage.service not in _SUPPORTED_BUILTIN_SERVICES:
-                return None
-            if self._is_available_locked(stage.service, now):
-                return stage
-        return None
-
-    def has_available_stage(self, stage: ProviderSelection, *, now: datetime) -> bool:
-        return self.first_available_stage(stage, now=now) is not None
-
-    def next_wake_time(
-        self, stage: ProviderSelection, *, now: datetime
-    ) -> datetime | None:
-        with self._lock:
-            if stage.service not in _SUPPORTED_BUILTIN_SERVICES:
-                return None
-            exhausted_until = self._exhausted_until_by_service.get(stage.service)
-            if exhausted_until is None:
-                return None
-            if exhausted_until <= now:
-                self._exhausted_until_by_service.pop(stage.service, None)
-                return None
-            return exhausted_until
-
-    def mark_exhausted(
-        self,
-        service_name: str,
-        *,
-        reset_time: datetime | None,
-        now: datetime,
-    ) -> None:
-        wake, _ = compute_wake_time(reset_time, now)
-        if wake.tzinfo is None:
-            wake = wake.replace(tzinfo=timezone.utc)
-        with self._lock:
-            current = self._exhausted_until_by_service.get(service_name)
-            if current is None or wake > current:
-                self._exhausted_until_by_service[service_name] = wake
 
 
 def supported_builtin_provider_selection(
