@@ -20,6 +20,7 @@ import agent_runtime._builtin_runtime_client as builtin_runtime_client_runtime
 import agent_runtime._builtin_provider_rendering as builtin_provider_rendering_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
+import agent_runtime.runtime as runtime_runtime_module
 from agent_runtime._runtime_lifecycle import ProviderAuth
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 from agent_runtime.errors import (
@@ -1161,6 +1162,171 @@ def test_runtime_client_ephemeral_run_propagates_live_output_observer_timeout_ex
 
     assert excinfo.value is observer_failure
     assert observed == ["hello"]
+
+
+def test_runtime_client_ephemeral_run_propagates_live_output_observer_agent_cancelled_exceptions_as_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[str] = []
+    observer_failure = AgentCancelledError()
+
+    def on_live_output(turn: runtime.AgentEvent) -> None:
+        if turn.type == "agent_message":
+            observed.append(turn.display_message)
+        raise observer_failure
+
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                _codex_assistant_output_line("hello"),
+                _codex_assistant_output_line("world"),
+            ),
+        )
+    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+    )
+
+    with pytest.raises(AgentCancelledError) as excinfo:
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                harness.ephemeral_run_request(
+                    invocation_dir=tmp_path,
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    on_live_output=on_live_output,
+                )
+            )
+        )
+
+    assert excinfo.value is observer_failure
+    assert observed == ["hello"]
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        pytest.param(
+            RuntimeConfigurationError("runtime misconfigured"),
+            id="runtime-configuration-failure",
+        ),
+        pytest.param(
+            AgentCredentialFailureError(
+                "agent credential failure",
+                service_name="codex",
+            ),
+            id="credential-failure",
+        ),
+        pytest.param(
+            HardAgentError("hard failure", service_name="codex"),
+            id="hard-provider-failure",
+        ),
+        pytest.param(RuntimeError("unexpected failure"), id="unexpected-exception"),
+    ],
+)
+def test_runtime_client_ephemeral_run_propagates_non_interruption_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    raised: BaseException,
+) -> None:
+    def _fail_run_ephemeral(
+        request: prompt_runtime.EphemeralRunRequest,
+        *,
+        already_sandboxed: bool = False,
+    ) -> prompt_runtime.RunResult:
+        del request, already_sandboxed
+        raise raised
+
+    monkeypatch.setattr(
+        runtime_runtime_module,
+        "_run_builtin_ephemeral",
+        _fail_run_ephemeral,
+    )
+
+    with pytest.raises(type(raised)) as excinfo:
+        asyncio.run(
+            runtime.RuntimeClient().run_ephemeral(
+                prompt_runtime.EphemeralRunRequest(
+                    prompt="already rendered prompt",
+                    invocation_dir=tmp_path,
+                    provider_selection=InternalStageSelection(
+                        service="codex",
+                        model="gpt-5.4",
+                        effort="medium",
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                )
+            )
+        )
+
+    assert excinfo.value is raised
+
+
+def test_runtime_client_ephemeral_run_maps_provider_cancelled_interruptions_to_cancelled_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider_cancelled = AgentCancelledError(
+        usage=runtime.ProviderUsage(input_tokens=1, output_tokens=2),
+        continuation=runtime.Continuation(
+            selected_service="codex",
+            selected_model="gpt-5.4",
+            selected_effort="medium",
+            tool_access=contracts_runtime.ToolAccess.no_tools(),
+            provider_resume_state={"provider_session_id": "should-not-preserve"},
+        ),
+    )
+
+    def _cancel_run_ephemeral(
+        request: prompt_runtime.EphemeralRunRequest,
+        *,
+        already_sandboxed: bool = False,
+    ) -> prompt_runtime.RunResult:
+        del request, already_sandboxed
+        raise provider_cancelled
+
+    monkeypatch.setattr(
+        runtime_runtime_module,
+        "_run_builtin_ephemeral",
+        _cancel_run_ephemeral,
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result == runtime.RunResult(
+        output="",
+        usage=provider_cancelled.usage,
+        continuation=None,
+        selected=runtime.ResolvedProvider(
+            service="codex",
+            model="gpt-5.4",
+            effort="medium",
+        ),
+    )
 
 
 def test_runtime_client_start_session_run_calls_live_output_observer(

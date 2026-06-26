@@ -11,6 +11,7 @@ from ._session_backed_provider_execution import (
 )
 from .contracts import ToolPolicy
 from .errors import (
+    AgentCancelledError,
     AgentTimeoutError,
     ProviderUnavailableError,
     RuntimeConfigurationError,
@@ -169,6 +170,17 @@ class RuntimeClient:
             result = _run_builtin_ephemeral(
                 request,
                 already_sandboxed=self.already_sandboxed,
+            )
+        except AgentCancelledError as exc:
+            _raise_if_live_output_exception(exc)
+            return RuntimeOutcome(
+                kind=Cancelled(),
+                result=RunResult(
+                    output="",
+                    usage=exc.usage,
+                    continuation=None,
+                    selected=selected,
+                ),
             )
         except AgentTimeoutError as exc:
             _raise_if_live_output_exception(exc)
