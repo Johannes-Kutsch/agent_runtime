@@ -10,7 +10,7 @@ import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 
 
-def test_continuation_serialization_keeps_current_portable_resume_schema() -> None:
+def test_continuation_serialization_keeps_current_resume_token_schema() -> None:
     continuation = prompt_runtime.Continuation(
         selected_service="codex",
         selected_model="gpt-5.4",
@@ -67,7 +67,7 @@ def test_continuation_serialization_keeps_current_portable_resume_schema() -> No
     )
 
 
-def test_continuation_exposes_portable_resume_facts_through_module_interface() -> None:
+def test_continuation_exposes_resume_facts_through_interface() -> None:
     tool_access = contracts_runtime.ToolAccess.workspace_backed(
         Path("/repo"),
         tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
@@ -209,7 +209,7 @@ def test_continuation_builds_session_backed_provider_resume_facts_through_module
     assert continuation.session_backed_facts.run_kind == run_kind
 
 
-def test_continuation_serialized_round_trip_keeps_current_portable_schema() -> None:
+def test_continuation_serialized_round_trip_keeps_current_resume_token_schema() -> None:
     continuation = prompt_runtime.Continuation(
         selected_service="claude",
         selected_model="sonnet",
@@ -269,6 +269,39 @@ def test_continuation_serialization_omits_provider_selection_and_credentials() -
     }
     assert "provider_selection" not in serialized_payload
     assert "provider_auth" not in serialized_payload
+
+
+def test_continuation_round_trips_tool_policy_profile_through_serialized_token() -> (
+    None
+):
+    tool_access = contracts_runtime.ToolAccess.workspace_backed(
+        Path("/repo"),
+        tool_policy=contracts_runtime.ToolPolicyProfile(
+            allowed_tools=("Read", "Glob"),
+            disallowed_tools=("Edit",),
+            strict_mcp_config=False,
+        ),
+    )
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="high",
+        tool_access=tool_access,
+        provider_resume_state={
+            "provider_session_id": "session-123",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+        },
+    )
+
+    assert json.loads(continuation.serialized)["tool_access"]["tool_policy"] == {
+        "kind": "tool_policy_profile",
+        "allowed_tools": ["Read", "Glob"],
+        "disallowed_tools": ["Edit"],
+        "strict_mcp_config": False,
+    }
+    assert prompt_runtime.Continuation(
+        serialized=continuation.serialized
+    ).tool_access == (tool_access)
 
 
 def test_continuation_resume_facts_reject_non_object_provider_resume_state() -> None:
@@ -339,6 +372,40 @@ def test_continuation_properties_preserve_malformed_token_errors(
     continuation = prompt_runtime.Continuation(serialized="{not-json")
 
     with pytest.raises(TypeError, match="Continuation data is not valid JSON."):
+        getattr(continuation, attribute)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "field_value", "attribute"),
+    [
+        ("service_name", 7, "service_name"),
+        ("model", None, "model"),
+        ("effort", [], "effort"),
+    ],
+)
+def test_continuation_properties_reject_non_string_resume_token_fields(
+    field_name: str,
+    field_value: object,
+    attribute: str,
+) -> None:
+    payload: dict[str, object] = {
+        "service_name": "codex",
+        "model": "gpt-5.4",
+        "effort": "low",
+        "tool_access": {
+            "kind": "none",
+            "workspace": None,
+            "tool_policy": {
+                "kind": "tool_policy",
+                "value": "none",
+            },
+        },
+        "provider_resume_state": {},
+    }
+    payload[field_name] = field_value
+    continuation = prompt_runtime.Continuation(serialized=json.dumps(payload))
+
+    with pytest.raises(TypeError, match="Continuation data is malformed."):
         getattr(continuation, attribute)
 
 
