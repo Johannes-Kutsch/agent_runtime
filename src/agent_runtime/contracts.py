@@ -2,12 +2,8 @@ from __future__ import annotations
 
 import dataclasses
 import enum
-from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
-
-from .session import RunKind
 
 
 @dataclasses.dataclass
@@ -187,72 +183,14 @@ class ToolAccess:
         )
 
 
-class ProviderStatePreparationAction(Protocol):
-    def apply(self) -> None: ...
-
-
-class ServiceSelectionProvider(Protocol):
-    def is_available(self, now: datetime | None = None) -> bool: ...
-
-    def next_wake_time(self) -> datetime: ...
-
-    def mark_exhausted(self, reset_time: datetime | None) -> None: ...
-
-
-class ResumabilityProvider(Protocol):
-    def is_resumable(self, state_dir: Path) -> bool: ...
-
-
-class ExecutionProvider(Protocol):
-    @property
-    def name(self) -> str: ...
-
-    def build_command(
-        self,
-        model: str,
-        effort: str,
-        run_kind: RunKind,
-        session_uuid: str | None,
-        *,
-        tool_policy: ToolPolicy | ToolPolicyProfile | Any | None = None,
-    ) -> str: ...
-
-    def build_env(
-        self,
-        state_dir_container_path: str | None = None,
-        token: str | None = None,
-    ) -> dict[str, str]: ...
-
-    def run(
-        self,
-        lines: Iterable[str],
-        on_provider_session_id: Callable[[str], None] | None = None,
-    ) -> Iterator[ParsedTurn]: ...
-
-    def mark_exhausted(self, reset_time: datetime | None) -> None: ...
-
-
-class ResumableExecutionProvider(
-    ResumabilityProvider,
-    ExecutionProvider,
-    Protocol,
-):
-    pass
-
-
 __all__ = [
     "AssistantTurn",
     "CredentialFailure",
-    "ExecutionProvider",
     "HardError",
     "ModelActivity",
     "ParsedTurn",
     "PromptTokens",
-    "ResumableExecutionProvider",
-    "ProviderStatePreparationAction",
     "Result",
-    "ResumabilityProvider",
-    "ServiceSelectionProvider",
     "ToolPolicy",
     "ToolAccess",
     "ToolPolicyProfile",
@@ -260,3 +198,20 @@ __all__ = [
     "UnsupportedTokens",
     "UsageLimit",
 ]
+
+_RETIRED_CONTRACT_NAMES = {
+    "ExecutionProvider",
+    "ProviderStatePreparationAction",
+    "ResumabilityProvider",
+    "ResumableExecutionProvider",
+    "ServiceSelectionProvider",
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _RETIRED_CONTRACT_NAMES:
+        raise AttributeError(
+            f"{name} has been retired from agent_runtime.contracts; "
+            "the contracts interface now exposes active runtime contracts only."
+        )
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

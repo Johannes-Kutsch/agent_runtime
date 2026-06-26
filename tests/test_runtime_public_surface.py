@@ -517,21 +517,33 @@ def test_runtime_client_lifecycle_entrypoints_do_not_read_live_probe_env(
             env_path.write_text(original_env, encoding="utf-8")
 
 
-def test_contracts_expose_execution_provider_as_canonical_public_protocol_name() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "removed_name",
+    [
+        "ExecutionProvider",
+        "ProviderStatePreparationAction",
+        "ResumabilityProvider",
+        "ResumableExecutionProvider",
+        "ServiceSelectionProvider",
+    ],
+)
+def test_contracts_expose_only_active_runtime_contracts(
+    removed_name: str,
+) -> None:
     contracts = importlib.import_module("agent_runtime.contracts")
 
-    assert "ServiceSelectionProvider" in contracts.__all__
-    assert "ResumabilityProvider" in contracts.__all__
-    assert "ExecutionProvider" in contracts.__all__
-    assert "ResumableExecutionProvider" in contracts.__all__
-    assert not hasattr(contracts, "ExecutionService")
-    assert not hasattr(contracts, "ResidentExecutionProvider")
+    assert {"ParsedTurn", "ToolAccess", "ToolPolicy", "ToolPolicyProfile"} <= set(
+        contracts.__all__
+    )
+    assert removed_name not in contracts.__all__
     with pytest.raises(AttributeError):
-        getattr(runtime, "ExecutionProvider")
+        getattr(contracts, removed_name)
     with pytest.raises(ImportError):
-        exec("from agent_runtime import ExecutionProvider", {}, {})
+        exec(f"from agent_runtime.contracts import {removed_name}", {}, {})
+    with pytest.raises(AttributeError):
+        getattr(runtime, removed_name)
+    with pytest.raises(ImportError):
+        exec(f"from agent_runtime import {removed_name}", {}, {})
 
 
 @pytest.mark.parametrize(
