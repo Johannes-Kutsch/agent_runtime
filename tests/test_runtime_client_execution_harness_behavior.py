@@ -263,6 +263,16 @@ def test_runtime_client_reuses_session_store_across_new_and_resumed_session_runs
     continuation = start_outcome.result.continuation
     assert continuation is not None
     assert start_outcome.result.output == "first output"
+    resumed_continuation = runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=continuation.tool_access,
+        provider_resume_state={
+            **continuation.provider_resume_state,
+            "provider_session_id": "   ",
+        },
+    )
 
     RuntimeClientExecutionHarness.prepare_codex_rollout_state(
         RuntimeClientExecutionHarness.provider_state_dir(
@@ -274,7 +284,7 @@ def test_runtime_client_reuses_session_store_across_new_and_resumed_session_runs
     resume_request = RuntimeClientExecutionHarness.resume_session_run_request(
         invocation_dir=tmp_path,
         runtime_state_dir=runtime_state_dir,
-        continuation=continuation,
+        continuation=resumed_continuation,
     )
     resume_outcome = asyncio.run(
         runtime.RuntimeClient().run_resumed_session(resume_request)

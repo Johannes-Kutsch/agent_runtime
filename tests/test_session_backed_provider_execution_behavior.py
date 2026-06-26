@@ -407,6 +407,8 @@ def test_session_backed_codex_resumed_session_rejects_missing_rollout_files(
             "{not-json\n",
             "[]\n",
             '{"type":"turn.completed"}\n',
+            '{"type":"session_meta","payload":[]}\n',
+            '{"type":"session_meta","payload":{"id":7}}\n',
             '{"type":"session_meta","payload":{"id":"   "}}\n',
             '{"type":"session_meta","payload":{}}\n',
         ],
