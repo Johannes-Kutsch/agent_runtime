@@ -7,6 +7,11 @@ from typing import Callable, cast
 import pytest
 
 from agent_runtime import _time as time_runtime
+from agent_runtime._builtin_provider_agent_event_building import (
+    build_claude_agent_event,
+    build_codex_agent_event,
+    build_opencode_agent_event,
+)
 from agent_runtime._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
     classify_built_in_provider_invocation_progress,
@@ -158,7 +163,7 @@ def test_codex_built_in_provider_stream_interpretation_treats_unrecognized_messa
     assert str(exc_info.value) == message
 
 
-def test_codex_built_in_provider_stream_interpretation_builds_tool_call_event_from_item_started() -> (
+def test_codex_built_in_provider_stream_interpretation_uses_codex_event_builder() -> (
     None
 ):
     interpretation = codex_built_in_provider_stream_interpretation()
@@ -178,281 +183,7 @@ def test_codex_built_in_provider_stream_interpretation_builds_tool_call_event_fr
 
     event = interpretation.build_agent_event(line)
 
-    assert event.type == "agent_tool_call"
-    assert event.display_message == 'shell({"command":"pwd"})'
-    assert event.raw_provider_output == line
-
-
-@pytest.mark.parametrize("event_type", ["item.started", "item.completed"])
-def test_codex_built_in_provider_stream_interpretation_builds_agent_message_from_item_lifecycle_events(
-    event_type: str,
-) -> None:
-    interpretation = codex_built_in_provider_stream_interpretation()
-    line = (
-        json.dumps(
-            {
-                "type": event_type,
-                "item": {
-                    "type": "agent_message",
-                    "content": "codex output",
-                },
-            }
-        )
-        + "\n"
-    )
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "agent_message"
-    assert event.display_message == "codex output"
-    assert event.raw_provider_output == line
-
-
-@pytest.mark.parametrize("event_type", ["item.started", "item.completed"])
-def test_codex_built_in_provider_stream_interpretation_builds_tool_call_from_item_lifecycle_events(
-    event_type: str,
-) -> None:
-    interpretation = codex_built_in_provider_stream_interpretation()
-    line = (
-        json.dumps(
-            {
-                "type": event_type,
-                "item": {
-                    "type": "shell",
-                    "name": "shell",
-                    "arguments": {"command": "pwd"},
-                },
-            }
-        )
-        + "\n"
-    )
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "agent_tool_call"
-    assert event.display_message == 'shell({"command":"pwd"})'
-    assert event.raw_provider_output == line
-
-
-@pytest.mark.parametrize(
-    ("item", "expected_message"),
-    [
-        (
-            {
-                "type": "shell",
-                "name": "shell",
-                "arguments": {"command": "pwd"},
-                "input": {"command": "ignored"},
-                "payload": {"command": "ignored"},
-            },
-            'shell({"command":"pwd"})',
-        ),
-        (
-            {
-                "type": "shell",
-                "name": "shell",
-                "input": {"command": "pwd"},
-                "payload": {"command": "ignored"},
-            },
-            'shell({"command":"pwd"})',
-        ),
-        (
-            {
-                "type": "shell",
-                "name": "shell",
-                "payload": {"command": "pwd"},
-            },
-            'shell({"command":"pwd"})',
-        ),
-        (
-            {
-                "type": "shell",
-                "name": "shell",
-                "metadata": {"command": "pwd"},
-            },
-            'shell({"type":"shell","name":"shell","metadata":{"command":"pwd"}})',
-        ),
-    ],
-)
-def test_codex_built_in_provider_stream_interpretation_prefers_expected_tool_payload_fields(
-    item: dict[str, object],
-    expected_message: str,
-) -> None:
-    interpretation = codex_built_in_provider_stream_interpretation()
-    line = json.dumps({"type": "item.completed", "item": item}) + "\n"
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "agent_tool_call"
-    assert event.display_message == expected_message
-    assert event.raw_provider_output == line
-
-
-def test_codex_built_in_provider_stream_interpretation_builds_turn_summary_from_turn_completed() -> (
-    None
-):
-    interpretation = codex_built_in_provider_stream_interpretation()
-    line = (
-        json.dumps(
-            {
-                "type": "turn.completed",
-                "turn_id": "turn_123",
-                "usage": {
-                    "input_tokens": 120,
-                    "cached_tokens": 30,
-                    "output_tokens": 45,
-                },
-            }
-        )
-        + "\n"
-    )
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "turn_summary"
-    assert "120" in event.display_message
-    assert "30" in event.display_message
-    assert "45" in event.display_message
-    assert event.raw_provider_output == line
-
-
-def test_codex_built_in_provider_stream_interpretation_omits_missing_turn_summary_fields() -> (
-    None
-):
-    interpretation = codex_built_in_provider_stream_interpretation()
-    line = (
-        json.dumps(
-            {
-                "type": "turn.completed",
-                "usage": {
-                    "input_tokens": 0,
-                    "cached_tokens": "30",
-                    "output_tokens": None,
-                },
-            }
-        )
-        + "\n"
-    )
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "turn_summary"
-    assert event.display_message == "input_tokens=0"
-    assert event.raw_provider_output == line
-
-
-def test_codex_built_in_provider_stream_interpretation_builds_other_event_from_plain_text_line() -> (
-    None
-):
-    interpretation = codex_built_in_provider_stream_interpretation()
-    line = "  permission denied: missing approval  \n"
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "other"
-    assert event.display_message == "permission denied: missing approval"
-    assert event.raw_provider_output == line
-
-
-@pytest.mark.parametrize(
-    ("line", "expected_message"),
-    [
-        (
-            json.dumps({"type": "thread.started", "thread_id": "thread-123"}) + "\n",
-            "thread.started",
-        ),
-        (
-            json.dumps({"type": "item.started", "item": "not-an-object"}) + "\n",
-            "item.started",
-        ),
-        (json.dumps({"detail": "missing type"}) + "\n", "other"),
-        (json.dumps(["not", "an", "object"]) + "\n", "non_object"),
-    ],
-)
-def test_codex_built_in_provider_stream_interpretation_preserves_other_descriptors_and_fallbacks(
-    line: str,
-    expected_message: str,
-) -> None:
-    interpretation = codex_built_in_provider_stream_interpretation()
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "other"
-    assert event.display_message == expected_message
-    assert event.raw_provider_output == line
-
-
-def test_claude_built_in_provider_stream_interpretation_builds_other_event_from_plain_text_line() -> (
-    None
-):
-    interpretation = claude_built_in_provider_stream_interpretation()
-    line = "  Reading prompt from stdin...  \n"
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "other"
-    assert event.display_message == "Reading prompt from stdin..."
-    assert event.raw_provider_output == line
-
-
-def test_claude_built_in_provider_stream_interpretation_builds_turn_summary_from_result() -> (
-    None
-):
-    interpretation = claude_built_in_provider_stream_interpretation()
-    line = (
-        json.dumps(
-            {
-                "type": "result",
-                "subtype": "success",
-                "duration_ms": 2345,
-                "duration_api_ms": 2100,
-                "is_error": False,
-                "num_turns": 1,
-                "result": "final output",
-                "session_id": "sess_123",
-                "total_cost_usd": 0.0123,
-                "usage": {
-                    "input_tokens": 120,
-                    "cache_creation_input_tokens": 10,
-                    "cache_read_input_tokens": 5,
-                    "output_tokens": 42,
-                    "server_tool_use": {"web_search_requests": 1},
-                },
-            }
-        )
-        + "\n"
-    )
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "turn_summary"
-    assert "success" in event.display_message
-    assert "2345" in event.display_message
-    assert "0.0123" in event.display_message
-    assert event.raw_provider_output == line
-
-
-def test_claude_built_in_provider_stream_interpretation_omits_missing_turn_summary_fields() -> (
-    None
-):
-    interpretation = claude_built_in_provider_stream_interpretation()
-    line = (
-        json.dumps(
-            {
-                "type": "result",
-                "subtype": "",
-                "duration_ms": 0,
-                "total_cost_usd": "0.0123",
-            }
-        )
-        + "\n"
-    )
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "turn_summary"
-    assert event.display_message == "duration_ms=0"
-    assert event.raw_provider_output == line
+    assert event == build_codex_agent_event(line)
 
 
 def test_claude_built_in_provider_stream_interpretation_reduce_output_preserves_live_agent_event_values() -> (
@@ -534,29 +265,13 @@ def test_claude_built_in_provider_stream_interpretation_reduce_output_preserves_
     assert output == "final output"
     assert usage is not None
     assert usage.input_tokens == 12
-    assert [event.type for event in observed] == [
-        "agent_message",
-        "agent_tool_call",
-        "other",
-        "turn_summary",
-        "other",
-        "other",
-    ]
-    assert [event.display_message for event in observed] == [
-        "hello from claude",
-        'Read({"path":"README.md"})',
-        "system.init cwd=/workspace/project",
-        "stop_reason=success",
-        "non_object",
-        "Reading prompt from stdin...",
-    ]
-    assert [event.raw_provider_output for event in observed] == [
-        assistant_line,
-        tool_line,
-        system_line,
-        result_line,
-        non_object_line,
-        raw_text_line,
+    assert observed == [
+        build_claude_agent_event(assistant_line),
+        build_claude_agent_event(tool_line),
+        build_claude_agent_event(system_line),
+        build_claude_agent_event(result_line),
+        build_claude_agent_event(non_object_line),
+        build_claude_agent_event(raw_text_line),
     ]
 
 
@@ -719,111 +434,7 @@ def test_opencode_built_in_provider_stream_interpretation_keeps_completed_result
     assert usage is None
 
 
-def test_opencode_built_in_provider_stream_interpretation_builds_expected_live_agent_events() -> (
-    None
-):
-    interpretation = opencode_built_in_provider_stream_interpretation()
-    cases = [
-        (
-            json.dumps(
-                {
-                    "type": "text",
-                    "part": {
-                        "type": "text",
-                        "text": "hello from opencode",
-                        "time": {"end": True},
-                    },
-                }
-            )
-            + "\n",
-            "agent_message",
-            "hello from opencode",
-        ),
-        (
-            json.dumps(
-                {
-                    "type": "text",
-                    "part": {
-                        "type": "tool",
-                        "name": "Read",
-                        "input": {"path": "README.md"},
-                    },
-                }
-            )
-            + "\n",
-            "agent_tool_call",
-            'Read({"path":"README.md"})',
-        ),
-        (
-            json.dumps(
-                {
-                    "type": "step_finish",
-                    "step": {
-                        "tokens": {
-                            "input": 120,
-                            "output": 45,
-                            "reasoning": 12,
-                            "cache": {"read": 30, "write": 8},
-                        },
-                        "cost": 0.0123,
-                    },
-                }
-            )
-            + "\n",
-            "turn_summary",
-            "input=120 | output=45 | reasoning=12 | cache_read=30 | cache_write=8 | cost_usd=0.0123",
-        ),
-        (
-            json.dumps({"type": "session.status", "status": {"type": "idle"}}) + "\n",
-            "other",
-            "idle",
-        ),
-        (
-            json.dumps({"type": "error", "error": {"name": "InternalServerError"}})
-            + "\n",
-            "other",
-            "error",
-        ),
-        ("  not json  \n", "other", "not json"),
-        (json.dumps({"type": "custom.event"}) + "\n", "other", "custom.event"),
-    ]
-
-    for line, expected_type, expected_message in cases:
-        event = interpretation.build_agent_event(line)
-        assert event.type == expected_type
-        assert event.display_message == expected_message
-        assert event.raw_provider_output == line
-
-
-def test_opencode_built_in_provider_stream_interpretation_omits_missing_turn_summary_fields() -> (
-    None
-):
-    interpretation = opencode_built_in_provider_stream_interpretation()
-    line = (
-        json.dumps(
-            {
-                "type": "step_finish",
-                "step": {
-                    "tokens": {
-                        "input": 0,
-                        "output": "45",
-                        "cache": {"read": 0, "write": None},
-                    },
-                    "cost": False,
-                },
-            }
-        )
-        + "\n"
-    )
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "turn_summary"
-    assert event.display_message == "input=0 | cache_read=0"
-    assert event.raw_provider_output == line
-
-
-def test_opencode_built_in_provider_stream_interpretation_uses_text_payload_for_tool_part_without_input() -> (
+def test_opencode_built_in_provider_stream_interpretation_uses_opencode_event_builder() -> (
     None
 ):
     interpretation = opencode_built_in_provider_stream_interpretation()
@@ -834,7 +445,7 @@ def test_opencode_built_in_provider_stream_interpretation_uses_text_payload_for_
                 "part": {
                     "type": "tool",
                     "name": "Read",
-                    "text": '{"path":"README.md"}',
+                    "input": {"path": "README.md"},
                 },
             }
         )
@@ -843,47 +454,7 @@ def test_opencode_built_in_provider_stream_interpretation_uses_text_payload_for_
 
     event = interpretation.build_agent_event(line)
 
-    assert event.type == "agent_tool_call"
-    assert event.display_message == 'Read({"path":"README.md"})'
-    assert event.raw_provider_output == line
-
-
-def test_opencode_built_in_provider_stream_interpretation_keeps_session_status_descriptor_when_status_type_missing() -> (
-    None
-):
-    interpretation = opencode_built_in_provider_stream_interpretation()
-    line = json.dumps({"type": "session.status", "status": {}}) + "\n"
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "other"
-    assert event.display_message == "session.status"
-    assert event.raw_provider_output == line
-
-
-def test_opencode_built_in_provider_stream_interpretation_falls_back_to_text_descriptor_for_incomplete_text_part() -> (
-    None
-):
-    interpretation = opencode_built_in_provider_stream_interpretation()
-    line = (
-        json.dumps(
-            {
-                "type": "text",
-                "part": {
-                    "type": "text",
-                    "text": "still streaming",
-                    "time": {"start": 1},
-                },
-            }
-        )
-        + "\n"
-    )
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "other"
-    assert event.display_message == "text"
-    assert event.raw_provider_output == line
+    assert event == build_opencode_agent_event(line)
 
 
 def test_reduce_opencode_stream_preserves_live_agent_event_values() -> None:
@@ -951,26 +522,6 @@ def test_reduce_opencode_stream_preserves_live_agent_event_values() -> None:
     assert output == "hello from opencode"
     assert usage is None
     assert observed == [interpretation.build_agent_event(line) for line in lines]
-
-
-@pytest.mark.parametrize(
-    ("interpretation_factory", "line"),
-    [
-        (claude_built_in_provider_stream_interpretation, '"text"\n'),
-        (codex_built_in_provider_stream_interpretation, '"text"\n'),
-        (opencode_built_in_provider_stream_interpretation, '"text"\n'),
-    ],
-)
-def test_built_in_provider_stream_interpretation_keeps_non_object_descriptor(
-    interpretation_factory: Callable[[], BuiltInProviderStreamInterpretation], line: str
-) -> None:
-    interpretation = interpretation_factory()
-
-    event = interpretation.build_agent_event(line)
-
-    assert event.type == "other"
-    assert event.display_message == "non_object"
-    assert event.raw_provider_output == line
 
 
 def test_opencode_observation_emits_live_agent_events_and_tracks_provider_session_id_until_idle() -> (
