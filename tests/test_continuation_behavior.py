@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path, PureWindowsPath
 from typing import cast
 
@@ -87,6 +88,37 @@ def test_continuation_serialization_normalizes_workspace_path_to_posix() -> None
 
     assert json.loads(continuation.serialized)["tool_access"]["workspace"] == (
         "C:/repo/agent-runtime"
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only path semantics")
+def test_continuation_deserialization_restores_windows_workspace_path() -> None:
+    continuation = prompt_runtime.Continuation(
+        serialized=json.dumps(
+            {
+                "service_name": "codex",
+                "model": "gpt-5.4",
+                "effort": "medium",
+                "tool_access": {
+                    "kind": "workspace_backed",
+                    "workspace": "C:/repo/agent-runtime",
+                    "tool_policy": {
+                        "kind": "tool_policy",
+                        "value": "no_file_mutation",
+                    },
+                },
+                "provider_resume_state": {
+                    "run_kind": "resume",
+                    "provider_session_id": "thread-123",
+                    "provider_state_dir_relpath": "implementer/main/codex/",
+                },
+            }
+        )
+    )
+
+    assert continuation.tool_access == contracts_runtime.ToolAccess.workspace_backed(
+        Path("C:/repo/agent-runtime"),
+        tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
     )
 
 
