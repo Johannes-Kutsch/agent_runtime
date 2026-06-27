@@ -17,6 +17,12 @@ Two approaches existed in the codebase. Claude and Codex keep the bytes on disk 
 
 We reject the self-sufficient-continuation (embedding) model as the universal approach despite OpenCode proving it works. Embedding requires the runtime to know and faithfully serialize each provider's on-disk layout; Claude's resumable state is an opaque directory tree the runtime does not model, so embedding it is fragile by construction. Worse, a snapshot taken when a continuation is emitted silently loses any tool-call/session work the provider records outside the one file we capture, and loses work entirely if a resumed run is interrupted before emitting a fresh continuation (its temp home is cleaned up). The Session Store keeps the provider's native state as the single source of truth, untouched and provider-agnostic — lossless and crash-resilient. The cost we accept: the `Continuation` is no longer resumable on its own — it must travel with its Session Store — trading single-token portability for not losing work.
 
+## Amendment: Continuation workspace paths are serialized in POSIX format
+
+The `Continuation` token serializes the `ToolAccess` workspace path using `Path.as_posix()` rather than `str(Path)`. On Windows, `str(Path)` produces backslash-separated strings that vary by host; `as_posix()` produces forward-slash strings that are schema-stable across platforms. Deserialization uses `Path(posix_string)`, which correctly reconstructs an absolute Windows path (e.g. `Path("C:/Users/x")` → `WindowsPath('C:/Users/x')`), so round-trip fidelity is preserved on both platforms.
+
+This does not make the `Continuation` portable across operating systems — the Session Store is a host-native directory and cross-OS resume is not a supported use case. It makes the *token schema* host-independent: the serialized JSON contains the same path string regardless of which platform emitted the token.
+
 ## Consequences
 
 - One uniform resume model across providers; no provider-specific embedding/rehydration code path to keep correct.
