@@ -65,6 +65,7 @@ def test_release_artifacts_omit_private_and_retired_modules(
 
     assert "agent_runtime/_provider_session_adapter.py" not in wheel_members
     assert "agent_runtime/execution_contracts.py" not in wheel_members
+    assert "agent_runtime/service_registry.py" not in wheel_members
 
     with tarfile.open(sdist_path, "r:gz") as sdist_archive:
         sdist_members = {member.name for member in sdist_archive.getmembers()}
@@ -72,6 +73,7 @@ def test_release_artifacts_omit_private_and_retired_modules(
     package_root = f"{sdist_path.name.removesuffix('.tar.gz')}/src/agent_runtime"
     assert f"{package_root}/_provider_session_adapter.py" not in sdist_members
     assert f"{package_root}/execution_contracts.py" not in sdist_members
+    assert f"{package_root}/service_registry.py" not in sdist_members
 
 
 def test_release_wheel_metadata_matches_verified_python_support(
