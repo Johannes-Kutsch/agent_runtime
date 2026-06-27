@@ -170,7 +170,6 @@ def test_execution_contracts_module_is_absent_without_changing_runtime_public_su
     "module_name",
     [
         "agent_runtime.provider_session_adapter",
-        "agent_runtime.service_registry",
     ],
 )
 def test_remaining_retired_public_adapter_modules_do_not_expose_runtime_seams(
@@ -180,13 +179,12 @@ def test_remaining_retired_public_adapter_modules_do_not_expose_runtime_seams(
     assert module.__all__ == []
 
 
-def test_retired_service_registry_compatibility_module_stays_empty() -> None:
-    with pytest.raises(ImportError):
-        exec("from agent_runtime.service_registry import ServiceRegistry", {}, {})
+def test_retired_service_registry_module_is_absent() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_runtime.service_registry")
 
-    module = importlib.import_module("agent_runtime.service_registry")
-    with pytest.raises(AttributeError, match="Runtime Consumer Surface"):
-        getattr(module, "ServiceRegistry")
+    with pytest.raises(ModuleNotFoundError):
+        exec("from agent_runtime.service_registry import ServiceRegistry", {}, {})
 
 
 @pytest.mark.parametrize(
