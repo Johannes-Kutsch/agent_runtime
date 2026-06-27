@@ -260,53 +260,6 @@ def _require_claude_auth(auth: ProviderAuth | None) -> None:
     _builtin_provider_rendering_module._require_claude_auth(auth)
 
 
-def _continuation_input_facts(
-    *,
-    service: str,
-    model: str,
-    effort: str,
-    provider_state_dir: Path,
-    provider_state_dir_relpath: str | None,
-    provider_session_id: str | None,
-    recovered_provider_session_id: bool = False,
-    run_kind: RunKind,
-    exact_transcript_match: bool | None,
-) -> _provider_state_resolution.ContinuationInputFacts:
-    return _provider_state_resolution.ContinuationInputFacts(
-        provider_identity=_provider_state_resolution.ProviderIdentity(
-            service=service,
-            model=model,
-            effort=effort,
-        ),
-        provider_state_directory=_provider_state_resolution.ProviderStateDirectory(
-            path=provider_state_dir,
-        ),
-        provider_state_relpath=(
-            _provider_state_resolution.ProviderStateRelpath(
-                value=provider_state_dir_relpath
-            )
-            if provider_state_dir_relpath is not None
-            else None
-        ),
-        provider_session_id=(
-            _provider_state_resolution.PreparedOrRecoveredProviderSessionId(
-                value=provider_session_id,
-                recovered=recovered_provider_session_id,
-            )
-            if provider_session_id is not None
-            else None
-        ),
-        run_kind=run_kind,
-        exact_transcript_match=(
-            _provider_state_resolution.ExactTranscriptMatch(
-                value=exact_transcript_match
-            )
-            if exact_transcript_match is not None
-            else None
-        ),
-    )
-
-
 def _resolve_active_provider_session_id(
     *,
     stream_interpretation: BuiltInProviderStreamInterpretation,
@@ -479,18 +432,18 @@ def _run_builtin_new_session(
                 _codex_is_resumable(provider_state_dir)
                 and recovered_session_id is not None
             ):
-                continuation_input_facts = _continuation_input_facts(
-                    service="codex",
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    provider_state_dir=provider_state_dir,
-                    provider_state_dir_relpath=_portable_codex_state_dir_relpath(
-                        provider_state_dir_relpath
-                    ),
-                    provider_session_id=recovered_session_id,
-                    recovered_provider_session_id=True,
-                    run_kind=RunKind.RESUME,
-                    exact_transcript_match=False,
+                continuation_input_facts = (
+                    _provider_state_resolution.codex_continuation_input_facts(
+                        model=selected_stage.model,
+                        effort=selected_stage.effort,
+                        provider_state_dir=provider_state_dir,
+                        provider_state_dir_relpath=_portable_codex_state_dir_relpath(
+                            provider_state_dir_relpath
+                        ),
+                        provider_session_id=recovered_session_id,
+                        recovered_provider_session_id=True,
+                        run_kind=RunKind.RESUME,
+                    )
                 )
                 return _run_builtin_resumed_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
@@ -511,17 +464,17 @@ def _run_builtin_new_session(
                     on_live_output=on_live_output,
                 )
             provider_session_id: str | None = None
-            continuation_input_facts = _continuation_input_facts(
-                service="codex",
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                provider_state_dir=provider_state_dir,
-                provider_state_dir_relpath=_portable_codex_state_dir_relpath(
-                    provider_state_dir_relpath
-                ),
-                provider_session_id=None,
-                run_kind=RunKind.FRESH,
-                exact_transcript_match=False,
+            continuation_input_facts = (
+                _provider_state_resolution.codex_continuation_input_facts(
+                    model=selected_stage.model,
+                    effort=selected_stage.effort,
+                    provider_state_dir=provider_state_dir,
+                    provider_state_dir_relpath=_portable_codex_state_dir_relpath(
+                        provider_state_dir_relpath
+                    ),
+                    provider_session_id=None,
+                    run_kind=RunKind.FRESH,
+                )
             )
             codex_continuation_input_facts = continuation_input_facts
             invocation_result = _invoke_with_timeout_continuation(
@@ -605,8 +558,7 @@ def _run_builtin_new_session(
                 )
             )
             if _claude_is_resumable(provider_state_dir):
-                continuation_input_facts = _continuation_input_facts(
-                    service="claude",
+                continuation_input_facts = _provider_state_resolution.claude_continuation_input_facts(
                     model=selected_stage.model,
                     effort=selected_stage.effort,
                     provider_state_dir=provider_state_dir,
@@ -615,7 +567,6 @@ def _run_builtin_new_session(
                     ),
                     provider_session_id=_builtin_runtime_client_module._new_provider_session_id(),
                     run_kind=RunKind.RESUME,
-                    exact_transcript_match=False,
                 )
                 return _run_builtin_resumed_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
@@ -672,19 +623,29 @@ def _run_builtin_new_session(
             raise RuntimeConfigurationError(
                 "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
             )
-        continuation_input_facts = _continuation_input_facts(
-            service=selected_stage.service,
-            model=selected_stage.model,
-            effort=selected_stage.effort,
-            provider_state_dir=provider_state_dir,
-            provider_state_dir_relpath=(
-                _portable_claude_state_dir_relpath(provider_state_dir_relpath)
-                if selected_stage.service == "claude"
-                else _portable_opencode_state_dir_relpath(provider_state_dir_relpath)
-            ),
-            provider_session_id=provider_session_id,
-            run_kind=run_kind,
-            exact_transcript_match=exact_transcript_match,
+        continuation_input_facts = (
+            _provider_state_resolution.claude_continuation_input_facts(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                provider_state_dir=provider_state_dir,
+                provider_state_dir_relpath=_portable_claude_state_dir_relpath(
+                    provider_state_dir_relpath
+                ),
+                provider_session_id=provider_session_id,
+                run_kind=run_kind,
+            )
+            if selected_stage.service == "claude"
+            else _provider_state_resolution.opencode_continuation_input_facts(
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                provider_state_dir=provider_state_dir,
+                provider_state_dir_relpath=_portable_opencode_state_dir_relpath(
+                    provider_state_dir_relpath
+                ),
+                provider_session_id=provider_session_id,
+                run_kind=run_kind,
+                exact_transcript_match=exact_transcript_match,
+            )
         )
         assert continuation_input_facts is not None
         if selected_stage.service == "claude":
@@ -854,23 +815,23 @@ def _run_builtin_resumed_session(
             raise RuntimeConfigurationError(
                 "Codex continuation is missing `provider_session_id`."
             )
-        continuation_input_facts = _continuation_input_facts(
-            service="codex",
-            model=request.model,
-            effort=request.effort,
-            provider_state_dir=(
-                provider_state_dir
-                if provider_state_dir is not None
-                else runtime_state_dir
-            ),
-            provider_state_dir_relpath=provider_state_dir_relpath,
-            provider_session_id=provider_session_id,
-            recovered_provider_session_id=(
-                continuation_facts.provider_session_id is None
-                and provider_session_id is not None
-            ),
-            run_kind=RunKind.RESUME,
-            exact_transcript_match=False,
+        continuation_input_facts = (
+            _provider_state_resolution.codex_continuation_input_facts(
+                model=request.model,
+                effort=request.effort,
+                provider_state_dir=(
+                    provider_state_dir
+                    if provider_state_dir is not None
+                    else runtime_state_dir
+                ),
+                provider_state_dir_relpath=provider_state_dir_relpath,
+                provider_session_id=provider_session_id,
+                recovered_provider_session_id=(
+                    continuation_facts.provider_session_id is None
+                    and provider_session_id is not None
+                ),
+                run_kind=RunKind.RESUME,
+            )
         )
         active_provider_session_id: str | None = provider_session_id
         invocation_result = _invoke_with_timeout_continuation(
@@ -997,17 +958,33 @@ def _run_builtin_resumed_session(
             state_dir_session_id=state_dir_session_id,
         )
         run_kind = RunKind.RESUME
-    continuation_input_facts = _continuation_input_facts(
-        service=continuation_service,
-        model=request.model,
-        effort=request.effort,
-        provider_state_dir=(
-            provider_state_dir if provider_state_dir is not None else runtime_state_dir
-        ),
-        provider_state_dir_relpath=provider_state_dir_relpath,
-        provider_session_id=provider_session_id,
-        run_kind=run_kind,
-        exact_transcript_match=exact_transcript_match,
+    continuation_input_facts = (
+        _provider_state_resolution.claude_continuation_input_facts(
+            model=request.model,
+            effort=request.effort,
+            provider_state_dir=(
+                provider_state_dir
+                if provider_state_dir is not None
+                else runtime_state_dir
+            ),
+            provider_state_dir_relpath=provider_state_dir_relpath,
+            provider_session_id=provider_session_id,
+            run_kind=run_kind,
+        )
+        if continuation_service == "claude"
+        else _provider_state_resolution.opencode_continuation_input_facts(
+            model=request.model,
+            effort=request.effort,
+            provider_state_dir=(
+                provider_state_dir
+                if provider_state_dir is not None
+                else runtime_state_dir
+            ),
+            provider_state_dir_relpath=provider_state_dir_relpath,
+            provider_session_id=provider_session_id,
+            run_kind=run_kind,
+            exact_transcript_match=exact_transcript_match,
+        )
     )
     if continuation_service == "claude":
         invocation_result = _invoke_with_timeout_continuation(
@@ -1088,15 +1065,16 @@ def _run_builtin_resumed_session(
                 state_dir_session_id=state_dir_session_id,
             )
             assert provider_state_dir is not None
-            continuation_input_facts = _continuation_input_facts(
-                service=continuation_service,
-                model=request.model,
-                effort=request.effort,
-                provider_state_dir=provider_state_dir,
-                provider_state_dir_relpath=provider_state_dir_relpath,
-                provider_session_id=provider_session_id,
-                run_kind=run_kind,
-                exact_transcript_match=exact_transcript_match,
+            continuation_input_facts = (
+                _provider_state_resolution.opencode_continuation_input_facts(
+                    model=request.model,
+                    effort=request.effort,
+                    provider_state_dir=provider_state_dir,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    provider_session_id=provider_session_id,
+                    run_kind=run_kind,
+                    exact_transcript_match=exact_transcript_match,
+                )
             )
         failure_error = (
             _builtin_runtime_client_module._provider_invocation_error_from_failure(
@@ -1133,15 +1111,16 @@ def _run_builtin_resumed_session(
             state_dir_session_id=state_dir_session_id,
         )
         _persist_opencode_session_id(provider_state_dir, provider_session_id)
-        continuation_input_facts = _continuation_input_facts(
-            service=continuation_service,
-            model=request.model,
-            effort=request.effort,
-            provider_state_dir=provider_state_dir,
-            provider_state_dir_relpath=provider_state_dir_relpath,
-            provider_session_id=provider_session_id,
-            run_kind=run_kind,
-            exact_transcript_match=exact_transcript_match,
+        continuation_input_facts = (
+            _provider_state_resolution.opencode_continuation_input_facts(
+                model=request.model,
+                effort=request.effort,
+                provider_state_dir=provider_state_dir,
+                provider_state_dir_relpath=provider_state_dir_relpath,
+                provider_session_id=provider_session_id,
+                run_kind=run_kind,
+                exact_transcript_match=exact_transcript_match,
+            )
         )
     assert provider_session_id is not None
     result_text = invocation_result.output

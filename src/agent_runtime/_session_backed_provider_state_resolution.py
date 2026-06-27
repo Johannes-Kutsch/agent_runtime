@@ -46,6 +46,101 @@ class ContinuationInputFacts:
     exact_transcript_match: ExactTranscriptMatch | None
 
 
+def codex_continuation_input_facts(
+    *,
+    model: str,
+    effort: str,
+    provider_state_dir: Path,
+    provider_state_dir_relpath: str | None,
+    provider_session_id: str | None,
+    recovered_provider_session_id: bool = False,
+    run_kind: RunKind,
+) -> ContinuationInputFacts:
+    return ContinuationInputFacts(
+        provider_identity=ProviderIdentity(
+            service="codex",
+            model=model,
+            effort=effort,
+        ),
+        provider_state_directory=ProviderStateDirectory(path=provider_state_dir),
+        provider_state_relpath=_provider_state_relpath(provider_state_dir_relpath),
+        provider_session_id=_provider_session_id(
+            provider_session_id,
+            recovered=recovered_provider_session_id,
+        ),
+        run_kind=run_kind,
+        exact_transcript_match=ExactTranscriptMatch(value=False),
+    )
+
+
+def claude_continuation_input_facts(
+    *,
+    model: str,
+    effort: str,
+    provider_state_dir: Path,
+    provider_state_dir_relpath: str | None,
+    provider_session_id: str | None,
+    run_kind: RunKind,
+) -> ContinuationInputFacts:
+    return ContinuationInputFacts(
+        provider_identity=ProviderIdentity(
+            service="claude",
+            model=model,
+            effort=effort,
+        ),
+        provider_state_directory=ProviderStateDirectory(path=provider_state_dir),
+        provider_state_relpath=_provider_state_relpath(provider_state_dir_relpath),
+        provider_session_id=_provider_session_id(provider_session_id, recovered=False),
+        run_kind=run_kind,
+        exact_transcript_match=ExactTranscriptMatch(value=False),
+    )
+
+
+def opencode_continuation_input_facts(
+    *,
+    model: str,
+    effort: str,
+    provider_state_dir: Path,
+    provider_state_dir_relpath: str | None,
+    provider_session_id: str | None,
+    run_kind: RunKind,
+    exact_transcript_match: bool,
+) -> ContinuationInputFacts:
+    return ContinuationInputFacts(
+        provider_identity=ProviderIdentity(
+            service="opencode",
+            model=model,
+            effort=effort,
+        ),
+        provider_state_directory=ProviderStateDirectory(path=provider_state_dir),
+        provider_state_relpath=_provider_state_relpath(provider_state_dir_relpath),
+        provider_session_id=_provider_session_id(provider_session_id, recovered=False),
+        run_kind=run_kind,
+        exact_transcript_match=ExactTranscriptMatch(value=exact_transcript_match),
+    )
+
+
+def _provider_state_relpath(
+    provider_state_dir_relpath: str | None,
+) -> ProviderStateRelpath | None:
+    if provider_state_dir_relpath is None:
+        return None
+    return ProviderStateRelpath(value=provider_state_dir_relpath)
+
+
+def _provider_session_id(
+    provider_session_id: str | None,
+    *,
+    recovered: bool,
+) -> PreparedOrRecoveredProviderSessionId | None:
+    if provider_session_id is None:
+        return None
+    return PreparedOrRecoveredProviderSessionId(
+        value=provider_session_id,
+        recovered=recovered,
+    )
+
+
 def build_session_backed_continuation(
     continuation_input_facts: ContinuationInputFacts,
     *,
