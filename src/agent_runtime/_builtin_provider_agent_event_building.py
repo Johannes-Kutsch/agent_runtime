@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import cast
 
 from ._runtime_lifecycle import AgentEvent
@@ -160,6 +161,10 @@ def build_claude_agent_event(line: str) -> AgentEvent:
     if not isinstance(event, dict):
         return _other(line, "non_object")
     return _build_claude_object_event(line, event)
+
+
+def claude_built_in_provider_agent_event_builder() -> Callable[[str], AgentEvent]:
+    return build_claude_agent_event
 
 
 def _render_claude_system_display_message(event: dict[str, object]) -> str | None:

@@ -10,9 +10,9 @@ from typing import Any, cast
 
 from . import _time as _time_module
 from ._builtin_provider_agent_event_building import (
-    build_claude_agent_event,
     build_codex_agent_event,
     build_opencode_agent_event,
+    claude_built_in_provider_agent_event_builder,
 )
 from .contracts import (
     AssistantTurn,
@@ -395,6 +395,7 @@ def reduce_claude_stream_with_dependencies(
     parse_claude_event: Callable[[str], list[Any]],
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
+    build_agent_event = claude_built_in_provider_agent_event_builder()
     usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
     for line in lines:
@@ -403,7 +404,7 @@ def reduce_claude_stream_with_dependencies(
     if on_live_output is not None:
         for line in lines:
             emit_built_in_provider_live_output_event(
-                build_claude_agent_event(line),
+                build_agent_event(line),
                 on_live_output,
             )
     try:
@@ -1044,6 +1045,8 @@ def opencode_built_in_provider_stream_interpretation(
 def claude_built_in_provider_stream_interpretation() -> (
     BuiltInProviderStreamInterpretation
 ):
+    build_agent_event = claude_built_in_provider_agent_event_builder()
+
     def _classify_progress(lines: list[str]) -> InvocationProgress:
         parsed_events = [event for line in lines for event in parse_claude_event(line)]
         if any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events):
@@ -1052,6 +1055,6 @@ def claude_built_in_provider_stream_interpretation() -> (
 
     return BuiltInProviderStreamInterpretation(
         reduce_output=reduce_claude_stream,
-        build_agent_event=build_claude_agent_event,
+        build_agent_event=build_agent_event,
         classify_invocation_progress=_classify_progress,
     )
