@@ -166,17 +166,9 @@ def test_execution_contracts_module_is_absent_without_changing_runtime_public_su
         assert hasattr(imported_module, exported_name)
 
 
-@pytest.mark.parametrize(
-    "module_name",
-    [
-        "agent_runtime.provider_session_adapter",
-    ],
-)
-def test_remaining_retired_public_adapter_modules_do_not_expose_runtime_seams(
-    module_name: str,
-) -> None:
-    module = importlib.import_module(module_name)
-    assert module.__all__ == []
+def test_provider_session_adapter_module_is_absent() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_runtime.provider_session_adapter")
 
 
 def test_retired_service_registry_module_is_absent() -> None:
@@ -773,16 +765,14 @@ def test_provider_session_seams_consolidate_public_session_store_vocabulary() ->
     )
 
 
-def test_provider_session_adapter_public_seam_stays_narrow() -> None:
-    public_module = importlib.import_module("agent_runtime.provider_session_adapter")
-    assert public_module.__all__ == []
+def test_provider_session_adapter_public_seam_is_absent() -> None:
     for removed_name in (
         "ProviderSessionAdapter",
         "ProviderSessionPlanningFacts",
         "ProviderSessionPlanningRequest",
         "provider_session_planning_facts",
     ):
-        with pytest.raises(ImportError):
+        with pytest.raises(ModuleNotFoundError):
             exec(
                 f"from agent_runtime.provider_session_adapter import {removed_name}",
                 {},
