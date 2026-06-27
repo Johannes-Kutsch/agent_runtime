@@ -220,21 +220,27 @@ def resolve_claude_new_session_facts(
 def resolve_claude_resumed_session_facts(
     *,
     runtime_state_dir: Path,
-    provider_state_dir_relpath: str,
+    provider_state_dir_relpath: str | None,
     model: str,
     effort: str,
     provider_session_id: str | None,
 ) -> ClaudeResumedSessionResolution:
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    if provider_state_dir_relpath is None:
+        provider_state_dir = runtime_state_dir
+        run_kind = RunKind.RESUME
+    else:
+        provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+        provider_state_dir.mkdir(parents=True, exist_ok=True)
+        run_kind = (
+            RunKind.RESUME
+            if _claude_is_resumable(provider_state_dir)
+            else RunKind.FRESH
+        )
     active_provider_session_id = _normalize_provider_session_id(provider_session_id)
     if active_provider_session_id is None:
         active_provider_session_id = (
             _builtin_runtime_client_module._new_provider_session_id()
         )
-    run_kind = (
-        RunKind.RESUME if _claude_is_resumable(provider_state_dir) else RunKind.FRESH
-    )
     return ClaudeResumedSessionResolution(
         provider_state_dir=provider_state_dir,
         continuation_input_facts=claude_continuation_input_facts(

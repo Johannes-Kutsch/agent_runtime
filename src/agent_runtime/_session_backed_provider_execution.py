@@ -23,7 +23,7 @@ from ._runtime_lifecycle import (
 from .errors import RuntimeConfigurationError
 from .errors import AgentTimeoutError
 from .invocation_progress import InvocationProgress
-from .session import RunKind, provider_state_relpath
+from .session import RunKind
 from .types import ProviderSelection, ResolvedProvider
 
 
@@ -114,14 +114,6 @@ def _opencode_exact_transcript_match(
         and provider_session_id is not None
         and state_dir_session_id == provider_session_id
     )
-
-
-def _claude_provider_state_dir_relpath(
-    *,
-    role: Any,
-    session_namespace: str,
-) -> str:
-    return cast(str, provider_state_relpath(role, "claude", session_namespace))
 
 
 def _require_claude_auth(auth: ProviderAuth | None) -> None:
@@ -739,46 +731,25 @@ def _run_builtin_resumed_session(
     if continuation_service == "claude":
         _require_claude_auth(request.provider_auth)
         provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
-        if provider_state_dir_relpath and request.session_store is not None:
-            claude_resolution = (
-                _provider_state_resolution.resolve_claude_resumed_session_facts(
-                    runtime_state_dir=request.session_store,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
-                    model=request.model,
-                    effort=request.effort,
-                    provider_session_id=provider_session_id,
-                )
+        claude_resolution = (
+            _provider_state_resolution.resolve_claude_resumed_session_facts(
+                runtime_state_dir=runtime_state_dir,
+                provider_state_dir_relpath=provider_state_dir_relpath,
+                model=request.model,
+                effort=request.effort,
+                provider_session_id=provider_session_id,
             )
-            provider_state_dir = claude_resolution.provider_state_dir
-            continuation_input_facts = claude_resolution.continuation_input_facts
-            provider_session_id = cast(
-                str,
-                cast(
-                    _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                    continuation_input_facts.provider_session_id,
-                ).value,
-            )
-            run_kind = continuation_input_facts.run_kind
-        else:
-            if not provider_session_id:
-                provider_session_id = (
-                    _builtin_runtime_client_module._new_provider_session_id()
-                )
-            run_kind = RunKind.RESUME
-            continuation_input_facts = (
-                _provider_state_resolution.claude_continuation_input_facts(
-                    model=request.model,
-                    effort=request.effort,
-                    provider_state_dir=(
-                        provider_state_dir
-                        if provider_state_dir is not None
-                        else runtime_state_dir
-                    ),
-                    provider_state_dir_relpath=provider_state_dir_relpath,
-                    provider_session_id=provider_session_id,
-                    run_kind=run_kind,
-                )
-            )
+        )
+        provider_state_dir = claude_resolution.provider_state_dir
+        continuation_input_facts = claude_resolution.continuation_input_facts
+        provider_session_id = cast(
+            str,
+            cast(
+                _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
+                continuation_input_facts.provider_session_id,
+            ).value,
+        )
+        run_kind = continuation_input_facts.run_kind
         cleanup_opencode_state_dir = _no_cleanup
     else:
         _builtin_runtime_client_module._require_opencode_auth(request.provider_auth)
