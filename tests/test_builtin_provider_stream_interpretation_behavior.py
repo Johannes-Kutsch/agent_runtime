@@ -210,6 +210,31 @@ def test_codex_built_in_provider_stream_interpretation_builds_turn_summary_from_
     assert event.raw_provider_output == line
 
 
+def test_codex_built_in_provider_stream_interpretation_omits_missing_turn_summary_fields() -> (
+    None
+):
+    interpretation = codex_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 0,
+                    "cached_tokens": "30",
+                    "output_tokens": None,
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "turn_summary"
+    assert event.display_message == "input_tokens=0"
+    assert event.raw_provider_output == line
+
+
 def test_codex_built_in_provider_stream_interpretation_builds_other_event_from_plain_text_line() -> (
     None
 ):
@@ -270,6 +295,29 @@ def test_claude_built_in_provider_stream_interpretation_builds_turn_summary_from
     assert "success" in event.display_message
     assert "2345" in event.display_message
     assert "0.0123" in event.display_message
+    assert event.raw_provider_output == line
+
+
+def test_claude_built_in_provider_stream_interpretation_omits_missing_turn_summary_fields() -> (
+    None
+):
+    interpretation = claude_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "",
+                "duration_ms": 0,
+                "total_cost_usd": "0.0123",
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "turn_summary"
+    assert event.display_message == "duration_ms=0"
     assert event.raw_provider_output == line
 
 
@@ -506,6 +554,34 @@ def test_opencode_built_in_provider_stream_interpretation_builds_expected_live_a
         assert event.type == expected_type
         assert event.display_message == expected_message
         assert event.raw_provider_output == line
+
+
+def test_opencode_built_in_provider_stream_interpretation_omits_missing_turn_summary_fields() -> (
+    None
+):
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "step_finish",
+                "step": {
+                    "tokens": {
+                        "input": 0,
+                        "output": "45",
+                        "cache": {"read": 0, "write": None},
+                    },
+                    "cost": False,
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "turn_summary"
+    assert event.display_message == "input=0 | cache_read=0"
+    assert event.raw_provider_output == line
 
 
 @pytest.mark.parametrize(
