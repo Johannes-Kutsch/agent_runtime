@@ -531,6 +531,18 @@ def build_claude_agent_event(line: str) -> AgentEvent:
                     return _tool_call_event(
                         line, tool_name, _raw_event_payload(payload_value)
                     )
+    if event.get("type") == "system":
+        subtype = event.get("subtype")
+        if isinstance(subtype, str) and subtype:
+            if subtype == "system.init":
+                cwd = event.get("cwd")
+                if isinstance(cwd, str) and cwd:
+                    return _other_event(line, f"{subtype} cwd={cwd}")
+            if subtype == "system.thinking_tokens":
+                estimated_tokens = event.get("estimated_tokens")
+                if isinstance(estimated_tokens, int):
+                    return _other_event(line, f"{subtype} tokens={estimated_tokens}")
+            return _other_event(line, subtype)
     event_type = event.get("type")
     descriptor = event_type if isinstance(event_type, str) and event_type else "other"
     return _other_event(line, descriptor)
