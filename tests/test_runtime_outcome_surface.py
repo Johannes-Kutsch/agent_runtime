@@ -264,6 +264,61 @@ def test_claude_unrecognized_system_subtype_line_uses_subtype_name_only_in_displ
     assert event.raw_provider_output == line
 
 
+@pytest.mark.parametrize(
+    ("line_payload", "expected_display_message"),
+    [
+        (
+            {
+                "type": "system",
+                "subtype": "system.init",
+            },
+            "system.init",
+        ),
+        (
+            {
+                "type": "system",
+                "subtype": "system.init",
+                "cwd": "",
+            },
+            "system.init",
+        ),
+        (
+            {
+                "type": "system",
+                "subtype": "system.thinking_tokens",
+            },
+            "system.thinking_tokens",
+        ),
+        (
+            {
+                "type": "system",
+                "subtype": "system.thinking_tokens",
+                "estimated_tokens": "321",
+            },
+            "system.thinking_tokens",
+        ),
+        (
+            {
+                "type": "system",
+                "subtype": "system.thinking_tokens",
+                "estimated_tokens": True,
+            },
+            "system.thinking_tokens",
+        ),
+    ],
+)
+def test_claude_system_lines_without_valid_specialized_fields_fall_back_to_subtype_name(
+    line_payload: dict[str, object], expected_display_message: str
+) -> None:
+    line = json.dumps(line_payload) + "\n"
+
+    event = _built_in_provider_event("claude", line)
+
+    assert event.type == "other"
+    assert event.display_message == expected_display_message
+    assert event.raw_provider_output == line
+
+
 def test_completed_ephemeral_run_is_completed_kind_with_run_result(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

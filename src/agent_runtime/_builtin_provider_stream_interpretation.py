@@ -532,20 +532,27 @@ def build_claude_agent_event(line: str) -> AgentEvent:
                         line, tool_name, _raw_event_payload(payload_value)
                     )
     if event.get("type") == "system":
-        subtype = event.get("subtype")
-        if isinstance(subtype, str) and subtype:
-            if subtype == "system.init":
-                cwd = event.get("cwd")
-                if isinstance(cwd, str) and cwd:
-                    return _other_event(line, f"{subtype} cwd={cwd}")
-            if subtype == "system.thinking_tokens":
-                estimated_tokens = event.get("estimated_tokens")
-                if isinstance(estimated_tokens, int):
-                    return _other_event(line, f"{subtype} tokens={estimated_tokens}")
-            return _other_event(line, subtype)
+        descriptor = _render_claude_system_display_message(event)
+        if descriptor is not None:
+            return _other_event(line, descriptor)
     event_type = event.get("type")
     descriptor = event_type if isinstance(event_type, str) and event_type else "other"
     return _other_event(line, descriptor)
+
+
+def _render_claude_system_display_message(event: dict[str, object]) -> str | None:
+    subtype = event.get("subtype")
+    if not isinstance(subtype, str) or not subtype:
+        return None
+    if subtype == "system.init":
+        cwd = event.get("cwd")
+        if isinstance(cwd, str) and cwd:
+            return f"{subtype} cwd={cwd}"
+    if subtype == "system.thinking_tokens":
+        estimated_tokens = event.get("estimated_tokens")
+        if isinstance(estimated_tokens, int) and not isinstance(estimated_tokens, bool):
+            return f"{subtype} tokens={estimated_tokens}"
+    return subtype
 
 
 def _classify_codex_error_message(
