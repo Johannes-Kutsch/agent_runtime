@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import Callable
 
 import pytest
 
 from agent_runtime import _time as time_runtime
 from agent_runtime._builtin_provider_stream_interpretation import (
+    BuiltInProviderStreamInterpretation,
     classify_built_in_provider_invocation_progress,
+    claude_built_in_provider_stream_interpretation,
     codex_built_in_provider_stream_interpretation,
     observe_opencode_output,
     opencode_built_in_provider_stream_interpretation,
@@ -176,6 +179,32 @@ def test_codex_built_in_provider_stream_interpretation_builds_tool_call_event_fr
 
     assert event.type == "agent_tool_call"
     assert event.display_message == 'shell({"command":"pwd"})'
+    assert event.raw_provider_output == line
+
+
+def test_codex_built_in_provider_stream_interpretation_builds_other_event_from_plain_text_line() -> (
+    None
+):
+    interpretation = codex_built_in_provider_stream_interpretation()
+    line = "  permission denied: missing approval  \n"
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "other"
+    assert event.display_message == "permission denied: missing approval"
+    assert event.raw_provider_output == line
+
+
+def test_claude_built_in_provider_stream_interpretation_builds_other_event_from_plain_text_line() -> (
+    None
+):
+    interpretation = claude_built_in_provider_stream_interpretation()
+    line = "  Reading prompt from stdin...  \n"
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "other"
+    assert event.display_message == "Reading prompt from stdin..."
     assert event.raw_provider_output == line
 
 
@@ -384,7 +413,7 @@ def test_opencode_built_in_provider_stream_interpretation_builds_expected_live_a
             "other",
             "error",
         ),
-        ("not json\n", "other", "unparsed"),
+        ("  not json  \n", "other", "not json"),
         (json.dumps({"type": "custom.event"}) + "\n", "other", "custom.event"),
     ]
 
@@ -393,6 +422,26 @@ def test_opencode_built_in_provider_stream_interpretation_builds_expected_live_a
         assert event.type == expected_type
         assert event.display_message == expected_message
         assert event.raw_provider_output == line
+
+
+@pytest.mark.parametrize(
+    ("interpretation_factory", "line"),
+    [
+        (claude_built_in_provider_stream_interpretation, '"text"\n'),
+        (codex_built_in_provider_stream_interpretation, '"text"\n'),
+        (opencode_built_in_provider_stream_interpretation, '"text"\n'),
+    ],
+)
+def test_built_in_provider_stream_interpretation_keeps_non_object_descriptor(
+    interpretation_factory: Callable[[], BuiltInProviderStreamInterpretation], line: str
+) -> None:
+    interpretation = interpretation_factory()
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "other"
+    assert event.display_message == "non_object"
+    assert event.raw_provider_output == line
 
 
 def test_opencode_observation_emits_live_agent_events_and_tracks_provider_session_id_until_idle() -> (

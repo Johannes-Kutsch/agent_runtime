@@ -163,7 +163,9 @@ def _serialize_tool_access(tool_access: ToolAccess) -> dict[str, Any]:
         }
     return {
         "kind": tool_access.kind,
-        "workspace": str(tool_access.workspace) if tool_access.workspace else None,
+        "workspace": (
+            tool_access.workspace.as_posix() if tool_access.workspace else None
+        ),
         "tool_policy": policy_payload,
     }
 
@@ -374,7 +376,7 @@ class ProviderAuth:
 
 @dataclasses.dataclass(frozen=True)
 class AgentEvent:
-    type: Literal["agent_message", "agent_tool_call", "other"]
+    type: Literal["agent_message", "agent_tool_call", "turn_summary", "other"]
     display_message: str
     raw_provider_output: str
 
