@@ -228,6 +228,10 @@ def build_codex_agent_event(line: str) -> AgentEvent:
     return _other(line, descriptor)
 
 
+def codex_built_in_provider_agent_event_builder() -> Callable[[str], AgentEvent]:
+    return build_codex_agent_event
+
+
 def build_opencode_agent_event(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
