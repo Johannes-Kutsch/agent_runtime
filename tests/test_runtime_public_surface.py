@@ -727,14 +727,8 @@ def test_provider_session_adapter_public_seam_stays_narrow() -> None:
                 {},
             )
 
-    internal_module = importlib.import_module("agent_runtime._provider_session_adapter")
-    for removed_name in (
-        "ProviderSessionAdapter",
-        "ProviderSessionPlanningFacts",
-        "ProviderSessionPlanningRequest",
-        "provider_session_planning_facts",
-    ):
-        assert not hasattr(internal_module, removed_name)
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_runtime._provider_session_adapter")
 
 
 def test_tool_policy_has_three_members_on_public_surface() -> None:
