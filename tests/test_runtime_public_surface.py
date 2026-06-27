@@ -11,6 +11,7 @@ import unittest.mock
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._session_backed_provider_state_resolution as provider_state_resolution_runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
@@ -127,6 +128,77 @@ def test_session_backed_provider_execution_module_stays_private_to_runtime_publi
     assert not hasattr(prompt_runtime, "_session_backed_provider_execution")
     assert "_session_backed_provider_execution_module" not in runtime.__all__
     assert "_session_backed_provider_execution_module" not in prompt_runtime.__all__
+
+
+def test_session_backed_provider_state_resolution_module_stays_private_to_runtime_public_surface() -> (
+    None
+):
+    with pytest.raises(ImportError):
+        exec("from agent_runtime import ProviderIdentity", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.runtime import ProviderIdentity", {}, {})
+    with pytest.raises(ImportError):
+        exec("from agent_runtime.contracts import ProviderIdentity", {}, {})
+
+    assert not hasattr(runtime, "ProviderIdentity")
+    assert not hasattr(prompt_runtime, "ProviderIdentity")
+    assert not hasattr(contracts_runtime, "ProviderIdentity")
+    assert "ProviderIdentity" not in runtime.__all__
+    assert "ProviderIdentity" not in prompt_runtime.__all__
+    assert "ProviderIdentity" not in contracts_runtime.__all__
+
+
+def test_session_backed_provider_state_resolution_module_exposes_immutable_internal_fact_values() -> (
+    None
+):
+    provider_identity = provider_state_resolution_runtime.ProviderIdentity(
+        service="claude",
+        model="sonnet",
+        effort="high",
+    )
+    provider_state_directory = provider_state_resolution_runtime.ProviderStateDirectory(
+        path=Path("/tmp/store")
+    )
+    provider_state_relpath = provider_state_resolution_runtime.ProviderStateRelpath(
+        value="implementer/claude/"
+    )
+    provider_session_id = (
+        provider_state_resolution_runtime.PreparedOrRecoveredProviderSessionId(
+            value="session-123",
+            recovered=True,
+        )
+    )
+    exact_transcript_match = provider_state_resolution_runtime.ExactTranscriptMatch(
+        value=True
+    )
+    continuation_input_facts = provider_state_resolution_runtime.ContinuationInputFacts(
+        provider_identity=provider_identity,
+        provider_state_directory=provider_state_directory,
+        provider_state_relpath=provider_state_relpath,
+        provider_session_id=provider_session_id,
+        run_kind=RunKind.RESUME,
+        exact_transcript_match=exact_transcript_match,
+    )
+
+    assert continuation_input_facts.provider_identity is provider_identity
+    assert continuation_input_facts.provider_state_directory is provider_state_directory
+    assert continuation_input_facts.provider_state_relpath is provider_state_relpath
+    assert continuation_input_facts.provider_session_id is provider_session_id
+    assert continuation_input_facts.run_kind is RunKind.RESUME
+    assert continuation_input_facts.exact_transcript_match is exact_transcript_match
+
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, provider_identity).service = "codex"
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, provider_state_directory).path = Path("/tmp/other")
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, provider_state_relpath).value = "implementer/codex/"
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, provider_session_id).value = "session-456"
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, exact_transcript_match).value = False
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, continuation_input_facts).run_kind = RunKind.FRESH
 
 
 def test_execution_contracts_module_is_absent_without_changing_runtime_public_surface() -> (
