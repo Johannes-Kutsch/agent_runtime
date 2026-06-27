@@ -63,6 +63,12 @@ class ClaudeStartSessionStateResolution:
 
 
 @dataclass(frozen=True)
+class OpenCodeStartSessionStateResolution:
+    provider_state_dir: Path
+    provider_state_dir_relpath: str | None
+
+
+@dataclass(frozen=True)
 class CodexResumedSessionResolution:
     provider_state_dir: Path | None
     continuation_input_facts: ContinuationInputFacts
@@ -70,6 +76,18 @@ class CodexResumedSessionResolution:
 
 @dataclass(frozen=True)
 class ClaudeNewSessionResolution:
+    provider_state_dir: Path
+    continuation_input_facts: ContinuationInputFacts
+
+
+@dataclass(frozen=True)
+class OpenCodeNewSessionResolution:
+    provider_state_dir: Path
+    continuation_input_facts: ContinuationInputFacts
+
+
+@dataclass(frozen=True)
+class OpenCodeResumedSessionResolution:
     provider_state_dir: Path
     continuation_input_facts: ContinuationInputFacts
 
@@ -84,6 +102,56 @@ class ClaudeResumedSessionResolution:
 class CodexNewSessionResolution:
     provider_state_dir: Path
     continuation_input_facts: ContinuationInputFacts
+
+
+def _opencode_session_id_path(provider_state_dir: Path) -> Path:
+    return (
+        provider_state_dir
+        / _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME
+    )
+
+
+def load_opencode_stored_session_id(provider_state_dir: Path | None) -> str | None:
+    if provider_state_dir is None:
+        return None
+    session_id_path = _opencode_session_id_path(provider_state_dir)
+    if not session_id_path.is_file():
+        return None
+    try:
+        return _normalize_provider_session_id(
+            session_id_path.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _opencode_is_resumable(provider_state_dir: Path) -> bool:
+    return (provider_state_dir / "resume.jsonl").is_file() or _opencode_session_id_path(
+        provider_state_dir
+    ).is_file()
+
+
+def _opencode_exact_transcript_match(
+    *,
+    saved_exact_transcript_match: bool,
+    active_provider_session_id: str | None,
+    stored_provider_session_id: str | None,
+) -> bool:
+    return (
+        saved_exact_transcript_match
+        and active_provider_session_id is not None
+        and stored_provider_session_id == active_provider_session_id
+    )
+
+
+def persist_opencode_provider_session_id(
+    provider_state_dir: Path,
+    provider_session_id: str,
+) -> None:
+    _opencode_session_id_path(provider_state_dir).write_text(
+        f"{provider_session_id}\n",
+        encoding="utf-8",
+    )
 
 
 def _codex_rollout_paths(provider_state_dir: Path) -> tuple[Path, ...]:
@@ -139,6 +207,27 @@ def resolve_claude_start_session_state(
     )
 
 
+def resolve_opencode_start_session_state(
+    *,
+    runtime_state_dir: Path,
+    session_namespace: str,
+    caller_owned_session_store: bool,
+) -> OpenCodeStartSessionStateResolution:
+    provider_state_dir_relpath = provider_state_relpath(
+        "implementer",
+        "opencode",
+        session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    return OpenCodeStartSessionStateResolution(
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=(
+            provider_state_dir_relpath if caller_owned_session_store else None
+        ),
+    )
+
+
 def resolve_codex_new_session_facts(
     *,
     runtime_state_dir: Path,
@@ -178,6 +267,49 @@ def resolve_codex_new_session_facts(
     return CodexNewSessionResolution(
         provider_state_dir=start_session_state.provider_state_dir,
         continuation_input_facts=continuation_input_facts,
+    )
+
+
+def resolve_opencode_new_session_facts(
+    *,
+    runtime_state_dir: Path,
+    session_namespace: str,
+    caller_owned_session_store: bool,
+    model: str,
+    effort: str,
+) -> OpenCodeNewSessionResolution:
+    start_session_state = resolve_opencode_start_session_state(
+        runtime_state_dir=runtime_state_dir,
+        session_namespace=session_namespace,
+        caller_owned_session_store=caller_owned_session_store,
+    )
+    stored_provider_session_id = load_opencode_stored_session_id(
+        start_session_state.provider_state_dir
+    )
+    active_provider_session_id = (
+        stored_provider_session_id
+        or _builtin_runtime_client_module._new_provider_session_id()
+    )
+    run_kind = (
+        RunKind.RESUME
+        if _opencode_is_resumable(start_session_state.provider_state_dir)
+        else RunKind.FRESH
+    )
+    return OpenCodeNewSessionResolution(
+        provider_state_dir=start_session_state.provider_state_dir,
+        continuation_input_facts=opencode_continuation_input_facts(
+            model=model,
+            effort=effort,
+            provider_state_dir=start_session_state.provider_state_dir,
+            provider_state_dir_relpath=start_session_state.provider_state_dir_relpath,
+            provider_session_id=active_provider_session_id,
+            run_kind=run_kind,
+            exact_transcript_match=_opencode_exact_transcript_match(
+                saved_exact_transcript_match=True,
+                active_provider_session_id=active_provider_session_id,
+                stored_provider_session_id=stored_provider_session_id,
+            ),
+        ),
     )
 
 
@@ -250,6 +382,56 @@ def resolve_claude_resumed_session_facts(
             provider_state_dir_relpath=provider_state_dir_relpath,
             provider_session_id=active_provider_session_id,
             run_kind=run_kind,
+        ),
+    )
+
+
+def resolve_opencode_resumed_session_facts(
+    *,
+    runtime_state_dir: Path,
+    session_namespace: str,
+    continuation: Continuation,
+    model: str,
+    effort: str,
+) -> OpenCodeResumedSessionResolution:
+    continuation_facts = continuation.session_backed_facts
+    provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
+    if provider_state_dir_relpath is None:
+        provider_state_dir_relpath = provider_state_relpath(
+            "implementer",
+            "opencode",
+            session_namespace,
+        )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+
+    stored_provider_session_id = load_opencode_stored_session_id(provider_state_dir)
+    active_provider_session_id = _normalize_provider_session_id(
+        continuation_facts.provider_session_id
+    )
+    if active_provider_session_id is None:
+        active_provider_session_id = stored_provider_session_id
+    if active_provider_session_id is None:
+        active_provider_session_id = (
+            _builtin_runtime_client_module._new_provider_session_id()
+        )
+
+    return OpenCodeResumedSessionResolution(
+        provider_state_dir=provider_state_dir,
+        continuation_input_facts=opencode_continuation_input_facts(
+            model=model,
+            effort=effort,
+            provider_state_dir=provider_state_dir,
+            provider_state_dir_relpath=provider_state_dir_relpath,
+            provider_session_id=active_provider_session_id,
+            run_kind=RunKind.RESUME,
+            exact_transcript_match=_opencode_exact_transcript_match(
+                saved_exact_transcript_match=bool(
+                    continuation_facts.exact_transcript_match
+                ),
+                active_provider_session_id=active_provider_session_id,
+                stored_provider_session_id=stored_provider_session_id,
+            ),
         ),
     )
 
