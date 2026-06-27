@@ -151,7 +151,7 @@ Resumed-session execution continues an existing provider-session continuity chai
 
 `on_live_output` publishes per-invocation `Agent Event` observations while a run is executing. Observers receive events from the current invocation only.
 
-`Agent Event` values are discriminated by type: `agent_message` (assistant message output), `agent_tool_call` (tool invocation), or `other` (agent life sign). Each event carries both a filtered/neutral `display_message` and the raw provider output it derived from.
+`Agent Event` values are discriminated by type: `agent_message` (assistant message output), `agent_tool_call` (tool invocation), `turn_summary` (provider-emitted turn/step completion carrying usage and cost data), or `other` (agent life sign). Each event carries both a `display_message` and the raw provider output it derived from.
 
 - Live Runtime Output is `Agent Event` observation, not token-by-token streaming.
 - Events carry both a filtered `display_message` and raw provider output for consumers to choose which representation to use.
@@ -309,13 +309,20 @@ Every public `ToolPolicy` is valid for every supported service/model pair. Built
 ```python
 AgentEvent(
     *,
-    type: Literal["agent_message", "agent_tool_call", "other"],
+    type: Literal["agent_message", "agent_tool_call", "turn_summary", "other"],
     display_message: str,
     raw_provider_output: str,
 ) -> None
 ```
 
-One observed signal from Live Runtime Output, discriminated by type: `agent_message` (assistant message), `agent_tool_call` (tool invocation), or `other` (agent life sign). Each event carries a single filtered/neutral `display_message` (message text, a rendered `tool_name(payload)` for tool calls, or a life-sign descriptor) alongside the `raw_provider_output` it derived from. Consumers choose which representation to use.
+One observed signal from Live Runtime Output, discriminated by type:
+
+- `agent_message` — assistant text output. `display_message` is the message text.
+- `agent_tool_call` — tool invocation. `display_message` is a rendered `tool_name(payload)` string.
+- `turn_summary` — provider-emitted turn or step completion event carrying usage and cost data (Claude `result`, Codex `turn.completed`, OpenCode `step_finish`). `display_message` summarises available fields such as stop reason, duration, cost, and token counts.
+- `other` — agent life sign or provider diagnostic. `display_message` is a descriptor drawn from the provider event type, subtype, or relevant fields (e.g. `system.init cwd=<path>`, `system.thinking_tokens tokens=<n>`), or the stripped raw text for non-JSON provider output.
+
+Each event carries `display_message` alongside `raw_provider_output`. Consumers choose which representation to use.
 
 The type is shared runtime vocabulary and is importable from both `agent_runtime` and `agent_runtime.runtime`.
 
