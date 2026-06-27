@@ -257,6 +257,10 @@ def _other_event(line: str, descriptor: str) -> AgentEvent:
     )
 
 
+def _unparsed_text_event(line: str) -> AgentEvent:
+    return _other_event(line, line.strip())
+
+
 def is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
     result = event.get("result")
     return (
@@ -496,7 +500,7 @@ def build_claude_agent_event(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return _other_event(line, "unparsed")
+        return _unparsed_text_event(line)
     if not isinstance(event, dict):
         return _other_event(line, "non_object")
     if event.get("type") == "assistant":
@@ -673,7 +677,7 @@ def build_codex_agent_event(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return _other_event(line, "unparsed")
+        return _unparsed_text_event(line)
     if not isinstance(event, dict):
         return _other_event(line, "non_object")
     event_type = event.get("type")
@@ -1006,7 +1010,7 @@ def build_opencode_agent_event(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return _other_event(line, "unparsed")
+        return _unparsed_text_event(line)
     if not isinstance(event, dict):
         return _other_event(line, "non_object")
     if event.get("type") == "text":
