@@ -374,7 +374,7 @@ class ProviderAuth:
 
 @dataclasses.dataclass(frozen=True)
 class AgentEvent:
-    type: Literal["agent_message", "agent_tool_call", "other"]
+    type: Literal["agent_message", "agent_tool_call", "turn_summary", "other"]
     display_message: str
     raw_provider_output: str
 
