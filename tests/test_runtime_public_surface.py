@@ -765,6 +765,32 @@ def test_provider_session_seams_consolidate_public_session_store_vocabulary() ->
     )
 
 
+@pytest.mark.parametrize(
+    ("module_name", "removed_name"),
+    [
+        ("agent_runtime", "ProviderSessionAdapter"),
+        ("agent_runtime", "ProviderSessionPlanningFacts"),
+        ("agent_runtime", "ProviderSessionPlanningRequest"),
+        ("agent_runtime", "provider_session_planning_facts"),
+        ("agent_runtime.runtime", "ProviderSessionAdapter"),
+        ("agent_runtime.runtime", "ProviderSessionPlanningFacts"),
+        ("agent_runtime.runtime", "ProviderSessionPlanningRequest"),
+        ("agent_runtime.runtime", "provider_session_planning_facts"),
+        ("agent_runtime.contracts", "ProviderSessionAdapter"),
+        ("agent_runtime.contracts", "ProviderSessionPlanningFacts"),
+        ("agent_runtime.contracts", "ProviderSessionPlanningRequest"),
+        ("agent_runtime.contracts", "provider_session_planning_facts"),
+    ],
+)
+def test_provider_session_adapter_names_are_absent_from_runtime_public_surface(
+    module_name: str,
+    removed_name: str,
+) -> None:
+    imported_module = importlib.import_module(module_name)
+    assert removed_name not in getattr(imported_module, "__all__", [])
+    assert not hasattr(imported_module, removed_name)
+
+
 def test_provider_session_adapter_public_seam_is_absent() -> None:
     for removed_name in (
         "ProviderSessionAdapter",
