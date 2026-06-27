@@ -153,12 +153,32 @@ def test_retired_service_registry_compatibility_module_stays_empty() -> None:
         getattr(module, "ServiceRegistry")
 
 
-def test_provider_session_planning_compatibility_module_is_absent() -> None:
+@pytest.mark.parametrize(
+    "imported_name",
+    [
+        "ExecutionProvider",
+        "ProviderStatePreparationAction",
+        "ResumabilityProvider",
+        "ResumableExecutionProvider",
+        "ServiceSelectionProvider",
+        "ParsedTurn",
+        "ToolAccess",
+        "ToolPolicy",
+        "ToolPolicyProfile",
+    ],
+)
+def test_provider_session_planning_compatibility_module_is_absent(
+    imported_name: str,
+) -> None:
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("agent_runtime.session_planning")
 
     with pytest.raises(ModuleNotFoundError):
-        exec("from agent_runtime.session_planning import ExecutionProvider", {}, {})
+        exec(
+            f"from agent_runtime.session_planning import {imported_name}",
+            {},
+            {},
+        )
 
 
 def test_session_module_exports_only_active_provider_state_helpers() -> None:
