@@ -77,6 +77,7 @@ def test_release_artifacts_omit_private_and_retired_modules(
     assert f"{package_root}/_provider_session_adapter.py" not in sdist_members
     assert f"{package_root}/execution_contracts.py" not in sdist_members
     assert f"{package_root}/service_registry.py" not in sdist_members
+    assert f"{package_root}/session_planning.py" not in sdist_members
 
 
 def test_release_wheel_metadata_matches_verified_python_support(
