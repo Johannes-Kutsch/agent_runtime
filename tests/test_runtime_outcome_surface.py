@@ -216,6 +216,123 @@ def test_other_lines_render_neutral_descriptor_as_display_message() -> None:
     assert event.raw_provider_output == line
 
 
+def test_claude_system_init_line_includes_subtype_and_cwd_in_display_message() -> None:
+    line = (
+        json.dumps(
+            {
+                "type": "system",
+                "subtype": "system.init",
+                "cwd": "/workspace/project",
+            }
+        )
+        + "\n"
+    )
+
+    event = _built_in_provider_event("claude", line)
+
+    assert event.type == "other"
+    assert event.display_message == "system.init cwd=/workspace/project"
+    assert event.raw_provider_output == line
+
+
+def test_claude_system_thinking_tokens_line_includes_subtype_and_token_count_in_display_message() -> (
+    None
+):
+    line = (
+        json.dumps(
+            {
+                "type": "system",
+                "subtype": "system.thinking_tokens",
+                "estimated_tokens": 321,
+            }
+        )
+        + "\n"
+    )
+
+    event = _built_in_provider_event("claude", line)
+
+    assert event.type == "other"
+    assert event.display_message == "system.thinking_tokens tokens=321"
+    assert event.raw_provider_output == line
+
+
+def test_claude_unrecognized_system_subtype_line_uses_subtype_name_only_in_display_message() -> (
+    None
+):
+    line = (
+        json.dumps(
+            {
+                "type": "system",
+                "subtype": "system.custom_event",
+                "cwd": "/workspace/project",
+                "estimated_tokens": 321,
+            }
+        )
+        + "\n"
+    )
+
+    event = _built_in_provider_event("claude", line)
+
+    assert event.type == "other"
+    assert event.display_message == "system.custom_event"
+    assert event.raw_provider_output == line
+
+
+@pytest.mark.parametrize(
+    ("line_payload", "expected_display_message"),
+    [
+        (
+            {
+                "type": "system",
+                "subtype": "system.init",
+            },
+            "system.init",
+        ),
+        (
+            {
+                "type": "system",
+                "subtype": "system.init",
+                "cwd": "",
+            },
+            "system.init",
+        ),
+        (
+            {
+                "type": "system",
+                "subtype": "system.thinking_tokens",
+            },
+            "system.thinking_tokens",
+        ),
+        (
+            {
+                "type": "system",
+                "subtype": "system.thinking_tokens",
+                "estimated_tokens": "321",
+            },
+            "system.thinking_tokens",
+        ),
+        (
+            {
+                "type": "system",
+                "subtype": "system.thinking_tokens",
+                "estimated_tokens": True,
+            },
+            "system.thinking_tokens",
+        ),
+    ],
+)
+def test_claude_system_lines_without_valid_specialized_fields_fall_back_to_subtype_name(
+    line_payload: dict[str, object], expected_display_message: str
+) -> None:
+    line = json.dumps(line_payload) + "\n"
+
+    event = _built_in_provider_event("claude", line)
+
+    assert event.type == "other"
+    assert event.display_message == expected_display_message
+    assert event.raw_provider_output == line
+
+
 def test_completed_ephemeral_run_is_completed_kind_with_run_result(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
