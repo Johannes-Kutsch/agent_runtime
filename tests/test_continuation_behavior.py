@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+from typing import cast
 
 import pytest
 
@@ -64,6 +65,28 @@ def test_continuation_serialization_keeps_current_resume_token_schema() -> None:
     }
     assert (
         prompt_runtime.Continuation(serialized=continuation.serialized) == continuation
+    )
+
+
+def test_continuation_serialization_normalizes_workspace_path_to_posix() -> None:
+    workspace = cast(Path, PureWindowsPath(r"C:\repo\agent-runtime"))
+    continuation = prompt_runtime.Continuation(
+        selected_service="codex",
+        selected_model="gpt-5.4",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.workspace_backed(
+            workspace,
+            tool_policy=runtime.ToolPolicy.NO_FILE_MUTATION,
+        ),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "thread-123",
+            "provider_state_dir_relpath": "implementer/main/codex/",
+        },
+    )
+
+    assert json.loads(continuation.serialized)["tool_access"]["workspace"] == (
+        "C:/repo/agent-runtime"
     )
 
 

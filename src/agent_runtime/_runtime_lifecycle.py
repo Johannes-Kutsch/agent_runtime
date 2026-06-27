@@ -163,7 +163,9 @@ def _serialize_tool_access(tool_access: ToolAccess) -> dict[str, Any]:
         }
     return {
         "kind": tool_access.kind,
-        "workspace": str(tool_access.workspace) if tool_access.workspace else None,
+        "workspace": (
+            tool_access.workspace.as_posix() if tool_access.workspace else None
+        ),
         "tool_policy": policy_payload,
     }
 
