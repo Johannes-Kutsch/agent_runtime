@@ -11,6 +11,7 @@ import agent_runtime as runtime
 import agent_runtime._builtin_provider_rendering as built_in_provider_rendering
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime._session_backed_provider_execution as session_backed_execution
+import agent_runtime._session_backed_provider_state_resolution as provider_state_resolution
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
@@ -366,7 +367,7 @@ def test_session_backed_codex_expected_interruptions_keep_started_continuations_
     )
 
 
-def test_session_backed_codex_resumed_session_rejects_missing_rollout_files(
+def test_session_backed_codex_resumed_session_surfaces_provider_state_resolution_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -376,19 +377,26 @@ def test_session_backed_codex_resumed_session_rejects_missing_rollout_files(
         auth_file_content='{"token":"host-auth"}\n',
     )
     harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_codex_resumed_session_facts",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeConfigurationError(
+                "Codex continuation is not recoverable from provider state."
+            )
+        ),
+    )
 
     runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
         tmp_path
     )
-
-    continuation = RuntimeClientExecutionHarness.codex_continuation()
 
     with pytest.raises(RuntimeConfigurationError) as exc_info:
         session_backed_execution._run_builtin_resumed_session(
             RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
                 runtime_state_dir=runtime_state_dir,
-                continuation=continuation,
+                continuation=RuntimeClientExecutionHarness.codex_continuation(),
             )
         )
 
@@ -424,51 +432,6 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
         tmp_path,
         auth_file_content='{"token":"host-auth"}\n',
     )
-    harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
-
-    continuation = RuntimeClientExecutionHarness.codex_continuation()
-    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
-        tmp_path
-    )
-    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
-        runtime_state_dir,
-        service="codex",
-    )
-    if len(rollout_lines) == 1:
-        RuntimeClientExecutionHarness.write_codex_rollout_state(
-            provider_state_dir,
-            rollout_lines[0] + '{"type":"session_meta","payload":{"id":"thread-b"}}\n',
-        )
-    else:
-        RuntimeClientExecutionHarness.write_codex_rollout_state(
-            provider_state_dir,
-            "".join(rollout_lines),
-        )
-
-    with pytest.raises(RuntimeConfigurationError) as exc_info:
-        session_backed_execution._run_builtin_resumed_session(
-            RuntimeClientExecutionHarness.resume_session_run_request(
-                invocation_dir=tmp_path,
-                runtime_state_dir=runtime_state_dir,
-                continuation=continuation,
-            )
-        )
-
-    assert str(exc_info.value) == (
-        "Codex continuation is not recoverable from provider state."
-    )
-    assert harness.recorded_request_count == 0
-
-
-def test_session_backed_codex_resumed_session_recovers_session_id_from_session_meta_rollout(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    RuntimeClientExecutionHarness.install_local_codex_host_auth(
-        monkeypatch,
-        tmp_path,
-        auth_file_content='{"token":"host-auth"}\n',
-    )
     harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
             output="continued output",
@@ -485,7 +448,6 @@ def test_session_backed_codex_resumed_session_recovers_session_id_from_session_m
             provider_session_id=None,
         ),
     )
-
     runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
         tmp_path
     )
@@ -493,42 +455,50 @@ def test_session_backed_codex_resumed_session_recovers_session_id_from_session_m
         runtime_state_dir,
         service="codex",
     )
-    RuntimeClientExecutionHarness.write_codex_rollout_state(
-        provider_state_dir,
-        json.dumps(
-            {
-                "type": "session_meta",
-                "payload": {"id": "recovered-thread"},
-            }
-        )
-        + "\n",
-    )
-    continuation = RuntimeClientExecutionHarness.codex_continuation(
-        provider_session_id="   "
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_codex_resumed_session_facts",
+        lambda **_kwargs: provider_state_resolution.CodexResumedSessionResolution(
+            provider_state_dir=provider_state_dir,
+            continuation_input_facts=provider_state_resolution.codex_continuation_input_facts(
+                model="gpt-5.4",
+                effort="medium",
+                provider_state_dir=provider_state_dir,
+                provider_state_dir_relpath="implementer/main/codex/",
+                provider_session_id=(
+                    "thread-b" if len(rollout_lines) == 1 else "recovered-thread"
+                ),
+                recovered_provider_session_id=True,
+                run_kind=RunKind.RESUME,
+            ),
+        ),
     )
 
     result = session_backed_execution._run_builtin_resumed_session(
         RuntimeClientExecutionHarness.resume_session_run_request(
             invocation_dir=tmp_path,
             runtime_state_dir=runtime_state_dir,
-            continuation=continuation,
+            continuation=RuntimeClientExecutionHarness.codex_continuation(
+                provider_session_id="   "
+            ),
         )
     )
 
     assert result.output == "continued output"
     assert result.usage == runtime.ProviderUsage(input_tokens=7, output_tokens=2)
     assert harness.recorded_request_count == 1
-    assert harness.recorded_request().provider_session_id == "recovered-thread"
+    assert harness.recorded_request().provider_session_id == (
+        "thread-b" if len(rollout_lines) == 1 else "recovered-thread"
+    )
 
 
-def test_session_backed_claude_completion_returns_pointer_to_provider_state_dir_through_module_interface(
+def test_session_backed_claude_completion_uses_observed_provider_session_id_in_completed_outcome_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
         tmp_path
     )
-    continuation_provider_state_dir_relpath = "implementer/main/claude/"
     expected_provider_session_id = "observed-session-id"
     RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationResult(
@@ -557,13 +527,17 @@ def test_session_backed_claude_completion_returns_pointer_to_provider_state_dir_
     )
 
     assert result.output == "final output"
-    assert result.continuation == RuntimeClientExecutionHarness.claude_continuation(
-        provider_state_dir_relpath=continuation_provider_state_dir_relpath,
-        provider_session_id=expected_provider_session_id,
+    assert result.selected == runtime.ResolvedProvider(
+        service="claude", model="sonnet", effort="medium"
+    )
+    assert result.continuation is not None
+    assert (
+        result.continuation.provider_resume_state["provider_session_id"]
+        == expected_provider_session_id
     )
 
 
-def test_session_backed_claude_resumed_session_reads_provider_state_dir_from_continuation_through_module_interface(
+def test_session_backed_claude_resumed_session_uses_resolved_provider_state_dir_for_invocation_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -603,6 +577,21 @@ def test_session_backed_claude_resumed_session_reads_provider_state_dir_from_con
     (provider_state_dir / "session_file").write_text(
         "continuation state", encoding="utf-8"
     )
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_claude_resumed_session_facts",
+        lambda **_kwargs: provider_state_resolution.ClaudeResumedSessionResolution(
+            provider_state_dir=provider_state_dir,
+            continuation_input_facts=provider_state_resolution.claude_continuation_input_facts(
+                model="sonnet",
+                effort="medium",
+                provider_state_dir=provider_state_dir,
+                provider_state_dir_relpath="implementer/main/claude/",
+                provider_session_id="resumed-session-1",
+                run_kind=RunKind.RESUME,
+            ),
+        ),
+    )
     continuation = RuntimeClientExecutionHarness.claude_continuation(
         provider_session_id="resumed-session-1",
         provider_state_dir_relpath="implementer/main/claude/",
@@ -625,7 +614,7 @@ def test_session_backed_claude_resumed_session_reads_provider_state_dir_from_con
     assert adapter.provider_state_dir == provider_state_dir
 
 
-def test_session_backed_opencode_completion_restores_portable_provider_state_through_module_interface(
+def test_session_backed_opencode_completed_outcome_keeps_resolved_session_details_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -634,24 +623,12 @@ def test_session_backed_opencode_completion_restores_portable_provider_state_thr
             self.recorded_requests: list[
                 provider_invocation_runtime.ProviderInvocationRequest
             ] = []
-            self.state_dir: Path | None = None
-            self.session_id_contents: str | None = None
-            self.resume_jsonl_contents: str | None = None
 
         def execute(
             self,
             request: provider_invocation_runtime.ProviderInvocationRequest,
         ) -> provider_invocation_runtime.ProviderInvocationResult:
             self.recorded_requests.append(request)
-            self.state_dir = Path(request.environment["OPENCODE_HOME"])
-            session_id_path = self.state_dir / "session_id"
-            if session_id_path.is_file():
-                self.session_id_contents = session_id_path.read_text(encoding="utf-8")
-            resume_jsonl_path = self.state_dir / "resume.jsonl"
-            if resume_jsonl_path.is_file():
-                self.resume_jsonl_contents = resume_jsonl_path.read_text(
-                    encoding="utf-8"
-                )
             return provider_invocation_runtime.ProviderInvocationResult(
                 output="continued output",
                 stdout_lines=(
@@ -692,12 +669,6 @@ def test_session_backed_opencode_completion_restores_portable_provider_state_thr
     }
     assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
     assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
-    assert adapter.state_dir is not None
-    assert adapter.state_dir == RuntimeClientExecutionHarness.provider_state_dir(
-        runtime_state_dir,
-        service="opencode",
-    )
-    assert adapter.state_dir.exists() is True
 
 
 def test_session_backed_opencode_start_session_run_then_resume_session_run_reuses_saved_session_id_by_id(
@@ -759,22 +730,9 @@ def test_session_backed_opencode_start_session_run_then_resume_session_run_reuse
     )
     assert harness.recorded_request(1).run_kind is RunKind.RESUME
     assert harness.recorded_request(1).provider_session_id == "persisted-session-1"
-    assert (
-        RuntimeClientExecutionHarness.provider_state_dir(
-            runtime_state_dir,
-            service="opencode",
-        )
-        / "session_id"
-    ).read_text(encoding="utf-8").strip() == "persisted-session-1"
-    assert harness.recorded_request(1).environment["OPENCODE_HOME"] == str(
-        RuntimeClientExecutionHarness.provider_state_dir(
-            runtime_state_dir,
-            service="opencode",
-        )
-    )
 
 
-def test_session_backed_opencode_resumed_session_ignores_embedded_state_in_continuation(
+def test_session_backed_opencode_resumed_session_uses_resolved_provider_session_id_for_invocation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -799,17 +757,12 @@ def test_session_backed_opencode_resumed_session_ignores_embedded_state_in_conti
             self.recorded_requests: list[
                 provider_invocation_runtime.ProviderInvocationRequest
             ] = []
-            self.session_id_after: str | None = None
 
         def execute(
             self,
             request: provider_invocation_runtime.ProviderInvocationRequest,
         ) -> provider_invocation_runtime.ProviderInvocationResult:
             self.recorded_requests.append(request)
-            state_dir = Path(request.environment["OPENCODE_HOME"])
-            session_id_path = state_dir / "session_id"
-            if session_id_path.is_file():
-                self.session_id_after = session_id_path.read_text(encoding="utf-8")
             return provider_invocation_runtime.ProviderInvocationResult(
                 output="continued output",
                 provider_session_id="persisted-session-1",
@@ -850,11 +803,7 @@ def test_session_backed_opencode_resumed_session_ignores_embedded_state_in_conti
     )
 
     assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
-    assert (provider_state_dir / "session_id").read_text(encoding="utf-8") == (
-        "persisted-session-1\n"
-    )
-    assert (provider_state_dir / "resume.jsonl").read_text(encoding="utf-8") == "[]"
-    assert adapter.session_id_after == "persisted-session-1\n"
+    assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
     assert result.continuation.provider_resume_state == {
         "provider_session_id": "persisted-session-1",
         "exact_transcript_match": True,
