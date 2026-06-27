@@ -55,6 +55,23 @@ def test_release_artifacts_ship_typing_marker_without_package_build_metadata(
     assert f"{package_root}/pyproject.toml" not in sdist_members
 
 
+def test_release_artifacts_omit_retired_execution_contracts_module(
+    tmp_path: Path,
+) -> None:
+    wheel_path, sdist_path = _build_release_artifacts(tmp_path)
+
+    with zipfile.ZipFile(wheel_path) as wheel_archive:
+        wheel_members = set(wheel_archive.namelist())
+
+    assert "agent_runtime/execution_contracts.py" not in wheel_members
+
+    with tarfile.open(sdist_path, "r:gz") as sdist_archive:
+        sdist_members = {member.name for member in sdist_archive.getmembers()}
+
+    package_root = f"{sdist_path.name.removesuffix('.tar.gz')}/src/agent_runtime"
+    assert f"{package_root}/execution_contracts.py" not in sdist_members
+
+
 def test_release_wheel_metadata_matches_verified_python_support(
     tmp_path: Path,
 ) -> None:
