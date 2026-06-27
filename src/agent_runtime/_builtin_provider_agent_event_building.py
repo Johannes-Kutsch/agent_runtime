@@ -232,6 +232,88 @@ def codex_built_in_provider_agent_event_builder() -> Callable[[str], AgentEvent]
     return build_codex_agent_event
 
 
+def _build_opencode_text_event(
+    line: str,
+    part: dict[str, object],
+) -> AgentEvent | None:
+    part_type = part.get("type")
+    if part_type == "text":
+        time = part.get("time")
+        if isinstance(time, dict) and time.get("end") is not None:
+            text = part.get("text")
+            if isinstance(text, str):
+                stripped = text.strip()
+                if stripped:
+                    return _agent_message(line, stripped)
+    if part_type == "tool":
+        tool_name = part.get("name")
+        if not isinstance(tool_name, str) or not tool_name:
+            tool_name = "tool"
+        payload_value = (
+            part.get("input")
+            if part.get("input") is not None
+            else part.get("text", part)
+        )
+        return _agent_tool_call(
+            line,
+            tool_name,
+            _raw_event_payload(payload_value),
+        )
+    return None
+
+
+def _build_opencode_step_finish_event(
+    line: str,
+    event: dict[str, object],
+) -> AgentEvent:
+    step = event.get("step")
+    step_dict = step if isinstance(step, dict) else {}
+    tokens = step_dict.get("tokens")
+    token_dict = tokens if isinstance(tokens, dict) else {}
+    cache = token_dict.get("cache")
+    cache_dict = cache if isinstance(cache, dict) else {}
+    return _turn_summary(
+        line,
+        _summary_field_join(
+            _format_token_count("input", token_dict.get("input")),
+            _format_token_count("output", token_dict.get("output")),
+            _format_token_count("reasoning", token_dict.get("reasoning")),
+            _format_token_count("cache_read", cache_dict.get("read")),
+            _format_token_count("cache_write", cache_dict.get("write")),
+            _format_cost_usd(step_dict.get("cost")),
+        ),
+    )
+
+
+def _build_opencode_session_status_event(
+    line: str,
+    event: dict[str, object],
+) -> AgentEvent:
+    status = event.get("status")
+    descriptor = "session.status"
+    if isinstance(status, dict):
+        status_type = status.get("type")
+        if isinstance(status_type, str):
+            descriptor = status_type
+    return _other(line, descriptor)
+
+
+def _build_opencode_object_event(line: str, event: dict[str, object]) -> AgentEvent:
+    event_type = event.get("type")
+    if event_type == "text":
+        part = event.get("part")
+        if isinstance(part, dict):
+            part_event = _build_opencode_text_event(line, part)
+            if part_event is not None:
+                return part_event
+    if event_type == "step_finish":
+        return _build_opencode_step_finish_event(line, event)
+    if event_type == "session.status":
+        return _build_opencode_session_status_event(line, event)
+    descriptor = event_type if isinstance(event_type, str) and event_type else "other"
+    return _other(line, descriptor)
+
+
 def build_opencode_agent_event(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
@@ -239,58 +321,4 @@ def build_opencode_agent_event(line: str) -> AgentEvent:
         return _raw_text_fallback(line)
     if not isinstance(event, dict):
         return _other(line, "non_object")
-    if event.get("type") == "text":
-        part = event.get("part")
-        if isinstance(part, dict):
-            part_type = part.get("type")
-            if part_type == "text":
-                time = part.get("time")
-                if isinstance(time, dict) and time.get("end") is not None:
-                    text = part.get("text")
-                    if isinstance(text, str):
-                        stripped = text.strip()
-                        if stripped:
-                            return _agent_message(line, stripped)
-            if part_type == "tool":
-                tool_name = part.get("name")
-                if not isinstance(tool_name, str) or not tool_name:
-                    tool_name = "tool"
-                payload_value = (
-                    part.get("input")
-                    if part.get("input") is not None
-                    else part.get("text", part)
-                )
-                return _agent_tool_call(
-                    line,
-                    tool_name,
-                    _raw_event_payload(payload_value),
-                )
-    if event.get("type") == "step_finish":
-        step = event.get("step")
-        step_dict = step if isinstance(step, dict) else {}
-        tokens = step_dict.get("tokens")
-        token_dict = tokens if isinstance(tokens, dict) else {}
-        cache = token_dict.get("cache")
-        cache_dict = cache if isinstance(cache, dict) else {}
-        return _turn_summary(
-            line,
-            _summary_field_join(
-                _format_token_count("input", token_dict.get("input")),
-                _format_token_count("output", token_dict.get("output")),
-                _format_token_count("reasoning", token_dict.get("reasoning")),
-                _format_token_count("cache_read", cache_dict.get("read")),
-                _format_token_count("cache_write", cache_dict.get("write")),
-                _format_cost_usd(step_dict.get("cost")),
-            ),
-        )
-    if event.get("type") == "session.status":
-        status = event.get("status")
-        descriptor = "session.status"
-        if isinstance(status, dict):
-            status_type = status.get("type")
-            if isinstance(status_type, str):
-                descriptor = status_type
-        return _other(line, descriptor)
-    event_type = event.get("type")
-    descriptor = event_type if isinstance(event_type, str) and event_type else "other"
-    return _other(line, descriptor)
+    return _build_opencode_object_event(line, event)

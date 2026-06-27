@@ -822,6 +822,69 @@ def test_opencode_built_in_provider_stream_interpretation_omits_missing_turn_sum
     assert event.raw_provider_output == line
 
 
+def test_opencode_built_in_provider_stream_interpretation_uses_text_payload_for_tool_part_without_input() -> (
+    None
+):
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "text",
+                "part": {
+                    "type": "tool",
+                    "name": "Read",
+                    "text": '{"path":"README.md"}',
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "agent_tool_call"
+    assert event.display_message == 'Read({"path":"README.md"})'
+    assert event.raw_provider_output == line
+
+
+def test_opencode_built_in_provider_stream_interpretation_keeps_session_status_descriptor_when_status_type_missing() -> (
+    None
+):
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    line = json.dumps({"type": "session.status", "status": {}}) + "\n"
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "other"
+    assert event.display_message == "session.status"
+    assert event.raw_provider_output == line
+
+
+def test_opencode_built_in_provider_stream_interpretation_falls_back_to_text_descriptor_for_incomplete_text_part() -> (
+    None
+):
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "text",
+                "part": {
+                    "type": "text",
+                    "text": "still streaming",
+                    "time": {"start": 1},
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "other"
+    assert event.display_message == "text"
+    assert event.raw_provider_output == line
+
+
 @pytest.mark.parametrize(
     ("interpretation_factory", "line"),
     [
