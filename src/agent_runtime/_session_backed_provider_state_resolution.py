@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from . import _builtin_runtime_client as _builtin_runtime_client_module
 from ._runtime_lifecycle import Continuation
 from .contracts import ToolAccess
 from .errors import RuntimeConfigurationError
@@ -56,8 +57,26 @@ class CodexStartSessionStateResolution:
 
 
 @dataclass(frozen=True)
+class ClaudeStartSessionStateResolution:
+    provider_state_dir: Path
+    provider_state_dir_relpath: str | None
+
+
+@dataclass(frozen=True)
 class CodexResumedSessionResolution:
     provider_state_dir: Path | None
+    continuation_input_facts: ContinuationInputFacts
+
+
+@dataclass(frozen=True)
+class ClaudeNewSessionResolution:
+    provider_state_dir: Path
+    continuation_input_facts: ContinuationInputFacts
+
+
+@dataclass(frozen=True)
+class ClaudeResumedSessionResolution:
+    provider_state_dir: Path
     continuation_input_facts: ContinuationInputFacts
 
 
@@ -92,6 +111,27 @@ def resolve_codex_start_session_state(
     if not provider_auth_path.exists():
         shutil.copyfile(host_auth_path, provider_auth_path)
     return CodexStartSessionStateResolution(
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=(
+            provider_state_dir_relpath if caller_owned_session_store else None
+        ),
+    )
+
+
+def resolve_claude_start_session_state(
+    *,
+    runtime_state_dir: Path,
+    session_namespace: str,
+    caller_owned_session_store: bool,
+) -> ClaudeStartSessionStateResolution:
+    provider_state_dir_relpath = provider_state_relpath(
+        "implementer",
+        "claude",
+        session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    return ClaudeStartSessionStateResolution(
         provider_state_dir=provider_state_dir,
         provider_state_dir_relpath=(
             provider_state_dir_relpath if caller_owned_session_store else None
@@ -138,6 +178,73 @@ def resolve_codex_new_session_facts(
     return CodexNewSessionResolution(
         provider_state_dir=start_session_state.provider_state_dir,
         continuation_input_facts=continuation_input_facts,
+    )
+
+
+def _claude_is_resumable(state_dir: Path) -> bool:
+    return state_dir.is_dir() and any(path.is_file() for path in state_dir.rglob("*"))
+
+
+def resolve_claude_new_session_facts(
+    *,
+    runtime_state_dir: Path,
+    session_namespace: str,
+    caller_owned_session_store: bool,
+    model: str,
+    effort: str,
+) -> ClaudeNewSessionResolution:
+    start_session_state = resolve_claude_start_session_state(
+        runtime_state_dir=runtime_state_dir,
+        session_namespace=session_namespace,
+        caller_owned_session_store=caller_owned_session_store,
+    )
+    run_kind = (
+        RunKind.RESUME
+        if _claude_is_resumable(start_session_state.provider_state_dir)
+        else RunKind.FRESH
+    )
+    continuation_input_facts = claude_continuation_input_facts(
+        model=model,
+        effort=effort,
+        provider_state_dir=start_session_state.provider_state_dir,
+        provider_state_dir_relpath=start_session_state.provider_state_dir_relpath,
+        provider_session_id=_builtin_runtime_client_module._new_provider_session_id(),
+        run_kind=run_kind,
+    )
+    return ClaudeNewSessionResolution(
+        provider_state_dir=start_session_state.provider_state_dir,
+        continuation_input_facts=continuation_input_facts,
+    )
+
+
+def resolve_claude_resumed_session_facts(
+    *,
+    runtime_state_dir: Path,
+    provider_state_dir_relpath: str,
+    model: str,
+    effort: str,
+    provider_session_id: str | None,
+) -> ClaudeResumedSessionResolution:
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    active_provider_session_id = _normalize_provider_session_id(provider_session_id)
+    if active_provider_session_id is None:
+        active_provider_session_id = (
+            _builtin_runtime_client_module._new_provider_session_id()
+        )
+    run_kind = (
+        RunKind.RESUME if _claude_is_resumable(provider_state_dir) else RunKind.FRESH
+    )
+    return ClaudeResumedSessionResolution(
+        provider_state_dir=provider_state_dir,
+        continuation_input_facts=claude_continuation_input_facts(
+            model=model,
+            effort=effort,
+            provider_state_dir=provider_state_dir,
+            provider_state_dir_relpath=provider_state_dir_relpath,
+            provider_session_id=active_provider_session_id,
+            run_kind=run_kind,
+        ),
     )
 
 
