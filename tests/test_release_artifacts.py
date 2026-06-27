@@ -67,6 +67,7 @@ def test_release_artifacts_omit_private_and_retired_modules(
     assert "agent_runtime/_provider_session_adapter.py" not in wheel_members
     assert "agent_runtime/execution_contracts.py" not in wheel_members
     assert "agent_runtime/service_registry.py" not in wheel_members
+    assert "agent_runtime/session_planning.py" not in wheel_members
 
     with tarfile.open(sdist_path, "r:gz") as sdist_archive:
         sdist_members = {member.name for member in sdist_archive.getmembers()}
@@ -120,6 +121,44 @@ def test_release_build_output_contains_only_fresh_runtime_artifacts(
     assert result.returncode == 0, result.stderr
     assert not stale_artifact.exists()
     assert not stale_directory.exists()
+
+
+def test_release_artifacts_ignore_retired_facades_left_in_build_directory(
+    tmp_path: Path,
+) -> None:
+    stale_build_root = Path("build/lib/agent_runtime")
+    stale_build_root.mkdir(parents=True, exist_ok=True)
+    for retired_module in (
+        "execution_contracts.py",
+        "provider_session_adapter.py",
+        "service_registry.py",
+        "session_planning.py",
+        "_provider_session_adapter.py",
+    ):
+        (stale_build_root / retired_module).write_text(
+            "# stale facade\n", encoding="utf-8"
+        )
+
+    wheel_path, sdist_path = _build_release_artifacts(tmp_path)
+
+    with zipfile.ZipFile(wheel_path) as wheel_archive:
+        wheel_members = set(wheel_archive.namelist())
+
+    assert "agent_runtime/execution_contracts.py" not in wheel_members
+    assert "agent_runtime/provider_session_adapter.py" not in wheel_members
+    assert "agent_runtime/service_registry.py" not in wheel_members
+    assert "agent_runtime/session_planning.py" not in wheel_members
+    assert "agent_runtime/_provider_session_adapter.py" not in wheel_members
+
+    with tarfile.open(sdist_path, "r:gz") as sdist_archive:
+        sdist_members = {member.name for member in sdist_archive.getmembers()}
+
+    package_root = f"{sdist_path.name.removesuffix('.tar.gz')}/src/agent_runtime"
+    assert f"{package_root}/execution_contracts.py" not in sdist_members
+    assert f"{package_root}/provider_session_adapter.py" not in sdist_members
+    assert f"{package_root}/service_registry.py" not in sdist_members
+    assert f"{package_root}/session_planning.py" not in sdist_members
+    assert f"{package_root}/_provider_session_adapter.py" not in sdist_members
 
 
 def test_release_build_output_uses_runtime_artifact_names(tmp_path: Path) -> None:
