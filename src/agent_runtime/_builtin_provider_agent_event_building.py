@@ -79,6 +79,79 @@ def _format_token_count(label: str, value: object) -> str | None:
     return None
 
 
+def _build_claude_assistant_event(
+    line: str,
+    event: dict[str, object],
+) -> AgentEvent | None:
+    message = event.get("message")
+    if not isinstance(message, dict):
+        return None
+    content = message.get("content")
+    if not isinstance(content, list):
+        return None
+    text_parts: list[str] = []
+    tool_blocks: list[dict[str, object]] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type")
+        if block_type == "text":
+            text = block.get("text")
+            if isinstance(text, str) and text.strip():
+                text_parts.append(text.strip())
+        elif block_type == "tool_use":
+            tool_blocks.append(cast(dict[str, object], block))
+    if text_parts:
+        return _agent_message(line, "\n\n".join(text_parts))
+    if not tool_blocks:
+        return None
+    first_tool = tool_blocks[0]
+    tool_name = first_tool.get("name")
+    if not isinstance(tool_name, str) or not tool_name:
+        tool_name = "tool_use"
+    payload_value: object = (
+        first_tool.get("input")
+        if len(tool_blocks) == 1 and first_tool.get("input") is not None
+        else tool_blocks
+    )
+    return _agent_tool_call(
+        line,
+        tool_name,
+        _raw_event_payload(payload_value),
+    )
+
+
+def _build_claude_result_event(line: str, event: dict[str, object]) -> AgentEvent:
+    subtype = event.get("subtype")
+    stop_reason = (
+        f"stop_reason={subtype}" if isinstance(subtype, str) and subtype else None
+    )
+    return _turn_summary(
+        line,
+        _summary_field_join(
+            stop_reason,
+            _format_duration_ms(event.get("duration_ms")),
+            _format_cost_usd(event.get("total_cost_usd")),
+        ),
+    )
+
+
+def _build_claude_object_event(line: str, event: dict[str, object]) -> AgentEvent:
+    event_type = event.get("type")
+    if event_type == "assistant":
+        assistant_event = _build_claude_assistant_event(line, event)
+        if assistant_event is not None:
+            return assistant_event
+    if event_type == "system":
+        descriptor = _render_claude_system_display_message(event)
+        if descriptor is not None:
+            return _other(line, descriptor)
+    if event_type == "result":
+        return _build_claude_result_event(line, event)
+    descriptor = event_type if isinstance(event_type, str) and event_type else "other"
+    return _other(line, descriptor)
+
+
 def build_claude_agent_event(line: str) -> AgentEvent:
     try:
         event = json.loads(line)
@@ -86,60 +159,7 @@ def build_claude_agent_event(line: str) -> AgentEvent:
         return _raw_text_fallback(line)
     if not isinstance(event, dict):
         return _other(line, "non_object")
-    if event.get("type") == "assistant":
-        message = event.get("message")
-        if isinstance(message, dict):
-            content = message.get("content")
-            if isinstance(content, list):
-                text_parts: list[str] = []
-                tool_blocks: list[dict[str, object]] = []
-                for block in content:
-                    if not isinstance(block, dict):
-                        continue
-                    block_type = block.get("type")
-                    if block_type == "text":
-                        text = block.get("text")
-                        if isinstance(text, str) and text.strip():
-                            text_parts.append(text.strip())
-                    elif block_type == "tool_use":
-                        tool_blocks.append(cast(dict[str, object], block))
-                if text_parts:
-                    return _agent_message(line, "\n\n".join(text_parts))
-                if tool_blocks:
-                    first_tool = tool_blocks[0]
-                    tool_name = first_tool.get("name")
-                    if not isinstance(tool_name, str) or not tool_name:
-                        tool_name = "tool_use"
-                    payload_value: object = (
-                        first_tool.get("input")
-                        if len(tool_blocks) == 1 and first_tool.get("input") is not None
-                        else tool_blocks
-                    )
-                    return _agent_tool_call(
-                        line,
-                        tool_name,
-                        _raw_event_payload(payload_value),
-                    )
-    if event.get("type") == "system":
-        descriptor = _render_claude_system_display_message(event)
-        if descriptor is not None:
-            return _other(line, descriptor)
-    if event.get("type") == "result":
-        subtype = event.get("subtype")
-        stop_reason = (
-            f"stop_reason={subtype}" if isinstance(subtype, str) and subtype else None
-        )
-        return _turn_summary(
-            line,
-            _summary_field_join(
-                stop_reason,
-                _format_duration_ms(event.get("duration_ms")),
-                _format_cost_usd(event.get("total_cost_usd")),
-            ),
-        )
-    event_type = event.get("type")
-    descriptor = event_type if isinstance(event_type, str) and event_type else "other"
-    return _other(line, descriptor)
+    return _build_claude_object_event(line, event)
 
 
 def _render_claude_system_display_message(event: dict[str, object]) -> str | None:
