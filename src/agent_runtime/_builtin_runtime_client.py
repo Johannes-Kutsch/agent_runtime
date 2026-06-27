@@ -905,9 +905,14 @@ def _run_builtin_ephemeral(
         )
         stream_interpretation: BuiltInProviderStreamInterpretation
         if selected_stage.service == "codex":
-            from . import _session_backed_provider_execution as _session_backed_module
+            from . import (
+                _session_backed_provider_state_resolution as _provider_state_resolution,
+            )
 
-            _session_backed_module._codex_seed_auth(cast(Path, provider_state_dir))
+            _provider_state_resolution._seed_codex_auth(
+                cast(Path, provider_state_dir),
+                _codex_host_auth_path(),
+            )
             stream_interpretation = _with_observed_output(
                 _with_reduce_output(
                     _codex_stream_interpretation(),

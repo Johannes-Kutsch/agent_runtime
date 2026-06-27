@@ -57,7 +57,7 @@ class CodexStartSessionStateResolution:
 
 @dataclass(frozen=True)
 class CodexResumedSessionResolution:
-    provider_state_dir: Path
+    provider_state_dir: Path | None
     continuation_input_facts: ContinuationInputFacts
 
 
@@ -191,33 +191,40 @@ def _normalize_provider_session_id(provider_session_id: str | None) -> str | Non
 
 def resolve_codex_resumed_session_facts(
     *,
-    runtime_state_dir: Path,
-    provider_state_dir_relpath: str,
+    runtime_state_dir: Path | None,
+    provider_state_dir_relpath: str | None,
     model: str,
     effort: str,
     provider_session_id: str | None,
     host_auth_path: Path,
 ) -> CodexResumedSessionResolution:
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    _seed_codex_auth(provider_state_dir, host_auth_path)
     normalized_provider_session_id = _normalize_provider_session_id(provider_session_id)
-    recovered_provider_session_id = _recover_codex_rollout_session_id(
-        provider_state_dir
-    )
-    if recovered_provider_session_id is None:
-        raise RuntimeConfigurationError(
-            "Codex continuation is not recoverable from provider state."
+    provider_state_dir: Path | None = None
+    recovered_provider_session_id: str | None = None
+    if runtime_state_dir is not None and provider_state_dir_relpath:
+        provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+        provider_state_dir.mkdir(parents=True, exist_ok=True)
+        _seed_codex_auth(provider_state_dir, host_auth_path)
+        recovered_provider_session_id = _recover_codex_rollout_session_id(
+            provider_state_dir
         )
-    active_provider_session_id = (
-        normalized_provider_session_id or recovered_provider_session_id
-    )
+        if recovered_provider_session_id is None:
+            raise RuntimeConfigurationError(
+                "Codex continuation is not recoverable from provider state."
+            )
+    active_provider_session_id = normalized_provider_session_id
+    if active_provider_session_id is None:
+        active_provider_session_id = recovered_provider_session_id
+    if active_provider_session_id is None:
+        raise RuntimeConfigurationError(
+            "Codex continuation is missing `provider_session_id`."
+        )
     return CodexResumedSessionResolution(
         provider_state_dir=provider_state_dir,
         continuation_input_facts=codex_continuation_input_facts(
             model=model,
             effort=effort,
-            provider_state_dir=provider_state_dir,
+            provider_state_dir=provider_state_dir or host_auth_path.parent,
             provider_state_dir_relpath=provider_state_dir_relpath,
             provider_session_id=active_provider_session_id,
             recovered_provider_session_id=normalized_provider_session_id is None,

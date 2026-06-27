@@ -116,13 +116,6 @@ def _opencode_exact_transcript_match(
     )
 
 
-def _codex_seed_auth(provider_state_dir: Path) -> None:
-    host_auth_path = _builtin_runtime_client_module._codex_host_auth_path()
-    if not host_auth_path.exists():
-        raise _builtin_runtime_client_module._missing_codex_auth_error()
-    _provider_state_resolution._seed_codex_auth(provider_state_dir, host_auth_path)
-
-
 def _claude_provider_state_dir_relpath(
     *,
     role: Any,
@@ -293,13 +286,6 @@ def _run_builtin_new_session(
         _builtin_runtime_client_module._require_portable_continuation_support(
             selected_stage.service
         )
-
-        def _portable_codex_state_dir_relpath(
-            provider_state_dir_relpath: str | None,
-        ) -> str | None:
-            if is_caller_managed_runtime_state:
-                return provider_state_dir_relpath
-            return None
 
         def _portable_claude_state_dir_relpath(
             provider_state_dir_relpath: str | None,
@@ -681,47 +667,28 @@ def _run_builtin_resumed_session(
         )
         provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
         provider_session_id = continuation_facts.provider_session_id
-        if provider_session_id is not None:
-            provider_session_id = provider_session_id.strip() or None
-        if runtime_state_dir is not None and provider_state_dir_relpath:
-            host_auth_path = _builtin_runtime_client_module._codex_host_auth_path()
-            if not host_auth_path.exists():
-                raise _builtin_runtime_client_module._missing_codex_auth_error()
-            codex_resolution = (
-                _provider_state_resolution.resolve_codex_resumed_session_facts(
-                    runtime_state_dir=runtime_state_dir,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
-                    model=request.model,
-                    effort=request.effort,
-                    provider_session_id=provider_session_id,
-                    host_auth_path=host_auth_path,
-                )
+        host_auth_path = _builtin_runtime_client_module._codex_host_auth_path()
+        if provider_state_dir_relpath is not None and not host_auth_path.exists():
+            raise _builtin_runtime_client_module._missing_codex_auth_error()
+        codex_resolution = (
+            _provider_state_resolution.resolve_codex_resumed_session_facts(
+                runtime_state_dir=runtime_state_dir,
+                provider_state_dir_relpath=provider_state_dir_relpath,
+                model=request.model,
+                effort=request.effort,
+                provider_session_id=provider_session_id,
+                host_auth_path=host_auth_path,
             )
-            provider_state_dir = codex_resolution.provider_state_dir
-            continuation_input_facts = codex_resolution.continuation_input_facts
-            provider_session_id = cast(
-                str,
-                cast(
-                    _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                    continuation_input_facts.provider_session_id,
-                ).value,
-            )
-        elif provider_session_id is None:
-            raise RuntimeConfigurationError(
-                "Codex continuation is missing `provider_session_id`."
-            )
-        else:
-            continuation_input_facts = (
-                _provider_state_resolution.codex_continuation_input_facts(
-                    model=request.model,
-                    effort=request.effort,
-                    provider_state_dir=request.invocation_dir,
-                    provider_state_dir_relpath=provider_state_dir_relpath,
-                    provider_session_id=provider_session_id,
-                    recovered_provider_session_id=False,
-                    run_kind=RunKind.RESUME,
-                )
-            )
+        )
+        provider_state_dir = codex_resolution.provider_state_dir
+        continuation_input_facts = codex_resolution.continuation_input_facts
+        provider_session_id = cast(
+            str,
+            cast(
+                _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
+                continuation_input_facts.provider_session_id,
+            ).value,
+        )
         active_provider_session_id: str | None = provider_session_id
         invocation_result = _invoke_with_timeout_continuation(
             invoke=lambda: (
@@ -800,6 +767,7 @@ def _run_builtin_resumed_session(
             model=request.model,
             effort=request.effort,
         )
+
     if continuation_service not in {"claude", "opencode"}:
         raise RuntimeConfigurationError(
             "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
