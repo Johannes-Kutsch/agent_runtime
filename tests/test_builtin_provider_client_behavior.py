@@ -15,11 +15,6 @@ from typing import cast
 import pytest
 
 import agent_runtime as runtime
-from agent_runtime._builtin_provider_agent_event_building import (
-    build_claude_agent_event,
-    build_codex_agent_event,
-    build_opencode_agent_event,
-)
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._builtin_runtime_client as builtin_runtime_client_runtime
 import agent_runtime._builtin_provider_rendering as builtin_provider_rendering_runtime
@@ -243,9 +238,11 @@ def test_runtime_client_ephemeral_run_emits_typed_agent_message_event(
 
     assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "hello\nworld"
-    assert observed == [
-        build_codex_agent_event(_codex_assistant_output_line("hello")),
-        build_codex_agent_event(_codex_assistant_output_line("world")),
+    assert [event.type for event in observed] == ["agent_message", "agent_message"]
+    assert [event.display_message for event in observed] == ["hello", "world"]
+    assert [event.raw_provider_output for event in observed] == [
+        _codex_assistant_output_line("hello"),
+        _codex_assistant_output_line("world"),
     ]
 
 
@@ -342,9 +339,11 @@ def test_runtime_client_ephemeral_run_emits_other_agent_event_for_codex_life_sig
 
     assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "hello"
-    assert observed == [
-        build_codex_agent_event(thread_started_line),
-        build_codex_agent_event(message_line),
+    assert [event.type for event in observed] == ["other", "agent_message"]
+    assert [event.display_message for event in observed] == ["thread.started", "hello"]
+    assert [event.raw_provider_output for event in observed] == [
+        thread_started_line,
+        message_line,
     ]
     assert "".join(event.raw_provider_output for event in observed) == (
         thread_started_line + message_line
@@ -391,10 +390,20 @@ def test_runtime_client_ephemeral_run_emits_tool_call_and_other_agent_events_for
 
     assert len(harness.recorded_requests) == 1
     assert outcome.result.output == "assistant output"
-    assert observed == [
-        build_opencode_agent_event(tool_line),
-        build_opencode_agent_event(text_line),
-        build_opencode_agent_event(idle_line),
+    assert [event.type for event in observed] == [
+        "agent_tool_call",
+        "agent_message",
+        "other",
+    ]
+    assert [event.display_message for event in observed] == [
+        'Read({"path":"README.md"})',
+        "assistant output",
+        "idle",
+    ]
+    assert [event.raw_provider_output for event in observed] == [
+        tool_line,
+        text_line,
+        idle_line,
     ]
     assert "".join(event.raw_provider_output for event in observed) == (
         tool_line + text_line + idle_line
@@ -1917,9 +1926,14 @@ def test_runtime_client_ephemeral_run_emits_claude_tool_call_and_other_agent_eve
     )
 
     assert outcome.result.output == "final output"
-    assert observed == [
-        build_claude_agent_event(tool_line),
-        build_claude_agent_event(result_line),
+    assert [event.type for event in observed] == ["agent_tool_call", "turn_summary"]
+    assert [event.display_message for event in observed] == [
+        'Read({"path":"README.md"})',
+        "turn_summary",
+    ]
+    assert [event.raw_provider_output for event in observed] == [
+        tool_line,
+        result_line,
     ]
     assert "".join(event.raw_provider_output for event in observed) == (
         tool_line + result_line
@@ -2008,10 +2022,20 @@ def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantic
         )
 
     assert outcome.result.output == "final output"
-    assert observed == [
-        build_claude_agent_event(assistant_line),
-        build_claude_agent_event(tool_line),
-        build_claude_agent_event(result_line),
+    assert [event.type for event in observed] == [
+        "agent_message",
+        "agent_tool_call",
+        "turn_summary",
+    ]
+    assert [event.display_message for event in observed] == [
+        "intermediate",
+        'Read({"path":"README.md"})',
+        "turn_summary",
+    ]
+    assert [event.raw_provider_output for event in observed] == [
+        assistant_line,
+        tool_line,
+        result_line,
     ]
     assert len(harness.recorded_requests) == 1
 
