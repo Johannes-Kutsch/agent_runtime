@@ -16,6 +16,10 @@ from agent_runtime.errors import AgentCredentialFailureError, RuntimeConfigurati
 from agent_runtime.session import RunKind
 
 
+def _posix_host_facts() -> built_in_provider_rendering.BuiltInProviderHostFacts:
+    return built_in_provider_rendering.BuiltInProviderHostFacts(os_name="posix")
+
+
 @pytest.mark.parametrize(
     ("module_name", "removed_name"),
     [
@@ -163,6 +167,7 @@ def test_render_claude_invocation_returns_canonical_argv_and_compatibility_comma
                 tool_access=ToolAccess.workspace_backed(invocation_dir),
                 auth=ProviderAuth(claude_code_oauth_token="token"),
                 invocation_dir=invocation_dir,
+                host_facts=_posix_host_facts(),
             )
         )
     )
@@ -774,6 +779,7 @@ def test_render_codex_fresh_invocation_returns_canonical_argv_environment_and_pr
             auth=None,
             invocation_dir=tmp_path,
             provider_state_dir=tmp_path / "provider-state",
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -915,6 +921,7 @@ def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
             auth=None,
             invocation_dir=tmp_path,
             provider_session_id="thread-123",
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -977,6 +984,7 @@ def test_render_codex_resumed_invocation_uses_expected_sandbox_flag(
             auth=None,
             invocation_dir=tmp_path,
             provider_session_id="thread-123",
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -1176,6 +1184,7 @@ def test_render_opencode_fresh_invocation_returns_canonical_argv_and_current_con
             auth=ProviderAuth(opencode_api_key="go-key"),
             invocation_dir=tmp_path,
             provider_state_dir=tmp_path / "provider-state",
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -1231,6 +1240,7 @@ def test_render_opencode_resumed_invocation_places_and_carries_provider_session_
             auth=ProviderAuth(opencode_api_key="go-key"),
             invocation_dir=tmp_path,
             provider_session_id="provider-session-123",
+            host_facts=_posix_host_facts(),
         )
     )
 
