@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any, cast
@@ -14,6 +15,34 @@ from agent_runtime._runtime_lifecycle import ProviderAuth
 from agent_runtime.contracts import ToolAccess, ToolPolicyProfile
 from agent_runtime.errors import AgentCredentialFailureError, RuntimeConfigurationError
 from agent_runtime.session import RunKind
+
+
+def _posix_host_facts() -> built_in_provider_rendering.BuiltInProviderHostFacts:
+    return built_in_provider_rendering.BuiltInProviderHostFacts(os_name="posix")
+
+
+def test_posix_pinned_rendering_tests_declare_posix_host_facts() -> None:
+    source = Path(__file__).read_text(encoding="utf-8")
+    expected_posix_pinned_tests = (
+        "test_render_claude_invocation_returns_canonical_argv_and_compatibility_command",
+        "test_render_claude_invocation_uses_provider_prompt_path_and_claude_only_environment",
+        "test_render_codex_fresh_invocation_returns_canonical_argv_environment_and_prompt_facts",
+        "test_render_codex_resumed_invocation_places_and_carries_provider_session_id",
+        "test_render_codex_resumed_invocation_uses_expected_sandbox_flag",
+        "test_render_opencode_fresh_invocation_returns_canonical_argv_and_current_config",
+        "test_render_opencode_resumed_invocation_places_and_carries_provider_session_id",
+    )
+
+    for test_name in expected_posix_pinned_tests:
+        match = re.search(
+            rf"def {test_name}\b.*?(?=^def |\Z)",
+            source,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        assert match is not None, test_name
+        assert 'os_name="posix"' in match.group(
+            0
+        ) or "_posix_host_facts()" in match.group(0), test_name
 
 
 @pytest.mark.parametrize(
@@ -163,6 +192,7 @@ def test_render_claude_invocation_returns_canonical_argv_and_compatibility_comma
                 tool_access=ToolAccess.workspace_backed(invocation_dir),
                 auth=ProviderAuth(claude_code_oauth_token="token"),
                 invocation_dir=invocation_dir,
+                host_facts=_posix_host_facts(),
             )
         )
     )
@@ -774,6 +804,7 @@ def test_render_codex_fresh_invocation_returns_canonical_argv_environment_and_pr
             auth=None,
             invocation_dir=tmp_path,
             provider_state_dir=tmp_path / "provider-state",
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -915,6 +946,7 @@ def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
             auth=None,
             invocation_dir=tmp_path,
             provider_session_id="thread-123",
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -977,6 +1009,7 @@ def test_render_codex_resumed_invocation_uses_expected_sandbox_flag(
             auth=None,
             invocation_dir=tmp_path,
             provider_session_id="thread-123",
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -1176,6 +1209,7 @@ def test_render_opencode_fresh_invocation_returns_canonical_argv_and_current_con
             auth=ProviderAuth(opencode_api_key="go-key"),
             invocation_dir=tmp_path,
             provider_state_dir=tmp_path / "provider-state",
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -1231,6 +1265,7 @@ def test_render_opencode_resumed_invocation_places_and_carries_provider_session_
             auth=ProviderAuth(opencode_api_key="go-key"),
             invocation_dir=tmp_path,
             provider_session_id="provider-session-123",
+            host_facts=_posix_host_facts(),
         )
     )
 

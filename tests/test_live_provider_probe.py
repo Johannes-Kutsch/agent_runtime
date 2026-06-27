@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -1229,7 +1230,12 @@ def test_live_probe_resumed_session_case_uses_sandbox_before_resume_token(
             provider_invocation_runtime.ProviderInvocationResult
             | provider_invocation_runtime.ProviderInvocationFailure
         ):
-            if request.argv[:3] != ("codex", "exec", "--sandbox"):
+            expected_codex_executable = "codex.cmd" if os.name == "nt" else "codex"
+            if request.argv[:3] != (
+                expected_codex_executable,
+                "exec",
+                "--sandbox",
+            ):
                 raise RuntimeError("unexpected argument '--sandbox' found")
             return super().execute(request, argv_transform=argv_transform)
 
