@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, cast
 
 import pytest
 
@@ -15,7 +15,7 @@ from agent_runtime._builtin_provider_stream_interpretation import (
     observe_opencode_output,
     opencode_built_in_provider_stream_interpretation,
 )
-from agent_runtime._runtime_lifecycle import AgentEvent
+from agent_runtime._runtime_lifecycle import AgentEvent, ProviderUsage
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     HardAgentError,
@@ -319,6 +319,111 @@ def test_claude_built_in_provider_stream_interpretation_omits_missing_turn_summa
     assert event.type == "turn_summary"
     assert event.display_message == "duration_ms=0"
     assert event.raw_provider_output == line
+
+
+def test_claude_built_in_provider_stream_interpretation_reduce_output_preserves_live_agent_event_values() -> (
+    None
+):
+    interpretation = claude_built_in_provider_stream_interpretation()
+    reduce_output = cast(
+        Callable[
+            [list[str], Callable[[AgentEvent], None]],
+            tuple[str, ProviderUsage | None],
+        ],
+        interpretation.reduce_output,
+    )
+    observed: list[AgentEvent] = []
+    assistant_line = (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "hello from claude"}],
+                    "usage": {"input_tokens": 12},
+                },
+            }
+        )
+        + "\n"
+    )
+    tool_line = (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"path": "README.md"},
+                        }
+                    ]
+                },
+            }
+        )
+        + "\n"
+    )
+    system_line = (
+        json.dumps(
+            {
+                "type": "system",
+                "subtype": "system.init",
+                "cwd": "/workspace/project",
+            }
+        )
+        + "\n"
+    )
+    result_line = (
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "result": "final output",
+            }
+        )
+        + "\n"
+    )
+    non_object_line = '"text"\n'
+    raw_text_line = "  Reading prompt from stdin...  \n"
+
+    output, usage = reduce_output(
+        [
+            assistant_line,
+            tool_line,
+            system_line,
+            result_line,
+            non_object_line,
+            raw_text_line,
+        ],
+        observed.append,
+    )
+
+    assert output == "final output"
+    assert usage is not None
+    assert usage.input_tokens == 12
+    assert [event.type for event in observed] == [
+        "agent_message",
+        "agent_tool_call",
+        "other",
+        "turn_summary",
+        "other",
+        "other",
+    ]
+    assert [event.display_message for event in observed] == [
+        "hello from claude",
+        'Read({"path":"README.md"})',
+        "system.init cwd=/workspace/project",
+        "stop_reason=success",
+        "non_object",
+        "Reading prompt from stdin...",
+    ]
+    assert [event.raw_provider_output for event in observed] == [
+        assistant_line,
+        tool_line,
+        system_line,
+        result_line,
+        non_object_line,
+        raw_text_line,
+    ]
 
 
 def test_codex_built_in_provider_stream_interpretation_extracts_provider_session_id_and_started_progress() -> (
