@@ -4,6 +4,7 @@ import asyncio
 import json
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
+from typing import Literal, get_args, get_type_hints
 
 import pytest
 
@@ -77,6 +78,19 @@ def test_agent_event_collapses_to_three_fields() -> None:
     )
     with pytest.raises(FrozenInstanceError):
         setattr(event, "display_message", "changed")
+
+
+def test_agent_event_type_includes_turn_summary_public_vocabulary() -> None:
+    type_hint = get_type_hints(runtime.AgentEvent, globalns={"Literal": Literal})[
+        "type"
+    ]
+
+    assert get_args(type_hint) == (
+        "agent_message",
+        "agent_tool_call",
+        "turn_summary",
+        "other",
+    )
 
 
 def _claude_message_line(text: str) -> str:
