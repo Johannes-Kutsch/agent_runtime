@@ -129,15 +129,51 @@ def test_session_backed_provider_execution_module_stays_private_to_runtime_publi
     assert "_session_backed_provider_execution_module" not in prompt_runtime.__all__
 
 
+def test_execution_contracts_module_is_absent_without_changing_runtime_public_surface() -> (
+    None
+):
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_runtime.execution_contracts")
+
+    with pytest.raises(ModuleNotFoundError):
+        exec(
+            "from agent_runtime.execution_contracts import ExecutionProvider",
+            {},
+            {},
+        )
+
+    for module_name, exported_name in (
+        ("agent_runtime", "RuntimeClient"),
+        ("agent_runtime", "ProviderSelection"),
+        ("agent_runtime", "ProviderAuth"),
+        ("agent_runtime", "Continuation"),
+        ("agent_runtime", "ToolPolicy"),
+        ("agent_runtime", "RuntimeOutcome"),
+        ("agent_runtime", "RunResult"),
+        ("agent_runtime", "RunKind"),
+        ("agent_runtime.runtime", "RuntimeClient"),
+        ("agent_runtime.runtime", "ProviderSelection"),
+        ("agent_runtime.runtime", "ProviderAuth"),
+        ("agent_runtime.runtime", "Continuation"),
+        ("agent_runtime.runtime", "ToolPolicy"),
+        ("agent_runtime.runtime", "RuntimeOutcome"),
+        ("agent_runtime.runtime", "RunResult"),
+        ("agent_runtime.runtime", "EphemeralRunRequest"),
+        ("agent_runtime.runtime", "NewSessionRunRequest"),
+        ("agent_runtime.runtime", "ResumedSessionRunRequest"),
+    ):
+        imported_module = importlib.import_module(module_name)
+        assert hasattr(imported_module, exported_name)
+
+
 @pytest.mark.parametrize(
     "module_name",
     [
-        "agent_runtime.execution_contracts",
         "agent_runtime.provider_session_adapter",
         "agent_runtime.service_registry",
     ],
 )
-def test_retired_public_adapter_modules_do_not_expose_runtime_seams(
+def test_remaining_retired_public_adapter_modules_do_not_expose_runtime_seams(
     module_name: str,
 ) -> None:
     module = importlib.import_module(module_name)
