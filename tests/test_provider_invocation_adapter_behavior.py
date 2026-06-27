@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +22,48 @@ from agent_runtime.errors import (
 )
 from agent_runtime.provider_usage import ProviderUsage
 from agent_runtime.session import RunKind
+
+
+def _assert_subprocess_is_dead(pid: int) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import ctypes, os, sys; "
+                "pid = int(sys.argv[1]); "
+                "alive = False; "
+                "if os.name == 'nt': "
+                " handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid); "
+                " alive = bool(handle); "
+                " handle and ctypes.windll.kernel32.CloseHandle(handle); "
+                "else: "
+                " try: os.kill(pid, 0); alive = True; "
+                " except ProcessLookupError: alive = False; "
+                " except PermissionError: alive = True; "
+                "sys.exit(0 if alive else 1)"
+            ),
+            str(pid),
+        ],
+        check=False,
+    )
+    assert result.returncode == 1
+
+
+def _assert_expected_process_env(
+    actual_env: dict[str, str],
+    provider_env: dict[str, str],
+) -> None:
+    if os.name != "nt":
+        assert actual_env == provider_env
+        return
+
+    expected_env = {
+        key: os.environ[key]
+        for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
+    }
+    expected_env.update(provider_env)
+    assert actual_env == expected_env
 
 
 def _execute_provider_invocation_at_adapter_seam(
@@ -154,12 +197,13 @@ def test_production_adapter_executes_prepared_invocation_and_returns_reduced_res
         "command": "provider --run",
         "shell": True,
         "cwd": tmp_path,
-        "env": {"PROVIDER_TOKEN": "secret"},
+        "env": captured["env"],
         "stdout": provider_invocation_runtime.subprocess.PIPE,
         "stderr": provider_invocation_runtime.subprocess.PIPE,
         "text": True,
         "reduced_lines": ["line 1\n", "line 2\n"],
     }
+    _assert_expected_process_env(captured["env"], {"PROVIDER_TOKEN": "secret"})
 
 
 def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
@@ -253,12 +297,13 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
         "command": ["provider", "--run"],
         "shell": False,
         "cwd": tmp_path,
-        "env": {"PROVIDER_TOKEN": "secret"},
+        "env": captured["env"],
         "stdout": provider_invocation_runtime.subprocess.PIPE,
         "stderr": provider_invocation_runtime.subprocess.PIPE,
         "text": True,
         "stdin": provider_invocation_runtime.subprocess.PIPE,
     }
+    _assert_expected_process_env(captured["env"], {"PROVIDER_TOKEN": "secret"})
 
 
 def test_production_adapter_applies_argv_transform_before_execution_and_forces_stdin_prompt_input(
@@ -481,12 +526,16 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
         "command": list(request.argv),
         "shell": False,
         "cwd": tmp_path,
-        "env": {"CLAUDE_CODE_OAUTH_TOKEN": "secret"},
+        "env": captured["env"],
         "stdout": provider_invocation_runtime.subprocess.PIPE,
         "stderr": provider_invocation_runtime.subprocess.PIPE,
         "text": True,
         "stdin": provider_invocation_runtime.subprocess.PIPE,
     }
+    _assert_expected_process_env(
+        captured["env"],
+        {"CLAUDE_CODE_OAUTH_TOKEN": "secret"},
+    )
 
 
 def test_production_adapter_resolves_argv_executable_against_path_before_spawning(
@@ -1810,8 +1859,7 @@ def test_production_adapter_terminates_silent_subprocess_after_idle_timeout(
         )
 
     child_pid = int(marker_path.read_text(encoding="utf-8"))
-    with pytest.raises(ProcessLookupError):
-        os.kill(child_pid, 0)
+    _assert_subprocess_is_dead(child_pid)
 
 
 def test_provider_invocation_request_layers_windows_host_process_allowlist_for_built_in_invocations(
