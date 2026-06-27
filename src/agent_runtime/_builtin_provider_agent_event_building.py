@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from typing import cast
 
 from ._runtime_lifecycle import AgentEvent
@@ -163,10 +162,6 @@ def build_claude_agent_event(line: str) -> AgentEvent:
     return _build_claude_object_event(line, event)
 
 
-def claude_built_in_provider_agent_event_builder() -> Callable[[str], AgentEvent]:
-    return build_claude_agent_event
-
-
 def _render_claude_system_display_message(event: dict[str, object]) -> str | None:
     subtype = event.get("subtype")
     if not isinstance(subtype, str) or not subtype:
@@ -226,10 +221,6 @@ def build_codex_agent_event(line: str) -> AgentEvent:
         )
     descriptor = event_type if isinstance(event_type, str) and event_type else "other"
     return _other(line, descriptor)
-
-
-def codex_built_in_provider_agent_event_builder() -> Callable[[str], AgentEvent]:
-    return build_codex_agent_event
 
 
 def _build_opencode_text_event(
@@ -322,7 +313,3 @@ def build_opencode_agent_event(line: str) -> AgentEvent:
     if not isinstance(event, dict):
         return _other(line, "non_object")
     return _build_opencode_object_event(line, event)
-
-
-def opencode_built_in_provider_agent_event_builder() -> Callable[[str], AgentEvent]:
-    return build_opencode_agent_event
