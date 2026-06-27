@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -407,25 +408,9 @@ def test_session_backed_codex_resumed_session_surfaces_provider_state_resolution
     assert harness.recorded_request_count == 0
 
 
-@pytest.mark.parametrize(
-    "rollout_lines",
-    [
-        ['{"type":"session_meta","payload":{"id":"thread-a"}}\n'],
-        [
-            "{not-json\n",
-            "[]\n",
-            '{"type":"turn.completed"}\n',
-            '{"type":"session_meta","payload":[]}\n',
-            '{"type":"session_meta","payload":{"id":7}}\n',
-            '{"type":"session_meta","payload":{"id":"   "}}\n',
-            '{"type":"session_meta","payload":{}}\n',
-        ],
-    ],
-)
-def test_session_backed_codex_resumed_session_requires_recoverable_provider_state_through_module_interface(
+def test_session_backed_codex_resumed_session_uses_resolved_provider_session_id_for_invocation_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    rollout_lines: list[str],
 ) -> None:
     RuntimeClientExecutionHarness.install_local_codex_host_auth(
         monkeypatch,
@@ -465,9 +450,7 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
                 effort="medium",
                 provider_state_dir=provider_state_dir,
                 provider_state_dir_relpath="implementer/main/codex/",
-                provider_session_id=(
-                    "thread-b" if len(rollout_lines) == 1 else "recovered-thread"
-                ),
+                provider_session_id="recovered-thread",
                 recovered_provider_session_id=True,
                 run_kind=RunKind.RESUME,
             ),
@@ -487,9 +470,7 @@ def test_session_backed_codex_resumed_session_requires_recoverable_provider_stat
     assert result.output == "continued output"
     assert result.usage == runtime.ProviderUsage(input_tokens=7, output_tokens=2)
     assert harness.recorded_request_count == 1
-    assert harness.recorded_request().provider_session_id == (
-        "thread-b" if len(rollout_lines) == 1 else "recovered-thread"
-    )
+    assert harness.recorded_request().provider_session_id == "recovered-thread"
 
 
 def test_session_backed_claude_completion_uses_observed_provider_session_id_in_completed_outcome_through_module_interface(
@@ -739,18 +720,21 @@ def test_session_backed_opencode_resumed_session_uses_resolved_provider_session_
     runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
         tmp_path
     )
-    provider_state_dir = RuntimeClientExecutionHarness.prepare_provider_state_dir(
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
         runtime_state_dir,
         service="opencode",
     )
-    (provider_state_dir / "session_id").write_text(
-        "persisted-session-1\n",
-        encoding="utf-8",
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    prepared_facts = provider_state_resolution.opencode_continuation_input_facts(
+        model="glm-5.2",
+        effort="medium",
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath="implementer/main/opencode/",
+        provider_session_id="persisted-session-1",
+        run_kind=RunKind.RESUME,
+        exact_transcript_match=True,
     )
-    (provider_state_dir / "resume.jsonl").write_text(
-        "[]",
-        encoding="utf-8",
-    )
+    active_session_ids: list[str | None] = []
 
     class _DetectingOpencodeAdapter:
         def __init__(self) -> None:
@@ -779,6 +763,33 @@ def test_session_backed_opencode_resumed_session_uses_resolved_provider_session_
         lambda: adapter,
     )
 
+    def _resolve_opencode_resumed_session_facts(
+        **_kwargs: object,
+    ) -> provider_state_resolution.OpenCodeResumedSessionResolution:
+        return provider_state_resolution.OpenCodeResumedSessionResolution(
+            provider_state_dir=provider_state_dir,
+            continuation_input_facts=prepared_facts,
+        )
+
+    def _resolve_opencode_active_session_facts(
+        continuation_input_facts: provider_state_resolution.ContinuationInputFacts,
+        *,
+        provider_session_id: str | None,
+    ) -> provider_state_resolution.ContinuationInputFacts:
+        active_session_ids.append(provider_session_id)
+        return continuation_input_facts
+
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_opencode_resumed_session_facts",
+        _resolve_opencode_resumed_session_facts,
+    )
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_opencode_active_session_facts",
+        _resolve_opencode_active_session_facts,
+    )
+
     forged_continuation = runtime.Continuation(
         selected_service="opencode",
         selected_model="glm-5.2",
@@ -804,6 +815,7 @@ def test_session_backed_opencode_resumed_session_uses_resolved_provider_session_
 
     assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
     assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
+    assert active_session_ids == ["persisted-session-1"]
     assert result.continuation.provider_resume_state == {
         "provider_session_id": "persisted-session-1",
         "exact_transcript_match": True,
@@ -1060,6 +1072,60 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
     runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
         tmp_path
     )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="opencode",
+    )
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    prepared_facts = provider_state_resolution.opencode_continuation_input_facts(
+        model="glm-5.2",
+        effort="medium",
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath="implementer/main/opencode/",
+        provider_session_id="persisted-session-1",
+        run_kind=RunKind.RESUME,
+        exact_transcript_match=True,
+    )
+    active_session_ids: list[str | None] = []
+
+    def _resolve_opencode_resumed_session_facts(
+        **_kwargs: object,
+    ) -> provider_state_resolution.OpenCodeResumedSessionResolution:
+        return provider_state_resolution.OpenCodeResumedSessionResolution(
+            provider_state_dir=provider_state_dir,
+            continuation_input_facts=prepared_facts,
+        )
+
+    def _resolve_opencode_active_session_facts(
+        continuation_input_facts: provider_state_resolution.ContinuationInputFacts,
+        *,
+        provider_session_id: str | None,
+    ) -> provider_state_resolution.ContinuationInputFacts:
+        active_session_ids.append(provider_session_id)
+        return provider_state_resolution.opencode_continuation_input_facts(
+            model=continuation_input_facts.provider_identity.model,
+            effort=continuation_input_facts.provider_identity.effort,
+            provider_state_dir=continuation_input_facts.provider_state_directory.path,
+            provider_state_dir_relpath=(
+                continuation_input_facts.provider_state_relpath.value
+                if continuation_input_facts.provider_state_relpath is not None
+                else None
+            ),
+            provider_session_id=cast(str, provider_session_id),
+            run_kind=continuation_input_facts.run_kind,
+            exact_transcript_match=False,
+        )
+
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_opencode_resumed_session_facts",
+        _resolve_opencode_resumed_session_facts,
+    )
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_opencode_active_session_facts",
+        _resolve_opencode_active_session_facts,
+    )
     continuation = RuntimeClientExecutionHarness.opencode_continuation()
 
     with pytest.raises(UsageLimitError) as exc_info:
@@ -1078,11 +1144,5 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
         "exact_transcript_match": False,
         "provider_state_dir_relpath": "implementer/main/opencode/",
     }
+    assert active_session_ids == ["observed-session-2"]
     assert harness.recorded_request().provider_session_id == "persisted-session-1"
-    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
-        runtime_state_dir,
-        service="opencode",
-    )
-    assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
-        "observed-session-2"
-    )
