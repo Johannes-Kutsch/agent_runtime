@@ -182,6 +182,34 @@ def test_codex_built_in_provider_stream_interpretation_builds_tool_call_event_fr
     assert event.raw_provider_output == line
 
 
+def test_codex_built_in_provider_stream_interpretation_builds_turn_summary_from_turn_completed() -> (
+    None
+):
+    interpretation = codex_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "turn.completed",
+                "turn_id": "turn_123",
+                "usage": {
+                    "input_tokens": 120,
+                    "cached_tokens": 30,
+                    "output_tokens": 45,
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "turn_summary"
+    assert "120" in event.display_message
+    assert "30" in event.display_message
+    assert "45" in event.display_message
+    assert event.raw_provider_output == line
+
+
 def test_codex_built_in_provider_stream_interpretation_builds_other_event_from_plain_text_line() -> (
     None
 ):
@@ -205,6 +233,43 @@ def test_claude_built_in_provider_stream_interpretation_builds_other_event_from_
 
     assert event.type == "other"
     assert event.display_message == "Reading prompt from stdin..."
+    assert event.raw_provider_output == line
+
+
+def test_claude_built_in_provider_stream_interpretation_builds_turn_summary_from_result() -> (
+    None
+):
+    interpretation = claude_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "duration_ms": 2345,
+                "duration_api_ms": 2100,
+                "is_error": False,
+                "num_turns": 1,
+                "result": "final output",
+                "session_id": "sess_123",
+                "total_cost_usd": 0.0123,
+                "usage": {
+                    "input_tokens": 120,
+                    "cache_creation_input_tokens": 10,
+                    "cache_read_input_tokens": 5,
+                    "output_tokens": 42,
+                    "server_tool_use": {"web_search_requests": 1},
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "turn_summary"
+    assert "success" in event.display_message
+    assert "2345" in event.display_message
+    assert "0.0123" in event.display_message
     assert event.raw_provider_output == line
 
 
@@ -401,6 +466,25 @@ def test_opencode_built_in_provider_stream_interpretation_builds_expected_live_a
             + "\n",
             "agent_tool_call",
             'Read({"path":"README.md"})',
+        ),
+        (
+            json.dumps(
+                {
+                    "type": "step_finish",
+                    "step": {
+                        "tokens": {
+                            "input": 120,
+                            "output": 45,
+                            "reasoning": 12,
+                            "cache": {"read": 30, "write": 8},
+                        },
+                        "cost": 0.0123,
+                    },
+                }
+            )
+            + "\n",
+            "turn_summary",
+            "input=120 | output=45 | reasoning=12 | cache_read=30 | cache_write=8 | cost_usd=0.0123",
         ),
         (
             json.dumps({"type": "session.status", "status": {"type": "idle"}}) + "\n",

@@ -1917,10 +1917,10 @@ def test_runtime_client_ephemeral_run_emits_claude_tool_call_and_other_agent_eve
     )
 
     assert outcome.result.output == "final output"
-    assert [event.type for event in observed] == ["agent_tool_call", "other"]
+    assert [event.type for event in observed] == ["agent_tool_call", "turn_summary"]
     assert observed[0].display_message == 'Read({"path":"README.md"})'
     assert observed[0].raw_provider_output == tool_line
-    assert observed[1].display_message == "result"
+    assert observed[1].display_message == "turn_summary"
     assert observed[1].raw_provider_output == result_line
     assert "".join(event.raw_provider_output for event in observed) == (
         tool_line + result_line
@@ -2012,12 +2012,12 @@ def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantic
     assert [event.type for event in observed] == [
         "agent_message",
         "agent_tool_call",
-        "other",
+        "turn_summary",
     ]
     assert [event.display_message for event in observed] == [
         "intermediate",
         'Read({"path":"README.md"})',
-        "result",
+        "turn_summary",
     ]
     assert [event.raw_provider_output for event in observed] == [
         assistant_line,

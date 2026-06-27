@@ -257,8 +257,41 @@ def _other_event(line: str, descriptor: str) -> AgentEvent:
     )
 
 
+def _turn_summary_event(line: str, summary: str) -> AgentEvent:
+    return AgentEvent(
+        type="turn_summary",
+        display_message=summary,
+        raw_provider_output=line,
+    )
+
+
 def _unparsed_text_event(line: str) -> AgentEvent:
     return _other_event(line, line.strip())
+
+
+def _format_summary_fields(*fields: str | None) -> str:
+    populated = [field for field in fields if field]
+    if populated:
+        return " | ".join(populated)
+    return "turn_summary"
+
+
+def _format_duration_ms(value: object) -> str | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"duration_ms={value}"
+    return None
+
+
+def _format_cost_usd(value: object) -> str | None:
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return f"cost_usd={value}"
+    return None
+
+
+def _format_token_count(label: str, value: object) -> str | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"{label}={value}"
+    return None
 
 
 def is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
@@ -539,6 +572,19 @@ def build_claude_agent_event(line: str) -> AgentEvent:
         descriptor = _render_claude_system_display_message(event)
         if descriptor is not None:
             return _other_event(line, descriptor)
+    if event.get("type") == "result":
+        subtype = event.get("subtype")
+        stop_reason = (
+            f"stop_reason={subtype}" if isinstance(subtype, str) and subtype else None
+        )
+        return _turn_summary_event(
+            line,
+            _format_summary_fields(
+                stop_reason,
+                _format_duration_ms(event.get("duration_ms")),
+                _format_cost_usd(event.get("total_cost_usd")),
+            ),
+        )
     event_type = event.get("type")
     descriptor = event_type if isinstance(event_type, str) and event_type else "other"
     return _other_event(line, descriptor)
@@ -696,6 +742,17 @@ def build_codex_agent_event(line: str) -> AgentEvent:
                 if not isinstance(tool_name, str) or not tool_name:
                     tool_name = item_type
                 return _tool_call_event(line, tool_name, _codex_tool_payload(item))
+    if event_type == "turn.completed":
+        usage = event.get("usage")
+        usage_dict = usage if isinstance(usage, dict) else {}
+        return _turn_summary_event(
+            line,
+            _format_summary_fields(
+                _format_token_count("input_tokens", usage_dict.get("input_tokens")),
+                _format_token_count("cached_tokens", usage_dict.get("cached_tokens")),
+                _format_token_count("output_tokens", usage_dict.get("output_tokens")),
+            ),
+        )
     descriptor = event_type if isinstance(event_type, str) and event_type else "other"
     return _other_event(line, descriptor)
 
@@ -1037,6 +1094,24 @@ def build_opencode_agent_event(line: str) -> AgentEvent:
                 return _tool_call_event(
                     line, tool_name, _raw_event_payload(payload_value)
                 )
+    if event.get("type") == "step_finish":
+        step = event.get("step")
+        step_dict = step if isinstance(step, dict) else {}
+        tokens = step_dict.get("tokens")
+        token_dict = tokens if isinstance(tokens, dict) else {}
+        cache = token_dict.get("cache")
+        cache_dict = cache if isinstance(cache, dict) else {}
+        return _turn_summary_event(
+            line,
+            _format_summary_fields(
+                _format_token_count("input", token_dict.get("input")),
+                _format_token_count("output", token_dict.get("output")),
+                _format_token_count("reasoning", token_dict.get("reasoning")),
+                _format_token_count("cache_read", cache_dict.get("read")),
+                _format_token_count("cache_write", cache_dict.get("write")),
+                _format_cost_usd(step_dict.get("cost")),
+            ),
+        )
     if event.get("type") == "session.status":
         status = event.get("status")
         descriptor = "session.status"
