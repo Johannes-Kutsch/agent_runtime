@@ -67,6 +67,13 @@ class CodexNewSessionResolution:
     continuation_input_facts: ContinuationInputFacts
 
 
+def _codex_rollout_paths(provider_state_dir: Path) -> tuple[Path, ...]:
+    sessions_dir = provider_state_dir / "sessions"
+    if not sessions_dir.is_dir():
+        return ()
+    return tuple(sessions_dir.rglob("rollout-*.jsonl"))
+
+
 def resolve_codex_start_session_state(
     *,
     runtime_state_dir: Path,
@@ -107,9 +114,14 @@ def resolve_codex_new_session_facts(
         caller_owned_session_store=caller_owned_session_store,
         host_auth_path=host_auth_path,
     )
+    rollout_paths = _codex_rollout_paths(start_session_state.provider_state_dir)
     recovered_provider_session_id = _recover_codex_rollout_session_id(
         start_session_state.provider_state_dir
     )
+    if rollout_paths and recovered_provider_session_id is None:
+        raise RuntimeConfigurationError(
+            "Codex continuation is not recoverable from provider state."
+        )
     continuation_input_facts = codex_continuation_input_facts(
         model=model,
         effort=effort,
@@ -161,11 +173,8 @@ def _read_codex_rollout_session_ids(rollout_path: Path) -> set[str]:
 
 
 def _recover_codex_rollout_session_id(provider_state_dir: Path) -> str | None:
-    sessions_dir = provider_state_dir / "sessions"
-    if not sessions_dir.is_dir():
-        return None
     session_ids: set[str] = set()
-    for rollout_path in sessions_dir.rglob("rollout-*.jsonl"):
+    for rollout_path in _codex_rollout_paths(provider_state_dir):
         session_ids.update(_read_codex_rollout_session_ids(rollout_path))
         if len(session_ids) > 1:
             return None

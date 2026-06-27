@@ -208,6 +208,50 @@ def test_session_backed_provider_state_resolution_recovers_codex_resume_facts_fr
     )
 
 
+def test_session_backed_provider_state_resolution_recovers_codex_new_session_facts_from_rollout_state_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    runtime_state_dir = tmp_path / "session-store"
+    rollout_dir = (
+        runtime_state_dir / "implementer" / "slice422" / "codex" / "sessions" / "2026"
+    )
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    (rollout_dir / "rollout-001.jsonl").write_text(
+        "{not-json\n"
+        '{"type":"turn.completed"}\n'
+        '{"type":"session_meta","payload":{"id":"recovered-thread"}}\n',
+        encoding="utf-8",
+    )
+
+    resolution = provider_state_resolution.resolve_codex_new_session_facts(
+        runtime_state_dir=runtime_state_dir,
+        session_namespace="slice422",
+        caller_owned_session_store=True,
+        model="gpt-5.4",
+        effort="medium",
+        host_auth_path=host_auth_path,
+    )
+
+    assert resolution.provider_state_dir == (
+        runtime_state_dir / "implementer" / "slice422" / "codex"
+    )
+    assert resolution.continuation_input_facts == (
+        provider_state_resolution.codex_continuation_input_facts(
+            model="gpt-5.4",
+            effort="medium",
+            provider_state_dir=runtime_state_dir / "implementer" / "slice422" / "codex",
+            provider_state_dir_relpath="implementer/slice422/codex/",
+            provider_session_id="recovered-thread",
+            recovered_provider_session_id=True,
+            run_kind=RunKind.RESUME,
+        )
+    )
+
+
 @pytest.mark.parametrize(
     "rollout_content",
     [
@@ -246,5 +290,43 @@ def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_ro
             model="gpt-5.4",
             effort="medium",
             provider_session_id=None,
+            host_auth_path=host_auth_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "rollout_content",
+    [
+        "",
+        '{not-json\n{"type":"turn.completed"}\n{"type":"session_meta","payload":[]}\n',
+        '{"type":"session_meta","payload":{"id":"thread-a"}}\n'
+        '{"type":"session_meta","payload":{"id":"thread-b"}}\n',
+    ],
+)
+def test_session_backed_provider_state_resolution_rejects_unrecoverable_existing_codex_new_session_rollout_state_through_module_interface(
+    tmp_path: Path,
+    rollout_content: str,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    runtime_state_dir = tmp_path / "session-store"
+    rollout_dir = (
+        runtime_state_dir / "implementer" / "slice422" / "codex" / "sessions" / "2026"
+    )
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    (rollout_dir / "rollout-001.jsonl").write_text(rollout_content, encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeConfigurationError,
+        match="Codex continuation is not recoverable from provider state.",
+    ):
+        provider_state_resolution.resolve_codex_new_session_facts(
+            runtime_state_dir=runtime_state_dir,
+            session_namespace="slice422",
+            caller_owned_session_store=True,
+            model="gpt-5.4",
+            effort="medium",
             host_auth_path=host_auth_path,
         )
