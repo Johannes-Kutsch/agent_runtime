@@ -350,6 +350,17 @@ class ProductionProviderInvocationAdapter:
                     else:
                         source, line = output_queue.get()
                 except queue.Empty as exc:
+                    if os.name == "nt":
+                        subprocess.run(
+                            [
+                                "taskkill",
+                                "/F",
+                                "/T",
+                                "/PID",
+                                str(process.pid),
+                            ],
+                            capture_output=True,
+                        )
                     process.kill()
                     process.wait()
                     stdout_thread.join()
