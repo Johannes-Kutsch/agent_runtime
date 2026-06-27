@@ -381,6 +381,109 @@ def test_session_backed_provider_state_resolution_persists_opencode_provider_ses
 
 @pytest.mark.parametrize(
     (
+        "prepared_provider_session_id",
+        "saved_exact_transcript_match",
+        "active_provider_session_id",
+        "expected_provider_session_id",
+        "expected_exact_transcript_match",
+    ),
+    [
+        (
+            "persisted-session",
+            True,
+            " persisted-session \n",
+            "persisted-session",
+            True,
+        ),
+        (
+            "persisted-session",
+            True,
+            "observed-session",
+            "observed-session",
+            False,
+        ),
+        (
+            "persisted-session",
+            False,
+            "persisted-session",
+            "persisted-session",
+            False,
+        ),
+    ],
+)
+def test_session_backed_provider_state_resolution_resolves_opencode_active_session_facts_through_module_interface(
+    tmp_path: Path,
+    prepared_provider_session_id: str,
+    saved_exact_transcript_match: bool,
+    active_provider_session_id: str,
+    expected_provider_session_id: str,
+    expected_exact_transcript_match: bool,
+) -> None:
+    provider_state_dir = (
+        tmp_path / "session-store" / "implementer" / "slice427" / "opencode"
+    )
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    continuation_input_facts = (
+        provider_state_resolution.opencode_continuation_input_facts(
+            model="glm-5.2",
+            effort="medium",
+            provider_state_dir=provider_state_dir,
+            provider_state_dir_relpath="implementer/slice427/opencode/",
+            provider_session_id=prepared_provider_session_id,
+            run_kind=RunKind.RESUME,
+            exact_transcript_match=saved_exact_transcript_match,
+        )
+    )
+
+    resolved = provider_state_resolution.resolve_opencode_active_session_facts(
+        continuation_input_facts,
+        provider_session_id=active_provider_session_id,
+    )
+
+    assert resolved == provider_state_resolution.opencode_continuation_input_facts(
+        model="glm-5.2",
+        effort="medium",
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath="implementer/slice427/opencode/",
+        provider_session_id=expected_provider_session_id,
+        run_kind=RunKind.RESUME,
+        exact_transcript_match=expected_exact_transcript_match,
+    )
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8") == (
+        f"{expected_provider_session_id}\n"
+    )
+
+
+def test_session_backed_provider_state_resolution_keeps_opencode_active_session_facts_unchanged_when_provider_session_id_is_missing_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    provider_state_dir = (
+        tmp_path / "session-store" / "implementer" / "slice427" / "opencode"
+    )
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    continuation_input_facts = (
+        provider_state_resolution.opencode_continuation_input_facts(
+            model="glm-5.2",
+            effort="medium",
+            provider_state_dir=provider_state_dir,
+            provider_state_dir_relpath="implementer/slice427/opencode/",
+            provider_session_id="prepared-session",
+            run_kind=RunKind.RESUME,
+            exact_transcript_match=True,
+        )
+    )
+
+    resolved = provider_state_resolution.resolve_opencode_active_session_facts(
+        continuation_input_facts,
+        provider_session_id="  \n",
+    )
+
+    assert resolved is continuation_input_facts
+    assert not (provider_state_dir / "session_id").exists()
+
+
+@pytest.mark.parametrize(
+    (
         "provider_state_dir_relpath",
         "continuation_provider_session_id",
         "stored_provider_session_id",
