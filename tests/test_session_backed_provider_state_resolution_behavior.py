@@ -162,6 +162,31 @@ def test_session_backed_provider_state_resolution_seeds_codex_auth_only_when_mis
     ) == '{"token":"existing-auth"}\n'
 
 
+@pytest.mark.parametrize(
+    ("caller_owned_session_store", "expected_relpath"),
+    [
+        (True, "implementer/slice424/claude/"),
+        (False, None),
+    ],
+)
+def test_session_backed_provider_state_resolution_prepares_claude_start_session_state_through_module_interface(
+    tmp_path: Path,
+    caller_owned_session_store: bool,
+    expected_relpath: str | None,
+) -> None:
+    resolution = provider_state_resolution.resolve_claude_start_session_state(
+        runtime_state_dir=tmp_path / "session-store",
+        session_namespace="slice424",
+        caller_owned_session_store=caller_owned_session_store,
+    )
+
+    assert resolution.provider_state_dir == (
+        tmp_path / "session-store" / "implementer" / "slice424" / "claude"
+    )
+    assert resolution.provider_state_dir.is_dir()
+    assert resolution.provider_state_dir_relpath == expected_relpath
+
+
 def test_session_backed_provider_state_resolution_recovers_codex_resume_facts_from_rollout_state_through_module_interface(
     tmp_path: Path,
 ) -> None:
@@ -203,6 +228,123 @@ def test_session_backed_provider_state_resolution_recovers_codex_resume_facts_fr
             provider_state_dir_relpath="implementer/slice422/codex/",
             provider_session_id="recovered-thread",
             recovered_provider_session_id=True,
+            run_kind=RunKind.RESUME,
+        )
+    )
+
+
+def test_session_backed_provider_state_resolution_prepares_fresh_claude_new_session_facts_from_empty_state_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "prepared-claude-session",
+    )
+
+    resolution = provider_state_resolution.resolve_claude_new_session_facts(
+        runtime_state_dir=tmp_path / "session-store",
+        session_namespace="slice424",
+        caller_owned_session_store=True,
+        model="sonnet",
+        effort="medium",
+    )
+
+    assert resolution.provider_state_dir == (
+        tmp_path / "session-store" / "implementer" / "slice424" / "claude"
+    )
+    assert resolution.continuation_input_facts == (
+        provider_state_resolution.claude_continuation_input_facts(
+            model="sonnet",
+            effort="medium",
+            provider_state_dir=(
+                tmp_path / "session-store" / "implementer" / "slice424" / "claude"
+            ),
+            provider_state_dir_relpath="implementer/slice424/claude/",
+            provider_session_id="prepared-claude-session",
+            run_kind=RunKind.FRESH,
+        )
+    )
+
+
+def test_session_backed_provider_state_resolution_recovers_resumable_claude_new_session_facts_from_native_state_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "prepared-claude-session",
+    )
+    provider_state_dir = (
+        tmp_path / "session-store" / "implementer" / "slice424" / "claude"
+    )
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    (provider_state_dir / "projects" / "project.json").parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    (provider_state_dir / "projects" / "project.json").write_text(
+        '{"native":"state"}\n',
+        encoding="utf-8",
+    )
+
+    resolution = provider_state_resolution.resolve_claude_new_session_facts(
+        runtime_state_dir=tmp_path / "session-store",
+        session_namespace="slice424",
+        caller_owned_session_store=True,
+        model="sonnet",
+        effort="medium",
+    )
+
+    assert resolution.provider_state_dir == provider_state_dir
+    assert resolution.continuation_input_facts == (
+        provider_state_resolution.claude_continuation_input_facts(
+            model="sonnet",
+            effort="medium",
+            provider_state_dir=provider_state_dir,
+            provider_state_dir_relpath="implementer/slice424/claude/",
+            provider_session_id="prepared-claude-session",
+            run_kind=RunKind.RESUME,
+        )
+    )
+
+
+def test_session_backed_provider_state_resolution_restores_claude_resumed_session_facts_from_continuation_state_pointer_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "prepared-claude-session",
+    )
+    runtime_state_dir = tmp_path / "session-store"
+    provider_state_dir = runtime_state_dir / "implementer" / "slice424" / "claude"
+    (provider_state_dir / "todos" / "todo.json").parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    (provider_state_dir / "todos" / "todo.json").write_text(
+        '{"native":"state"}\n',
+        encoding="utf-8",
+    )
+
+    resolution = provider_state_resolution.resolve_claude_resumed_session_facts(
+        runtime_state_dir=runtime_state_dir,
+        provider_state_dir_relpath="implementer/slice424/claude/",
+        model="sonnet",
+        effort="medium",
+        provider_session_id=None,
+    )
+
+    assert resolution.provider_state_dir == provider_state_dir
+    assert resolution.continuation_input_facts == (
+        provider_state_resolution.claude_continuation_input_facts(
+            model="sonnet",
+            effort="medium",
+            provider_state_dir=provider_state_dir,
+            provider_state_dir_relpath="implementer/slice424/claude/",
+            provider_session_id="prepared-claude-session",
             run_kind=RunKind.RESUME,
         )
     )

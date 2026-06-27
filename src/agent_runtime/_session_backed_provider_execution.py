@@ -131,33 +131,6 @@ def _claude_provider_state_dir_relpath(
     return cast(str, provider_state_relpath(role, "claude", session_namespace))
 
 
-def _claude_is_resumable(state_dir: Path) -> bool:
-    return state_dir.is_dir() and any(path.is_file() for path in state_dir.rglob("*"))
-
-
-def _claude_prepare_runtime_state(
-    runtime_state_dir: Path,
-    *,
-    role: Any,
-    session_namespace: str,
-) -> tuple[str, Path]:
-    provider_state_dir_relpath = _claude_provider_state_dir_relpath(
-        role=role,
-        session_namespace=session_namespace,
-    )
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    return provider_state_dir_relpath, provider_state_dir
-
-
-def _claude_run_kind_for_state_dir(state_dir: Path | None) -> RunKind:
-    if state_dir is None:
-        return RunKind.RESUME
-    if _claude_is_resumable(state_dir):
-        return RunKind.RESUME
-    return RunKind.FRESH
-
-
 def _require_claude_auth(auth: ProviderAuth | None) -> None:
     _builtin_provider_rendering_module._require_claude_auth(auth)
 
@@ -430,24 +403,18 @@ def _run_builtin_new_session(
                 effort=selected_stage.effort,
             )
         elif selected_stage.service == "claude":
-            provider_state_dir_relpath, provider_state_dir = (
-                _claude_prepare_runtime_state(
-                    runtime_state_dir,
-                    role="implementer",
+            claude_resolution = (
+                _provider_state_resolution.resolve_claude_new_session_facts(
+                    runtime_state_dir=runtime_state_dir,
                     session_namespace=request._session_namespace,
-                )
-            )
-            if _claude_is_resumable(provider_state_dir):
-                continuation_input_facts = _provider_state_resolution.claude_continuation_input_facts(
+                    caller_owned_session_store=is_caller_managed_runtime_state,
                     model=selected_stage.model,
                     effort=selected_stage.effort,
-                    provider_state_dir=provider_state_dir,
-                    provider_state_dir_relpath=_portable_claude_state_dir_relpath(
-                        provider_state_dir_relpath
-                    ),
-                    provider_session_id=_builtin_runtime_client_module._new_provider_session_id(),
-                    run_kind=RunKind.RESUME,
                 )
+            )
+            provider_state_dir = claude_resolution.provider_state_dir
+            continuation_input_facts = claude_resolution.continuation_input_facts
+            if continuation_input_facts.run_kind is RunKind.RESUME:
                 return _run_builtin_resumed_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
                         prompt=request.prompt,
@@ -468,11 +435,6 @@ def _run_builtin_new_session(
                 )
             _builtin_runtime_client_module._validate_claude_stage(selected_stage)
             _require_claude_auth(selected_stage_auth)
-            provider_session_id = (
-                _builtin_runtime_client_module._new_provider_session_id()
-            )
-            run_kind = RunKind.FRESH
-            exact_transcript_match = False
         elif selected_stage.service == "opencode":
             provider_state_dir_relpath, provider_state_dir = (
                 _opencode_prepare_runtime_state(
@@ -504,16 +466,7 @@ def _run_builtin_new_session(
                 "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
             )
         continuation_input_facts = (
-            _provider_state_resolution.claude_continuation_input_facts(
-                model=selected_stage.model,
-                effort=selected_stage.effort,
-                provider_state_dir=provider_state_dir,
-                provider_state_dir_relpath=_portable_claude_state_dir_relpath(
-                    provider_state_dir_relpath
-                ),
-                provider_session_id=provider_session_id,
-                run_kind=run_kind,
-            )
+            continuation_input_facts
             if selected_stage.service == "claude"
             else _provider_state_resolution.opencode_continuation_input_facts(
                 model=selected_stage.model,
@@ -529,7 +482,14 @@ def _run_builtin_new_session(
         )
         assert continuation_input_facts is not None
         if selected_stage.service == "claude":
-            assert provider_session_id is not None
+            provider_session_id = cast(
+                str,
+                cast(
+                    _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
+                    continuation_input_facts.provider_session_id,
+                ).value,
+            )
+            run_kind = continuation_input_facts.run_kind
             invocation_result = _invoke_with_timeout_continuation(
                 invoke=lambda: (
                     _builtin_runtime_client_module._invoke_claude_new_session_provider(
@@ -812,14 +772,44 @@ def _run_builtin_resumed_session(
         _require_claude_auth(request.provider_auth)
         provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
         if provider_state_dir_relpath and request.session_store is not None:
-            provider_state_dir = request.session_store / provider_state_dir_relpath
-            provider_state_dir.mkdir(parents=True, exist_ok=True)
-        state_dir_session_id = None
-        run_kind = _claude_run_kind_for_state_dir(provider_state_dir)
-        exact_transcript_match = False
-        if not provider_session_id:
-            provider_session_id = (
-                _builtin_runtime_client_module._new_provider_session_id()
+            claude_resolution = (
+                _provider_state_resolution.resolve_claude_resumed_session_facts(
+                    runtime_state_dir=request.session_store,
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    model=request.model,
+                    effort=request.effort,
+                    provider_session_id=provider_session_id,
+                )
+            )
+            provider_state_dir = claude_resolution.provider_state_dir
+            continuation_input_facts = claude_resolution.continuation_input_facts
+            provider_session_id = cast(
+                str,
+                cast(
+                    _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
+                    continuation_input_facts.provider_session_id,
+                ).value,
+            )
+            run_kind = continuation_input_facts.run_kind
+        else:
+            if not provider_session_id:
+                provider_session_id = (
+                    _builtin_runtime_client_module._new_provider_session_id()
+                )
+            run_kind = RunKind.RESUME
+            continuation_input_facts = (
+                _provider_state_resolution.claude_continuation_input_facts(
+                    model=request.model,
+                    effort=request.effort,
+                    provider_state_dir=(
+                        provider_state_dir
+                        if provider_state_dir is not None
+                        else runtime_state_dir
+                    ),
+                    provider_state_dir_relpath=provider_state_dir_relpath,
+                    provider_session_id=provider_session_id,
+                    run_kind=run_kind,
+                )
             )
         cleanup_opencode_state_dir = _no_cleanup
     else:
@@ -848,18 +838,7 @@ def _run_builtin_resumed_session(
         )
         run_kind = RunKind.RESUME
     continuation_input_facts = (
-        _provider_state_resolution.claude_continuation_input_facts(
-            model=request.model,
-            effort=request.effort,
-            provider_state_dir=(
-                provider_state_dir
-                if provider_state_dir is not None
-                else runtime_state_dir
-            ),
-            provider_state_dir_relpath=provider_state_dir_relpath,
-            provider_session_id=provider_session_id,
-            run_kind=run_kind,
-        )
+        continuation_input_facts
         if continuation_service == "claude"
         else _provider_state_resolution.opencode_continuation_input_facts(
             model=request.model,
