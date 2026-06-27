@@ -14,6 +14,7 @@ from agent_runtime._builtin_provider_stream_interpretation import (
     codex_built_in_provider_stream_interpretation,
     observe_opencode_output,
     opencode_built_in_provider_stream_interpretation,
+    reduce_opencode_stream,
 )
 from agent_runtime._runtime_lifecycle import AgentEvent, ProviderUsage
 from agent_runtime.errors import (
@@ -885,6 +886,73 @@ def test_opencode_built_in_provider_stream_interpretation_falls_back_to_text_des
     assert event.raw_provider_output == line
 
 
+def test_reduce_opencode_stream_preserves_live_agent_event_values() -> None:
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    observed: list[AgentEvent] = []
+    text_line = (
+        json.dumps(
+            {
+                "type": "text",
+                "part": {
+                    "type": "text",
+                    "text": "hello from opencode",
+                    "time": {"end": True},
+                },
+            }
+        )
+        + "\n"
+    )
+    tool_line = (
+        json.dumps(
+            {
+                "type": "text",
+                "part": {
+                    "type": "tool",
+                    "name": "Read",
+                    "input": {"path": "README.md"},
+                },
+            }
+        )
+        + "\n"
+    )
+    summary_line = (
+        json.dumps(
+            {
+                "type": "step_finish",
+                "step": {
+                    "tokens": {
+                        "input": 120,
+                        "output": 45,
+                        "reasoning": 12,
+                        "cache": {"read": 30, "write": 8},
+                    },
+                    "cost": 0.0123,
+                },
+            }
+        )
+        + "\n"
+    )
+    idle_line = (
+        json.dumps({"type": "session.status", "status": {"type": "idle"}}) + "\n"
+    )
+    non_object_line = '"text"\n'
+    raw_text_line = "  not json  \n"
+    lines = [
+        text_line,
+        tool_line,
+        summary_line,
+        idle_line,
+        non_object_line,
+        raw_text_line,
+    ]
+
+    output, usage = reduce_opencode_stream(lines, observed.append)
+
+    assert output == "hello from opencode"
+    assert usage is None
+    assert observed == [interpretation.build_agent_event(line) for line in lines]
+
+
 @pytest.mark.parametrize(
     ("interpretation_factory", "line"),
     [
@@ -960,5 +1028,79 @@ def test_opencode_observation_emits_live_agent_events_and_tracks_provider_sessio
     assert [event.display_message for event in observed] == [
         "hello from opencode",
         "idle",
+    ]
+    assert observed_provider_session_ids == ["sess_123"]
+
+
+def test_opencode_observation_uses_stream_interpretation_builder_for_live_events() -> (
+    None
+):
+    observed: list[AgentEvent] = []
+    observed_provider_session_ids: list[str] = []
+    interpretation = BuiltInProviderStreamInterpretation(
+        reduce_output=lambda _lines: ("", None),
+        build_agent_event=lambda line: AgentEvent(
+            type="other",
+            display_message=f"observed:{line.strip()}",
+            raw_provider_output=f"wrapped:{line}",
+        ),
+        classify_invocation_progress=lambda _lines: InvocationProgress.NOT_STARTED,
+    )
+    observe_output = observe_opencode_output(
+        stream_interpretation=interpretation,
+        on_live_output=observed.append,
+        on_provider_session_id=observed_provider_session_ids.append,
+    )
+    text_line = (
+        json.dumps(
+            {
+                "type": "text",
+                "sessionID": "sess_123",
+                "part": {
+                    "type": "text",
+                    "text": "hello from opencode",
+                    "time": {"end": True},
+                },
+            }
+        )
+        + "\n"
+    )
+    idle_line = (
+        json.dumps(
+            {
+                "type": "session.status",
+                "sessionID": "sess_123",
+                "status": {"type": "idle"},
+            }
+        )
+        + "\n"
+    )
+    trailing_error_line = (
+        json.dumps(
+            {
+                "type": "error",
+                "sessionID": "sess_456",
+                "error": {
+                    "name": "InternalServerError",
+                    "data": {"message": "ignored after idle", "statusCode": 503},
+                },
+            }
+        )
+        + "\n"
+    )
+
+    observe_output([text_line, idle_line, trailing_error_line])
+
+    assert observed == [
+        AgentEvent(
+            type="other",
+            display_message=f"observed:{text_line.strip()}",
+            raw_provider_output=f"wrapped:{text_line}",
+        ),
+        AgentEvent(
+            type="other",
+            display_message=f"observed:{idle_line.strip()}",
+            raw_provider_output=f"wrapped:{idle_line}",
+        ),
     ]
     assert observed_provider_session_ids == ["sess_123"]
