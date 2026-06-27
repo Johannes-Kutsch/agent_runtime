@@ -361,31 +361,77 @@ def test_session_backed_provider_state_resolution_loads_trimmed_opencode_session
     )
 
 
+def test_session_backed_provider_state_resolution_persists_opencode_provider_session_id_in_native_state_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    provider_state_dir = (
+        tmp_path / "session-store" / "implementer" / "slice426" / "opencode"
+    )
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+
+    provider_state_resolution.persist_opencode_provider_session_id(
+        provider_state_dir,
+        "persisted-session",
+    )
+
+    assert (provider_state_dir / "session_id").read_text(encoding="utf-8") == (
+        "persisted-session\n"
+    )
+
+
 @pytest.mark.parametrize(
-    ("provider_state_dir_relpath", "expected_provider_state_dir"),
+    (
+        "provider_state_dir_relpath",
+        "continuation_provider_session_id",
+        "stored_provider_session_id",
+        "expected_provider_state_dir",
+        "expected_provider_session_id",
+        "expected_exact_transcript_match",
+    ),
     [
         (
             "implementer/main/opencode/",
+            None,
+            "stored-session",
             ("implementer", "main", "opencode"),
+            "stored-session",
+            True,
         ),
         (
             None,
+            None,
+            "stored-session",
             ("implementer", "fallback", "opencode"),
+            "stored-session",
+            True,
+        ),
+        (
+            "implementer/main/opencode/",
+            "continuation-session",
+            "stored-session",
+            ("implementer", "main", "opencode"),
+            "continuation-session",
+            False,
         ),
     ],
 )
 def test_session_backed_provider_state_resolution_restores_opencode_resumed_session_facts_from_continuation_and_session_store_through_module_interface(
     tmp_path: Path,
     provider_state_dir_relpath: str | None,
+    continuation_provider_session_id: str | None,
+    stored_provider_session_id: str | None,
     expected_provider_state_dir: tuple[str, str, str],
+    expected_provider_session_id: str,
+    expected_exact_transcript_match: bool,
 ) -> None:
     runtime_state_dir = tmp_path / "session-store"
     provider_state_dir = runtime_state_dir.joinpath(*expected_provider_state_dir)
     provider_state_dir.mkdir(parents=True, exist_ok=True)
-    (provider_state_dir / "session_id").write_text(
-        "stored-session\n",
-        encoding="utf-8",
-    )
+    if stored_provider_session_id is not None:
+        (provider_state_dir / "session_id").write_text(
+            f"{stored_provider_session_id}\n",
+            encoding="utf-8",
+        )
 
     provider_resume_state: dict[str, object] = {
         "exact_transcript_match": True,
@@ -394,6 +440,8 @@ def test_session_backed_provider_state_resolution_restores_opencode_resumed_sess
             "resume_jsonl": "forged",
         },
     }
+    if continuation_provider_session_id is not None:
+        provider_resume_state["provider_session_id"] = continuation_provider_session_id
     if provider_state_dir_relpath is not None:
         provider_resume_state["provider_state_dir_relpath"] = provider_state_dir_relpath
     continuation = prompt_runtime.Continuation(
@@ -421,9 +469,9 @@ def test_session_backed_provider_state_resolution_restores_opencode_resumed_sess
             provider_state_dir_relpath=(
                 provider_state_dir_relpath or "implementer/fallback/opencode/"
             ),
-            provider_session_id="stored-session",
+            provider_session_id=expected_provider_session_id,
             run_kind=RunKind.RESUME,
-            exact_transcript_match=True,
+            exact_transcript_match=expected_exact_transcript_match,
         )
     )
 

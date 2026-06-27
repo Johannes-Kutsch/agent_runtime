@@ -27,82 +27,6 @@ from .session import RunKind, provider_state_relpath
 from .types import ProviderSelection, ResolvedProvider
 
 
-def _opencode_provider_state_dir_relpath(
-    *,
-    role: Any,
-    session_namespace: str,
-) -> str:
-    return cast(
-        str,
-        _builtin_runtime_client_module.provider_state_relpath(
-            role,
-            "opencode",
-            session_namespace,
-        ),
-    )
-
-
-def _opencode_prepare_runtime_state(
-    runtime_state_dir: Path,
-    *,
-    role: Any,
-    session_namespace: str,
-) -> tuple[str, Path]:
-    provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
-        role=role,
-        session_namespace=session_namespace,
-    )
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    return provider_state_dir_relpath, provider_state_dir
-
-
-def _load_opencode_state_dir_session_id(state_dir: Path | None) -> str | None:
-    if state_dir is None:
-        return None
-    path = state_dir / _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME
-    if not path.is_file():
-        return None
-    try:
-        value = path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    return value or None
-
-
-def _opencode_is_resumable(state_dir: Path) -> bool:
-    return (state_dir / "resume.jsonl").is_file() or (
-        state_dir / _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME
-    ).is_file()
-
-
-def _persist_opencode_session_id(state_dir: Path, provider_session_id: str) -> None:
-    (
-        state_dir / _builtin_runtime_client_module._OPENCODE_SESSION_ID_FILENAME
-    ).write_text(
-        f"{provider_session_id}\n",
-        encoding="utf-8",
-    )
-
-
-def _restore_opencode_state_dir(
-    request: ResumedSessionRunRequest,
-    provider_state_dir_relpath: str | None,
-) -> tuple[Path, str, Callable[[], None]]:
-    if request.session_store is None:
-        raise RuntimeConfigurationError(
-            "RuntimeClient Resume Session Run requires a `session_store`."
-        )
-    if provider_state_dir_relpath is None:
-        provider_state_dir_relpath = _opencode_provider_state_dir_relpath(
-            role="implementer",
-            session_namespace=request._session_namespace,
-        )
-    state_dir = request.session_store / provider_state_dir_relpath
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir, provider_state_dir_relpath, lambda: None
-
-
 def _opencode_exact_transcript_match(
     *,
     saved_exact_transcript_match: bool,
@@ -261,13 +185,6 @@ def _run_builtin_new_session(
         )
 
         def _portable_claude_state_dir_relpath(
-            provider_state_dir_relpath: str | None,
-        ) -> str | None:
-            if is_caller_managed_runtime_state:
-                return provider_state_dir_relpath
-            return None
-
-        def _portable_opencode_state_dir_relpath(
             provider_state_dir_relpath: str | None,
         ) -> str | None:
             if is_caller_managed_runtime_state:
@@ -447,11 +364,6 @@ def _run_builtin_new_session(
             raise RuntimeConfigurationError(
                 "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
             )
-        continuation_input_facts = (
-            continuation_input_facts
-            if selected_stage.service == "claude"
-            else continuation_input_facts
-        )
         assert continuation_input_facts is not None
         if selected_stage.service == "claude":
             provider_session_id = cast(
@@ -520,7 +432,10 @@ def _run_builtin_new_session(
                 prepared_or_continuation_provider_session_id=provider_session_id,
             )
             if selected_stage.service == "opencode" and provider_session_id is not None:
-                _persist_opencode_session_id(provider_state_dir, provider_session_id)
+                _provider_state_resolution.persist_opencode_provider_session_id(
+                    provider_state_dir,
+                    provider_session_id,
+                )
             failure_error = (
                 _builtin_runtime_client_module._provider_invocation_error_from_failure(
                     selected_stage.service,
@@ -547,7 +462,10 @@ def _run_builtin_new_session(
             prepared_or_continuation_provider_session_id=provider_session_id,
         )
         if selected_stage.service == "opencode" and provider_session_id is not None:
-            _persist_opencode_session_id(provider_state_dir, provider_session_id)
+            _provider_state_resolution.persist_opencode_provider_session_id(
+                provider_state_dir,
+                provider_session_id,
+            )
         assert provider_session_id is not None
         result_text = invocation_result.output
         usage = invocation_result.usage
@@ -804,11 +722,6 @@ def _run_builtin_resumed_session(
         ).value
         run_kind = continuation_input_facts.run_kind
         cleanup_opencode_state_dir = _no_cleanup
-    continuation_input_facts = (
-        continuation_input_facts
-        if continuation_service == "claude"
-        else continuation_input_facts
-    )
     if continuation_service == "claude":
         invocation_result = _invoke_with_timeout_continuation(
             invoke=lambda: (
