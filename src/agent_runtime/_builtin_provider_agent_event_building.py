@@ -322,3 +322,7 @@ def build_opencode_agent_event(line: str) -> AgentEvent:
     if not isinstance(event, dict):
         return _other(line, "non_object")
     return _build_opencode_object_event(line, event)
+
+
+def opencode_built_in_provider_agent_event_builder() -> Callable[[str], AgentEvent]:
+    return build_opencode_agent_event

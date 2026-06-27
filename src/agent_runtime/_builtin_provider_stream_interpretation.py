@@ -10,9 +10,9 @@ from typing import Any, cast
 
 from . import _time as _time_module
 from ._builtin_provider_agent_event_building import (
-    build_opencode_agent_event,
     claude_built_in_provider_agent_event_builder,
     codex_built_in_provider_agent_event_builder,
+    opencode_built_in_provider_agent_event_builder,
 )
 from .contracts import (
     AssistantTurn,
@@ -995,6 +995,7 @@ def reduce_opencode_stream(
     on_provider_session_id: Callable[[str], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
     observed_provider_session_id: str | None = None
+    build_agent_event = opencode_built_in_provider_agent_event_builder()
 
     def _record_provider_session_id(session_id: str) -> None:
         nonlocal observed_provider_session_id
@@ -1005,7 +1006,7 @@ def reduce_opencode_stream(
     if on_live_output is not None:
         for line in lines:
             emit_built_in_provider_live_output_event(
-                build_opencode_agent_event(line),
+                build_agent_event(line),
                 on_live_output,
             )
     try:
@@ -1029,6 +1030,8 @@ def opencode_built_in_provider_stream_interpretation(
     reduce_output: BuiltInProviderOutputReducer | None = None,
     extract_provider_session_id: BuiltInProviderSessionIdExtractor | None = None,
 ) -> BuiltInProviderStreamInterpretation:
+    build_agent_event = opencode_built_in_provider_agent_event_builder()
+
     def _classify_progress(lines: list[str]) -> InvocationProgress:
         parsed_events = parse_opencode_events(lines)
         if any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events):
@@ -1037,7 +1040,7 @@ def opencode_built_in_provider_stream_interpretation(
 
     return BuiltInProviderStreamInterpretation(
         reduce_output=reduce_output or (lambda lines: reduce_opencode_stream(lines)),
-        build_agent_event=build_opencode_agent_event,
+        build_agent_event=build_agent_event,
         classify_invocation_progress=_classify_progress,
         extract_provider_session_id=(
             extract_provider_session_id or extract_opencode_provider_session_id
