@@ -154,6 +154,43 @@ def persist_opencode_provider_session_id(
     )
 
 
+def resolve_opencode_active_session_facts(
+    continuation_input_facts: ContinuationInputFacts,
+    *,
+    provider_session_id: str | None,
+) -> ContinuationInputFacts:
+    active_provider_session_id = _normalize_provider_session_id(provider_session_id)
+    if active_provider_session_id is None:
+        return continuation_input_facts
+
+    provider_state_dir = continuation_input_facts.provider_state_directory.path
+    persist_opencode_provider_session_id(
+        provider_state_dir,
+        active_provider_session_id,
+    )
+
+    prepared_provider_session = continuation_input_facts.provider_session_id
+    exact_transcript_match = bool(
+        continuation_input_facts.exact_transcript_match is not None
+        and continuation_input_facts.exact_transcript_match.value
+        and prepared_provider_session is not None
+        and prepared_provider_session.value == active_provider_session_id
+    )
+    provider_state_relpath = continuation_input_facts.provider_state_relpath
+
+    return opencode_continuation_input_facts(
+        model=continuation_input_facts.provider_identity.model,
+        effort=continuation_input_facts.provider_identity.effort,
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=(
+            provider_state_relpath.value if provider_state_relpath is not None else None
+        ),
+        provider_session_id=active_provider_session_id,
+        run_kind=continuation_input_facts.run_kind,
+        exact_transcript_match=exact_transcript_match,
+    )
+
+
 def _codex_rollout_paths(provider_state_dir: Path) -> tuple[Path, ...]:
     sessions_dir = provider_state_dir / "sessions"
     if not sessions_dir.is_dir():
