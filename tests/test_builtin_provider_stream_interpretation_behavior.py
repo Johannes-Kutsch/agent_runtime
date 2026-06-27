@@ -182,6 +182,111 @@ def test_codex_built_in_provider_stream_interpretation_builds_tool_call_event_fr
     assert event.raw_provider_output == line
 
 
+@pytest.mark.parametrize("event_type", ["item.started", "item.completed"])
+def test_codex_built_in_provider_stream_interpretation_builds_agent_message_from_item_lifecycle_events(
+    event_type: str,
+) -> None:
+    interpretation = codex_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": event_type,
+                "item": {
+                    "type": "agent_message",
+                    "content": "codex output",
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "agent_message"
+    assert event.display_message == "codex output"
+    assert event.raw_provider_output == line
+
+
+@pytest.mark.parametrize("event_type", ["item.started", "item.completed"])
+def test_codex_built_in_provider_stream_interpretation_builds_tool_call_from_item_lifecycle_events(
+    event_type: str,
+) -> None:
+    interpretation = codex_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": event_type,
+                "item": {
+                    "type": "shell",
+                    "name": "shell",
+                    "arguments": {"command": "pwd"},
+                },
+            }
+        )
+        + "\n"
+    )
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "agent_tool_call"
+    assert event.display_message == 'shell({"command":"pwd"})'
+    assert event.raw_provider_output == line
+
+
+@pytest.mark.parametrize(
+    ("item", "expected_message"),
+    [
+        (
+            {
+                "type": "shell",
+                "name": "shell",
+                "arguments": {"command": "pwd"},
+                "input": {"command": "ignored"},
+                "payload": {"command": "ignored"},
+            },
+            'shell({"command":"pwd"})',
+        ),
+        (
+            {
+                "type": "shell",
+                "name": "shell",
+                "input": {"command": "pwd"},
+                "payload": {"command": "ignored"},
+            },
+            'shell({"command":"pwd"})',
+        ),
+        (
+            {
+                "type": "shell",
+                "name": "shell",
+                "payload": {"command": "pwd"},
+            },
+            'shell({"command":"pwd"})',
+        ),
+        (
+            {
+                "type": "shell",
+                "name": "shell",
+                "metadata": {"command": "pwd"},
+            },
+            'shell({"type":"shell","name":"shell","metadata":{"command":"pwd"}})',
+        ),
+    ],
+)
+def test_codex_built_in_provider_stream_interpretation_prefers_expected_tool_payload_fields(
+    item: dict[str, object],
+    expected_message: str,
+) -> None:
+    interpretation = codex_built_in_provider_stream_interpretation()
+    line = json.dumps({"type": "item.completed", "item": item}) + "\n"
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "agent_tool_call"
+    assert event.display_message == expected_message
+    assert event.raw_provider_output == line
+
+
 def test_codex_built_in_provider_stream_interpretation_builds_turn_summary_from_turn_completed() -> (
     None
 ):
@@ -245,6 +350,34 @@ def test_codex_built_in_provider_stream_interpretation_builds_other_event_from_p
 
     assert event.type == "other"
     assert event.display_message == "permission denied: missing approval"
+    assert event.raw_provider_output == line
+
+
+@pytest.mark.parametrize(
+    ("line", "expected_message"),
+    [
+        (
+            json.dumps({"type": "thread.started", "thread_id": "thread-123"}) + "\n",
+            "thread.started",
+        ),
+        (
+            json.dumps({"type": "item.started", "item": "not-an-object"}) + "\n",
+            "item.started",
+        ),
+        (json.dumps({"detail": "missing type"}) + "\n", "other"),
+        (json.dumps(["not", "an", "object"]) + "\n", "non_object"),
+    ],
+)
+def test_codex_built_in_provider_stream_interpretation_preserves_other_descriptors_and_fallbacks(
+    line: str,
+    expected_message: str,
+) -> None:
+    interpretation = codex_built_in_provider_stream_interpretation()
+
+    event = interpretation.build_agent_event(line)
+
+    assert event.type == "other"
+    assert event.display_message == expected_message
     assert event.raw_provider_output == line
 
 
