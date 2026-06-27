@@ -5,6 +5,7 @@ import pytest
 import agent_runtime._session_backed_provider_state_resolution as provider_state_resolution
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
+from agent_runtime.errors import RuntimeConfigurationError
 from agent_runtime.session import RunKind
 
 
@@ -94,3 +95,156 @@ def test_session_backed_provider_state_resolution_builds_current_continuation_pa
         )
         == expected_continuation
     )
+
+
+@pytest.mark.parametrize(
+    ("caller_owned_session_store", "expected_relpath"),
+    [
+        (True, "implementer/slice422/codex/"),
+        (False, None),
+    ],
+)
+def test_session_backed_provider_state_resolution_prepares_codex_start_session_state_through_module_interface(
+    tmp_path: Path,
+    caller_owned_session_store: bool,
+    expected_relpath: str | None,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    resolution = provider_state_resolution.resolve_codex_start_session_state(
+        runtime_state_dir=tmp_path / "session-store",
+        session_namespace="slice422",
+        caller_owned_session_store=caller_owned_session_store,
+        host_auth_path=host_auth_path,
+    )
+
+    assert resolution.provider_state_dir == (
+        tmp_path / "session-store" / "implementer" / "slice422" / "codex"
+    )
+    assert resolution.provider_state_dir.is_dir()
+    assert resolution.provider_state_dir_relpath == expected_relpath
+
+
+def test_session_backed_provider_state_resolution_seeds_codex_auth_only_when_missing_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    copied = provider_state_resolution.resolve_codex_start_session_state(
+        runtime_state_dir=tmp_path / "copied-store",
+        session_namespace="slice422",
+        caller_owned_session_store=True,
+        host_auth_path=host_auth_path,
+    )
+    preserved_store = tmp_path / "preserved-store"
+    existing_auth_path = (
+        preserved_store / "implementer" / "slice422" / "codex" / "auth.json"
+    )
+    existing_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_auth_path.write_text('{"token":"existing-auth"}\n', encoding="utf-8")
+
+    preserved = provider_state_resolution.resolve_codex_start_session_state(
+        runtime_state_dir=preserved_store,
+        session_namespace="slice422",
+        caller_owned_session_store=True,
+        host_auth_path=host_auth_path,
+    )
+
+    assert (copied.provider_state_dir / "auth.json").read_text(encoding="utf-8") == (
+        '{"token":"host-auth"}\n'
+    )
+    assert (preserved.provider_state_dir / "auth.json").read_text(
+        encoding="utf-8"
+    ) == '{"token":"existing-auth"}\n'
+
+
+def test_session_backed_provider_state_resolution_recovers_codex_resume_facts_from_rollout_state_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    runtime_state_dir = tmp_path / "session-store"
+    rollout_dir = (
+        runtime_state_dir / "implementer" / "slice422" / "codex" / "sessions" / "2026"
+    )
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    (rollout_dir / "rollout-001.jsonl").write_text(
+        "{not-json\n"
+        '{"type":"turn.completed"}\n'
+        '{"type":"session_meta","payload":[]}\n'
+        '{"type":"session_meta","payload":{"id":"recovered-thread"}}\n'
+        '{"type":"session_meta","payload":{"id":"   "}}\n',
+        encoding="utf-8",
+    )
+
+    resolution = provider_state_resolution.resolve_codex_resumed_session_facts(
+        runtime_state_dir=runtime_state_dir,
+        provider_state_dir_relpath="implementer/slice422/codex/",
+        model="gpt-5.4",
+        effort="medium",
+        provider_session_id="   ",
+        host_auth_path=host_auth_path,
+    )
+
+    assert resolution.provider_state_dir == (
+        runtime_state_dir / "implementer" / "slice422" / "codex"
+    )
+    assert resolution.continuation_input_facts == (
+        provider_state_resolution.codex_continuation_input_facts(
+            model="gpt-5.4",
+            effort="medium",
+            provider_state_dir=runtime_state_dir / "implementer" / "slice422" / "codex",
+            provider_state_dir_relpath="implementer/slice422/codex/",
+            provider_session_id="recovered-thread",
+            recovered_provider_session_id=True,
+            run_kind=RunKind.RESUME,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "rollout_content",
+    [
+        None,
+        "",
+        '{not-json\n{"type":"turn.completed"}\n{"type":"session_meta","payload":[]}\n',
+        '{"type":"session_meta","payload":{"id":"thread-a"}}\n'
+        '{"type":"session_meta","payload":{"id":"thread-b"}}\n',
+    ],
+)
+def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_rollout_state_through_module_interface(
+    tmp_path: Path,
+    rollout_content: str | None,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    runtime_state_dir = tmp_path / "session-store"
+    rollout_dir = (
+        runtime_state_dir / "implementer" / "slice422" / "codex" / "sessions" / "2026"
+    )
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    if rollout_content is not None:
+        (rollout_dir / "rollout-001.jsonl").write_text(
+            rollout_content, encoding="utf-8"
+        )
+
+    with pytest.raises(
+        RuntimeConfigurationError,
+        match="Codex continuation is not recoverable from provider state.",
+    ):
+        provider_state_resolution.resolve_codex_resumed_session_facts(
+            runtime_state_dir=runtime_state_dir,
+            provider_state_dir_relpath="implementer/slice422/codex/",
+            model="gpt-5.4",
+            effort="medium",
+            provider_session_id=None,
+            host_auth_path=host_auth_path,
+        )

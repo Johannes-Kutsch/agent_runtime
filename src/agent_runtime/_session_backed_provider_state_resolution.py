@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 from ._runtime_lifecycle import Continuation
 from .contracts import ToolAccess
-from .session import RunKind
+from .errors import RuntimeConfigurationError
+from .session import RunKind, provider_state_relpath
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,174 @@ class ContinuationInputFacts:
     provider_session_id: PreparedOrRecoveredProviderSessionId | None
     run_kind: RunKind
     exact_transcript_match: ExactTranscriptMatch | None
+
+
+@dataclass(frozen=True)
+class CodexStartSessionStateResolution:
+    provider_state_dir: Path
+    provider_state_dir_relpath: str | None
+
+
+@dataclass(frozen=True)
+class CodexResumedSessionResolution:
+    provider_state_dir: Path
+    continuation_input_facts: ContinuationInputFacts
+
+
+@dataclass(frozen=True)
+class CodexNewSessionResolution:
+    provider_state_dir: Path
+    continuation_input_facts: ContinuationInputFacts
+
+
+def resolve_codex_start_session_state(
+    *,
+    runtime_state_dir: Path,
+    session_namespace: str,
+    caller_owned_session_store: bool,
+    host_auth_path: Path,
+) -> CodexStartSessionStateResolution:
+    provider_state_dir_relpath = provider_state_relpath(
+        "implementer",
+        "codex",
+        session_namespace,
+    )
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    provider_auth_path = provider_state_dir / "auth.json"
+    if not provider_auth_path.exists():
+        shutil.copyfile(host_auth_path, provider_auth_path)
+    return CodexStartSessionStateResolution(
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=(
+            provider_state_dir_relpath if caller_owned_session_store else None
+        ),
+    )
+
+
+def resolve_codex_new_session_facts(
+    *,
+    runtime_state_dir: Path,
+    session_namespace: str,
+    caller_owned_session_store: bool,
+    model: str,
+    effort: str,
+    host_auth_path: Path,
+) -> CodexNewSessionResolution:
+    start_session_state = resolve_codex_start_session_state(
+        runtime_state_dir=runtime_state_dir,
+        session_namespace=session_namespace,
+        caller_owned_session_store=caller_owned_session_store,
+        host_auth_path=host_auth_path,
+    )
+    recovered_provider_session_id = _recover_codex_rollout_session_id(
+        start_session_state.provider_state_dir
+    )
+    continuation_input_facts = codex_continuation_input_facts(
+        model=model,
+        effort=effort,
+        provider_state_dir=start_session_state.provider_state_dir,
+        provider_state_dir_relpath=start_session_state.provider_state_dir_relpath,
+        provider_session_id=recovered_provider_session_id,
+        recovered_provider_session_id=recovered_provider_session_id is not None,
+        run_kind=(
+            RunKind.RESUME
+            if recovered_provider_session_id is not None
+            else RunKind.FRESH
+        ),
+    )
+    return CodexNewSessionResolution(
+        provider_state_dir=start_session_state.provider_state_dir,
+        continuation_input_facts=continuation_input_facts,
+    )
+
+
+def _seed_codex_auth(provider_state_dir: Path, host_auth_path: Path) -> None:
+    provider_auth_path = provider_state_dir / "auth.json"
+    if not provider_auth_path.exists():
+        shutil.copyfile(host_auth_path, provider_auth_path)
+
+
+def _read_codex_rollout_session_ids(rollout_path: Path) -> set[str]:
+    session_ids: set[str] = set()
+    if not rollout_path.is_file():
+        return session_ids
+    try:
+        for line in rollout_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "session_meta":
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            session_id = payload.get("id")
+            if isinstance(session_id, str):
+                stripped = session_id.strip()
+                if stripped:
+                    session_ids.add(stripped)
+    except (OSError, UnicodeDecodeError):
+        return set()
+    return session_ids
+
+
+def _recover_codex_rollout_session_id(provider_state_dir: Path) -> str | None:
+    sessions_dir = provider_state_dir / "sessions"
+    if not sessions_dir.is_dir():
+        return None
+    session_ids: set[str] = set()
+    for rollout_path in sessions_dir.rglob("rollout-*.jsonl"):
+        session_ids.update(_read_codex_rollout_session_ids(rollout_path))
+        if len(session_ids) > 1:
+            return None
+    if len(session_ids) != 1:
+        return None
+    return next(iter(session_ids))
+
+
+def _normalize_provider_session_id(provider_session_id: str | None) -> str | None:
+    if provider_session_id is None:
+        return None
+    return provider_session_id.strip() or None
+
+
+def resolve_codex_resumed_session_facts(
+    *,
+    runtime_state_dir: Path,
+    provider_state_dir_relpath: str,
+    model: str,
+    effort: str,
+    provider_session_id: str | None,
+    host_auth_path: Path,
+) -> CodexResumedSessionResolution:
+    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    _seed_codex_auth(provider_state_dir, host_auth_path)
+    normalized_provider_session_id = _normalize_provider_session_id(provider_session_id)
+    recovered_provider_session_id = _recover_codex_rollout_session_id(
+        provider_state_dir
+    )
+    if recovered_provider_session_id is None:
+        raise RuntimeConfigurationError(
+            "Codex continuation is not recoverable from provider state."
+        )
+    active_provider_session_id = (
+        normalized_provider_session_id or recovered_provider_session_id
+    )
+    return CodexResumedSessionResolution(
+        provider_state_dir=provider_state_dir,
+        continuation_input_facts=codex_continuation_input_facts(
+            model=model,
+            effort=effort,
+            provider_state_dir=provider_state_dir,
+            provider_state_dir_relpath=provider_state_dir_relpath,
+            provider_session_id=active_provider_session_id,
+            recovered_provider_session_id=normalized_provider_session_id is None,
+            run_kind=RunKind.RESUME,
+        ),
+    )
 
 
 def codex_continuation_input_facts(
