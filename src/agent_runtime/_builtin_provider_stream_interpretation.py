@@ -478,9 +478,9 @@ def _classify_codex_error_message(
             status_code=401,
             classification="codex_auth_lineage_exhausted",
         )
-    if (
-        "access token could not be refreshed" in lowered_message
-        and "refresh token was already used" in lowered_message
+    if "access token could not be refreshed" in lowered_message and (
+        "refresh token was already used" in lowered_message
+        or "refresh token was revoked" in lowered_message
     ):
         return CredentialFailure(
             raw_message=message,

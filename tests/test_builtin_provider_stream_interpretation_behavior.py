@@ -110,6 +110,16 @@ def test_codex_built_in_provider_stream_interpretation_maps_selected_model_at_ca
         ("turn.failed", "upstream status 503", TransientAgentError),
         ("error", "basic authentication failed", HardAgentError),
         ("turn.failed", "refresh_token_reused", AgentCredentialFailureError),
+        (
+            "error",
+            "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+            AgentCredentialFailureError,
+        ),
+        (
+            "turn.failed",
+            "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+            AgentCredentialFailureError,
+        ),
     ],
 )
 def test_codex_built_in_provider_stream_interpretation_preserves_error_classification(
