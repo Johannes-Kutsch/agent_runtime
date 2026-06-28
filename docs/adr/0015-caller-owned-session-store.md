@@ -26,6 +26,12 @@ This does not make the `Continuation` portable across operating systems — the 
 ## Consequences
 
 - One uniform resume model across providers; no provider-specific embedding/rehydration code path to keep correct.
-- Resumability is honest: a `Continuation` from a session-backed run is always resumable, because the run required a durable Store.
+- Resumability is honest: a `Continuation` from a session-backed run is resumable when both the token and its Session Store are present *and* the provider-side session state is intact. If the provider-side session state has been lost (e.g. the provider discarded the session independently of the token), Resume Session Run raises `ContinuationUnrecoverableError` with `service_name` identifying the provider. The consumer owns the decision to drop the continuation and re-plan.
 - Consumers own durable session storage and its retention/cleanup; the runtime owns none. This supersedes ADR 0004's "all resume state round-trips through the Continuation" — resume now requires the Continuation **and** the caller-owned Store.
 - Agent runs never touch the developer's personal provider history; ephemeral isolation requires seeding auth into the scratch home.
+
+## Amendment: Lost provider-side session state raises ContinuationUnrecoverableError
+
+The Session Store model keeps the provider's native state as the single source of truth, but the provider can lose a session independently of the local continuation token — for example, Codex discards its session state when interrupted mid-run. When Session-backed Provider State Resolution detects that rollout paths exist but no session id can be recovered, the continuation cannot be honored. This is not a configuration error (the caller did nothing wrong) and not a provider unavailability (the provider itself is reachable).
+
+The runtime raises `ContinuationUnrecoverableError(service_name=...)` — a direct sibling of `AgentRuntimeError`, distinct from `RuntimeConfigurationError` — when a Resume Session Run or Start Session Run detects an unrecoverable continuation. It carries `service_name` for diagnostics. The consumer catches it, drops the stale continuation, and re-plans; the runtime takes no automatic action.

@@ -16,7 +16,7 @@ import agent_runtime._session_backed_provider_state_resolution as provider_state
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
-from agent_runtime.errors import RuntimeConfigurationError, UsageLimitError
+from agent_runtime.errors import ContinuationUnrecoverableError, RuntimeConfigurationError, UsageLimitError
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
 
@@ -382,8 +382,9 @@ def test_session_backed_codex_resumed_session_surfaces_provider_state_resolution
         session_backed_execution._provider_state_resolution,
         "resolve_codex_resumed_session_facts",
         lambda **_kwargs: (_ for _ in ()).throw(
-            RuntimeConfigurationError(
-                "Codex continuation is not recoverable from provider state."
+            ContinuationUnrecoverableError(
+                "Codex continuation is not recoverable from provider state.",
+                service_name="codex",
             )
         ),
     )
@@ -392,7 +393,7 @@ def test_session_backed_codex_resumed_session_surfaces_provider_state_resolution
         tmp_path
     )
 
-    with pytest.raises(RuntimeConfigurationError) as exc_info:
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
         session_backed_execution._run_builtin_resumed_session(
             RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,

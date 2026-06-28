@@ -8,7 +8,7 @@ from pathlib import Path
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from ._runtime_lifecycle import Continuation
 from .contracts import ToolAccess
-from .errors import RuntimeConfigurationError
+from .errors import ContinuationUnrecoverableError, RuntimeConfigurationError
 from .session import RunKind, provider_state_relpath
 
 
@@ -285,8 +285,9 @@ def resolve_codex_new_session_facts(
         start_session_state.provider_state_dir
     )
     if rollout_paths and recovered_provider_session_id is None:
-        raise RuntimeConfigurationError(
-            "Codex continuation is not recoverable from provider state."
+        raise ContinuationUnrecoverableError(
+            "Codex continuation is not recoverable from provider state.",
+            service_name="codex",
         )
     continuation_input_facts = codex_continuation_input_facts(
         model=model,
@@ -541,8 +542,9 @@ def resolve_codex_resumed_session_facts(
             provider_state_dir
         )
         if recovered_provider_session_id is None:
-            raise RuntimeConfigurationError(
-                "Codex continuation is not recoverable from provider state."
+            raise ContinuationUnrecoverableError(
+                "Codex continuation is not recoverable from provider state.",
+                service_name="codex",
             )
     active_provider_session_id = normalized_provider_session_id
     if active_provider_session_id is None:

@@ -131,6 +131,16 @@ class HardAgentError(AgentRuntimeError):
         super().__init__(message)
 
 
+class ContinuationUnrecoverableError(AgentRuntimeError):
+    def __init__(self, message: str = "", *, service_name: str) -> None:
+        validate_runtime_identity_label(
+            service_name,
+            kind="ContinuationUnrecoverableError service_name",
+        )
+        self.service_name = service_name
+        super().__init__(message)
+
+
 class AgentCredentialFailureError(HardAgentError):
     def __init__(
         self,
@@ -152,6 +162,7 @@ __all__ = [
     "AgentCredentialFailureError",
     "AgentRuntimeError",
     "AgentTimeoutError",
+    "ContinuationUnrecoverableError",
     "HardAgentError",
     "ProviderUnavailableError",
     "ProviderUnavailableReason",

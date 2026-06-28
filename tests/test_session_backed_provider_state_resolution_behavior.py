@@ -5,7 +5,7 @@ import pytest
 import agent_runtime._session_backed_provider_state_resolution as provider_state_resolution
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
-from agent_runtime.errors import RuntimeConfigurationError
+from agent_runtime.errors import ContinuationUnrecoverableError
 from agent_runtime.session import RunKind
 
 
@@ -847,7 +847,7 @@ def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_ro
         )
 
     with pytest.raises(
-        RuntimeConfigurationError,
+        ContinuationUnrecoverableError,
         match="Codex continuation is not recoverable from provider state.",
     ):
         provider_state_resolution.resolve_codex_resumed_session_facts(
@@ -885,7 +885,7 @@ def test_session_backed_provider_state_resolution_rejects_unrecoverable_existing
     (rollout_dir / "rollout-001.jsonl").write_text(rollout_content, encoding="utf-8")
 
     with pytest.raises(
-        RuntimeConfigurationError,
+        ContinuationUnrecoverableError,
         match="Codex continuation is not recoverable from provider state.",
     ):
         provider_state_resolution.resolve_codex_new_session_facts(

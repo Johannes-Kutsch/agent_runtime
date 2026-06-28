@@ -45,6 +45,7 @@
 | `Live Probe Case Matrix` | Per-service: three entry paths at `UNRESTRICTED`, plus ephemeral under each remaining `ToolPolicy` — five cases, deduplicated on `ephemeral_UNRESTRICTED`. |
 | `Live Probe Default` | Cost-first runtime-supported provider/model/effort tuple used by the probe absent CLI override. |
 | `ProviderUsage` | Provider-reported usage: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, optional provider duration. |
+| `ContinuationUnrecoverableError` | Exception raised when Resume Session Run detects that the provider-side session state is gone despite a valid `Continuation` and `Session Store` being present. Carries `service_name`. Not a configuration error — the caller did nothing wrong. The consumer catches it, drops the stale continuation, and re-plans. |
 
 ## Boundary Rules
 
@@ -98,6 +99,7 @@
 - `Session-backed Provider Execution` and `Session-backed Provider State Resolution` are internal and must not become consumer extension points; lifecycle code reuses `Built-in Provider Invocation`, while provider-specific filesystem and continuation-preparation facts stay explicit inside provider-state resolution.
 - `RuntimeClient` remains the `Runtime Public Surface` for Start Session Run and Resume Session Run; consumers never import the session-backed execution module.
 - Credential failures, hard provider failures (including process-level: non-zero exit or empty output), adapter/protocol bugs, and unexpected exceptions remain exceptional.
+- When Session-backed Provider State Resolution detects an unrecoverable continuation (valid token present, provider-side session state gone), the runtime raises `ContinuationUnrecoverableError` — not `RuntimeConfigurationError`. Consumers own the decision to drop the continuation and re-plan.
 - Provider-reported usage belongs on outcomes whenever observed, including interrupted outcomes. Cancellation/timeout outcomes report only usage observed before interruption.
 - Idle Timeout is a liveness watchdog reset by every raw provider output line, not a wall-clock budget. Runtime performs no automatic timeout retry.
 - Resumed-session execution keeps service, model, effort, `ToolPolicy` fixed from continuation; credentials received separately.
