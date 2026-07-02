@@ -417,7 +417,19 @@ class TimedOut:
     pass
 
 
-OutcomeKind = Completed | UsageLimited | ProviderUnavailable | Cancelled | TimedOut
+@dataclasses.dataclass(frozen=True)
+class ModelNotAvailable:
+    pass
+
+
+OutcomeKind = (
+    Completed
+    | UsageLimited
+    | ProviderUnavailable
+    | Cancelled
+    | TimedOut
+    | ModelNotAvailable
+)
 
 
 @dataclasses.dataclass(frozen=True)

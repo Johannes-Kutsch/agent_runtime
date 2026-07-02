@@ -32,6 +32,7 @@ def test_package_exports_runtime_surface() -> None:
         "Completed",
         "Continuation",
         "HardAgentError",
+        "ModelNotAvailable",
         "ProviderUnavailable",
         "ProviderAuth",
         "ProviderSelection",

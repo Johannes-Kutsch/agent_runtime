@@ -107,6 +107,29 @@ class UsageLimitError(AgentRuntimeError):
         )
 
 
+class ModelNotAvailableError(AgentRuntimeError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        service_name: str,
+        raw_message: str | None = None,
+        invocation_progress: InvocationProgress = InvocationProgress.NOT_STARTED,
+        continuation: Any | None = None,
+        usage: ProviderUsage | None = None,
+    ) -> None:
+        validate_runtime_identity_label(
+            service_name,
+            kind="ModelNotAvailableError service name",
+        )
+        self.service_name = service_name
+        self.raw_message = raw_message
+        self.invocation_progress = invocation_progress
+        self.continuation = continuation
+        self.usage = usage
+        super().__init__(message)
+
+
 class TransientAgentError(AgentRuntimeError):
     def __init__(self, message: str = "", status_code: int | None = None) -> None:
         self.status_code = status_code
@@ -164,6 +187,7 @@ __all__ = [
     "AgentTimeoutError",
     "ContinuationUnrecoverableError",
     "HardAgentError",
+    "ModelNotAvailableError",
     "ProviderUnavailableError",
     "ProviderUnavailableReason",
     "RuntimeConfigurationError",

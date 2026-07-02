@@ -61,6 +61,12 @@ class CredentialFailure:
     classification: str | None = None
 
 
+@dataclasses.dataclass
+class ModelUnavailable:
+    service_name: str
+    raw_message: str
+
+
 ParsedTurn = (
     AssistantTurn
     | PromptTokens
@@ -71,6 +77,7 @@ ParsedTurn = (
     | TransientError
     | HardError
     | CredentialFailure
+    | ModelUnavailable
 )
 
 
@@ -188,6 +195,7 @@ __all__ = [
     "CredentialFailure",
     "HardError",
     "ModelActivity",
+    "ModelUnavailable",
     "ParsedTurn",
     "PromptTokens",
     "Result",
