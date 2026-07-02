@@ -46,6 +46,7 @@
 | `Live Probe Default` | Cost-first runtime-supported provider/model/effort tuple used by the probe absent CLI override. |
 | `ProviderUsage` | Provider-reported usage: input/output tokens, cache-read/cache-creation input tokens, optional USD cost, optional provider duration. |
 | `ContinuationUnrecoverableError` | Exception raised when Resume Session Run detects that the provider-side session state is gone despite a valid `Continuation` and `Session Store` being present. Carries `service_name`. Not a configuration error — the caller did nothing wrong. The consumer catches it, drops the stale continuation, and re-plans. |
+| `ModelNotAvailable` | `RuntimeOutcome` kind signalling that the selected model is not available for the caller's account tier on the named service; the service itself and its other models remain accessible. Carries no fields — the rejected model identity is readable from `RunResult.resolved_provider`. Consumer Fallback uses this to retry with a different model on the same service. Distinct from `ProviderUnavailable` (service-level or transient failure) and `UsageLimited` (quota exhaustion). |
 
 ## Boundary Rules
 
