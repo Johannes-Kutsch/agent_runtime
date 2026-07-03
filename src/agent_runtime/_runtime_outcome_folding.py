@@ -6,6 +6,7 @@ from ._live_runtime_output_exceptions import is_live_runtime_output_exception
 from ._runtime_lifecycle import (
     Cancelled,
     Completed,
+    ModelNotAvailable,
     ProviderUnavailable,
     RunResult,
     RuntimeOutcome,
@@ -15,6 +16,7 @@ from ._runtime_lifecycle import (
 from .errors import (
     AgentCancelledError,
     AgentTimeoutError,
+    ModelNotAvailableError,
     ProviderUnavailableError,
     UsageLimitError,
 )
@@ -54,6 +56,7 @@ def _fold_runtime_outcome(
     def interrupted_result(
         exc: AgentCancelledError
         | AgentTimeoutError
+        | ModelNotAvailableError
         | UsageLimitError
         | ProviderUnavailableError,
         *,
@@ -90,5 +93,11 @@ def _fold_runtime_outcome(
         _raise_if_live_runtime_output_exception(exc)
         return RuntimeOutcome(
             kind=UsageLimited(reset_time=exc.reset_time),
+            result=interrupted_result(exc, service_name=exc.service_name),
+        )
+    except ModelNotAvailableError as exc:
+        _raise_if_live_runtime_output_exception(exc)
+        return RuntimeOutcome(
+            kind=ModelNotAvailable(),
             result=interrupted_result(exc, service_name=exc.service_name),
         )

@@ -25,6 +25,7 @@ from agent_runtime._runtime_lifecycle import AgentEvent, ProviderUsage
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     HardAgentError,
+    ModelNotAvailableError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
     TransientAgentError,
@@ -171,6 +172,72 @@ def test_codex_built_in_provider_stream_interpretation_treats_unrecognized_messa
 
     assert exc_info.value.service_name == "codex"
     assert str(exc_info.value) == message
+
+
+_CODEX_FREE_ACCOUNT_INNER_JSON = json.dumps(
+    {
+        "error": {
+            "type": "invalid_request_error",
+            "message": "This model is not available for your account. Please upgrade to access it.",
+        },
+        "status": 400,
+    }
+)
+
+
+@pytest.mark.parametrize("event_type", ["error", "turn.failed"])
+def test_codex_built_in_provider_stream_interpretation_maps_free_account_model_restriction_to_model_not_available_error(
+    event_type: str,
+) -> None:
+    interpretation = codex_built_in_provider_stream_interpretation()
+
+    with pytest.raises(ModelNotAvailableError) as exc_info:
+        interpretation.reduce_output(
+            [
+                json.dumps(
+                    {"type": event_type}
+                    | (
+                        {"message": _CODEX_FREE_ACCOUNT_INNER_JSON}
+                        if event_type == "error"
+                        else {"error": {"message": _CODEX_FREE_ACCOUNT_INNER_JSON}}
+                    )
+                )
+                + "\n"
+            ]
+        )
+
+    assert exc_info.value.service_name == "codex"
+
+
+@pytest.mark.parametrize("event_type", ["error", "turn.failed"])
+def test_codex_built_in_provider_stream_interpretation_treats_400_invalid_request_without_account_restriction_as_hard_error(
+    event_type: str,
+) -> None:
+    interpretation = codex_built_in_provider_stream_interpretation()
+    inner_json = json.dumps(
+        {
+            "error": {
+                "type": "invalid_request_error",
+                "message": "The model parameter is invalid.",
+            },
+            "status": 400,
+        }
+    )
+
+    with pytest.raises(HardAgentError):
+        interpretation.reduce_output(
+            [
+                json.dumps(
+                    {"type": event_type}
+                    | (
+                        {"message": inner_json}
+                        if event_type == "error"
+                        else {"error": {"message": inner_json}}
+                    )
+                )
+                + "\n"
+            ]
+        )
 
 
 def test_codex_built_in_provider_stream_interpretation_uses_codex_event_builder() -> (

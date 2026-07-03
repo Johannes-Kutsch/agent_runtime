@@ -18,6 +18,7 @@ from .contracts import (
     AssistantTurn,
     CredentialFailure,
     HardError,
+    ModelUnavailable,
     PromptTokens,
     Result,
     TransientError,
@@ -162,6 +163,7 @@ _CLAUDE_SUBSCRIPTION_ACCESS_DENIAL_PHRASE = (
 )
 _CODEX_USAGE_LIMIT_SUBSTRING = "You've hit your usage limit"
 _CODEX_AT_CAPACITY_SUBSTRING = "selected model is at capacity"
+_CODEX_ACCOUNT_MODEL_RESTRICTION_SUBSTRING = "not available for your account"
 _CODEX_RESET_PATTERN = re.compile(
     r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
     r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
@@ -463,7 +465,7 @@ def parse_claude_usage(line: str) -> ProviderUsage | None:
 
 def _classify_codex_error_message(
     message: str,
-) -> CredentialFailure | HardError | TransientError | None:
+) -> CredentialFailure | HardError | ModelUnavailable | TransientError | None:
     lowered_message = message.lower()
     if _CODEX_AT_CAPACITY_SUBSTRING in lowered_message:
         return TransientError(
@@ -490,6 +492,19 @@ def _classify_codex_error_message(
         )
     if _CODEX_GENERIC_AUTH_RE.search(message):
         return HardError(status_code=401, raw_message=message)
+    try:
+        parsed = json.loads(message)
+        if (
+            isinstance(parsed, dict)
+            and parsed.get("status") == 400
+            and isinstance(parsed.get("error"), dict)
+            and parsed["error"].get("type") == "invalid_request_error"
+            and _CODEX_ACCOUNT_MODEL_RESTRICTION_SUBSTRING
+            in parsed["error"].get("message", "")
+        ):
+            return ModelUnavailable(service_name="codex", raw_message=message)
+    except (json.JSONDecodeError, TypeError):
+        pass
     match = _CODEX_HTTP_STATUS_RE.search(message)
     if match is None:
         return HardError(status_code=500, raw_message=message)

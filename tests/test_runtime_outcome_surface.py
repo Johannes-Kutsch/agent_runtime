@@ -10,6 +10,9 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
+from agent_runtime._runtime_outcome_folding import _fold_runtime_outcome
+from agent_runtime.errors import ModelNotAvailableError
+from agent_runtime.types import ResolvedProvider
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 
 
@@ -157,3 +160,20 @@ def test_outcome_kind_variants_carry_only_their_own_data() -> None:
         runtime.ModelNotAvailable,
     ):
         assert fields(variant) == ()
+
+
+def test_fold_runtime_outcome_maps_model_not_available_error_to_model_not_available_kind() -> (
+    None
+):
+    def raising_call() -> runtime.RunResult:
+        raise ModelNotAvailableError("not available", service_name="codex")
+
+    outcome = _fold_runtime_outcome(
+        raising_call,
+        selected_provider=ResolvedProvider(
+            service="codex", model="gpt-5.3", effort="medium"
+        ),
+    )
+
+    assert isinstance(outcome.kind, runtime.ModelNotAvailable)
+    assert outcome.result.selected.service == "codex"

@@ -7,6 +7,7 @@ from .contracts import (
     CredentialFailure,
     HardError,
     ModelActivity,
+    ModelUnavailable,
     ParsedTurn,
     PromptTokens,
     Result,
@@ -17,6 +18,7 @@ from .contracts import (
 from .errors import (
     AgentCredentialFailureError,
     HardAgentError,
+    ModelNotAvailableError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
     TransientAgentError,
@@ -67,6 +69,12 @@ def reduce_text_output_events(
                 message=event.raw_message,
                 service_name=event.service_name,
                 classification=event.classification,
+            )
+        if isinstance(event, ModelUnavailable):
+            raise ModelNotAvailableError(
+                raw_message=event.raw_message,
+                service_name=event.service_name,
+                invocation_progress=invocation_progress,
             )
         if isinstance(event, PromptTokens):
             if on_tokens is not None:
