@@ -10,9 +10,6 @@ import pytest
 
 import agent_runtime as runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
-from agent_runtime._runtime_outcome_folding import _fold_runtime_outcome
-from agent_runtime.errors import ModelNotAvailableError
-from agent_runtime.types import ResolvedProvider
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 
 
@@ -162,17 +159,43 @@ def test_outcome_kind_variants_carry_only_their_own_data() -> None:
         assert fields(variant) == ()
 
 
-def test_fold_runtime_outcome_maps_model_not_available_error_to_model_not_available_kind() -> (
-    None
-):
-    def raising_call() -> runtime.RunResult:
-        raise ModelNotAvailableError("not available", service_name="codex")
+def test_runtime_client_ephemeral_run_produces_model_not_available_outcome_on_free_account_codex_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    inner_json = json.dumps(
+        {
+            "status": 400,
+            "error": {
+                "type": "invalid_request_error",
+                "message": "This model is not available for your account.",
+            },
+        }
+    )
+    error_line = json.dumps({"type": "error", "message": inner_json}) + "\n"
 
-    outcome = _fold_runtime_outcome(
-        raising_call,
-        selected_provider=ResolvedProvider(
-            service="codex", model="gpt-5.3", effort="medium"
-        ),
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(error_line,)
+        )
+    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=runtime.ProviderSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+            )
+        )
     )
 
     assert isinstance(outcome.kind, runtime.ModelNotAvailable)
