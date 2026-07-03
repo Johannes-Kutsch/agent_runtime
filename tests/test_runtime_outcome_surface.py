@@ -150,5 +150,10 @@ def test_outcome_kind_variants_carry_only_their_own_data() -> None:
         "reason",
         "detail",
     }
-    for variant in (runtime.Completed, runtime.Cancelled, runtime.TimedOut):
+    for variant in (
+        runtime.Completed,
+        runtime.Cancelled,
+        runtime.TimedOut,
+        runtime.ModelNotAvailable,
+    ):
         assert fields(variant) == ()
