@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import dataclasses
+import threading
 import inspect
 import json
 import math
@@ -39,8 +39,8 @@ _PUBLIC_INVOCATION_DIR_NAME = "invocation_dir"
 
 @dataclasses.dataclass
 class CancellationToken:
-    _event: asyncio.Event = dataclasses.field(
-        default_factory=asyncio.Event,
+    _event: threading.Event = dataclasses.field(
+        default_factory=threading.Event,
         init=False,
         repr=False,
     )
