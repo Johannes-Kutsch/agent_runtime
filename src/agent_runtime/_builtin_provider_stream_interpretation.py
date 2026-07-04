@@ -21,6 +21,7 @@ from .contracts import (
     ModelUnavailable,
     PromptTokens,
     Result,
+    SessionGone,
     TransientError,
     UsageLimit,
 )
@@ -161,6 +162,7 @@ _CLAUDE_MONTHS = {
 _CLAUDE_SUBSCRIPTION_ACCESS_DENIAL_PHRASE = (
     "disabled Claude subscription access for Claude Code"
 )
+_CLAUDE_SESSION_NOT_FOUND_PHRASE = "no conversation found with session id"
 _CODEX_USAGE_LIMIT_SUBSTRING = "You've hit your usage limit"
 _CODEX_AT_CAPACITY_SUBSTRING = "selected model is at capacity"
 _CODEX_ACCOUNT_MODEL_RESTRICTION_SUBSTRING = "not available for your account"
@@ -226,6 +228,22 @@ def _merge_provider_usage(
             else current.duration_seconds
         ),
     )
+
+
+def _extract_claude_session_gone_message(event: dict[str, Any]) -> str | None:
+    errors = event.get("errors")
+    if not isinstance(errors, list):
+        return None
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        message = error.get("message")
+        if (
+            isinstance(message, str)
+            and _CLAUDE_SESSION_NOT_FOUND_PHRASE in message.lower()
+        ):
+            return message
+    return None
 
 
 def is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
@@ -339,6 +357,9 @@ def parse_claude_event_with_dependencies(
             )
         ]
     if event.get("is_error") and event.get("type") == "result":
+        session_gone_message = _extract_claude_session_gone_message(event)
+        if session_gone_message is not None:
+            return [SessionGone(raw_message=session_gone_message)]
         status = event.get("api_error_status")
         if status is None or (isinstance(status, int) and status >= 500):
             return [

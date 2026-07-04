@@ -11,12 +11,14 @@ from .contracts import (
     ParsedTurn,
     PromptTokens,
     Result,
+    SessionGone,
     TransientError,
     UnsupportedTokens,
     UsageLimit,
 )
 from .errors import (
     AgentCredentialFailureError,
+    ContinuationUnrecoverableError,
     HardAgentError,
     ModelNotAvailableError,
     ProviderUnavailableError,
@@ -75,6 +77,12 @@ def reduce_text_output_events(
                 raw_message=event.raw_message,
                 service_name=event.service_name,
                 invocation_progress=invocation_progress,
+            )
+        if isinstance(event, SessionGone):
+            raise ContinuationUnrecoverableError(
+                service_name=provider,
+                classification=event.classification,
+                raw_message=event.raw_message,
             )
         if isinstance(event, PromptTokens):
             if on_tokens is not None:

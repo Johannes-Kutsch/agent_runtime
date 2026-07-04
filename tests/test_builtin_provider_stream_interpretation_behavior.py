@@ -24,6 +24,7 @@ from agent_runtime._builtin_provider_stream_interpretation import (
 from agent_runtime._runtime_lifecycle import AgentEvent, ProviderUsage
 from agent_runtime.errors import (
     AgentCredentialFailureError,
+    ContinuationUnrecoverableError,
     HardAgentError,
     ModelNotAvailableError,
     ProviderUnavailableError,
@@ -732,3 +733,90 @@ def test_opencode_observation_uses_stream_interpretation_builder_for_live_events
         ),
     ]
     assert observed_provider_session_ids == ["sess_123"]
+
+
+def test_claude_session_not_found_signal_raises_continuation_unrecoverable_error() -> (
+    None
+):
+    interpretation = claude_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "errors": [
+                    {"message": "No conversation found with session ID abc-123"}
+                ],
+            }
+        )
+        + "\n"
+    )
+
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
+        interpretation.reduce_output([line])
+
+    err = exc_info.value
+    assert err.service_name == "claude"
+    assert err.classification == "session_not_found"
+    assert "No conversation found with session ID abc-123" in (err.raw_message or "")
+
+
+def test_claude_session_not_found_signal_is_case_insensitive() -> None:
+    interpretation = claude_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "errors": [
+                    {"message": "NO CONVERSATION FOUND WITH SESSION ID xyz-789"}
+                ],
+            }
+        )
+        + "\n"
+    )
+
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
+        interpretation.reduce_output([line])
+
+    assert exc_info.value.service_name == "claude"
+    assert exc_info.value.classification == "session_not_found"
+
+
+def test_claude_non_session_gone_error_keeps_existing_classification() -> None:
+    interpretation = claude_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "api_error_status": 500,
+                "result": "temporary backend failure",
+            }
+        )
+        + "\n"
+    )
+
+    with pytest.raises(TransientAgentError):
+        interpretation.reduce_output([line])
+
+
+def test_claude_session_already_in_use_does_not_raise_continuation_unrecoverable_error() -> (
+    None
+):
+    interpretation = claude_built_in_provider_stream_interpretation()
+    line = (
+        json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "errors": [{"message": "Session ID abc-123 already in use"}],
+            }
+        )
+        + "\n"
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        interpretation.reduce_output([line])
+
+    assert not isinstance(exc_info.value, ContinuationUnrecoverableError)

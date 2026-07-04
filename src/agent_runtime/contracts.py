@@ -67,6 +67,12 @@ class ModelUnavailable:
     raw_message: str
 
 
+@dataclasses.dataclass
+class SessionGone:
+    raw_message: str
+    classification: str = "session_not_found"
+
+
 ParsedTurn = (
     AssistantTurn
     | PromptTokens
@@ -78,6 +84,7 @@ ParsedTurn = (
     | HardError
     | CredentialFailure
     | ModelUnavailable
+    | SessionGone
 )
 
 
@@ -199,6 +206,7 @@ __all__ = [
     "ParsedTurn",
     "PromptTokens",
     "Result",
+    "SessionGone",
     "ToolPolicy",
     "ToolAccess",
     "ToolPolicyProfile",
