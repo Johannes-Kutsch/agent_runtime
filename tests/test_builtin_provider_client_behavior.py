@@ -2303,11 +2303,13 @@ def test_runtime_client_opencode_live_runtime_output_matches_final_parser_semant
             )
         )
     else:
+        runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+        (runtime_state_dir / "resume.jsonl").write_text("", encoding="utf-8")
         outcome = asyncio.run(
             client.run_resumed_session(
                 harness.resume_session_run_request(
                     invocation_dir=tmp_path,
-                    runtime_state_dir=harness.prepare_runtime_state_dir(tmp_path),
+                    runtime_state_dir=runtime_state_dir,
                     provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
                     continuation=harness.opencode_continuation(
                         model="kimi-k2.6",
@@ -3527,6 +3529,38 @@ def test_runtime_client_raises_continuation_unrecoverable_for_claude_resumed_ses
         )
 
     assert exc_info.value.service_name == "claude"
+
+
+@pytest.mark.parametrize("create_state_dir", [False, True])
+def test_runtime_client_raises_continuation_unrecoverable_for_opencode_resumed_session_with_absent_local_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    create_state_dir: bool,
+) -> None:
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    provider_state_dir_relpath = ""
+    if create_state_dir:
+        (runtime_state_dir / provider_state_dir_relpath).mkdir(parents=True)
+
+    continuation = RuntimeClientExecutionHarness.opencode_continuation(
+        provider_state_dir_relpath=provider_state_dir_relpath,
+    )
+
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                RuntimeClientExecutionHarness.resume_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=continuation,
+                    provider_auth=runtime.ProviderAuth(opencode_api_key="oc-key"),
+                )
+            )
+        )
+
+    assert exc_info.value.service_name == "opencode"
 
 
 def test_runtime_client_new_session_requires_claude_auth_when_runtime_state_is_resumable(
