@@ -68,7 +68,9 @@ def test_continuation_unrecoverable_error_defaults_optional_fields() -> None:
     assert err.raw_message is None
 
 
-def test_continuation_unrecoverable_error_carries_classification_and_raw_message() -> None:
+def test_continuation_unrecoverable_error_carries_classification_and_raw_message() -> (
+    None
+):
     err = ContinuationUnrecoverableError(
         "Claude session not found.",
         service_name="claude",

@@ -47,6 +47,7 @@ from .contracts import (
     ToolAccess,
 )
 from .errors import (
+    AgentCancelledError,
     AgentCredentialFailureError,
     AgentTimeoutError,
     ProviderUnavailableError,
@@ -879,6 +880,8 @@ def _run_builtin_ephemeral(
         tuple[str, ProviderUsage | None],
     ] = reduce_opencode_stream,
 ) -> RunResult:
+    if request.token is not None and request.token.is_cancelled:
+        raise AgentCancelledError()
     invocation_adapter = (
         _default_provider_invocation_adapter()
         if provider_invocation_adapter is None
