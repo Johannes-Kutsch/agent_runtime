@@ -25,6 +25,7 @@ from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 from agent_runtime.errors import (
     AgentCancelledError,
     AgentCredentialFailureError,
+    ContinuationUnrecoverableError,
     HardAgentError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
@@ -776,6 +777,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
         "provider_state_dir_relpath": "",
     }
     runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
+    (runtime_state_dir / "session.json").write_text("{}", encoding="utf-8")
 
     second_outcome = asyncio.run(
         runtime.RuntimeClient().run_resumed_session(
@@ -3360,6 +3362,8 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     provider_state_dir_relpath = ""
+    runtime_state_dir.mkdir(parents=True, exist_ok=True)
+    (runtime_state_dir / "session.json").write_text("{}", encoding="utf-8")
     continuation = adapter.claude_continuation(
         provider_session_id=None,
         provider_state_dir_relpath=provider_state_dir_relpath,
@@ -3398,7 +3402,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
     assert adapter.recorded_request_count == 1
     recorded_request = adapter.recorded_request()
     assert recorded_request.worktree == tmp_path
-    assert recorded_request.run_kind is RunKind.FRESH
+    assert recorded_request.run_kind is RunKind.RESUME
     assert recorded_request.provider_session_id == "generated-session-id"
     assert recorded_request.command
 
@@ -3460,64 +3464,37 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
 
 
 @pytest.mark.parametrize("create_state_dir", [False, True])
-def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is_not_resumable(
+def test_runtime_client_raises_continuation_unrecoverable_for_claude_resumed_session_with_absent_local_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     create_state_dir: bool,
 ) -> None:
-    adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
-        provider_invocation_runtime.ProviderInvocationPreparedStream(
-            stdout_lines=(
-                json.dumps({"type": "result", "result": "fresh output"}) + "\n",
-            ),
-        ),
-    )
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all()
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
     provider_state_dir_relpath = ""
     if create_state_dir:
         (runtime_state_dir / provider_state_dir_relpath).mkdir(parents=True)
 
-    continuation = adapter.claude_continuation(
+    continuation = RuntimeClientExecutionHarness.claude_continuation(
         provider_state_dir_relpath=provider_state_dir_relpath,
     )
 
-    outcome = asyncio.run(
-        runtime.RuntimeClient().run_resumed_session(
-            adapter.resume_session_run_request(
-                invocation_dir=tmp_path,
-                runtime_state_dir=runtime_state_dir,
-                continuation=continuation,
-                provider_auth=runtime.ProviderAuth(
-                    claude_code_oauth_token="oauth-token"
-                ),
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
+        asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                RuntimeClientExecutionHarness.resume_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=continuation,
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
+                )
             )
         )
-    )
 
-    assert isinstance(outcome.kind, prompt_runtime.Completed)
-    assert outcome.result.output == "fresh output"
-    assert outcome.result.selected == runtime.ResolvedProvider(
-        service="claude", model="sonnet", effort="medium"
-    )
-    assert outcome.result.continuation == prompt_runtime.Continuation(
-        selected_service="claude",
-        selected_model="sonnet",
-        selected_effort="medium",
-        tool_access=contracts_runtime.ToolAccess.no_tools(),
-        provider_resume_state={
-            "run_kind": "resume",
-            "provider_session_id": "claude-session-123",
-            "exact_transcript_match": False,
-            "provider_state_dir_relpath": "",
-        },
-    )
-    assert adapter.recorded_request_count == 1
-    recorded_request = adapter.recorded_request()
-    assert recorded_request.worktree == tmp_path
-    assert recorded_request.run_kind is RunKind.FRESH
-    assert recorded_request.provider_session_id == "claude-session-123"
-    assert recorded_request.command
+    assert exc_info.value.service_name == "claude"
 
 
 def test_runtime_client_new_session_requires_claude_auth_when_runtime_state_is_resumable(
@@ -6375,6 +6352,7 @@ def test_runtime_client_applies_execution_argv_transform_for_all_request_kinds(
         runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
             tmp_path
         )
+        (runtime_state_dir / "session.json").write_text("{}", encoding="utf-8")
         continuation = RuntimeClientExecutionHarness.claude_continuation(
             provider_state_dir_relpath="",
         )

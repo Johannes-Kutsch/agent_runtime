@@ -371,11 +371,12 @@ def resolve_claude_resumed_session_facts(
     else:
         provider_state_dir = runtime_state_dir / provider_state_dir_relpath
         provider_state_dir.mkdir(parents=True, exist_ok=True)
-        run_kind = (
-            RunKind.RESUME
-            if _claude_is_resumable(provider_state_dir)
-            else RunKind.FRESH
-        )
+        if not _claude_is_resumable(provider_state_dir):
+            raise ContinuationUnrecoverableError(
+                "Claude continuation is not recoverable from provider state.",
+                service_name="claude",
+            )
+        run_kind = RunKind.RESUME
     active_provider_session_id = _normalize_provider_session_id(provider_session_id)
     if active_provider_session_id is None:
         active_provider_session_id = (
