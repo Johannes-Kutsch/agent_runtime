@@ -20,6 +20,7 @@ from agent_runtime.runtime import (
 )
 from agent_runtime.errors import AgentCredentialFailureError
 from agent_runtime.errors import ProviderUnavailableReason
+from agent_runtime._runtime_lifecycle import CancellationToken
 
 
 class _LiveProbeOutput(Protocol):
@@ -61,6 +62,7 @@ class ProbeCaseRunRequest:
     output: _LiveProbeOutput
     session_store: Path | None = None
     resumed_session_invocation_dir: Path | None = None
+    cancel_on_first_output: bool = False
 
 
 @dataclass(frozen=True)
@@ -269,6 +271,22 @@ def run_case(
     auth = getattr(selection, "auth", None) or ProviderAuth()
     tool_policy = ToolPolicy[request.case.tool_policy]
 
+    token: CancellationToken | None = None
+    if request.cancel_on_first_output:
+        token = CancellationToken()
+        _cancel_triggered = [False]
+        _original_append = feed_writer.append
+
+        def _cancelling_append(event: Any) -> None:
+            _original_append(event)
+            if not _cancel_triggered[0]:
+                _cancel_triggered[0] = True
+                token.cancel()  # type: ignore[union-attr]
+
+        live_output: Callable[[Any], None] = _cancelling_append
+    else:
+        live_output = feed_writer.append
+
     try:
         client = runtime_client_factory()
         if request.case.mode == "ephemeral":
@@ -280,7 +298,8 @@ def run_case(
                         provider_selection=selection,
                         tool_policy=tool_policy,
                         timeout_seconds=request.timeout_seconds,
-                        on_live_output=feed_writer.append,
+                        on_live_output=live_output,
+                        token=token,
                     )
                 )
             )
@@ -294,7 +313,8 @@ def run_case(
                         tool_policy=tool_policy,
                         session_store=request.session_store,
                         timeout_seconds=request.timeout_seconds,
-                        on_live_output=feed_writer.append,
+                        on_live_output=live_output,
+                        token=token,
                     )
                 )
             )
@@ -313,7 +333,8 @@ def run_case(
                         session_store=request.session_store,
                         provider_auth=auth,
                         timeout_seconds=request.timeout_seconds,
-                        on_live_output=feed_writer.append,
+                        on_live_output=live_output,
+                        token=token,
                     )
                 )
             )

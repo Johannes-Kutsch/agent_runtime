@@ -52,3 +52,38 @@ provider output):
 
 There is no machine-readable summary, no exit-code contract, and no rerun
 suggestions by design — read the terminal and the per-case `result.json`.
+
+## Cancel-mid-turn probe
+
+A separate entry point exercises real cancellation against a live provider
+subprocess. It confirms the behaviour wired by issues #436 (ephemeral cancel →
+`Cancelled` outcome, no continuation) and #437 (session-backed cancel after
+provider output → `Cancelled` outcome **with** a continuation):
+
+```
+# cancel-mid-turn probe for all configured providers
+python scripts/live-probe/live_provider_probe_cancel.py
+
+# focus one provider
+python scripts/live-probe/live_provider_probe_cancel.py claude
+
+# override model / effort
+python scripts/live-probe/live_provider_probe_cancel.py claude --model claude=sonnet --effort claude=high
+```
+
+Per provider, two cases run. Each starts a real invocation, waits for the
+first live output event (so the provider subprocess is running), then calls
+`.cancel()` on the `CancellationToken`:
+
+- `cancel_ephemeral_UNRESTRICTED` — ephemeral invocation; expects outcome
+  `Cancelled` with no continuation. Terminal reports "subprocess terminated"
+  (confirmed by the `Cancelled` outcome: the runtime hard-kills the process).
+- `cancel_new_session_UNRESTRICTED` — session-backed invocation; expects
+  outcome `Cancelled` **with** a continuation (provider work had started).
+  Terminal reports "continuation returned: yes/no".
+
+Artifacts land under the same `live-probe-artifacts/<service>/` root (wiped
+per service on each rerun) following the same layout as the standard probe:
+
+- `live_feed.json` — JSON-lines of live events up to the cancellation point.
+- `result.json` — outcome category/kind, continuation (if any), and traceback.
