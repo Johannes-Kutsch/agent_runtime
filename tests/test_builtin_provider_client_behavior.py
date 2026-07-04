@@ -1314,6 +1314,76 @@ def test_runtime_client_ephemeral_run_pre_cancelled_token_returns_cancelled_outc
     assert harness.recorded_request_count == 0
 
 
+def test_runtime_client_ephemeral_run_in_flight_token_cancellation_returns_cancelled_outcome(
+    tmp_path: Path,
+) -> None:
+    import threading
+    import time
+
+    from agent_runtime._runtime_lifecycle import CancellationToken
+
+    marker_path = tmp_path / "child-started"
+    script_path = tmp_path / "hanging_provider.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import os",
+                "import sys",
+                "import time",
+                "",
+                "marker_path = sys.argv[1]",
+                "with open(marker_path, 'w', encoding='utf-8') as f:",
+                "    f.write(str(os.getpid()))",
+                "    f.flush()",
+                "while True:",
+                "    time.sleep(60)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    token = CancellationToken()
+
+    def _cancel_after_start() -> None:
+        while not marker_path.exists():
+            time.sleep(0.05)
+        time.sleep(0.1)
+        token.cancel()
+
+    cancel_thread = threading.Thread(target=_cancel_after_start, daemon=True)
+    cancel_thread.start()
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                token=token,
+                argv_transform=lambda _argv, _cwd, _env: (
+                    sys.executable,
+                    str(script_path),
+                    str(marker_path),
+                ),
+                timeout_seconds=10,
+            )
+        )
+    )
+
+    cancel_thread.join(timeout=5)
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.output == ""
+    assert outcome.result.continuation is None
+
+
 def test_runtime_client_ephemeral_run_drops_continuation_from_usage_limited_interruption(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

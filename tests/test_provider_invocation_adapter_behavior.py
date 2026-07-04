@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +16,9 @@ import pytest
 import agent_runtime._builtin_provider_stream_interpretation as builtin_provider_stream_interpretation
 import agent_runtime._provider_invocation as provider_invocation_runtime
 from agent_runtime._builtin_provider_stream_interpretation import reduce_codex_stream
+from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.errors import (
+    AgentCancelledError,
     HardAgentError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
@@ -2150,3 +2154,95 @@ def test_production_adapter_disables_idle_timeout_for_non_positive_timeout_value
         stdout_lines=("final output\n",),
         provider_session_id=None,
     )
+
+
+def test_production_adapter_cancels_running_subprocess_on_token_cancellation(
+    tmp_path: Path,
+) -> None:
+    marker_path = tmp_path / "child-started"
+    script_path = tmp_path / "hanging_provider.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import os",
+                "import sys",
+                "import time",
+                "",
+                "marker_path = sys.argv[1]",
+                "with open(marker_path, 'w', encoding='utf-8') as f:",
+                "    f.write(str(os.getpid()))",
+                "    f.flush()",
+                "while True:",
+                "    time.sleep(60)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    token = CancellationToken()
+
+    def _cancel_after_start() -> None:
+        while not marker_path.exists():
+            time.sleep(0.05)
+        time.sleep(0.1)
+        token.cancel()
+
+    cancel_thread = threading.Thread(target=_cancel_after_start, daemon=True)
+    cancel_thread.start()
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(content="prompt"),
+        run_kind=RunKind.FRESH,
+        provider_session_id="session-123",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+        argv=(sys.executable, str(script_path), str(marker_path)),
+        prefer_argv=True,
+        timeout_seconds=10,
+        token=token,
+    )
+
+    with pytest.raises(AgentCancelledError):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+    cancel_thread.join(timeout=5)
+    child_pid = int(marker_path.read_text(encoding="utf-8"))
+    _assert_subprocess_is_dead(child_pid)
+
+
+def test_production_adapter_cancel_takes_precedence_over_simultaneous_idle_timeout(
+    tmp_path: Path,
+) -> None:
+    script_path = tmp_path / "hanging_provider.py"
+    script_path.write_text(
+        "import time; time.sleep(60)\n",
+        encoding="utf-8",
+    )
+
+    token = CancellationToken()
+    token.cancel()
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(content="prompt"),
+        run_kind=RunKind.FRESH,
+        provider_session_id="session-123",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+        argv=(sys.executable, str(script_path)),
+        prefer_argv=True,
+        timeout_seconds=1,
+        token=token,
+    )
+
+    with pytest.raises(AgentCancelledError):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import shlex
 import threading
+import time
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 from enum import Enum
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .errors import (
+    AgentCancelledError,
     AgentTimeoutError,
     HardAgentError,
     ProviderUnavailableError,
@@ -22,6 +24,14 @@ from .errors import (
 )
 from .provider_usage import ProviderUsage
 from .session import RunKind
+
+_CANCEL_POLL_INTERVAL = 0.25
+
+
+class _Cancellable(Protocol):
+    @property
+    def is_cancelled(self) -> bool: ...
+
 
 ProviderOutputReducer = Callable[[list[str]], tuple[str, ProviderUsage | None]]
 ProviderSessionIdExtractor = Callable[[list[str]], str | None]
@@ -61,6 +71,7 @@ class ProviderInvocationRequest:
     argv: tuple[str, ...] = ()
     prefer_argv: bool = False
     timeout_seconds: int = 300
+    token: _Cancellable | None = None
 
     def __post_init__(self) -> None:
         if not self.argv and not self.command:
@@ -342,34 +353,81 @@ class ProductionProviderInvocationAdapter:
             stdout_thread.start()
             stderr_thread.start()
 
+            token = request.token
+            if token is not None:
+                idle_deadline: float | None = (
+                    time.monotonic() + request.timeout_seconds
+                    if request.timeout_seconds > 0
+                    else None
+                )
+                poll_timeout: float | None = _CANCEL_POLL_INTERVAL
+            else:
+                idle_deadline = None
+                poll_timeout = (
+                    float(request.timeout_seconds)
+                    if request.timeout_seconds > 0
+                    else None
+                )
+
+            def _kill_process() -> None:
+                if os.name == "nt":
+                    subprocess.run(
+                        [
+                            "taskkill",
+                            "/F",
+                            "/T",
+                            "/PID",
+                            str(process.pid),
+                        ],
+                        capture_output=True,
+                    )
+                process.kill()
+                process.wait()
+                stdout_thread.join()
+                stderr_thread.join()
+
             closed_streams: set[str] = set()
             while len(closed_streams) < 2:
                 try:
-                    if request.timeout_seconds > 0:
-                        source, line = output_queue.get(timeout=request.timeout_seconds)
+                    if poll_timeout is not None:
+                        source, line = output_queue.get(timeout=poll_timeout)
                     else:
                         source, line = output_queue.get()
                 except queue.Empty as exc:
-                    if os.name == "nt":
-                        subprocess.run(
-                            [
-                                "taskkill",
-                                "/F",
-                                "/T",
-                                "/PID",
-                                str(process.pid),
-                            ],
-                            capture_output=True,
+                    if token is not None and token.is_cancelled:
+                        _kill_process()
+                        cancel_error = AgentCancelledError()
+                        setattr(
+                            cancel_error,
+                            "provider_session_id",
+                            request.provider_session_id,
                         )
-                    process.kill()
-                    process.wait()
-                    stdout_thread.join()
-                    stderr_thread.join()
+                        raise cancel_error
+                    if token is not None:
+                        if (
+                            idle_deadline is not None
+                            and time.monotonic() >= idle_deadline
+                        ):
+                            _kill_process()
+                            timeout_error = ProviderInvocationTimedOutError(
+                                "Provider subprocess exceeded the idle timeout.",
+                            )
+                            setattr(
+                                timeout_error,
+                                "provider_session_id",
+                                request.provider_session_id,
+                            )
+                            raise timeout_error from exc
+                        continue
+                    _kill_process()
                     error = ProviderInvocationTimedOutError(
                         "Provider subprocess exceeded the idle timeout.",
                     )
                     setattr(error, "provider_session_id", request.provider_session_id)
                     raise error from exc
+
+                if token is not None and idle_deadline is not None:
+                    idle_deadline = time.monotonic() + request.timeout_seconds
 
                 if line is None:
                     closed_streams.add(source)

@@ -34,6 +34,7 @@ from ._provider_invocation import (
 )
 from ._runtime_lifecycle import (
     AgentEvent,
+    CancellationToken,
     EphemeralRunRequest,
     ProviderAuth,
     ProviderUsage,
@@ -449,6 +450,7 @@ def _provider_invocation_request_from_rendered_invocation(
     stream_interpretation: BuiltInProviderStreamInterpretation,
     normalize_prompt_file_command_for_argv: bool = False,
     timeout_seconds: int = 300,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationRequest:
     command = rendered.legacy_command_text or ""
     if (
@@ -481,6 +483,7 @@ def _provider_invocation_request_from_rendered_invocation(
             ),
         ),
         timeout_seconds=timeout_seconds,
+        token=token,
     )
 
 
@@ -498,6 +501,7 @@ def _execute_rendered_provider_invocation(
     stream_interpretation: BuiltInProviderStreamInterpretation,
     normalize_prompt_file_command_for_argv: bool = False,
     timeout_seconds: int = 300,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     request = _provider_invocation_request_from_rendered_invocation(
         rendered=rendered,
@@ -508,6 +512,7 @@ def _execute_rendered_provider_invocation(
         stream_interpretation=stream_interpretation,
         normalize_prompt_file_command_for_argv=(normalize_prompt_file_command_for_argv),
         timeout_seconds=timeout_seconds,
+        token=token,
     )
     if argv_transform is None:
         return provider_invocation_adapter.execute(request)
@@ -939,6 +944,7 @@ def _run_builtin_ephemeral(
             stream_interpretation=stream_interpretation,
             normalize_prompt_file_command_for_argv=True,
             timeout_seconds=request.timeout_seconds,
+            token=request.token,
         )
     finally:
         cleanup_provider_state_dir()

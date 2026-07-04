@@ -394,6 +394,7 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
         "argv",
         "prefer_argv",
         "timeout_seconds",
+        "token",
     ]
     assert [field.name for field in fields(result)] == [
         "output",
@@ -428,6 +429,7 @@ def test_built_in_provider_invocation_request_signature_excludes_logging_context
         "argv",
         "prefer_argv",
         "timeout_seconds",
+        "token",
     )
 
 

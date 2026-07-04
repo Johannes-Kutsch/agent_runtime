@@ -110,6 +110,7 @@ def test_runtime_client_execution_harness_records_provider_invocation_request_wi
         "argv",
         "prefer_argv",
         "timeout_seconds",
+        "token",
     )
 
 
