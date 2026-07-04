@@ -2246,3 +2246,52 @@ def test_production_adapter_cancel_takes_precedence_over_simultaneous_idle_timeo
         provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
             request
         )
+
+
+def test_production_adapter_fires_idle_timeout_when_token_present_but_not_cancelled(
+    tmp_path: Path,
+) -> None:
+    marker_path = tmp_path / "child-started"
+    script_path = tmp_path / "silent_provider.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import os",
+                "import sys",
+                "import time",
+                "",
+                "marker_path = sys.argv[1]",
+                "with open(marker_path, 'w', encoding='utf-8') as f:",
+                "    f.write(str(os.getpid()))",
+                "    f.flush()",
+                "while True:",
+                "    time.sleep(60)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    token = CancellationToken()
+
+    request = provider_invocation_runtime.ProviderInvocationRequest(
+        worktree=tmp_path,
+        environment={},
+        prompt=provider_invocation_runtime.ProviderInvocationPrompt(content="prompt"),
+        run_kind=RunKind.FRESH,
+        provider_session_id="session-123",
+        output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+            reduce_output=lambda lines: ("".join(lines), None),
+        ),
+        argv=(sys.executable, str(script_path), str(marker_path)),
+        prefer_argv=True,
+        timeout_seconds=1,
+        token=token,
+    )
+
+    with pytest.raises(provider_invocation_runtime.ProviderInvocationTimedOutError):
+        provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+            request
+        )
+
+    child_pid = int(marker_path.read_text(encoding="utf-8"))
+    _assert_subprocess_is_dead(child_pid)
