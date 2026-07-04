@@ -1461,3 +1461,134 @@ def test_session_backed_claude_resumed_session_cancellation_before_provider_outp
     assert isinstance(outcome.kind, runtime.Cancelled)
     assert outcome.result.continuation == continuation
     assert _CancelBeforeStartedAdapter.recorded_request_count == 1
+
+
+def test_session_backed_codex_new_session_cancellation_after_provider_started_returns_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    expected_session_id = "codex-thread-1"
+
+    class _CancelAfterStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _CancelAfterStartedAdapter.recorded_request_count += 1
+            consume = getattr(
+                request.output_hooks.reduce_output, "consume_stdout_lines", None
+            )
+            if callable(consume):
+                consume(
+                    [
+                        json.dumps(
+                            {
+                                "type": "thread.started",
+                                "thread_id": expected_session_id,
+                            }
+                        )
+                    ]
+                )
+            raise AgentCancelledError()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _CancelAfterStartedAdapter(),
+    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                token=CancellationToken(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.continuation is not None
+    assert (
+        outcome.result.continuation.provider_resume_state["provider_session_id"]
+        == expected_session_id
+    )
+    assert _CancelAfterStartedAdapter.recorded_request_count == 1
+
+
+def test_session_backed_opencode_new_session_cancellation_after_provider_started_returns_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    expected_session_id = "opencode-session-1"
+
+    class _CancelAfterStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _CancelAfterStartedAdapter.recorded_request_count += 1
+            consume = getattr(
+                request.output_hooks.reduce_output, "consume_stdout_lines", None
+            )
+            if callable(consume):
+                consume(["some provider output"])
+            raise AgentCancelledError()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _CancelAfterStartedAdapter(),
+    )
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        expected_session_id,
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="opencode",
+                    model="glm-5.2",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(opencode_api_key="go-key"),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                token=CancellationToken(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.continuation is not None
+    assert (
+        outcome.result.continuation.provider_resume_state["provider_session_id"]
+        == expected_session_id
+    )
+    assert _CancelAfterStartedAdapter.recorded_request_count == 1

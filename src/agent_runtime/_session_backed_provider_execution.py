@@ -125,44 +125,6 @@ def _augment_cancellation_interruption(
 _InvocationResultT = TypeVar("_InvocationResultT")
 
 
-def _invoke_with_timeout_continuation(
-    *,
-    invoke: Callable[[], _InvocationResultT],
-    provider_session_id: str | None,
-    build_continuation: Callable[[str], Continuation],
-    fallback_continuation: Continuation | None = None,
-) -> _InvocationResultT:
-    try:
-        return invoke()
-    except AgentTimeoutError as exc:
-        _augment_timeout_interruption(
-            error=exc,
-            provider_session_id=provider_session_id,
-            build_continuation=build_continuation,
-            fallback_continuation=fallback_continuation,
-        )
-        raise
-
-
-def _invoke_with_cancellation_continuation(
-    *,
-    invoke: Callable[[], _InvocationResultT],
-    provider_session_id: str | None,
-    build_continuation: Callable[[str], Continuation],
-    fallback_continuation: Continuation | None = None,
-) -> _InvocationResultT:
-    try:
-        return invoke()
-    except AgentCancelledError as exc:
-        _augment_cancellation_interruption(
-            error=exc,
-            provider_session_id=provider_session_id,
-            build_continuation=build_continuation,
-            fallback_continuation=fallback_continuation,
-        )
-        raise
-
-
 def _invoke_with_interruption_continuations(
     *,
     invoke: Callable[[], _InvocationResultT],
