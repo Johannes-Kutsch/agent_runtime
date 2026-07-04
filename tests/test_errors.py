@@ -62,6 +62,25 @@ def test_continuation_unrecoverable_error_is_agent_runtime_error() -> None:
     assert err.service_name == "codex"
 
 
+def test_continuation_unrecoverable_error_defaults_optional_fields() -> None:
+    err = ContinuationUnrecoverableError(service_name="codex")
+    assert err.classification is None
+    assert err.raw_message is None
+
+
+def test_continuation_unrecoverable_error_carries_classification_and_raw_message() -> None:
+    err = ContinuationUnrecoverableError(
+        "Claude session not found.",
+        service_name="claude",
+        classification="session_not_found",
+        raw_message="Session abc123 does not exist",
+    )
+    assert err.classification == "session_not_found"
+    assert err.raw_message == "Session abc123 does not exist"
+    assert err.service_name == "claude"
+    assert str(err) == "Claude session not found."
+
+
 def test_continuation_unrecoverable_error_rejects_invalid_service_name() -> None:
     with pytest.raises(ValueError):
         ContinuationUnrecoverableError(service_name="INVALID SERVICE NAME")
