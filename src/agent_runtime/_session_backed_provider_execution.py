@@ -21,7 +21,7 @@ from ._runtime_lifecycle import (
     RunResult,
 )
 from .errors import RuntimeConfigurationError
-from .errors import AgentTimeoutError
+from .errors import AgentCancelledError, AgentTimeoutError
 from .invocation_progress import InvocationProgress
 from .session import RunKind
 from .types import ProviderSelection, ResolvedProvider
@@ -100,6 +100,28 @@ def _augment_timeout_interruption(
         error.continuation = fallback_continuation
 
 
+def _augment_cancellation_interruption(
+    *,
+    error: AgentCancelledError,
+    provider_session_id: str | None,
+    build_continuation: Callable[[str], Continuation],
+    fallback_continuation: Continuation | None = None,
+) -> None:
+    cancel_provider_session_id = cast(
+        str | None,
+        getattr(error, "provider_session_id", provider_session_id),
+    )
+    if error.invocation_progress is InvocationProgress.STARTED:
+        error.continuation = _interruption_continuation(
+            provider_work_started=True,
+            provider_session_id=cancel_provider_session_id,
+            build_continuation=build_continuation,
+        )
+        return
+    if fallback_continuation is not None:
+        error.continuation = fallback_continuation
+
+
 _InvocationResultT = TypeVar("_InvocationResultT")
 
 
@@ -122,12 +144,60 @@ def _invoke_with_timeout_continuation(
         raise
 
 
+def _invoke_with_cancellation_continuation(
+    *,
+    invoke: Callable[[], _InvocationResultT],
+    provider_session_id: str | None,
+    build_continuation: Callable[[str], Continuation],
+    fallback_continuation: Continuation | None = None,
+) -> _InvocationResultT:
+    try:
+        return invoke()
+    except AgentCancelledError as exc:
+        _augment_cancellation_interruption(
+            error=exc,
+            provider_session_id=provider_session_id,
+            build_continuation=build_continuation,
+            fallback_continuation=fallback_continuation,
+        )
+        raise
+
+
+def _invoke_with_interruption_continuations(
+    *,
+    invoke: Callable[[], _InvocationResultT],
+    provider_session_id: str | None,
+    build_continuation: Callable[[str], Continuation],
+    fallback_continuation: Continuation | None = None,
+) -> _InvocationResultT:
+    try:
+        return invoke()
+    except AgentTimeoutError as exc:
+        _augment_timeout_interruption(
+            error=exc,
+            provider_session_id=provider_session_id,
+            build_continuation=build_continuation,
+            fallback_continuation=fallback_continuation,
+        )
+        raise
+    except AgentCancelledError as exc:
+        _augment_cancellation_interruption(
+            error=exc,
+            provider_session_id=provider_session_id,
+            build_continuation=build_continuation,
+            fallback_continuation=fallback_continuation,
+        )
+        raise
+
+
 def _run_builtin_new_session(
     request: NewSessionRunRequest,
     *,
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     on_live_output: Callable[[Any], None] | None = None,
 ):
+    if request.token is not None and request.token.is_cancelled:
+        raise AgentCancelledError()
     if request.session_store is None:
         raise RuntimeConfigurationError(
             "RuntimeClient Start Session Run requires a `session_store`."
@@ -204,13 +274,14 @@ def _run_builtin_new_session(
                         on_live_output=on_live_output,
                         timeout_seconds=0,
                         argv_transform=request.argv_transform,
+                        token=request.token,
                     ),
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
                 )
             provider_session_id: str | None = None
             codex_continuation_input_facts = continuation_input_facts
-            invocation_result = _invoke_with_timeout_continuation(
+            invocation_result = _invoke_with_interruption_continuations(
                 invoke=lambda: (
                     _builtin_runtime_client_module._invoke_codex_new_session_provider(
                         provider_invocation_adapter=invocation_adapter,
@@ -219,6 +290,7 @@ def _run_builtin_new_session(
                         provider_state_dir=provider_state_dir,
                         argv_transform=request.argv_transform,
                         on_live_output=on_live_output,
+                        token=request.token,
                     )
                 ),
                 provider_session_id=provider_session_id,
@@ -307,6 +379,7 @@ def _run_builtin_new_session(
                             tool_access=request.tool_access,
                         ),
                         provider_auth=selected_stage_auth,
+                        token=request.token,
                     ),
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
@@ -349,7 +422,7 @@ def _run_builtin_new_session(
                 ).value,
             )
             run_kind = active_continuation_input_facts.run_kind
-            invocation_result = _invoke_with_timeout_continuation(
+            invocation_result = _invoke_with_interruption_continuations(
                 invoke=lambda: (
                     _builtin_runtime_client_module._invoke_claude_new_session_provider(
                         provider_invocation_adapter=invocation_adapter,
@@ -360,6 +433,7 @@ def _run_builtin_new_session(
                         provider_session_id=cast(str, provider_session_id),
                         argv_transform=request.argv_transform,
                         on_live_output=on_live_output,
+                        token=request.token,
                     )
                 ),
                 provider_session_id=provider_session_id,
@@ -373,7 +447,7 @@ def _run_builtin_new_session(
             )
         else:
             assert provider_session_id is not None
-            invocation_result = _invoke_with_timeout_continuation(
+            invocation_result = _invoke_with_interruption_continuations(
                 invoke=lambda: (
                     _builtin_runtime_client_module._invoke_opencode_new_session_provider(
                         provider_invocation_adapter=invocation_adapter,
@@ -384,6 +458,7 @@ def _run_builtin_new_session(
                         provider_session_id=cast(str, provider_session_id),
                         argv_transform=request.argv_transform,
                         on_live_output=on_live_output,
+                        token=request.token,
                     )
                 ),
                 provider_session_id=provider_session_id,
@@ -478,6 +553,8 @@ def _run_builtin_resumed_session(
     provider_invocation_adapter: ProviderInvocationAdapter | None = None,
     on_live_output: Callable[[Any], None] | None = None,
 ):
+    if request.token is not None and request.token.is_cancelled:
+        raise AgentCancelledError()
     if request.session_store is None:
         raise RuntimeConfigurationError(
             "RuntimeClient Resume Session Run requires a `session_store`."
@@ -541,7 +618,7 @@ def _run_builtin_resumed_session(
             ).value,
         )
         active_provider_session_id: str | None = provider_session_id
-        invocation_result = _invoke_with_timeout_continuation(
+        invocation_result = _invoke_with_interruption_continuations(
             invoke=lambda: (
                 _builtin_runtime_client_module._invoke_codex_resumed_session_provider(
                     provider_invocation_adapter=invocation_adapter,
@@ -550,6 +627,7 @@ def _run_builtin_resumed_session(
                     provider_state_dir=provider_state_dir,
                     argv_transform=request.argv_transform,
                     on_live_output=on_live_output,
+                    token=request.token,
                 )
             ),
             provider_session_id=active_provider_session_id,
@@ -672,7 +750,7 @@ def _run_builtin_resumed_session(
         run_kind = continuation_input_facts.run_kind
         cleanup_opencode_state_dir = _no_cleanup
     if continuation_service == "claude":
-        invocation_result = _invoke_with_timeout_continuation(
+        invocation_result = _invoke_with_interruption_continuations(
             invoke=lambda: (
                 _builtin_runtime_client_module._invoke_claude_session_provider(
                     provider_invocation_adapter=invocation_adapter,
@@ -688,6 +766,7 @@ def _run_builtin_resumed_session(
                     argv_transform=request.argv_transform,
                     on_live_output=on_live_output,
                     timeout_seconds=request.timeout_seconds,
+                    token=request.token,
                 )
             ),
             provider_session_id=provider_session_id,
@@ -701,7 +780,7 @@ def _run_builtin_resumed_session(
             fallback_continuation=request.continuation,
         )
     else:
-        invocation_result = _invoke_with_timeout_continuation(
+        invocation_result = _invoke_with_interruption_continuations(
             invoke=lambda: (
                 _builtin_runtime_client_module._invoke_opencode_session_provider(
                     provider_invocation_adapter=invocation_adapter,
@@ -717,6 +796,7 @@ def _run_builtin_resumed_session(
                     argv_transform=request.argv_transform,
                     on_live_output=on_live_output,
                     timeout_seconds=request.timeout_seconds,
+                    token=request.token,
                 )
             ),
             provider_session_id=provider_session_id,

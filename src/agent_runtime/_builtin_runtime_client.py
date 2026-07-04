@@ -180,6 +180,12 @@ class _SessionTimeoutState:
         exc.invocation_progress = self.invocation_progress
         setattr(exc, "provider_session_id", self.provider_session_id)
 
+    def apply_to_cancellation(self, exc: AgentCancelledError) -> None:
+        if exc.usage is None:
+            exc.usage = self.usage
+        exc.invocation_progress = self.invocation_progress
+        setattr(exc, "provider_session_id", self.provider_session_id)
+
 
 def _observe_output_lines(
     *,
@@ -536,6 +542,7 @@ def _invoke_claude_session_provider(
     ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
     timeout_seconds: int = 300,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
         _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
@@ -574,9 +581,13 @@ def _invoke_claude_session_provider(
             provider_session_id=provider_session_id,
             stream_interpretation=stream_interpretation,
             timeout_seconds=timeout_seconds,
+            token=token,
         )
     except AgentTimeoutError as exc:
         timeout_state.apply_to_timeout(exc)
+        raise
+    except AgentCancelledError as exc:
+        timeout_state.apply_to_cancellation(exc)
         raise
 
 
@@ -592,6 +603,7 @@ def _invoke_claude_new_session_provider(
         Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
     ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_claude_session_provider(
         provider_invocation_adapter=provider_invocation_adapter,
@@ -607,6 +619,7 @@ def _invoke_claude_new_session_provider(
         argv_transform=argv_transform,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
+        token=token,
     )
 
 
@@ -620,6 +633,7 @@ def _invoke_codex_new_session_provider(
         Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
     ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_codex_session_provider(
         provider_invocation_adapter=provider_invocation_adapter,
@@ -634,6 +648,7 @@ def _invoke_codex_new_session_provider(
         argv_transform=argv_transform,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
+        token=token,
     )
 
 
@@ -653,6 +668,7 @@ def _invoke_codex_session_provider(
     ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
     timeout_seconds: int = 300,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     stream_interpretation = _with_observed_output(
         _codex_stream_interpretation(),
@@ -693,9 +709,13 @@ def _invoke_codex_session_provider(
             provider_session_id=provider_session_id,
             stream_interpretation=stream_interpretation,
             timeout_seconds=timeout_seconds,
+            token=token,
         )
     except AgentTimeoutError as exc:
         timeout_state.apply_to_timeout(exc)
+        raise
+    except AgentCancelledError as exc:
+        timeout_state.apply_to_cancellation(exc)
         raise
 
 
@@ -709,6 +729,7 @@ def _invoke_codex_resumed_session_provider(
         Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
     ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_codex_session_provider(
         provider_invocation_adapter=provider_invocation_adapter,
@@ -723,6 +744,7 @@ def _invoke_codex_resumed_session_provider(
         argv_transform=argv_transform,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
+        token=token,
     )
 
 
@@ -743,6 +765,7 @@ def _invoke_opencode_session_provider(
     ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
     timeout_seconds: int = 300,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     stream_interpretation = _opencode_stream_interpretation(
         on_live_output=on_live_output,
@@ -783,9 +806,13 @@ def _invoke_opencode_session_provider(
             provider_session_id=rendered.provider_session_id,
             stream_interpretation=stream_interpretation,
             timeout_seconds=timeout_seconds,
+            token=token,
         )
     except AgentTimeoutError as exc:
         timeout_state.apply_to_timeout(exc)
+        raise
+    except AgentCancelledError as exc:
+        timeout_state.apply_to_cancellation(exc)
         raise
 
 
@@ -801,6 +828,7 @@ def _invoke_opencode_new_session_provider(
         Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
     ) = None,
     on_live_output: Callable[[AgentEvent], None] | None = None,
+    token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     return _invoke_opencode_session_provider(
         provider_invocation_adapter=provider_invocation_adapter,
@@ -816,6 +844,7 @@ def _invoke_opencode_new_session_provider(
         argv_transform=argv_transform,
         on_live_output=on_live_output,
         timeout_seconds=request.timeout_seconds,
+        token=token,
     )
 
 

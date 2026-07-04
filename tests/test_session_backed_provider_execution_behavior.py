@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import datetime, timezone
@@ -16,7 +17,9 @@ import agent_runtime._session_backed_provider_state_resolution as provider_state
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
+from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.errors import (
+    AgentCancelledError,
     ContinuationUnrecoverableError,
     RuntimeConfigurationError,
     UsageLimitError,
@@ -1155,3 +1158,306 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
     }
     assert active_session_ids == ["observed-session-2"]
     assert harness.recorded_request().provider_session_id == "persisted-session-1"
+
+
+@pytest.mark.parametrize("entrypoint", ["new", "resumed"])
+def test_session_backed_pre_cancelled_token_returns_cancelled_outcome_without_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    entrypoint: str,
+) -> None:
+    token = CancellationToken()
+    token.cancel()
+
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+
+    if entrypoint == "new":
+        outcome = asyncio.run(
+            runtime.RuntimeClient().run_new_session(
+                RuntimeClientExecutionHarness.start_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    provider_selection=InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
+                    tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    token=token,
+                )
+            )
+        )
+    else:
+        outcome = asyncio.run(
+            runtime.RuntimeClient().run_resumed_session(
+                RuntimeClientExecutionHarness.resume_session_run_request(
+                    invocation_dir=tmp_path,
+                    runtime_state_dir=runtime_state_dir,
+                    continuation=RuntimeClientExecutionHarness.claude_continuation(
+                        provider_session_id="session-1",
+                        provider_state_dir_relpath="",
+                    ),
+                    provider_auth=runtime.ProviderAuth(
+                        claude_code_oauth_token="oauth-token"
+                    ),
+                    token=token,
+                )
+            )
+        )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.continuation is None
+    assert harness.recorded_request_count == 0
+
+
+def test_session_backed_claude_new_session_cancellation_after_provider_started_returns_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    expected_session_id = "prepared-session-1"
+
+    class _CancelAfterStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _CancelAfterStartedAdapter.recorded_request_count += 1
+            consume = getattr(
+                request.output_hooks.reduce_output, "consume_stdout_lines", None
+            )
+            if callable(consume):
+                consume(["some provider output"])
+            raise AgentCancelledError()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _CancelAfterStartedAdapter(),
+    )
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        expected_session_id,
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                token=CancellationToken(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.continuation is not None
+    assert (
+        outcome.result.continuation.provider_resume_state["provider_session_id"]
+        == expected_session_id
+    )
+    assert _CancelAfterStartedAdapter.recorded_request_count == 1
+
+
+def test_session_backed_claude_new_session_cancellation_before_provider_output_returns_no_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _CancelBeforeStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _CancelBeforeStartedAdapter.recorded_request_count += 1
+            raise AgentCancelledError()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _CancelBeforeStartedAdapter(),
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                token=CancellationToken(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.continuation is None
+    assert _CancelBeforeStartedAdapter.recorded_request_count == 1
+
+
+def test_session_backed_claude_resumed_session_cancellation_after_provider_started_returns_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    expected_session_id = "resumed-session-1"
+
+    class _CancelAfterStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _CancelAfterStartedAdapter.recorded_request_count += 1
+            consume = getattr(
+                request.output_hooks.reduce_output, "consume_stdout_lines", None
+            )
+            if callable(consume):
+                consume(["some provider output"])
+            raise AgentCancelledError()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _CancelAfterStartedAdapter(),
+    )
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_claude_resumed_session_facts",
+        lambda **_kwargs: provider_state_resolution.ClaudeResumedSessionResolution(
+            provider_state_dir=tmp_path,
+            continuation_input_facts=provider_state_resolution.claude_continuation_input_facts(
+                model="sonnet",
+                effort="medium",
+                provider_state_dir=tmp_path,
+                provider_state_dir_relpath="",
+                provider_session_id=expected_session_id,
+                run_kind=RunKind.RESUME,
+            ),
+        ),
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    continuation = RuntimeClientExecutionHarness.claude_continuation(
+        provider_session_id=expected_session_id,
+        provider_state_dir_relpath="",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            RuntimeClientExecutionHarness.resume_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                token=CancellationToken(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.continuation is not None
+    assert (
+        outcome.result.continuation.provider_resume_state["provider_session_id"]
+        == expected_session_id
+    )
+    assert _CancelAfterStartedAdapter.recorded_request_count == 1
+
+
+def test_session_backed_claude_resumed_session_cancellation_before_provider_output_uses_fallback_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _CancelBeforeStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _CancelBeforeStartedAdapter.recorded_request_count += 1
+            raise AgentCancelledError()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _CancelBeforeStartedAdapter(),
+    )
+    session_id = "resumed-session-1"
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_claude_resumed_session_facts",
+        lambda **_kwargs: provider_state_resolution.ClaudeResumedSessionResolution(
+            provider_state_dir=tmp_path,
+            continuation_input_facts=provider_state_resolution.claude_continuation_input_facts(
+                model="sonnet",
+                effort="medium",
+                provider_state_dir=tmp_path,
+                provider_state_dir_relpath="",
+                provider_session_id=session_id,
+                run_kind=RunKind.RESUME,
+            ),
+        ),
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    continuation = RuntimeClientExecutionHarness.claude_continuation(
+        provider_session_id=session_id,
+        provider_state_dir_relpath="",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            RuntimeClientExecutionHarness.resume_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                token=CancellationToken(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.continuation == continuation
+    assert _CancelBeforeStartedAdapter.recorded_request_count == 1
