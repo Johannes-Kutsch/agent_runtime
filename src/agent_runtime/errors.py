@@ -155,12 +155,21 @@ class HardAgentError(AgentRuntimeError):
 
 
 class ContinuationUnrecoverableError(AgentRuntimeError):
-    def __init__(self, message: str = "", *, service_name: str) -> None:
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        service_name: str,
+        classification: str | None = None,
+        raw_message: str | None = None,
+    ) -> None:
         validate_runtime_identity_label(
             service_name,
             kind="ContinuationUnrecoverableError service_name",
         )
         self.service_name = service_name
+        self.classification = classification
+        self.raw_message = raw_message
         super().__init__(message)
 
 
