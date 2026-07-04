@@ -1282,6 +1282,38 @@ def test_runtime_client_ephemeral_run_maps_provider_cancelled_interruption_to_ca
     )
 
 
+def test_runtime_client_ephemeral_run_pre_cancelled_token_returns_cancelled_outcome_without_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from agent_runtime._runtime_lifecycle import CancellationToken
+
+    token = CancellationToken()
+    token.cancel()
+
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                token=token,
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert outcome.result.output == ""
+    assert outcome.result.continuation is None
+    assert harness.recorded_request_count == 0
+
+
 def test_runtime_client_ephemeral_run_drops_continuation_from_usage_limited_interruption(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
