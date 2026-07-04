@@ -409,6 +409,11 @@ def resolve_opencode_resumed_session_facts(
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
     provider_state_dir.mkdir(parents=True, exist_ok=True)
 
+    if not _opencode_is_resumable(provider_state_dir):
+        raise ContinuationUnrecoverableError(
+            "OpenCode continuation is not recoverable from provider state.",
+            service_name="opencode",
+        )
     stored_provider_session_id = load_opencode_stored_session_id(provider_state_dir)
     active_provider_session_id = _normalize_provider_session_id(
         continuation_facts.provider_session_id

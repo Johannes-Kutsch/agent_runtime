@@ -634,6 +634,7 @@ def test_session_backed_opencode_completed_outcome_keeps_resolved_session_detail
     runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
         tmp_path
     )
+    (runtime_state_dir / "resume.jsonl").write_text("", encoding="utf-8")
 
     result = session_backed_execution._run_builtin_resumed_session(
         RuntimeClientExecutionHarness.resume_session_run_request(
@@ -883,6 +884,7 @@ def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_fac
         )
     else:
         continuation = RuntimeClientExecutionHarness.opencode_continuation()
+        (runtime_state_dir / "resume.jsonl").write_text("", encoding="utf-8")
         session_backed_execution._run_builtin_resumed_session(
             RuntimeClientExecutionHarness.resume_session_run_request(
                 invocation_dir=tmp_path,
@@ -985,6 +987,8 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
         tmp_path
     )
     continuation = RuntimeClientExecutionHarness.opencode_continuation()
+    if entrypoint == "resumed":
+        (runtime_state_dir / "resume.jsonl").write_text("", encoding="utf-8")
 
     with pytest.raises(UsageLimitError) as exc_info:
         if entrypoint == "new":
