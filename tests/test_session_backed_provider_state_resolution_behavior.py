@@ -674,38 +674,6 @@ def test_session_backed_provider_state_resolution_recovers_resumable_claude_new_
     )
 
 
-def test_session_backed_provider_state_resolution_restores_fresh_claude_resumed_session_facts_from_empty_state_pointer_through_module_interface(
-    tmp_path: Path,
-) -> None:
-    runtime_state_dir = tmp_path / "session-store"
-
-    resolution = provider_state_resolution.resolve_claude_resumed_session_facts(
-        runtime_state_dir=runtime_state_dir,
-        provider_state_dir_relpath="implementer/slice424/claude/",
-        model="sonnet",
-        effort="medium",
-        provider_session_id="selected-session",
-    )
-
-    assert resolution.provider_state_dir == (
-        runtime_state_dir / "implementer" / "slice424" / "claude"
-    )
-    assert resolution.provider_state_dir.is_dir()
-    assert resolution.continuation_input_facts == (
-        provider_state_resolution.claude_continuation_input_facts(
-            model="sonnet",
-            effort="medium",
-            provider_state_dir=runtime_state_dir
-            / "implementer"
-            / "slice424"
-            / "claude",
-            provider_state_dir_relpath="implementer/slice424/claude/",
-            provider_session_id="selected-session",
-            run_kind=RunKind.FRESH,
-        )
-    )
-
-
 def test_session_backed_provider_state_resolution_restores_claude_resumed_session_facts_from_continuation_state_pointer_through_module_interface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -960,3 +928,20 @@ def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_re
             provider_session_id=None,
             host_auth_path=host_auth_path,
         )
+
+
+def test_session_backed_provider_state_resolution_rejects_absent_local_state_claude_resumed_session_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = tmp_path / "session-store"
+
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
+        provider_state_resolution.resolve_claude_resumed_session_facts(
+            runtime_state_dir=runtime_state_dir,
+            provider_state_dir_relpath="implementer/slice424/claude/",
+            model="sonnet",
+            effort="medium",
+            provider_session_id="selected-session",
+        )
+
+    assert exc_info.value.service_name == "claude"
