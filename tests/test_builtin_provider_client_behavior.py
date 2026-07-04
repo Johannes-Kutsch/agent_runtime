@@ -509,7 +509,7 @@ def test_runtime_client_runs_claude_new_session_with_runtime_state_dir(
         )
     )
 
-    provider_state_dir_relpath = "implementer/main/claude/"
+    provider_state_dir_relpath = ""
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
 
     assert isinstance(outcome.kind, prompt_runtime.Completed)
@@ -773,7 +773,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
         "run_kind": "resume",
         "provider_session_id": "session-uuid",
         "exact_transcript_match": False,
-        "provider_state_dir_relpath": "implementer/main/claude/",
+        "provider_state_dir_relpath": "",
     }
     runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
 
@@ -804,7 +804,7 @@ def test_runtime_client_runs_claude_new_session_and_returns_portable_continuatio
             "run_kind": "resume",
             "provider_session_id": "session-uuid",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/claude/",
+            "provider_state_dir_relpath": "",
         },
     )
     assert harness.recorded_request_count == 2
@@ -873,7 +873,7 @@ def test_runtime_client_runs_claude_new_session_through_runtime_client(
             "run_kind": "resume",
             "provider_session_id": "observed-session",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/claude/",
+            "provider_state_dir_relpath": "",
         },
     )
     assert harness.recorded_request_count == 1
@@ -952,7 +952,7 @@ def test_runtime_client_runs_opencode_new_session_through_runtime_client(
         provider_resume_state={
             "provider_session_id": "observed-session-id",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/opencode/",
+            "provider_state_dir_relpath": "",
         },
     )
     assert harness.recorded_request_count == 1
@@ -960,7 +960,7 @@ def test_runtime_client_runs_opencode_new_session_through_runtime_client(
     assert recorded_request.prompt.content == "already rendered prompt"
     assert recorded_request.run_kind is RunKind.FRESH
     assert recorded_request.provider_session_id == "prepared-session-id"
-    provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
+    provider_state_dir = runtime_state_dir
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
         "observed-session-id"
     )
@@ -1027,11 +1027,11 @@ def test_runtime_client_uses_observed_opencode_new_session_id_over_adapter_and_p
         provider_resume_state={
             "provider_session_id": "observed-session-id",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/opencode/",
+            "provider_state_dir_relpath": "",
         },
     )
     assert harness.recorded_request().provider_session_id == "prepared-session-id"
-    provider_state_dir = runtime_state_dir / "implementer" / "main" / "opencode"
+    provider_state_dir = runtime_state_dir
     assert (provider_state_dir / "session_id").read_text(encoding="utf-8").strip() == (
         "observed-session-id"
     )
@@ -2459,7 +2459,7 @@ def test_runtime_client_new_opencode_session_observes_live_runtime_output_before
         provider_resume_state={
             "provider_session_id": "sess_123",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/opencode/",
+            "provider_state_dir_relpath": "",
         },
     )
 
@@ -2693,7 +2693,7 @@ def test_runtime_client_runs_codex_resumed_session_through_built_in_provider_inv
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "observed-thread",
-            "provider_state_dir_relpath": "implementer/main/codex/",
+            "provider_state_dir_relpath": "",
             "exact_transcript_match": False,
         },
     )
@@ -2789,7 +2789,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "thread-123",
-            "provider_state_dir_relpath": "implementer/main/codex/",
+            "provider_state_dir_relpath": "",
             "exact_transcript_match": False,
         },
     )
@@ -2797,7 +2797,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
     assert isinstance(new_outcome.result, prompt_runtime.RunResult)
     continuation = new_outcome.result.continuation
     assert continuation is not None
-    provider_state_dir = runtime_state_dir / "implementer" / "main" / "codex"
+    provider_state_dir = runtime_state_dir
     harness.prepare_codex_rollout_state(provider_state_dir, "thread-123")
 
     resumed_outcome = asyncio.run(
@@ -2827,7 +2827,7 @@ def test_runtime_client_resumes_codex_session_from_completed_new_session_continu
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "thread-123",
-            "provider_state_dir_relpath": "implementer/main/codex/",
+            "provider_state_dir_relpath": "",
             "exact_transcript_match": False,
         },
     )
@@ -2986,7 +2986,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "usage-session-1",
-            "provider_state_dir_relpath": "implementer/main/codex/",
+            "provider_state_dir_relpath": "",
             "exact_transcript_match": False,
         },
     )
@@ -3026,7 +3026,7 @@ def test_runtime_client_preserves_tool_policy_in_resumed_session_usage_limited_c
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "usage-session-2",
-            "provider_state_dir_relpath": "implementer/main/codex/",
+            "provider_state_dir_relpath": "",
             "exact_transcript_match": False,
         },
     )
@@ -3070,7 +3070,6 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
                     model="gpt-5.4",
                     effort="medium",
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -3087,7 +3086,7 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "thread-123",
-            "provider_state_dir_relpath": "implementer/main/codex/",
+            "provider_state_dir_relpath": "",
             "exact_transcript_match": False,
         },
     )
@@ -3139,7 +3138,6 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_new_session_r
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -3164,7 +3162,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_from_new_session_r
             "run_kind": "resume",
             "provider_session_id": "observed-session",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/claude/",
+            "provider_state_dir_relpath": "",
         },
     )
 
@@ -3200,7 +3198,6 @@ def test_runtime_client_keeps_claude_continuation_when_provider_invocation_failu
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -3216,7 +3213,7 @@ def test_runtime_client_keeps_claude_continuation_when_provider_invocation_failu
             "run_kind": "resume",
             "provider_session_id": "observed-session",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/claude/",
+            "provider_state_dir_relpath": "",
         },
     )
 
@@ -3362,7 +3359,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir_relpath = "implementer/main/claude/"
+    provider_state_dir_relpath = ""
     continuation = adapter.claude_continuation(
         provider_session_id=None,
         provider_state_dir_relpath=provider_state_dir_relpath,
@@ -3395,7 +3392,7 @@ def test_runtime_client_runs_claude_resumed_session_with_generated_provider_sess
             "run_kind": "resume",
             "provider_session_id": "generated-session-id",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/claude/",
+            "provider_state_dir_relpath": "",
         },
     )
     assert adapter.recorded_request_count == 1
@@ -3477,7 +3474,7 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir_relpath = "implementer/main/claude/"
+    provider_state_dir_relpath = ""
     if create_state_dir:
         (runtime_state_dir / provider_state_dir_relpath).mkdir(parents=True)
 
@@ -3512,7 +3509,7 @@ def test_runtime_client_runs_claude_resumed_session_fresh_when_provider_state_is
             "run_kind": "resume",
             "provider_session_id": "claude-session-123",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/claude/",
+            "provider_state_dir_relpath": "",
         },
     )
     assert adapter.recorded_request_count == 1
@@ -3536,7 +3533,7 @@ def test_runtime_client_new_session_requires_claude_auth_when_runtime_state_is_r
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer/main/claude" / "nested"
+    provider_state_dir = runtime_state_dir / "nested"
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     (provider_state_dir / "transcript.json").write_text("{}", encoding="utf-8")
 
@@ -3552,7 +3549,6 @@ def test_runtime_client_new_session_requires_claude_auth_when_runtime_state_is_r
                         model="sonnet",
                         effort="medium",
                     ),
-                    session_namespace="main",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                 )
             )
@@ -3655,7 +3651,7 @@ def test_runtime_client_returns_started_usage_limited_outcome_for_claude_new_ses
         "run_kind": "resume",
         "provider_session_id": "session-uuid",
         "exact_transcript_match": False,
-        "provider_state_dir_relpath": "implementer/main/claude/",
+        "provider_state_dir_relpath": "",
     }
     assert result.continuation.tool_access == contracts_runtime.ToolAccess.no_tools()
 
@@ -3764,7 +3760,7 @@ def test_runtime_client_runs_codex_new_session_with_runtime_state_and_host_auth(
         )
     )
 
-    provider_state_dir_relpath = "implementer/main/codex/"
+    provider_state_dir_relpath = ""
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
 
     assert isinstance(outcome.kind, prompt_runtime.Completed)
@@ -4150,7 +4146,7 @@ def test_runtime_client_runs_codex_session_invocations_with_windows_host_process
     monkeypatch.setenv("WINDIR", "C:\\Windows")
 
     runtime_state_dir = harness.prepare_runtime_state_dir(tmp_path)
-    provider_state_dir = runtime_state_dir / "implementer" / "main" / "codex"
+    provider_state_dir = runtime_state_dir
 
     if entrypoint == "new":
         outcome = asyncio.run(
@@ -4421,7 +4417,7 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
     )
 
     runtime_state_dir = tmp_path / ".agent-runtime" / "state"
-    provider_state_dir = runtime_state_dir / "implementer/main/claude" / "nested"
+    provider_state_dir = runtime_state_dir / "nested"
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     (provider_state_dir / "transcript.json").write_text("{}", encoding="utf-8")
 
@@ -4439,7 +4435,6 @@ def test_runtime_client_treats_nested_claude_provider_state_as_resumable(
                     ),
                     runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
                 ),
-                session_namespace="main",
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
@@ -5070,7 +5065,7 @@ def test_runtime_client_runs_resumed_opencode_session_through_built_in_provider_
         provider_resume_state={
             "provider_session_id": "persisted-session-2",
             "exact_transcript_match": False,
-            "provider_state_dir_relpath": "implementer/main/opencode/",
+            "provider_state_dir_relpath": "",
         },
     )
     assert outcome.result is not None
@@ -5162,7 +5157,7 @@ def test_runtime_client_runs_codex_new_session_through_built_in_provider_invocat
         )
     )
 
-    provider_state_dir_relpath = "implementer/main/codex/"
+    provider_state_dir_relpath = ""
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
 
     assert isinstance(outcome.kind, prompt_runtime.Completed)
@@ -5276,7 +5271,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
         provider_resume_state={
             "run_kind": "resume",
             "provider_session_id": "thread-123",
-            "provider_state_dir_relpath": "implementer/main/codex/",
+            "provider_state_dir_relpath": "",
             "exact_transcript_match": False,
         },
     )
@@ -6358,7 +6353,6 @@ def test_runtime_client_applies_execution_argv_transform_for_all_request_kinds(
                 ),
                 runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
-            session_namespace="main",
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
         transformed_request = prompt_runtime.NewSessionRunRequest(
@@ -6373,7 +6367,6 @@ def test_runtime_client_applies_execution_argv_transform_for_all_request_kinds(
                 ),
                 runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             ),
-            session_namespace="main",
             tool_access=contracts_runtime.ToolAccess.no_tools(),
             argv_transform=argv_transform,
         )
@@ -6383,14 +6376,13 @@ def test_runtime_client_applies_execution_argv_transform_for_all_request_kinds(
             tmp_path
         )
         continuation = RuntimeClientExecutionHarness.claude_continuation(
-            provider_state_dir_relpath="implementer/main/claude/",
+            provider_state_dir_relpath="",
         )
         baseline_request = prompt_runtime.ResumedSessionRunRequest(
             prompt="already rendered prompt",
             invocation_dir=tmp_path,
             runtime_state_dir=runtime_state_dir,
             continuation=continuation,
-            session_namespace="main",
             provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
         )
         transformed_request = prompt_runtime.ResumedSessionRunRequest(
@@ -6398,7 +6390,6 @@ def test_runtime_client_applies_execution_argv_transform_for_all_request_kinds(
             invocation_dir=tmp_path,
             runtime_state_dir=runtime_state_dir,
             continuation=continuation,
-            session_namespace="main",
             provider_auth=runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
             argv_transform=argv_transform,
         )

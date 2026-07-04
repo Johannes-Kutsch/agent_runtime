@@ -538,25 +538,19 @@ def test_lifecycle_requests_keep_runtime_managed_compatibility_fields_internal_t
         ),
         tool_access=contracts_runtime.ToolAccess.no_tools(),
         runtime_state_dir=Path("/state"),
-        session_namespace="main",
     )
     resumed_request = prompt_runtime.ResumedSessionRunRequest(
         prompt="already rendered prompt",
         invocation_dir=Path("/repo"),
         continuation=_continuation(),
         runtime_state_dir=Path("/state"),
-        session_namespace="main",
     )
 
     for request in (new_session_request, resumed_request):
         assert request._runtime_state_dir == Path("/state")
-        assert request._session_namespace == "main"
         assert "_runtime_state_dir" not in repr(request)
-        assert "_session_namespace" not in repr(request)
         assert "_runtime_state_dir" not in {field.name for field in fields(request)}
-        assert "_session_namespace" not in {field.name for field in fields(request)}
         assert "_runtime_state_dir" not in asdict(request)
-        assert "_session_namespace" not in asdict(request)
 
 
 @pytest.mark.parametrize(
@@ -788,7 +782,6 @@ def test_new_session_run_request_keeps_legacy_start_session_run_compatibility_in
         prompt="already rendered prompt",
         worktree=Path("/repo"),
         runtime_state_dir=Path("/state"),
-        session_namespace="main",
         provider_selection=runtime.ProviderSelection(
             service="codex",
             model="gpt-5.4",
@@ -805,7 +798,6 @@ def test_new_session_run_request_keeps_legacy_start_session_run_compatibility_in
     )
     assert request.session_store == Path("/state")
     assert request._runtime_state_dir == Path("/state")
-    assert request._session_namespace == "main"
     assert request.argv_transform is argv_transform
 
 
@@ -823,7 +815,6 @@ def test_resumed_session_run_request_keeps_legacy_resume_session_run_compatibili
         prompt="already rendered prompt",
         worktree=Path("/repo"),
         runtime_state_dir=Path("/state"),
-        session_namespace="main",
         continuation=_continuation(),
         argv_transform=argv_transform,
     )
@@ -832,7 +823,6 @@ def test_resumed_session_run_request_keeps_legacy_resume_session_run_compatibili
     assert request.tool_access == contracts_runtime.ToolAccess.no_tools()
     assert request.session_store == Path("/state")
     assert request._runtime_state_dir == Path("/state")
-    assert request._session_namespace == "main"
     assert request.model == "gpt-5.4"
     assert request.effort == "medium"
     assert request.argv_transform is argv_transform
@@ -879,47 +869,6 @@ def test_lifecycle_request_construction_rejects_conflicting_invocation_dir_and_l
         match=re.escape("received conflicting `invocation_dir` and `worktree` values."),
     ):
         request_factory()
-
-
-def test_new_session_run_request_rejects_conflicting_private_and_compatibility_session_namespace_values() -> (
-    None
-):
-    with pytest.raises(
-        TypeError,
-        match=re.escape(
-            "NewSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
-        ),
-    ):
-        prompt_runtime.NewSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            provider_selection=runtime.ProviderSelection(
-                service="codex",
-                model="gpt-5.4",
-                effort="medium",
-            ),
-            tool_policy=runtime.ToolPolicy.NONE,
-            _session_namespace="main",
-            session_namespace="other",
-        )
-
-
-def test_resumed_session_run_request_rejects_conflicting_private_and_compatibility_session_namespace_values() -> (
-    None
-):
-    with pytest.raises(
-        TypeError,
-        match=re.escape(
-            "ResumedSessionRunRequest received conflicting `session_namespace` and `_session_namespace` values."
-        ),
-    ):
-        prompt_runtime.ResumedSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            continuation=_continuation(),
-            _session_namespace="main",
-            session_namespace="other",
-        )
 
 
 def test_runtime_public_surface_keeps_request_normalization_module_private() -> None:

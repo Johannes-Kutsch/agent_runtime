@@ -404,7 +404,6 @@ def test_runtime_client_execution_harness_builds_session_lifecycle_requests(
     assert start_request.provider_selection.auth == provider_auth
     assert start_request.tool_access == tool_access
     assert start_request._runtime_state_dir == runtime_state_dir
-    assert start_request._session_namespace == "main"
     assert isinstance(resume_request, prompt_runtime.ResumedSessionRunRequest)
     assert (
         resume_request.continuation
@@ -415,7 +414,6 @@ def test_runtime_client_execution_harness_builds_session_lifecycle_requests(
     assert resume_request.provider_auth == provider_auth
     assert resume_request.tool_access == tool_access
     assert resume_request._runtime_state_dir == runtime_state_dir
-    assert resume_request._session_namespace == "main"
 
 
 def test_runtime_client_execution_harness_prepares_runtime_state_and_codex_rollout_state(
@@ -437,7 +435,7 @@ def test_runtime_client_execution_harness_prepares_runtime_state_and_codex_rollo
 
     assert runtime_state_dir == tmp_path / ".agent-runtime" / "state"
     assert runtime_state_dir.is_dir()
-    assert provider_state_dir == runtime_state_dir / "implementer" / "main" / "codex"
+    assert provider_state_dir == runtime_state_dir
     assert (
         rollout_path
         == provider_state_dir / "sessions" / "2026" / "05" / "30" / "rollout-001.jsonl"

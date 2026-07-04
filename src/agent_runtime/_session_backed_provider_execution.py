@@ -182,7 +182,6 @@ def _run_builtin_new_session(
             codex_resolution = (
                 _provider_state_resolution.resolve_codex_new_session_facts(
                     runtime_state_dir=runtime_state_dir,
-                    session_namespace=request._session_namespace,
                     caller_owned_session_store=is_caller_managed_runtime_state,
                     model=selected_stage.model,
                     effort=selected_stage.effort,
@@ -205,7 +204,6 @@ def _run_builtin_new_session(
                         on_live_output=on_live_output,
                         timeout_seconds=0,
                         argv_transform=request.argv_transform,
-                        _session_namespace=request._session_namespace,
                     ),
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
@@ -288,7 +286,6 @@ def _run_builtin_new_session(
             claude_resolution = (
                 _provider_state_resolution.resolve_claude_new_session_facts(
                     runtime_state_dir=runtime_state_dir,
-                    session_namespace=request._session_namespace,
                     caller_owned_session_store=is_caller_managed_runtime_state,
                     model=selected_stage.model,
                     effort=selected_stage.effort,
@@ -310,7 +307,6 @@ def _run_builtin_new_session(
                             tool_access=request.tool_access,
                         ),
                         provider_auth=selected_stage_auth,
-                        _session_namespace=request._session_namespace,
                     ),
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
@@ -321,7 +317,6 @@ def _run_builtin_new_session(
             opencode_resolution = (
                 _provider_state_resolution.resolve_opencode_new_session_facts(
                     runtime_state_dir=runtime_state_dir,
-                    session_namespace=request._session_namespace,
                     caller_owned_session_store=is_caller_managed_runtime_state,
                     model=selected_stage.model,
                     effort=selected_stage.effort,
@@ -660,7 +655,6 @@ def _run_builtin_resumed_session(
         opencode_resolution = (
             _provider_state_resolution.resolve_opencode_resumed_session_facts(
                 runtime_state_dir=cast(Path, request.session_store),
-                session_namespace=request._session_namespace,
                 continuation=cast(Continuation, request.continuation),
                 model=request.model,
                 effort=request.effort,

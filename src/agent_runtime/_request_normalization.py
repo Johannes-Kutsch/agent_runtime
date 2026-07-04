@@ -4,7 +4,6 @@ import dataclasses
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from .identity import validate_session_namespace
 from .types import (
     ProviderSelection,
     validate_provider_selection,
@@ -19,14 +18,12 @@ class NormalizedProviderSelectionRequest:
     provider_selection: ProviderSelection
     invocation_dir: Path
     tool_access: ToolAccess
-    session_namespace: str
 
 
 @dataclasses.dataclass(frozen=True)
 class NormalizedResumedRequest:
     invocation_dir: Path
     tool_access: ToolAccess
-    session_namespace: str
 
 
 def normalize_provider_selection(
@@ -40,11 +37,6 @@ def normalize_provider_selection(
     if validate:
         validate_provider_selection(provider_selection)
     return provider_selection
-
-
-def normalize_session_namespace(session_namespace: str) -> str:
-    validate_session_namespace(session_namespace)
-    return session_namespace
 
 
 def normalize_tool_access(
@@ -106,7 +98,6 @@ def normalize_provider_selection_request(
     tool_access: Any,
     tool_policy: Any,
     missing_sentinel: object,
-    session_namespace: str,
     context: str,
     missing_message: str,
     validate_provider_selection_request: bool = True,
@@ -128,7 +119,6 @@ def normalize_provider_selection_request(
             missing_message=missing_message,
             workspace_name=workspace_name,
         ),
-        session_namespace=normalize_session_namespace(session_namespace),
     )
 
 
@@ -136,7 +126,6 @@ def normalize_continuation_request(
     *,
     invocation_dir: Path,
     tool_access: "ToolAccess",
-    session_namespace: str,
     context: str,
     workspace_name: str = "invocation_dir",
 ) -> NormalizedResumedRequest:
@@ -148,7 +137,6 @@ def normalize_continuation_request(
             context=context,
             workspace_name=workspace_name,
         ),
-        session_namespace=normalize_session_namespace(session_namespace),
     )
 
 

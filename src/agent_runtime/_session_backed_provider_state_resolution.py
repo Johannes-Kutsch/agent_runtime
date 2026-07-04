@@ -9,7 +9,7 @@ from . import _builtin_runtime_client as _builtin_runtime_client_module
 from ._runtime_lifecycle import Continuation
 from .contracts import ToolAccess
 from .errors import ContinuationUnrecoverableError, RuntimeConfigurationError
-from .session import RunKind, provider_state_relpath
+from .session import RunKind
 
 
 @dataclass(frozen=True)
@@ -201,74 +201,49 @@ def _codex_rollout_paths(provider_state_dir: Path) -> tuple[Path, ...]:
 def resolve_codex_start_session_state(
     *,
     runtime_state_dir: Path,
-    session_namespace: str,
     caller_owned_session_store: bool,
     host_auth_path: Path,
 ) -> CodexStartSessionStateResolution:
-    provider_state_dir_relpath = provider_state_relpath(
-        "implementer",
-        "codex",
-        session_namespace,
-    )
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir = runtime_state_dir
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     provider_auth_path = provider_state_dir / "auth.json"
     if not provider_auth_path.exists():
         shutil.copyfile(host_auth_path, provider_auth_path)
     return CodexStartSessionStateResolution(
         provider_state_dir=provider_state_dir,
-        provider_state_dir_relpath=(
-            provider_state_dir_relpath if caller_owned_session_store else None
-        ),
+        provider_state_dir_relpath=("" if caller_owned_session_store else None),
     )
 
 
 def resolve_claude_start_session_state(
     *,
     runtime_state_dir: Path,
-    session_namespace: str,
     caller_owned_session_store: bool,
 ) -> ClaudeStartSessionStateResolution:
-    provider_state_dir_relpath = provider_state_relpath(
-        "implementer",
-        "claude",
-        session_namespace,
-    )
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir = runtime_state_dir
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     return ClaudeStartSessionStateResolution(
         provider_state_dir=provider_state_dir,
-        provider_state_dir_relpath=(
-            provider_state_dir_relpath if caller_owned_session_store else None
-        ),
+        provider_state_dir_relpath=("" if caller_owned_session_store else None),
     )
 
 
 def resolve_opencode_start_session_state(
     *,
     runtime_state_dir: Path,
-    session_namespace: str,
     caller_owned_session_store: bool,
 ) -> OpenCodeStartSessionStateResolution:
-    provider_state_dir_relpath = provider_state_relpath(
-        "implementer",
-        "opencode",
-        session_namespace,
-    )
-    provider_state_dir = runtime_state_dir / provider_state_dir_relpath
+    provider_state_dir = runtime_state_dir
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     return OpenCodeStartSessionStateResolution(
         provider_state_dir=provider_state_dir,
-        provider_state_dir_relpath=(
-            provider_state_dir_relpath if caller_owned_session_store else None
-        ),
+        provider_state_dir_relpath=("" if caller_owned_session_store else None),
     )
 
 
 def resolve_codex_new_session_facts(
     *,
     runtime_state_dir: Path,
-    session_namespace: str,
     caller_owned_session_store: bool,
     model: str,
     effort: str,
@@ -276,7 +251,6 @@ def resolve_codex_new_session_facts(
 ) -> CodexNewSessionResolution:
     start_session_state = resolve_codex_start_session_state(
         runtime_state_dir=runtime_state_dir,
-        session_namespace=session_namespace,
         caller_owned_session_store=caller_owned_session_store,
         host_auth_path=host_auth_path,
     )
@@ -311,14 +285,12 @@ def resolve_codex_new_session_facts(
 def resolve_opencode_new_session_facts(
     *,
     runtime_state_dir: Path,
-    session_namespace: str,
     caller_owned_session_store: bool,
     model: str,
     effort: str,
 ) -> OpenCodeNewSessionResolution:
     start_session_state = resolve_opencode_start_session_state(
         runtime_state_dir=runtime_state_dir,
-        session_namespace=session_namespace,
         caller_owned_session_store=caller_owned_session_store,
     )
     stored_provider_session_id = load_opencode_stored_session_id(
@@ -358,14 +330,12 @@ def _claude_is_resumable(state_dir: Path) -> bool:
 def resolve_claude_new_session_facts(
     *,
     runtime_state_dir: Path,
-    session_namespace: str,
     caller_owned_session_store: bool,
     model: str,
     effort: str,
 ) -> ClaudeNewSessionResolution:
     start_session_state = resolve_claude_start_session_state(
         runtime_state_dir=runtime_state_dir,
-        session_namespace=session_namespace,
         caller_owned_session_store=caller_owned_session_store,
     )
     run_kind = (
@@ -427,7 +397,6 @@ def resolve_claude_resumed_session_facts(
 def resolve_opencode_resumed_session_facts(
     *,
     runtime_state_dir: Path,
-    session_namespace: str,
     continuation: Continuation,
     model: str,
     effort: str,
@@ -435,11 +404,7 @@ def resolve_opencode_resumed_session_facts(
     continuation_facts = continuation.session_backed_facts
     provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
     if provider_state_dir_relpath is None:
-        provider_state_dir_relpath = provider_state_relpath(
-            "implementer",
-            "opencode",
-            session_namespace,
-        )
+        provider_state_dir_relpath = ""
     provider_state_dir = runtime_state_dir / provider_state_dir_relpath
     provider_state_dir.mkdir(parents=True, exist_ok=True)
 
@@ -534,7 +499,7 @@ def resolve_codex_resumed_session_facts(
     normalized_provider_session_id = _normalize_provider_session_id(provider_session_id)
     provider_state_dir: Path | None = None
     recovered_provider_session_id: str | None = None
-    if runtime_state_dir is not None and provider_state_dir_relpath:
+    if runtime_state_dir is not None and provider_state_dir_relpath is not None:
         provider_state_dir = runtime_state_dir / provider_state_dir_relpath
         provider_state_dir.mkdir(parents=True, exist_ok=True)
         _seed_codex_auth(provider_state_dir, host_auth_path)

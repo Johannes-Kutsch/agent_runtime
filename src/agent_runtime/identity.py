@@ -22,15 +22,6 @@ def validate_runtime_identity_label(
     return value
 
 
-def validate_session_namespace(value: str) -> str:
-    return validate_runtime_identity_label(
-        value,
-        kind="Session namespace",
-        allow_empty=True,
-    )
-
-
 __all__ = [
     "validate_runtime_identity_label",
-    "validate_session_namespace",
 ]

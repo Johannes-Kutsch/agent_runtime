@@ -281,11 +281,9 @@ def test_provider_session_planning_compatibility_module_is_absent(
 
 
 def test_session_module_exports_only_active_provider_state_helpers() -> None:
-    assert session_runtime.__all__ == ["RunKind", "provider_state_relpath"]
+    assert session_runtime.__all__ == ["RunKind"]
     assert session_runtime.RunKind is RunKind
-    assert session_runtime.provider_state_relpath("implementer", "codex") == (
-        "implementer/codex/"
-    )
+    assert not hasattr(session_runtime, "provider_state_relpath")
 
 
 @pytest.mark.parametrize(

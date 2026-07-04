@@ -117,30 +117,6 @@ def test_resumed_session_run_request_from_continuation_rejects_effort_override()
         )
 
 
-@pytest.mark.parametrize("label", ["", "../escape"])
-def test_resumed_session_run_request_from_continuation_preserves_empty_internal_session_namespace_and_rejects_unsafe_values(
-    label: str,
-) -> None:
-    if label == "":
-        request = prompt_runtime.ResumedSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            _session_namespace=label,
-            continuation=_continuation(),
-        )
-
-        assert request._session_namespace == ""
-        return
-
-    with pytest.raises(ValueError):
-        prompt_runtime.ResumedSessionRunRequest(
-            prompt="already rendered prompt",
-            invocation_dir=Path("/repo"),
-            _session_namespace=label,
-            continuation=_continuation(),
-        )
-
-
 def test_resumed_session_run_request_from_opaque_continuation_defaults_model_effort_and_tool_access() -> (
     None
 ):

@@ -100,7 +100,7 @@ def test_session_backed_provider_state_resolution_builds_current_continuation_pa
 @pytest.mark.parametrize(
     ("caller_owned_session_store", "expected_relpath"),
     [
-        (True, "implementer/slice422/codex/"),
+        (True, ""),
         (False, None),
     ],
 )
@@ -115,14 +115,11 @@ def test_session_backed_provider_state_resolution_prepares_codex_start_session_s
 
     resolution = provider_state_resolution.resolve_codex_start_session_state(
         runtime_state_dir=tmp_path / "session-store",
-        session_namespace="slice422",
         caller_owned_session_store=caller_owned_session_store,
         host_auth_path=host_auth_path,
     )
 
-    assert resolution.provider_state_dir == (
-        tmp_path / "session-store" / "implementer" / "slice422" / "codex"
-    )
+    assert resolution.provider_state_dir == (tmp_path / "session-store")
     assert resolution.provider_state_dir.is_dir()
     assert resolution.provider_state_dir_relpath == expected_relpath
 
@@ -136,20 +133,16 @@ def test_session_backed_provider_state_resolution_seeds_codex_auth_only_when_mis
 
     copied = provider_state_resolution.resolve_codex_start_session_state(
         runtime_state_dir=tmp_path / "copied-store",
-        session_namespace="slice422",
         caller_owned_session_store=True,
         host_auth_path=host_auth_path,
     )
     preserved_store = tmp_path / "preserved-store"
-    existing_auth_path = (
-        preserved_store / "implementer" / "slice422" / "codex" / "auth.json"
-    )
+    existing_auth_path = preserved_store / "auth.json"
     existing_auth_path.parent.mkdir(parents=True, exist_ok=True)
     existing_auth_path.write_text('{"token":"existing-auth"}\n', encoding="utf-8")
 
     preserved = provider_state_resolution.resolve_codex_start_session_state(
         runtime_state_dir=preserved_store,
-        session_namespace="slice422",
         caller_owned_session_store=True,
         host_auth_path=host_auth_path,
     )
@@ -165,7 +158,7 @@ def test_session_backed_provider_state_resolution_seeds_codex_auth_only_when_mis
 @pytest.mark.parametrize(
     ("caller_owned_session_store", "expected_relpath"),
     [
-        (True, "implementer/slice424/claude/"),
+        (True, ""),
         (False, None),
     ],
 )
@@ -176,13 +169,10 @@ def test_session_backed_provider_state_resolution_prepares_claude_start_session_
 ) -> None:
     resolution = provider_state_resolution.resolve_claude_start_session_state(
         runtime_state_dir=tmp_path / "session-store",
-        session_namespace="slice424",
         caller_owned_session_store=caller_owned_session_store,
     )
 
-    assert resolution.provider_state_dir == (
-        tmp_path / "session-store" / "implementer" / "slice424" / "claude"
-    )
+    assert resolution.provider_state_dir == (tmp_path / "session-store")
     assert resolution.provider_state_dir.is_dir()
     assert resolution.provider_state_dir_relpath == expected_relpath
 
@@ -190,7 +180,7 @@ def test_session_backed_provider_state_resolution_prepares_claude_start_session_
 @pytest.mark.parametrize(
     ("caller_owned_session_store", "expected_relpath"),
     [
-        (True, "implementer/slice426/opencode/"),
+        (True, ""),
         (False, None),
     ],
 )
@@ -201,13 +191,10 @@ def test_session_backed_provider_state_resolution_prepares_opencode_start_sessio
 ) -> None:
     resolution = provider_state_resolution.resolve_opencode_start_session_state(
         runtime_state_dir=tmp_path / "session-store",
-        session_namespace="slice426",
         caller_owned_session_store=caller_owned_session_store,
     )
 
-    assert resolution.provider_state_dir == (
-        tmp_path / "session-store" / "implementer" / "slice426" / "opencode"
-    )
+    assert resolution.provider_state_dir == (tmp_path / "session-store")
     assert resolution.provider_state_dir.is_dir()
     assert resolution.provider_state_dir_relpath == expected_relpath
 
@@ -240,9 +227,7 @@ def test_session_backed_provider_state_resolution_prepares_opencode_new_session_
         "_new_provider_session_id",
         lambda: "prepared-opencode-session",
     )
-    provider_state_dir = (
-        tmp_path / "session-store" / "implementer" / "slice426" / "opencode"
-    )
+    provider_state_dir = tmp_path / "session-store"
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     if resume_jsonl_contents is not None:
         (provider_state_dir / "resume.jsonl").write_text(
@@ -257,7 +242,6 @@ def test_session_backed_provider_state_resolution_prepares_opencode_new_session_
 
     resolution = provider_state_resolution.resolve_opencode_new_session_facts(
         runtime_state_dir=tmp_path / "session-store",
-        session_namespace="slice426",
         caller_owned_session_store=True,
         model="glm-5.2",
         effort="medium",
@@ -269,7 +253,7 @@ def test_session_backed_provider_state_resolution_prepares_opencode_new_session_
             model="glm-5.2",
             effort="medium",
             provider_state_dir=provider_state_dir,
-            provider_state_dir_relpath="implementer/slice426/opencode/",
+            provider_state_dir_relpath="",
             provider_session_id=expected_provider_session_id,
             run_kind=expected_run_kind,
             exact_transcript_match=expected_exact_transcript_match,
@@ -504,7 +488,7 @@ def test_session_backed_provider_state_resolution_keeps_opencode_active_session_
             None,
             None,
             "stored-session",
-            ("implementer", "fallback", "opencode"),
+            (),
             "stored-session",
             True,
         ),
@@ -523,7 +507,7 @@ def test_session_backed_provider_state_resolution_restores_opencode_resumed_sess
     provider_state_dir_relpath: str | None,
     continuation_provider_session_id: str | None,
     stored_provider_session_id: str | None,
-    expected_provider_state_dir: tuple[str, str, str],
+    expected_provider_state_dir: tuple[str, ...],
     expected_provider_session_id: str,
     expected_exact_transcript_match: bool,
 ) -> None:
@@ -557,7 +541,6 @@ def test_session_backed_provider_state_resolution_restores_opencode_resumed_sess
 
     resolution = provider_state_resolution.resolve_opencode_resumed_session_facts(
         runtime_state_dir=runtime_state_dir,
-        session_namespace="fallback",
         continuation=continuation,
         model="glm-5.2",
         effort="medium",
@@ -569,9 +552,7 @@ def test_session_backed_provider_state_resolution_restores_opencode_resumed_sess
             model="glm-5.2",
             effort="medium",
             provider_state_dir=provider_state_dir,
-            provider_state_dir_relpath=(
-                provider_state_dir_relpath or "implementer/fallback/opencode/"
-            ),
+            provider_state_dir_relpath=(provider_state_dir_relpath or ""),
             provider_session_id=expected_provider_session_id,
             run_kind=RunKind.RESUME,
             exact_transcript_match=expected_exact_transcript_match,
@@ -591,23 +572,18 @@ def test_session_backed_provider_state_resolution_prepares_fresh_claude_new_sess
 
     resolution = provider_state_resolution.resolve_claude_new_session_facts(
         runtime_state_dir=tmp_path / "session-store",
-        session_namespace="slice424",
         caller_owned_session_store=True,
         model="sonnet",
         effort="medium",
     )
 
-    assert resolution.provider_state_dir == (
-        tmp_path / "session-store" / "implementer" / "slice424" / "claude"
-    )
+    assert resolution.provider_state_dir == (tmp_path / "session-store")
     assert resolution.continuation_input_facts == (
         provider_state_resolution.claude_continuation_input_facts(
             model="sonnet",
             effort="medium",
-            provider_state_dir=(
-                tmp_path / "session-store" / "implementer" / "slice424" / "claude"
-            ),
-            provider_state_dir_relpath="implementer/slice424/claude/",
+            provider_state_dir=(tmp_path / "session-store"),
+            provider_state_dir_relpath="",
             provider_session_id="prepared-claude-session",
             run_kind=RunKind.FRESH,
         )
@@ -626,7 +602,6 @@ def test_session_backed_provider_state_resolution_prepares_nonportable_claude_ne
 
     resolution = provider_state_resolution.resolve_claude_new_session_facts(
         runtime_state_dir=tmp_path / "session-store",
-        session_namespace="slice424",
         caller_owned_session_store=False,
         model="sonnet",
         effort="medium",
@@ -669,9 +644,7 @@ def test_session_backed_provider_state_resolution_recovers_resumable_claude_new_
         "_new_provider_session_id",
         lambda: "prepared-claude-session",
     )
-    provider_state_dir = (
-        tmp_path / "session-store" / "implementer" / "slice424" / "claude"
-    )
+    provider_state_dir = tmp_path / "session-store"
     provider_state_dir.mkdir(parents=True, exist_ok=True)
     (provider_state_dir / "projects" / "project.json").parent.mkdir(
         parents=True, exist_ok=True
@@ -683,7 +656,6 @@ def test_session_backed_provider_state_resolution_recovers_resumable_claude_new_
 
     resolution = provider_state_resolution.resolve_claude_new_session_facts(
         runtime_state_dir=tmp_path / "session-store",
-        session_namespace="slice424",
         caller_owned_session_store=True,
         model="sonnet",
         effort="medium",
@@ -695,7 +667,7 @@ def test_session_backed_provider_state_resolution_recovers_resumable_claude_new_
             model="sonnet",
             effort="medium",
             provider_state_dir=provider_state_dir,
-            provider_state_dir_relpath="implementer/slice424/claude/",
+            provider_state_dir_relpath="",
             provider_session_id="prepared-claude-session",
             run_kind=RunKind.RESUME,
         )
@@ -774,6 +746,39 @@ def test_session_backed_provider_state_resolution_restores_claude_resumed_sessio
     )
 
 
+def test_session_backed_provider_state_resolution_resumes_claude_against_session_store_root_for_empty_relpath_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = tmp_path / "session-store"
+    (runtime_state_dir / "projects" / "project.json").parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    (runtime_state_dir / "projects" / "project.json").write_text(
+        '{"native":"state"}\n',
+        encoding="utf-8",
+    )
+
+    resolution = provider_state_resolution.resolve_claude_resumed_session_facts(
+        runtime_state_dir=runtime_state_dir,
+        provider_state_dir_relpath="",
+        model="sonnet",
+        effort="medium",
+        provider_session_id="selected-session",
+    )
+
+    assert resolution.provider_state_dir == runtime_state_dir
+    assert resolution.continuation_input_facts == (
+        provider_state_resolution.claude_continuation_input_facts(
+            model="sonnet",
+            effort="medium",
+            provider_state_dir=runtime_state_dir,
+            provider_state_dir_relpath="",
+            provider_session_id="selected-session",
+            run_kind=RunKind.RESUME,
+        )
+    )
+
+
 def test_session_backed_provider_state_resolution_recovers_codex_new_session_facts_from_rollout_state_through_module_interface(
     tmp_path: Path,
 ) -> None:
@@ -782,9 +787,7 @@ def test_session_backed_provider_state_resolution_recovers_codex_new_session_fac
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
 
     runtime_state_dir = tmp_path / "session-store"
-    rollout_dir = (
-        runtime_state_dir / "implementer" / "slice422" / "codex" / "sessions" / "2026"
-    )
+    rollout_dir = runtime_state_dir / "sessions" / "2026"
     rollout_dir.mkdir(parents=True, exist_ok=True)
     (rollout_dir / "rollout-001.jsonl").write_text(
         "{not-json\n"
@@ -795,22 +798,19 @@ def test_session_backed_provider_state_resolution_recovers_codex_new_session_fac
 
     resolution = provider_state_resolution.resolve_codex_new_session_facts(
         runtime_state_dir=runtime_state_dir,
-        session_namespace="slice422",
         caller_owned_session_store=True,
         model="gpt-5.4",
         effort="medium",
         host_auth_path=host_auth_path,
     )
 
-    assert resolution.provider_state_dir == (
-        runtime_state_dir / "implementer" / "slice422" / "codex"
-    )
+    assert resolution.provider_state_dir == runtime_state_dir
     assert resolution.continuation_input_facts == (
         provider_state_resolution.codex_continuation_input_facts(
             model="gpt-5.4",
             effort="medium",
-            provider_state_dir=runtime_state_dir / "implementer" / "slice422" / "codex",
-            provider_state_dir_relpath="implementer/slice422/codex/",
+            provider_state_dir=runtime_state_dir,
+            provider_state_dir_relpath="",
             provider_session_id="recovered-thread",
             recovered_provider_session_id=True,
             run_kind=RunKind.RESUME,
@@ -878,9 +878,7 @@ def test_session_backed_provider_state_resolution_rejects_unrecoverable_existing
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
 
     runtime_state_dir = tmp_path / "session-store"
-    rollout_dir = (
-        runtime_state_dir / "implementer" / "slice422" / "codex" / "sessions" / "2026"
-    )
+    rollout_dir = runtime_state_dir / "sessions" / "2026"
     rollout_dir.mkdir(parents=True, exist_ok=True)
     (rollout_dir / "rollout-001.jsonl").write_text(rollout_content, encoding="utf-8")
 
@@ -890,9 +888,75 @@ def test_session_backed_provider_state_resolution_rejects_unrecoverable_existing
     ):
         provider_state_resolution.resolve_codex_new_session_facts(
             runtime_state_dir=runtime_state_dir,
-            session_namespace="slice422",
             caller_owned_session_store=True,
             model="gpt-5.4",
             effort="medium",
+            host_auth_path=host_auth_path,
+        )
+
+
+def test_session_backed_provider_state_resolution_resumes_codex_against_session_store_root_for_empty_relpath_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    runtime_state_dir = tmp_path / "session-store"
+    rollout_dir = runtime_state_dir / "sessions" / "2026"
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    (rollout_dir / "rollout-001.jsonl").write_text(
+        '{"type":"session_meta","payload":{"id":"recovered-thread"}}\n',
+        encoding="utf-8",
+    )
+
+    resolution = provider_state_resolution.resolve_codex_resumed_session_facts(
+        runtime_state_dir=runtime_state_dir,
+        provider_state_dir_relpath="",
+        model="gpt-5.4",
+        effort="medium",
+        provider_session_id=None,
+        host_auth_path=host_auth_path,
+    )
+
+    assert resolution.provider_state_dir == runtime_state_dir
+    assert (runtime_state_dir / "auth.json").read_text(encoding="utf-8") == (
+        '{"token":"host-auth"}\n'
+    )
+    assert resolution.continuation_input_facts == (
+        provider_state_resolution.codex_continuation_input_facts(
+            model="gpt-5.4",
+            effort="medium",
+            provider_state_dir=runtime_state_dir,
+            provider_state_dir_relpath="",
+            provider_session_id="recovered-thread",
+            recovered_provider_session_id=True,
+            run_kind=RunKind.RESUME,
+        )
+    )
+
+
+def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_resume_against_session_store_root_for_empty_relpath_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    runtime_state_dir = tmp_path / "session-store"
+    rollout_dir = runtime_state_dir / "sessions" / "2026"
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    (rollout_dir / "rollout-001.jsonl").write_text("", encoding="utf-8")
+
+    with pytest.raises(
+        ContinuationUnrecoverableError,
+        match="Codex continuation is not recoverable from provider state.",
+    ):
+        provider_state_resolution.resolve_codex_resumed_session_facts(
+            runtime_state_dir=runtime_state_dir,
+            provider_state_dir_relpath="",
+            model="gpt-5.4",
+            effort="medium",
+            provider_session_id=None,
             host_auth_path=host_auth_path,
         )

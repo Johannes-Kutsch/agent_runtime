@@ -17,7 +17,6 @@ from .types import ProviderSelection
 class _LifecycleRequestFacts:
     invocation_dir: Path
     tool_access: ToolAccess
-    session_namespace: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -76,7 +75,6 @@ def _provider_selection_request_facts(
     tool_access: Any,
     tool_policy: Any,
     missing_sentinel: object,
-    session_namespace: str,
     context: str,
     missing_message: str,
     workspace_name: str = "invocation_dir",
@@ -87,7 +85,6 @@ def _provider_selection_request_facts(
         tool_access=tool_access,
         tool_policy=tool_policy,
         missing_sentinel=missing_sentinel,
-        session_namespace=session_namespace,
         context=context,
         missing_message=missing_message,
         workspace_name=workspace_name,
@@ -96,7 +93,6 @@ def _provider_selection_request_facts(
         invocation_dir=normalized_request.invocation_dir,
         provider_selection=normalized_request.provider_selection,
         tool_access=normalized_request.tool_access,
-        session_namespace=normalized_request.session_namespace,
     )
 
 
@@ -108,7 +104,6 @@ def _ephemeral_run_request_facts(
     tool_access: Any,
     tool_policy: Any,
     missing_sentinel: object,
-    session_namespace: str,
     context: str,
     missing_message: str,
     public_invocation_dir_name: str,
@@ -126,7 +121,6 @@ def _ephemeral_run_request_facts(
         tool_access=tool_access,
         tool_policy=tool_policy,
         missing_sentinel=missing_sentinel,
-        session_namespace=session_namespace,
         context=context,
         missing_message=missing_message,
         workspace_name=public_invocation_dir_name,
@@ -135,7 +129,6 @@ def _ephemeral_run_request_facts(
         invocation_dir=normalized_request.invocation_dir,
         provider_selection=normalized_request.provider_selection,
         tool_access=normalized_request.tool_access,
-        session_namespace=normalized_request.session_namespace,
         argv_transform=argv_transform,
     )
 
@@ -148,25 +141,16 @@ def _new_session_run_request_facts(
     tool_access: Any,
     tool_policy: Any,
     session_store: Path | None,
-    session_namespace: str,
     missing_sentinel: object,
     context: str,
     missing_message: str,
     public_invocation_dir_name: str,
 ) -> _NewSessionRunRequestFacts:
     argv_transform = compatibility_kwargs.pop("argv_transform", None)
-    compatibility_session_namespace = compatibility_kwargs.pop(
-        "session_namespace",
-        session_namespace,
-    )
     compatibility_runtime_state_dir = compatibility_kwargs.pop(
         "runtime_state_dir",
         session_store,
     )
-    if session_namespace and compatibility_session_namespace != session_namespace:
-        raise TypeError(
-            f"{context} received conflicting `session_namespace` and `_session_namespace` values."
-        )
     if session_store is not None and compatibility_runtime_state_dir != session_store:
         raise TypeError(
             f"{context} received conflicting `runtime_state_dir` and `session_store` values."
@@ -183,7 +167,6 @@ def _new_session_run_request_facts(
         tool_access=tool_access,
         tool_policy=tool_policy,
         missing_sentinel=missing_sentinel,
-        session_namespace=compatibility_session_namespace,
         context=context,
         missing_message=missing_message,
         workspace_name=public_invocation_dir_name,
@@ -192,7 +175,6 @@ def _new_session_run_request_facts(
         invocation_dir=normalized_request.invocation_dir,
         provider_selection=normalized_request.provider_selection,
         tool_access=normalized_request.tool_access,
-        session_namespace=normalized_request.session_namespace,
         session_store=compatibility_runtime_state_dir,
         argv_transform=argv_transform,
     )
@@ -205,23 +187,14 @@ def _resumed_session_run_request_facts(
     continuation: Any,
     tool_access: Any,
     session_store: Path | None,
-    session_namespace: str,
     context: str,
     public_invocation_dir_name: str,
 ) -> _ResumedLifecycleRequestFacts:
     argv_transform = compatibility_kwargs.pop("argv_transform", None)
-    compatibility_session_namespace = compatibility_kwargs.pop(
-        "session_namespace",
-        session_namespace,
-    )
     compatibility_runtime_state_dir = compatibility_kwargs.pop(
         "runtime_state_dir",
         session_store,
     )
-    if session_namespace and compatibility_session_namespace != session_namespace:
-        raise TypeError(
-            f"{context} received conflicting `session_namespace` and `_session_namespace` values."
-        )
     if session_store is not None and compatibility_runtime_state_dir != session_store:
         raise TypeError(
             f"{context} received conflicting `runtime_state_dir` and `session_store` values."
@@ -245,14 +218,12 @@ def _resumed_session_run_request_facts(
     normalized_request = normalize_continuation_request(
         invocation_dir=resolved_invocation_dir,
         tool_access=continuation_resume_facts.tool_access,
-        session_namespace=compatibility_session_namespace,
         context=context,
         workspace_name=public_invocation_dir_name,
     )
     return _ResumedLifecycleRequestFacts(
         invocation_dir=normalized_request.invocation_dir,
         tool_access=normalized_request.tool_access,
-        session_namespace=normalized_request.session_namespace,
         model=continuation_resume_facts.selected.model,
         effort=continuation_resume_facts.selected.effort,
         session_store=compatibility_runtime_state_dir,

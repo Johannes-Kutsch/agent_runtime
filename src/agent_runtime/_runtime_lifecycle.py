@@ -34,7 +34,6 @@ __all__ = [
 ]
 
 _MISSING_TOOL_POLICY = object()
-_DEFAULT_EPHEMERAL_SESSION_NAMESPACE = ""
 _PUBLIC_INVOCATION_DIR_NAME = "invocation_dir"
 
 
@@ -470,7 +469,6 @@ class EphemeralRunRequest:
             tool_access=tool_access,
             tool_policy=tool_policy,
             missing_sentinel=_MISSING_TOOL_POLICY,
-            session_namespace=_DEFAULT_EPHEMERAL_SESSION_NAMESPACE,
             context="EphemeralRunRequest",
             missing_message="EphemeralRunRequest requires an explicit `tool_policy` value.",
             public_invocation_dir_name=_PUBLIC_INVOCATION_DIR_NAME,
@@ -520,7 +518,6 @@ class NewSessionRunRequest:
 
     if TYPE_CHECKING:
         session_store: Path | None = None
-        _session_namespace: str = ""
 
     def __init__(
         self,
@@ -530,7 +527,6 @@ class NewSessionRunRequest:
         tool_policy: ToolPolicy | ToolPolicyProfile | object = _MISSING_TOOL_POLICY,
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         session_store: Path | None = None,
-        _session_namespace: str = "",
         timeout_seconds: int = 300,
         name: str = "Runtime Agent",
         status_display: Any = None,
@@ -546,7 +542,6 @@ class NewSessionRunRequest:
             tool_access=tool_access,
             tool_policy=tool_policy,
             session_store=session_store,
-            session_namespace=_session_namespace,
             missing_sentinel=_MISSING_TOOL_POLICY,
             context="NewSessionRunRequest",
             missing_message="NewSessionRunRequest requires an explicit `tool_policy` value.",
@@ -566,9 +561,6 @@ class NewSessionRunRequest:
             normalized_request.provider_selection,
         )
         object.__setattr__(self, "tool_access", normalized_request.tool_access)
-        object.__setattr__(
-            self, "_session_namespace", normalized_request.session_namespace
-        )
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "status_display", status_display)
         object.__setattr__(self, "work_body", work_body)
@@ -611,7 +603,6 @@ class ResumedSessionRunRequest:
 
     if TYPE_CHECKING:
         session_store: Path | None = None
-        _session_namespace: str = ""
 
     def __init__(
         self,
@@ -620,7 +611,6 @@ class ResumedSessionRunRequest:
         continuation: Continuation | None = None,
         provider_auth: ProviderAuth | None = None,
         session_store: Path | None = None,
-        _session_namespace: str = "",
         tool_access: ToolAccess | object = _MISSING_TOOL_POLICY,
         timeout_seconds: int = 300,
         name: str = "Runtime Agent",
@@ -637,7 +627,6 @@ class ResumedSessionRunRequest:
                 continuation=continuation,
                 tool_access=tool_access,
                 session_store=session_store,
-                session_namespace=_session_namespace,
                 context="ResumedSessionRunRequest",
                 public_invocation_dir_name=_PUBLIC_INVOCATION_DIR_NAME,
             )
@@ -652,11 +641,6 @@ class ResumedSessionRunRequest:
         object.__setattr__(self, "session_store", normalized_request.session_store)
         object.__setattr__(self, "model", normalized_request.model)
         object.__setattr__(self, "effort", normalized_request.effort)
-        object.__setattr__(
-            self,
-            "_session_namespace",
-            normalized_request.session_namespace,
-        )
         object.__setattr__(self, "continuation", continuation)
         object.__setattr__(self, "provider_auth", provider_auth)
         object.__setattr__(self, "tool_access", normalized_request.tool_access)

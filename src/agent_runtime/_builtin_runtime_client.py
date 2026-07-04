@@ -6,7 +6,7 @@ import subprocess as _subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Callable, cast
 
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from ._builtin_provider_stream_interpretation import (
@@ -55,7 +55,7 @@ from .errors import (
     UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
-from .session import RunKind, provider_state_relpath
+from .session import RunKind
 from .types import ProviderSelection
 
 _log = logging.getLogger(__name__)
@@ -391,14 +391,6 @@ def _select_builtin_stage(stage: ProviderSelection) -> ProviderSelection:
 
 def _new_provider_session_id() -> str:
     return str(uuid.uuid4())
-
-
-def _opencode_provider_state_dir_relpath(
-    *,
-    role: Any,
-    session_namespace: str,
-) -> str:
-    return cast(str, provider_state_relpath(role, "opencode", session_namespace))
 
 
 def _default_provider_invocation_adapter() -> ProviderInvocationAdapter:

@@ -454,7 +454,7 @@ def test_session_backed_codex_resumed_session_uses_resolved_provider_session_id_
                 model="gpt-5.4",
                 effort="medium",
                 provider_state_dir=provider_state_dir,
-                provider_state_dir_relpath="implementer/main/codex/",
+                provider_state_dir_relpath="",
                 provider_session_id="recovered-thread",
                 recovered_provider_session_id=True,
                 run_kind=RunKind.RESUME,
@@ -572,7 +572,7 @@ def test_session_backed_claude_resumed_session_uses_resolved_provider_state_dir_
                 model="sonnet",
                 effort="medium",
                 provider_state_dir=provider_state_dir,
-                provider_state_dir_relpath="implementer/main/claude/",
+                provider_state_dir_relpath="",
                 provider_session_id="resumed-session-1",
                 run_kind=RunKind.RESUME,
             ),
@@ -580,7 +580,7 @@ def test_session_backed_claude_resumed_session_uses_resolved_provider_state_dir_
     )
     continuation = RuntimeClientExecutionHarness.claude_continuation(
         provider_session_id="resumed-session-1",
-        provider_state_dir_relpath="implementer/main/claude/",
+        provider_state_dir_relpath="",
     )
 
     result = session_backed_execution._run_builtin_resumed_session(
@@ -594,7 +594,7 @@ def test_session_backed_claude_resumed_session_uses_resolved_provider_state_dir_
 
     assert result.continuation == RuntimeClientExecutionHarness.claude_continuation(
         provider_session_id="resumed-session-1",
-        provider_state_dir_relpath="implementer/main/claude/",
+        provider_state_dir_relpath="",
     )
     assert adapter.recorded_request_count == 1
     assert adapter.provider_state_dir == provider_state_dir
@@ -651,7 +651,7 @@ def test_session_backed_opencode_completed_outcome_keeps_resolved_session_detail
     assert result.continuation.provider_resume_state == {
         "provider_session_id": "persisted-session-1",
         "exact_transcript_match": False,
-        "provider_state_dir_relpath": "implementer/main/opencode/",
+        "provider_state_dir_relpath": "",
     }
     assert adapter.recorded_requests[0].run_kind is RunKind.RESUME
     assert adapter.recorded_requests[0].provider_session_id == "persisted-session-1"
@@ -734,7 +734,7 @@ def test_session_backed_opencode_resumed_session_uses_resolved_provider_session_
         model="glm-5.2",
         effort="medium",
         provider_state_dir=provider_state_dir,
-        provider_state_dir_relpath="implementer/main/opencode/",
+        provider_state_dir_relpath="",
         provider_session_id="persisted-session-1",
         run_kind=RunKind.RESUME,
         exact_transcript_match=True,
@@ -824,7 +824,7 @@ def test_session_backed_opencode_resumed_session_uses_resolved_provider_session_
     assert result.continuation.provider_resume_state == {
         "provider_session_id": "persisted-session-1",
         "exact_transcript_match": True,
-        "provider_state_dir_relpath": "implementer/main/opencode/",
+        "provider_state_dir_relpath": "",
     }
 
 
@@ -1018,7 +1018,7 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
     assert exc_info.value.continuation.provider_resume_state == {
         "provider_session_id": expected_provider_session_id,
         "exact_transcript_match": expected_exact_transcript_match,
-        "provider_state_dir_relpath": "implementer/main/opencode/",
+        "provider_state_dir_relpath": "",
     }
     assert harness.recorded_request().provider_session_id == (
         "prepared-session-id" if entrypoint == "new" else "persisted-session-1"
@@ -1086,7 +1086,7 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
         model="glm-5.2",
         effort="medium",
         provider_state_dir=provider_state_dir,
-        provider_state_dir_relpath="implementer/main/opencode/",
+        provider_state_dir_relpath="",
         provider_session_id="persisted-session-1",
         run_kind=RunKind.RESUME,
         exact_transcript_match=True,
@@ -1147,7 +1147,7 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
     assert exc_info.value.continuation.provider_resume_state == {
         "provider_session_id": "observed-session-2",
         "exact_transcript_match": False,
-        "provider_state_dir_relpath": "implementer/main/opencode/",
+        "provider_state_dir_relpath": "",
     }
     assert active_session_ids == ["observed-session-2"]
     assert harness.recorded_request().provider_session_id == "persisted-session-1"

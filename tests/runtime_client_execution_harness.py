@@ -145,7 +145,11 @@ class RuntimeClientExecutionHarness:
         session_namespace: str = "main",
         service: str,
     ) -> Path:
-        return runtime_state_dir / "implementer" / session_namespace / service
+        # The caller-owned Session Store root is the provider home directly;
+        # ar no longer nests provider state under an owner/namespace/provider
+        # segment. `session_namespace`/`service` are accepted for call-site
+        # compatibility but no longer influence the layout.
+        return runtime_state_dir
 
     @classmethod
     def prepare_provider_state_dir(
@@ -193,7 +197,6 @@ class RuntimeClientExecutionHarness:
             "invocation_dir": invocation_dir,
             "runtime_state_dir": runtime_state_dir,
             "provider_selection": provider_selection,
-            "session_namespace": session_namespace,
             "timeout_seconds": timeout_seconds,
             "token": token,
             "on_live_output": on_live_output,
@@ -228,7 +231,6 @@ class RuntimeClientExecutionHarness:
             invocation_dir=invocation_dir,
             runtime_state_dir=runtime_state_dir,
             continuation=continuation,
-            session_namespace=session_namespace,
             provider_auth=provider_auth,
             timeout_seconds=timeout_seconds,
             token=token,
@@ -243,7 +245,7 @@ class RuntimeClientExecutionHarness:
         effort: str = "medium",
         tool_access: contracts_runtime.ToolAccess | None = None,
         provider_session_id: str = "selected-thread",
-        provider_state_dir_relpath: str | None = "implementer/main/codex/",
+        provider_state_dir_relpath: str | None = "",
         exact_transcript_match: bool = False,
     ) -> prompt_runtime.Continuation:
         provider_resume_state: dict[str, Any] = {
