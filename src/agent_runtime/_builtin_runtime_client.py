@@ -544,51 +544,27 @@ def _invoke_claude_session_provider(
     timeout_seconds: int = 300,
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
-        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
-            provider_selection=(
-                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-                    service="claude",
-                    model=model,
-                    effort=effort,
-                )
-            ),
-            run_kind=run_kind,
-            tool_access=tool_access,
-            auth=auth,
-            invocation_dir=invocation_dir,
-            provider_state_dir=provider_state_dir,
-            provider_session_id=provider_session_id,
-        )
+    from ._built_in_provider_session_invocation_dispatch import (
+        dispatch_built_in_provider_session_invocation,
     )
-    stream_interpretation = _with_observed_output(
-        _claude_stream_interpretation(),
-        on_live_output,
+
+    return dispatch_built_in_provider_session_invocation(
+        service_name="claude",
+        run_kind=run_kind,
+        invocation_dir=invocation_dir,
+        prompt=prompt,
+        model=model,
+        effort=effort,
+        tool_access=tool_access,
+        auth=auth,
+        provider_state_dir=provider_state_dir,
+        provider_session_id=provider_session_id,
+        argv_transform=argv_transform,
+        on_live_output=on_live_output,
+        timeout_seconds=timeout_seconds,
+        token=token,
+        provider_invocation_adapter=provider_invocation_adapter,
     )
-    stream_interpretation, timeout_state = _with_session_timeout_state(
-        stream_interpretation,
-        tracking_interpretation=_claude_stream_interpretation(),
-        fallback_provider_session_id=provider_session_id,
-    )
-    try:
-        return _execute_rendered_provider_invocation(
-            provider_invocation_adapter=provider_invocation_adapter,
-            rendered=rendered,
-            invocation_dir=invocation_dir,
-            argv_transform=argv_transform,
-            prompt=prompt,
-            run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            stream_interpretation=stream_interpretation,
-            timeout_seconds=timeout_seconds,
-            token=token,
-        )
-    except AgentTimeoutError as exc:
-        timeout_state.apply_to_timeout(exc)
-        raise
-    except AgentCancelledError as exc:
-        timeout_state.apply_to_cancellation(exc)
-        raise
 
 
 def _invoke_claude_new_session_provider(
@@ -670,53 +646,27 @@ def _invoke_codex_session_provider(
     timeout_seconds: int = 300,
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    stream_interpretation = _with_observed_output(
-        _codex_stream_interpretation(),
-        on_live_output,
+    from ._built_in_provider_session_invocation_dispatch import (
+        dispatch_built_in_provider_session_invocation,
     )
-    stream_interpretation, timeout_state = _with_session_timeout_state(
-        stream_interpretation,
-        tracking_interpretation=_codex_stream_interpretation(),
-        fallback_provider_session_id=provider_session_id,
-    )
-    rendered = _builtin_provider_rendering_module._render_codex_invocation(
-        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
-            provider_selection=(
-                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-                    service="codex",
-                    model=model,
-                    effort=effort,
-                )
-            ),
-            run_kind=run_kind,
-            tool_access=tool_access,
-            auth=None,
-            invocation_dir=invocation_dir,
-            provider_state_dir=provider_state_dir,
-            provider_session_id=provider_session_id,
-        ),
-        validate_auth=False,
+
+    return dispatch_built_in_provider_session_invocation(
+        service_name="codex",
+        run_kind=run_kind,
+        invocation_dir=invocation_dir,
+        prompt=prompt,
+        model=model,
+        effort=effort,
+        tool_access=tool_access,
+        auth=None,
+        provider_state_dir=provider_state_dir,
+        provider_session_id=provider_session_id,
         argv_transform=argv_transform,
+        on_live_output=on_live_output,
+        timeout_seconds=timeout_seconds,
+        token=token,
+        provider_invocation_adapter=provider_invocation_adapter,
     )
-    try:
-        return _execute_rendered_provider_invocation(
-            provider_invocation_adapter=provider_invocation_adapter,
-            rendered=rendered,
-            invocation_dir=invocation_dir,
-            argv_transform=argv_transform,
-            prompt=prompt,
-            run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            stream_interpretation=stream_interpretation,
-            timeout_seconds=timeout_seconds,
-            token=token,
-        )
-    except AgentTimeoutError as exc:
-        timeout_state.apply_to_timeout(exc)
-        raise
-    except AgentCancelledError as exc:
-        timeout_state.apply_to_cancellation(exc)
-        raise
 
 
 def _invoke_codex_resumed_session_provider(
@@ -767,53 +717,27 @@ def _invoke_opencode_session_provider(
     timeout_seconds: int = 300,
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    stream_interpretation = _opencode_stream_interpretation(
+    from ._built_in_provider_session_invocation_dispatch import (
+        dispatch_built_in_provider_session_invocation,
+    )
+
+    return dispatch_built_in_provider_session_invocation(
+        service_name="opencode",
+        run_kind=run_kind,
+        invocation_dir=invocation_dir,
+        prompt=prompt,
+        model=model,
+        effort=effort,
+        tool_access=tool_access,
+        auth=auth,
+        provider_state_dir=provider_state_dir,
+        provider_session_id=provider_session_id,
+        argv_transform=argv_transform,
         on_live_output=on_live_output,
-        fallback_provider_session_id=provider_session_id,
+        timeout_seconds=timeout_seconds,
+        token=token,
+        provider_invocation_adapter=provider_invocation_adapter,
     )
-    stream_interpretation, timeout_state = _with_session_timeout_state(
-        stream_interpretation,
-        tracking_interpretation=_opencode_stream_interpretation(
-            fallback_provider_session_id=provider_session_id,
-        ),
-        fallback_provider_session_id=provider_session_id,
-    )
-    rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
-        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
-            provider_selection=(
-                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-                    service="opencode",
-                    model=model,
-                    effort=effort,
-                )
-            ),
-            run_kind=run_kind,
-            tool_access=tool_access,
-            auth=auth,
-            invocation_dir=invocation_dir,
-            provider_state_dir=provider_state_dir,
-            provider_session_id=provider_session_id,
-        )
-    )
-    try:
-        return _execute_rendered_provider_invocation(
-            provider_invocation_adapter=provider_invocation_adapter,
-            rendered=rendered,
-            invocation_dir=invocation_dir,
-            argv_transform=argv_transform,
-            prompt=prompt,
-            run_kind=run_kind,
-            provider_session_id=rendered.provider_session_id,
-            stream_interpretation=stream_interpretation,
-            timeout_seconds=timeout_seconds,
-            token=token,
-        )
-    except AgentTimeoutError as exc:
-        timeout_state.apply_to_timeout(exc)
-        raise
-    except AgentCancelledError as exc:
-        timeout_state.apply_to_cancellation(exc)
-        raise
 
 
 def _invoke_opencode_new_session_provider(
