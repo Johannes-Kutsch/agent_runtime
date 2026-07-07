@@ -18,6 +18,7 @@ import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._builtin_runtime_client as builtin_runtime_client_runtime
 import agent_runtime._builtin_provider_rendering as builtin_provider_rendering_runtime
+import agent_runtime._built_in_provider_session_invocation_dispatch as builtin_session_invocation_dispatch_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime._runtime_lifecycle import ProviderAuth
@@ -6893,8 +6894,9 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
         pytest.param(
             "claude",
             lambda adapter, invocation_dir: (
-                builtin_runtime_client_runtime._invoke_claude_session_provider(
-                    provider_invocation_adapter=adapter,
+                builtin_session_invocation_dispatch_runtime.dispatch_built_in_provider_session_invocation(
+                    service_name="claude",
+                    run_kind=RunKind.RESUME,
                     invocation_dir=invocation_dir,
                     prompt="prompt",
                     model="sonnet",
@@ -6902,8 +6904,8 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     auth=ProviderAuth(claude_code_oauth_token="oauth-token"),
                     provider_state_dir=invocation_dir / "provider-state",
-                    run_kind=RunKind.RESUME,
                     provider_session_id="claude-session-123",
+                    provider_invocation_adapter=adapter,
                 )
             ),
             id="claude-session-run",
@@ -6911,16 +6913,18 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
         pytest.param(
             "codex",
             lambda adapter, invocation_dir: (
-                builtin_runtime_client_runtime._invoke_codex_session_provider(
-                    provider_invocation_adapter=adapter,
+                builtin_session_invocation_dispatch_runtime.dispatch_built_in_provider_session_invocation(
+                    service_name="codex",
+                    run_kind=RunKind.RESUME,
                     invocation_dir=invocation_dir,
                     prompt="prompt",
                     model="gpt-5.4",
                     effort="medium",
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
+                    auth=None,
                     provider_state_dir=invocation_dir / "provider-state",
-                    run_kind=RunKind.RESUME,
                     provider_session_id="codex-thread-123",
+                    provider_invocation_adapter=adapter,
                 )
             ),
             id="codex-session-run",
@@ -6928,8 +6932,9 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
         pytest.param(
             "opencode",
             lambda adapter, invocation_dir: (
-                builtin_runtime_client_runtime._invoke_opencode_session_provider(
-                    provider_invocation_adapter=adapter,
+                builtin_session_invocation_dispatch_runtime.dispatch_built_in_provider_session_invocation(
+                    service_name="opencode",
+                    run_kind=RunKind.RESUME,
                     invocation_dir=invocation_dir,
                     prompt="prompt",
                     model="glm-5.2",
@@ -6937,8 +6942,8 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
                     tool_access=contracts_runtime.ToolAccess.no_tools(),
                     auth=ProviderAuth(opencode_api_key="go-key"),
                     provider_state_dir=invocation_dir / "provider-state",
-                    run_kind=RunKind.RESUME,
                     provider_session_id="opencode-session-123",
+                    provider_invocation_adapter=adapter,
                 )
             ),
             id="opencode-session-run",
