@@ -550,3 +550,76 @@ def test_opencode_unrecognized_event_type_produces_no_events() -> None:
     result = parse_opencode_event(line)
 
     assert result == []
+
+
+def test_opencode_authentication_error_with_non_api_key_message_produces_hard_error() -> (
+    None
+):
+    line = _line(
+        {
+            "type": "error",
+            "error": {
+                "name": "AuthenticationError",
+                "data": {
+                    "message": "wrong credentials",
+                    "statusCode": 401,
+                },
+            },
+        }
+    )
+
+    result = parse_opencode_event(line)
+
+    assert len(result) == 1
+    assert isinstance(result[0], HardError)
+    assert result[0].status_code == 401
+
+
+def test_opencode_events_after_error_are_not_processed() -> None:
+    lines = [
+        _line(
+            {
+                "type": "error",
+                "error": {
+                    "name": "InternalServerError",
+                    "data": {"message": "server failure", "statusCode": 503},
+                },
+            }
+        ),
+        _line(
+            {
+                "type": "text",
+                "part": {
+                    "type": "text",
+                    "text": "unreachable text",
+                    "time": {"end": 1},
+                },
+            }
+        ),
+    ]
+
+    result = parse_opencode_events(lines)
+
+    assert len(result) == 1
+    assert isinstance(result[0], TransientError)
+    assert not any(isinstance(e, AssistantTurn) for e in result)
+
+
+def test_opencode_non_idle_session_status_does_not_stop_parsing() -> None:
+    lines = [
+        _line({"type": "session.status", "status": {"type": "running"}}),
+        _line(
+            {
+                "type": "text",
+                "part": {"type": "text", "text": "hello", "time": {"end": 1}},
+            }
+        ),
+        _line({"type": "session.status", "status": {"type": "idle"}}),
+    ]
+
+    result = parse_opencode_events(lines)
+
+    assert AssistantTurn(text="hello") in result
+    result_events = [e for e in result if isinstance(e, Result)]
+    assert len(result_events) == 1
+    assert result_events[0].text == "hello"
