@@ -259,7 +259,11 @@ def observe_opencode_output(
         if is_complete:
             return
         for line in lines:
-            session_id, is_terminal = classify_opencode_output_line(line)
+            session_id, is_terminal, is_json_object = classify_opencode_output_line(
+                line
+            )
+            if not is_json_object:
+                continue
             if (
                 session_id is not None
                 and session_id != seen_session_id

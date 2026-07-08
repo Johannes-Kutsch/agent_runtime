@@ -735,6 +735,39 @@ def test_opencode_observation_uses_stream_interpretation_builder_for_live_events
     assert observed_provider_session_ids == ["sess_123"]
 
 
+def test_opencode_observation_ignores_non_json_and_non_dict_lines() -> None:
+    interpretation = opencode_built_in_provider_stream_interpretation()
+    observed: list[AgentEvent] = []
+    observed_provider_session_ids: list[str] = []
+    observe_output = observe_opencode_output(
+        stream_interpretation=interpretation,
+        on_live_output=observed.append,
+        on_provider_session_id=observed_provider_session_ids.append,
+    )
+    non_json_line = "not valid json {{{\n"
+    non_dict_line = json.dumps([1, 2, 3]) + "\n"
+    text_line = (
+        json.dumps(
+            {
+                "type": "text",
+                "sessionID": "sess_abc",
+                "part": {
+                    "type": "text",
+                    "text": "after garbage",
+                    "time": {"end": True},
+                },
+            }
+        )
+        + "\n"
+    )
+
+    observe_output([non_json_line, non_dict_line, text_line])
+
+    assert len(observed) == 1
+    assert observed[0].display_message == "after garbage"
+    assert observed_provider_session_ids == ["sess_abc"]
+
+
 def test_claude_session_not_found_signal_raises_continuation_unrecoverable_error() -> (
     None
 ):

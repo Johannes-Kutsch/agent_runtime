@@ -7,6 +7,7 @@ import pytest
 
 from agent_runtime._builtin_provider_parsed_output import (
     classify_opencode_invocation_progress,
+    classify_opencode_output_line,
     extract_opencode_provider_session_id,
     parse_opencode_event,
     parse_opencode_events,
@@ -623,3 +624,101 @@ def test_opencode_non_idle_session_status_does_not_stop_parsing() -> None:
     result_events = [e for e in result if isinstance(e, Result)]
     assert len(result_events) == 1
     assert result_events[0].text == "hello"
+
+
+# --- classify_opencode_output_line ---
+
+
+def test_classify_opencode_output_line_invalid_json_is_not_json_object() -> None:
+    session_id, is_terminal, is_json_object = classify_opencode_output_line(
+        "not valid json {{{"
+    )
+
+    assert session_id is None
+    assert is_terminal is False
+    assert is_json_object is False
+
+
+def test_classify_opencode_output_line_non_dict_json_is_not_json_object() -> None:
+    session_id, is_terminal, is_json_object = classify_opencode_output_line(
+        json.dumps([1, 2, 3])
+    )
+
+    assert session_id is None
+    assert is_terminal is False
+    assert is_json_object is False
+
+
+def test_classify_opencode_output_line_idle_status_is_terminal_json_object() -> None:
+    line = _line(
+        {
+            "type": "session.status",
+            "sessionID": "sess_abc",
+            "status": {"type": "idle"},
+        }
+    )
+
+    session_id, is_terminal, is_json_object = classify_opencode_output_line(line)
+
+    assert session_id == "sess_abc"
+    assert is_terminal is True
+    assert is_json_object is True
+
+
+def test_classify_opencode_output_line_non_idle_status_is_not_terminal() -> None:
+    line = _line(
+        {
+            "type": "session.status",
+            "sessionID": "sess_abc",
+            "status": {"type": "running"},
+        }
+    )
+
+    session_id, is_terminal, is_json_object = classify_opencode_output_line(line)
+
+    assert session_id == "sess_abc"
+    assert is_terminal is False
+    assert is_json_object is True
+
+
+def test_classify_opencode_output_line_error_event_is_terminal_json_object() -> None:
+    line = _line(
+        {
+            "type": "error",
+            "sessionID": "sess_abc",
+            "error": {"name": "InternalServerError", "data": {"statusCode": 503}},
+        }
+    )
+
+    session_id, is_terminal, is_json_object = classify_opencode_output_line(line)
+
+    assert session_id == "sess_abc"
+    assert is_terminal is True
+    assert is_json_object is True
+
+
+def test_classify_opencode_output_line_regular_event_is_json_object_not_terminal() -> (
+    None
+):
+    line = _line(
+        {
+            "type": "text",
+            "sessionID": "sess_abc",
+            "part": {"type": "text", "text": "hello", "time": {"end": 1}},
+        }
+    )
+
+    session_id, is_terminal, is_json_object = classify_opencode_output_line(line)
+
+    assert session_id == "sess_abc"
+    assert is_terminal is False
+    assert is_json_object is True
+
+
+def test_classify_opencode_output_line_missing_session_id_yields_none() -> None:
+    line = _line({"type": "text", "part": {"type": "text", "text": "hi"}})
+
+    session_id, is_terminal, is_json_object = classify_opencode_output_line(line)
+
+    assert session_id is None
+    assert is_json_object is True

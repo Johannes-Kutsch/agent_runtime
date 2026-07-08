@@ -701,23 +701,28 @@ def classify_opencode_invocation_progress(lines: list[str]) -> InvocationProgres
     return InvocationProgress.NOT_STARTED
 
 
-def classify_opencode_output_line(line: str) -> tuple[str | None, bool]:
-    """Return (session_id_or_none, is_terminal) for a single OpenCode output line.
+def classify_opencode_output_line(line: str) -> tuple[str | None, bool, bool]:
+    """Return (session_id_or_none, is_terminal, is_json_object) for a single OpenCode output line.
 
+    is_json_object is True when the line is valid JSON and parses to a dict.
     is_terminal is True when the line signals stream completion (session idle or error).
     """
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return None, False
+        return None, False, False
     if not isinstance(event, dict):
-        return None, False
+        return None, False, False
     session_id = event.get("sessionID")
     if not (isinstance(session_id, str) and session_id):
         session_id = None
     if event.get("type") == "session.status":
         status = event.get("status")
-        return session_id, isinstance(status, dict) and status.get("type") == "idle"
+        return (
+            session_id,
+            isinstance(status, dict) and status.get("type") == "idle",
+            True,
+        )
     if event.get("type") == "error":
-        return session_id, True
-    return session_id, False
+        return session_id, True, True
+    return session_id, False, True
