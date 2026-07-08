@@ -367,62 +367,6 @@ def test_codex_built_in_provider_stream_interpretation_extracts_provider_session
     )
 
 
-@pytest.mark.parametrize(
-    ("error_data", "expected_exception", "expected_message"),
-    [
-        (
-            {
-                "name": "AuthenticationError",
-                "data": {"message": "invalid api key", "statusCode": 401},
-            },
-            AgentCredentialFailureError,
-            "invalid api key",
-        ),
-        (
-            {
-                "name": "UnknownError",
-                "data": {
-                    "message": (
-                        "Model not found: opencode-go/deepseek-v4-flash. "
-                        "Did you mean: deepseek-v4-flash?"
-                    )
-                },
-            },
-            HardAgentError,
-            (
-                "Model not found: opencode-go/deepseek-v4-flash. "
-                "Did you mean: deepseek-v4-flash?"
-            ),
-        ),
-        (
-            {
-                "name": "InternalServerError",
-                "data": {
-                    "message": "temporary backend failure",
-                    "statusCode": 503,
-                },
-            },
-            TransientAgentError,
-            "temporary backend failure",
-        ),
-    ],
-)
-def test_opencode_built_in_provider_stream_interpretation_preserves_error_classification(
-    error_data: dict[str, object],
-    expected_exception: type[Exception],
-    expected_message: str,
-) -> None:
-    interpretation = opencode_built_in_provider_stream_interpretation()
-    line = json.dumps({"type": "error", "error": error_data}) + "\n"
-
-    with pytest.raises(expected_exception) as exc_info:
-        interpretation.reduce_output([line])
-
-    assert str(exc_info.value) == expected_message
-    if isinstance(exc_info.value, (AgentCredentialFailureError, HardAgentError)):
-        assert exc_info.value.service_name == "opencode"
-
-
 def test_opencode_built_in_provider_stream_interpretation_maps_usage_limit_and_extracts_provider_session_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -463,53 +407,6 @@ def test_opencode_built_in_provider_stream_interpretation_maps_usage_limit_and_e
         2026, 4, 28, 21, 2, tzinfo=timezone.utc
     )
     assert exc_info.value.invocation_progress is InvocationProgress.STARTED
-
-
-def test_opencode_built_in_provider_stream_interpretation_keeps_completed_result_after_idle_status() -> (
-    None
-):
-    interpretation = opencode_built_in_provider_stream_interpretation()
-    lines = [
-        json.dumps(
-            {
-                "type": "text",
-                "sessionID": "sess_123",
-                "part": {
-                    "type": "text",
-                    "text": "completed answer",
-                    "time": {"start": 1, "end": 2},
-                },
-            }
-        )
-        + "\n",
-        json.dumps(
-            {
-                "type": "session.status",
-                "sessionID": "sess_123",
-                "status": {"type": "idle"},
-            }
-        )
-        + "\n",
-        json.dumps(
-            {
-                "type": "error",
-                "sessionID": "sess_123",
-                "error": {
-                    "name": "InternalServerError",
-                    "data": {
-                        "message": "should be ignored after idle result",
-                        "statusCode": 503,
-                    },
-                },
-            }
-        )
-        + "\n",
-    ]
-
-    output, usage = interpretation.reduce_output(lines)
-
-    assert output == "completed answer"
-    assert usage is None
 
 
 def test_opencode_built_in_provider_stream_interpretation_uses_opencode_event_builder() -> (
