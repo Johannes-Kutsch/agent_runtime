@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+import agent_runtime._builtin_provider_parsed_output as builtin_provider_parsed_output
 import agent_runtime._builtin_provider_stream_interpretation as builtin_provider_stream_interpretation
 import agent_runtime._provider_invocation as provider_invocation_runtime
 from agent_runtime._builtin_provider_stream_interpretation import reduce_codex_stream
@@ -1144,7 +1145,7 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
     fixed_local_tz = timezone(timedelta(hours=2))
     fixed_now_local = datetime(2027, 1, 2, 12, 0, tzinfo=fixed_local_tz)
     monkeypatch.setattr(
-        builtin_provider_stream_interpretation._time_module,
+        builtin_provider_parsed_output._time_module,
         "now_local",
         lambda: fixed_now_local,
     )

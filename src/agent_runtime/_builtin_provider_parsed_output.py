@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -11,13 +12,17 @@ from .contracts import (
     AssistantTurn,
     CredentialFailure,
     HardError,
+    ModelUnavailable,
     PromptTokens,
     Result,
     SessionGone,
     TransientError,
     UsageLimit,
 )
+from .invocation_progress import InvocationProgress
 from ._runtime_lifecycle import ProviderUsage
+
+_log = logging.getLogger(__name__)
 
 _MONTH_ABBREVIATIONS = {
     "jan": 1,
@@ -259,3 +264,234 @@ def parse_claude_usage(line: str) -> ProviderUsage | None:
             else None
         ),
     )
+
+
+_CODEX_USAGE_LIMIT_SUBSTRING = "You've hit your usage limit"
+_CODEX_AT_CAPACITY_SUBSTRING = "selected model is at capacity"
+_CODEX_ACCOUNT_MODEL_RESTRICTION_SUBSTRING = "not available for your account"
+_CODEX_RESET_PATTERN = re.compile(
+    r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
+    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
+    re.IGNORECASE,
+)
+_CODEX_GENERIC_AUTH_RE = re.compile(
+    r"\b(?:401|unauthorized|invalid_grant|invalid token|missing bearer|basic authentication)\b",
+    re.IGNORECASE,
+)
+_CODEX_HTTP_STATUS_RE = re.compile(
+    r"\bstatus\s+(?P<status>\d{3})\b",
+    re.IGNORECASE,
+)
+
+
+def _classify_codex_error_message(
+    message: str,
+) -> CredentialFailure | HardError | ModelUnavailable | TransientError | None:
+    lowered_message = message.lower()
+    if _CODEX_AT_CAPACITY_SUBSTRING in lowered_message:
+        return TransientError(
+            status_code=None,
+            raw_message=message,
+            classification="retryable",
+        )
+    if "refresh_token_reused" in message:
+        return CredentialFailure(
+            raw_message=message,
+            service_name="codex",
+            status_code=401,
+            classification="codex_auth_lineage_exhausted",
+        )
+    if "access token could not be refreshed" in lowered_message and (
+        "refresh token was already used" in lowered_message
+        or "refresh token was revoked" in lowered_message
+    ):
+        return CredentialFailure(
+            raw_message=message,
+            service_name="codex",
+            status_code=401,
+            classification="codex_auth_lineage_exhausted",
+        )
+    if _CODEX_GENERIC_AUTH_RE.search(message):
+        return HardError(status_code=401, raw_message=message)
+    try:
+        parsed = json.loads(message)
+        if (
+            isinstance(parsed, dict)
+            and parsed.get("status") == 400
+            and isinstance(parsed.get("error"), dict)
+            and parsed["error"].get("type") == "invalid_request_error"
+            and _CODEX_ACCOUNT_MODEL_RESTRICTION_SUBSTRING
+            in parsed["error"].get("message", "")
+        ):
+            return ModelUnavailable(service_name="codex", raw_message=message)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    match = _CODEX_HTTP_STATUS_RE.search(message)
+    if match is None:
+        return HardError(status_code=500, raw_message=message)
+    status = int(match.group("status"))
+    if status >= 500:
+        return TransientError(status_code=status, raw_message=message)
+    if 400 <= status < 500:
+        return HardError(status_code=status, raw_message=message)
+    return None
+
+
+def parse_codex_reset_time(retry_text: object) -> datetime | None:
+    if not isinstance(retry_text, str):
+        return None
+    match = _CODEX_RESET_PATTERN.search(retry_text)
+    if match is None:
+        return None
+    hour = int(match.group("hour"))
+    if not 1 <= hour <= 12:
+        return None
+    ampm = match.group("ampm").lower()
+    if ampm == "pm" and hour != 12:
+        hour += 12
+    elif ampm == "am" and hour == 12:
+        hour = 0
+    minute = int(match.group("minute") or 0)
+    if not 0 <= minute <= 59:
+        return None
+    now_local = _time_module.now_local()
+    utc_now = now_local.astimezone(timezone.utc)
+    month_text = match.group("month")
+    day_text = match.group("day")
+    if month_text is not None or day_text is not None:
+        if month_text is None or day_text is None:
+            return None
+        month = _MONTH_ABBREVIATIONS.get(month_text.lower())
+        if month is None:
+            return None
+        utc_dt = datetime(
+            utc_now.year,
+            month,
+            int(day_text),
+            hour,
+            minute,
+            tzinfo=timezone.utc,
+        )
+        local_dt = utc_dt.astimezone(now_local.tzinfo)
+        if local_dt < now_local - timedelta(days=31):
+            return datetime(
+                utc_dt.year + 1,
+                month,
+                int(day_text),
+                hour,
+                minute,
+                tzinfo=timezone.utc,
+            ).astimezone(now_local.tzinfo)
+        return local_dt
+    utc_dt = datetime.combine(
+        utc_now.date(),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    ).replace(hour=hour, minute=minute)
+    if utc_dt < utc_now - timedelta(minutes=2):
+        utc_dt += timedelta(days=1)
+    return utc_dt.astimezone(now_local.tzinfo)
+
+
+def _extract_codex_usage_limit(message: str) -> UsageLimit | None:
+    if _CODEX_USAGE_LIMIT_SUBSTRING not in message:
+        return None
+    reset_time = parse_codex_reset_time(message)
+    return UsageLimit(
+        reset_time=reset_time,
+        raw_message=None if reset_time is not None else message,
+    )
+
+
+def parse_codex_event(line: str) -> list[Any]:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(event, dict):
+        return []
+    event_type = event.get("type")
+    if event_type == "item.completed":
+        item = event.get("item") or {}
+        if item.get("type") != "agent_message":
+            return []
+        content = item.get("text")
+        if content is None:
+            content = item.get("content") or ""
+        return [AssistantTurn(text=content)] if content else []
+    if event_type == "turn.failed":
+        error = event.get("error") or {}
+        message = error.get("message") or ""
+        limit = _extract_codex_usage_limit(message)
+        if limit is not None:
+            return [limit]
+        classified = _classify_codex_error_message(message)
+        if classified is not None:
+            _log.warning("codex turn.failed: %s", message)
+            return [classified]
+        return []
+    if event_type == "error":
+        message = event.get("message") or ""
+        limit = _extract_codex_usage_limit(message)
+        if limit is not None:
+            return [limit]
+        classified = _classify_codex_error_message(message)
+        if classified is not None:
+            _log.warning("codex error: %s", message)
+            return [classified]
+        return []
+    return []
+
+
+def parse_codex_usage(line: str) -> ProviderUsage | None:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(event, dict) or event.get("type") != "turn.completed":
+        return None
+    usage = event.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    input_tokens = usage.get("input_tokens")
+    cached_tokens = usage.get("cached_tokens")
+    output_tokens = usage.get("output_tokens")
+    if not any(
+        value is not None for value in (input_tokens, cached_tokens, output_tokens)
+    ):
+        return None
+    return ProviderUsage(
+        input_tokens=int(input_tokens) if input_tokens is not None else None,
+        output_tokens=int(output_tokens) if output_tokens is not None else None,
+        cache_read_input_tokens=(
+            int(cached_tokens) if cached_tokens is not None else None
+        ),
+    )
+
+
+def extract_codex_provider_session_id(lines: list[str]) -> str | None:
+    thread_ids: set[str] = set()
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "thread.started":
+            continue
+        thread_id = event.get("thread_id")
+        if isinstance(thread_id, str):
+            stripped = thread_id.strip()
+            if stripped:
+                thread_ids.add(stripped)
+        if len(thread_ids) > 1:
+            return None
+    if len(thread_ids) != 1:
+        return None
+    return next(iter(thread_ids))
+
+
+def classify_codex_invocation_progress(lines: list[str]) -> InvocationProgress:
+    parsed_events = [event for line in lines for event in parse_codex_event(line)]
+    if any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events):
+        return InvocationProgress.STARTED
+    return InvocationProgress.NOT_STARTED
