@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 
 from . import _time
 from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
+from . import _builtin_provider_parsed_output as _parsed_output_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from ._session_backed_provider_execution import (
     _run_builtin_new_session,
@@ -92,9 +93,9 @@ for _runtime_export in (
 _validate_claude_stage = _builtin_runtime_client_module._validate_claude_stage
 _validate_opencode_stage = _builtin_runtime_client_module._validate_opencode_stage
 _is_claude_subscription_access_denial = (
-    _stream_interpretation_module.is_claude_subscription_access_denial
+    _parsed_output_module.is_claude_subscription_access_denial
 )
-_parse_claude_reset_time = _stream_interpretation_module.parse_claude_reset_time
+_parse_claude_reset_time = _parsed_output_module.parse_claude_reset_time
 _parse_opencode_reset_time = _stream_interpretation_module.parse_opencode_reset_time
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
 _supported_builtin_provider_selection = (
@@ -103,7 +104,7 @@ _supported_builtin_provider_selection = (
 
 
 def _parse_claude_event(line: str) -> list[Any]:
-    return _stream_interpretation_module.parse_claude_event_with_dependencies(
+    return _parsed_output_module.parse_claude_event_with_dependencies(
         line,
         parse_claude_reset_time=_parse_claude_reset_time,
         is_claude_subscription_access_denial=_is_claude_subscription_access_denial,

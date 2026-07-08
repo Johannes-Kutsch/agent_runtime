@@ -19,7 +19,7 @@ from .contracts import (
 )
 from ._runtime_lifecycle import ProviderUsage
 
-_CLAUDE_MONTHS = {
+_MONTH_ABBREVIATIONS = {
     "jan": 1,
     "january": 1,
     "feb": 2,
@@ -108,7 +108,7 @@ def parse_claude_reset_time(retry_text: object) -> datetime | None:
     if month_text is not None or day_text is not None:
         if month_text is None or day_text is None:
             return None
-        month = _CLAUDE_MONTHS.get(month_text.lower())
+        month = _MONTH_ABBREVIATIONS.get(month_text.lower())
         if month is None:
             return None
         utc_dt = datetime(

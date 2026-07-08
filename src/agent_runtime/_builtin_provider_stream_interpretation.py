@@ -15,11 +15,8 @@ from ._builtin_provider_agent_event_building import (
     build_opencode_agent_event,
 )
 from ._builtin_provider_parsed_output import (
-    _CLAUDE_MONTHS,
-    is_claude_subscription_access_denial,  # noqa: F401
+    _MONTH_ABBREVIATIONS,
     parse_claude_event,
-    parse_claude_event_with_dependencies,  # noqa: F401
-    parse_claude_reset_time,  # noqa: F401
     parse_claude_usage,
 )
 from .contracts import (
@@ -326,7 +323,7 @@ def parse_codex_reset_time(retry_text: object) -> datetime | None:
     if month_text is not None or day_text is not None:
         if month_text is None or day_text is None:
             return None
-        month = _CLAUDE_MONTHS.get(month_text.lower())
+        month = _MONTH_ABBREVIATIONS.get(month_text.lower())
         if month is None:
             return None
         utc_dt = datetime(
@@ -508,7 +505,7 @@ def parse_opencode_reset_time(retry_text: object) -> datetime | None:
     match = _OPENCODE_RESET_PATTERN.search(retry_text)
     if match is None:
         return None
-    month = _CLAUDE_MONTHS.get(match.group("month").lower())
+    month = _MONTH_ABBREVIATIONS.get(match.group("month").lower())
     if month is None:
         return None
     hour = int(match.group("hour"))
