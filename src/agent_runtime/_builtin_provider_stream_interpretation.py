@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import json
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -14,6 +13,7 @@ from ._builtin_provider_agent_event_building import (
 from ._builtin_provider_parsed_output import (
     classify_codex_invocation_progress,
     classify_opencode_invocation_progress,
+    classify_opencode_output_line,
     extract_codex_provider_session_id,
     extract_opencode_provider_session_id,
     parse_claude_event,
@@ -259,16 +259,9 @@ def observe_opencode_output(
         if is_complete:
             return
         for line in lines:
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict):
-                continue
-            session_id = event.get("sessionID")
+            session_id, is_terminal = classify_opencode_output_line(line)
             if (
-                isinstance(session_id, str)
-                and session_id
+                session_id is not None
                 and session_id != seen_session_id
                 and on_provider_session_id is not None
             ):
@@ -278,13 +271,7 @@ def observe_opencode_output(
                 stream_interpretation.build_agent_event(line),
                 on_live_output,
             )
-            if event.get("type") == "session.status":
-                status = event.get("status")
-                if isinstance(status, dict) and status.get("type") == "idle":
-                    is_complete = True
-                    return
-                continue
-            if event.get("type") == "error":
+            if is_terminal:
                 is_complete = True
                 return
 

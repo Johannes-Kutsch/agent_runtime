@@ -699,3 +699,25 @@ def classify_opencode_invocation_progress(lines: list[str]) -> InvocationProgres
     if any(isinstance(event, (AssistantTurn, Result)) for event in parsed_events):
         return InvocationProgress.STARTED
     return InvocationProgress.NOT_STARTED
+
+
+def classify_opencode_output_line(line: str) -> tuple[str | None, bool]:
+    """Return (session_id_or_none, is_terminal) for a single OpenCode output line.
+
+    is_terminal is True when the line signals stream completion (session idle or error).
+    """
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None, False
+    if not isinstance(event, dict):
+        return None, False
+    session_id = event.get("sessionID")
+    if not (isinstance(session_id, str) and session_id):
+        session_id = None
+    if event.get("type") == "session.status":
+        status = event.get("status")
+        return session_id, isinstance(status, dict) and status.get("type") == "idle"
+    if event.get("type") == "error":
+        return session_id, True
+    return session_id, False
