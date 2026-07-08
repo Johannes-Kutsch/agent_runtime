@@ -207,19 +207,6 @@ def reduce_claude_stream(
     lines: list[str],
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
-    return reduce_claude_stream_with_dependencies(
-        lines,
-        parse_claude_event=parse_claude_event,
-        on_live_output=on_live_output,
-    )
-
-
-def reduce_claude_stream_with_dependencies(
-    lines: list[str],
-    *,
-    parse_claude_event: Callable[[str], list[Any]],
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> tuple[str, ProviderUsage | None]:
     usage: ProviderUsage | None = None
     parsed_events: list[Any] = []
     for line in lines:

@@ -17,6 +17,7 @@ import pytest
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime._builtin_runtime_client as builtin_runtime_client_runtime
+import agent_runtime._builtin_provider_parsed_output as parsed_output_runtime
 import agent_runtime._builtin_provider_rendering as builtin_provider_rendering_runtime
 import agent_runtime._built_in_provider_session_invocation_dispatch as builtin_session_invocation_dispatch_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
@@ -6193,8 +6194,8 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
         lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
     )
     monkeypatch.setattr(
-        prompt_runtime,
-        "_parse_claude_reset_time",
+        parsed_output_runtime,
+        "parse_claude_reset_time",
         lambda _text: reset_time,
     )
 
