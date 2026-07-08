@@ -14,7 +14,6 @@ from typing import Any
 import pytest
 
 import agent_runtime._builtin_provider_parsed_output as builtin_provider_parsed_output
-import agent_runtime._builtin_provider_stream_interpretation as builtin_provider_stream_interpretation
 import agent_runtime._provider_invocation as provider_invocation_runtime
 from agent_runtime._builtin_provider_stream_interpretation import reduce_codex_stream
 from agent_runtime._runtime_lifecycle import CancellationToken
