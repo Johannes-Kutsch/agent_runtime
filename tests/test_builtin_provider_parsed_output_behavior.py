@@ -408,6 +408,106 @@ def test_claude_non_session_gone_error_with_500_produces_transient_error() -> No
     assert isinstance(result[0], TransientError)
 
 
+# --- Combined text and token counts ---
+
+
+def test_claude_assistant_line_with_text_and_tokens_produces_both_events() -> None:
+    line = _line(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "Hello"}],
+                "usage": {"input_tokens": 10},
+            },
+        }
+    )
+
+    result = parse_claude_event(line)
+
+    assert PromptTokens(count=10) in result
+    assert AssistantTurn(text="Hello") in result
+
+
+def test_claude_assistant_line_prompt_tokens_precede_assistant_turn() -> None:
+    line = _line(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "Hi"}],
+                "usage": {"input_tokens": 5},
+            },
+        }
+    )
+
+    result = parse_claude_event(line)
+
+    token_idx = next(i for i, e in enumerate(result) if isinstance(e, PromptTokens))
+    turn_idx = next(i for i, e in enumerate(result) if isinstance(e, AssistantTurn))
+    assert token_idx < turn_idx
+
+
+# --- Non-text content blocks ---
+
+
+def test_claude_assistant_line_with_only_tool_use_blocks_produces_no_assistant_turn() -> (
+    None
+):
+    line = _line(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "tool_use", "name": "bash", "input": {}}],
+                "usage": {},
+            },
+        }
+    )
+
+    result = parse_claude_event(line)
+
+    assert not any(isinstance(e, AssistantTurn) for e in result)
+
+
+# --- parse_claude_usage edge cases ---
+
+
+def test_parse_claude_usage_returns_none_for_non_assistant_type() -> None:
+    line = _line({"type": "result", "result": "done", "is_error": False})
+
+    assert parse_claude_usage(line) is None
+
+
+def test_parse_claude_usage_returns_none_for_missing_message_field() -> None:
+    line = _line({"type": "assistant"})
+
+    assert parse_claude_usage(line) is None
+
+
+# --- Usage limit year rollover ---
+
+
+def test_claude_usage_limit_month_day_reset_time_rolls_over_to_next_year(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        time_runtime,
+        "now_local",
+        lambda: datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    line = _line(
+        {
+            "api_error_status": 429,
+            "result": "Usage limit reached. Resets March 15, 9am (UTC).",
+        }
+    )
+
+    result = parse_claude_event(line)
+
+    assert len(result) == 1
+    event = result[0]
+    assert isinstance(event, UsageLimit)
+    assert event.reset_time == datetime(2027, 3, 15, 9, 0, tzinfo=timezone.utc)
+
+
 # --- Invalid / unrecognized lines ---
 
 
