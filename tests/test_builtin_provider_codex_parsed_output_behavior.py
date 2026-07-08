@@ -338,3 +338,85 @@ def test_codex_lines_without_assistant_turn_or_result_produce_invocation_progres
     result = classify_codex_invocation_progress(lines)
 
     assert result == InvocationProgress.NOT_STARTED
+
+
+def test_codex_lines_with_only_error_facts_produce_invocation_progress_not_started() -> (
+    None
+):
+    lines = [
+        _line(
+            {
+                "type": "error",
+                "message": "The selected model is at capacity. Please try again later.",
+            }
+        )
+    ]
+
+    result = classify_codex_invocation_progress(lines)
+
+    assert result == InvocationProgress.NOT_STARTED
+
+
+# --- Edge cases ---
+
+
+def test_codex_invalid_json_line_produces_no_events() -> None:
+    result = parse_codex_event("not valid json {{{")
+
+    assert result == []
+
+
+def test_codex_turn_completed_without_usage_field_produces_no_usage() -> None:
+    line = _line({"type": "turn.completed"})
+
+    result = parse_codex_usage(line)
+
+    assert result is None
+
+
+def test_codex_turn_completed_with_empty_usage_dict_produces_no_usage() -> None:
+    line = _line({"type": "turn.completed", "usage": {}})
+
+    result = parse_codex_usage(line)
+
+    assert result is None
+
+
+def test_codex_multiple_different_thread_ids_produces_no_session_id() -> None:
+    lines = [
+        _line({"type": "thread.started", "thread_id": "thread-aaa"}),
+        _line({"type": "thread.started", "thread_id": "thread-bbb"}),
+    ]
+
+    result = extract_codex_provider_session_id(lines)
+
+    assert result is None
+
+
+def test_codex_unrecognized_error_without_http_status_produces_hard_error_500() -> None:
+    line = _line(
+        {"type": "error", "message": "Something went wrong with no status code"}
+    )
+
+    result = parse_codex_event(line)
+
+    assert len(result) == 1
+    event = result[0]
+    assert isinstance(event, HardError)
+    assert event.status_code == 500
+
+
+def test_codex_server_error_with_5xx_status_produces_transient_error() -> None:
+    line = _line(
+        {
+            "type": "error",
+            "message": "Request failed with status 503 service unavailable",
+        }
+    )
+
+    result = parse_codex_event(line)
+
+    assert len(result) == 1
+    event = result[0]
+    assert isinstance(event, TransientError)
+    assert event.status_code == 503
