@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from datetime import datetime
 from typing import Any, Callable, TypeVar, cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
@@ -9,8 +9,12 @@ from . import _session_backed_provider_lifecycle_policy as _lifecycle_policy_mod
 from ._built_in_provider_session_invocation_dispatch import (
     dispatch_built_in_provider_session_invocation,
 )
-from ._builtin_provider_stream_interpretation import BuiltInProviderStreamInterpretation
+from ._builtin_provider_stream_interpretation import (
+    BuiltInProviderStreamInterpretation,
+    classify_built_in_provider_invocation_progress,
+)
 from ._provider_invocation import (
+    InvocationFailureKind,
     ProviderInvocationAdapter,
     ProviderInvocationFailure,
     ProviderInvocationResult,
@@ -22,10 +26,15 @@ from ._runtime_lifecycle import (
     ResumedSessionRunRequest,
     RunResult,
 )
-from .errors import RuntimeConfigurationError
-from .errors import AgentCancelledError, AgentTimeoutError
+from .errors import (
+    AgentCancelledError,
+    AgentTimeoutError,
+    ProviderUnavailableError,
+    ProviderUnavailableReason,
+    RuntimeConfigurationError,
+    UsageLimitError,
+)
 from .invocation_progress import InvocationProgress
-from .session import RunKind
 from .types import ProviderSelection, ResolvedProvider
 
 
@@ -150,6 +159,50 @@ def _invoke_with_interruption_continuations(
         raise
 
 
+def _provider_invocation_error_from_failure(
+    service_name: str,
+    policy: _lifecycle_policy_module.SessionBackedProviderLifecyclePolicy,
+    failure: ProviderInvocationFailure,
+) -> UsageLimitError | ProviderUnavailableError:
+    stream_interpretation = policy.stream_interpretation()
+    invocation_progress = (
+        InvocationProgress.STARTED
+        if classify_built_in_provider_invocation_progress(
+            stream_interpretation,
+            list(failure.stdout_lines),
+            provider_session_id=failure.provider_session_id,
+        )
+        is InvocationProgress.STARTED
+        else InvocationProgress.NOT_STARTED
+    )
+    if failure.kind is InvocationFailureKind.USAGE_LIMITED:
+        error: UsageLimitError | ProviderUnavailableError = UsageLimitError(
+            reset_time=cast(datetime | None, failure.reset_time),
+            raw_message=(failure.detail if failure.reset_time is None else None),
+            service_name=service_name,
+            invocation_progress=invocation_progress,
+            usage=failure.usage,
+        )
+    else:
+        error = ProviderUnavailableError(
+            failure.detail,
+            reason=(
+                failure.provider_unavailable_reason
+                or (
+                    ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
+                    if failure.detail
+                    == _builtin_runtime_client_module._SERVICE_NOT_AVAILABLE_DETAIL
+                    else ProviderUnavailableReason.TRANSIENT_API_ERROR
+                )
+            ),
+            service_name=service_name,
+            invocation_progress=invocation_progress,
+            usage=failure.usage,
+        )
+    setattr(error, "provider_session_id", failure.provider_session_id)
+    return error
+
+
 def _run_builtin_new_session(
     request: NewSessionRunRequest,
     *,
@@ -192,285 +245,78 @@ def _run_builtin_new_session(
         _builtin_runtime_client_module._require_portable_continuation_support(
             selected_stage.service
         )
-
-        def _portable_claude_state_dir_relpath(
-            provider_state_dir_relpath: str | None,
-        ) -> str | None:
-            if is_caller_managed_runtime_state:
-                return provider_state_dir_relpath
-            return None
-
-        continuation_input_facts: (
-            _provider_state_resolution.ContinuationInputFacts | None
-        ) = None
-
-        if selected_stage.service == "codex":
-            _lifecycle_policy_module.policy_for_service(
-                selected_stage.service
-            ).validate_stage(selected_stage)
-            codex_outcome = _lifecycle_policy_module.policy_for_service(
-                selected_stage.service
-            ).resolve_new_session_facts(
-                runtime_state_dir,
-                is_caller_managed_runtime_state,
-                selected_stage.model,
-                selected_stage.effort,
-            )
-            if isinstance(codex_outcome, _lifecycle_policy_module.NewSessionRedirect):
-                return _run_builtin_resumed_session(
-                    _builtin_runtime_client_module.ResumedSessionRunRequest(
-                        prompt=request.prompt,
-                        invocation_dir=request.invocation_dir,
-                        session_store=runtime_state_dir,
-                        continuation=_provider_state_resolution.build_session_backed_continuation(
-                            codex_outcome.continuation_input_facts,
-                            tool_access=request.tool_access,
-                        ),
-                        provider_auth=selected_stage_auth,
-                        on_live_output=on_live_output,
-                        timeout_seconds=0,
-                        argv_transform=request.argv_transform,
-                        token=request.token,
-                    ),
-                    provider_invocation_adapter=invocation_adapter,
-                    on_live_output=on_live_output,
-                )
-            provider_state_dir = codex_outcome.provider_state_dir
-            continuation_input_facts = codex_outcome.continuation_input_facts
-            provider_session_id: str | None = None
-            codex_continuation_input_facts = continuation_input_facts
-            invocation_result = _invoke_with_interruption_continuations(
-                invoke=lambda: dispatch_built_in_provider_session_invocation(
-                    service_name="codex",
-                    run_kind=RunKind.FRESH,
-                    invocation_dir=request.invocation_dir,
+        policy = _lifecycle_policy_module.policy_for_service(selected_stage.service)
+        policy.validate_stage(selected_stage)
+        policy.require_auth(selected_stage_auth)
+        outcome = policy.resolve_new_session_facts(
+            runtime_state_dir,
+            is_caller_managed_runtime_state,
+            selected_stage.model,
+            selected_stage.effort,
+        )
+        if isinstance(outcome, _lifecycle_policy_module.NewSessionRedirect):
+            return _run_builtin_resumed_session(
+                _builtin_runtime_client_module.ResumedSessionRunRequest(
                     prompt=request.prompt,
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    auth=None,
-                    provider_state_dir=provider_state_dir,
-                    provider_session_id=None,
-                    argv_transform=request.argv_transform,
+                    invocation_dir=request.invocation_dir,
+                    session_store=runtime_state_dir,
+                    continuation=_provider_state_resolution.build_session_backed_continuation(
+                        outcome.continuation_input_facts,
+                        tool_access=request.tool_access,
+                    ),
+                    provider_auth=selected_stage_auth,
                     on_live_output=on_live_output,
-                    timeout_seconds=request.timeout_seconds,
+                    timeout_seconds=0,
+                    argv_transform=request.argv_transform,
                     token=request.token,
-                    provider_invocation_adapter=invocation_adapter,
                 ),
-                provider_session_id=provider_session_id,
-                build_continuation=lambda active_provider_session_id: (
-                    _provider_state_resolution.build_session_backed_continuation(
-                        codex_continuation_input_facts,
-                        tool_access=request.tool_access,
-                        provider_session_id=active_provider_session_id,
-                    )
-                ),
+                provider_invocation_adapter=invocation_adapter,
+                on_live_output=on_live_output,
             )
-            if isinstance(invocation_result, ProviderInvocationFailure):
-                provider_session_id = _resolve_active_provider_session_id(
-                    stream_interpretation=(
-                        _lifecycle_policy_module.policy_for_service(
-                            "codex"
-                        ).stream_interpretation()
-                    ),
-                    invocation_result=invocation_result,
-                    prepared_or_continuation_provider_session_id=provider_session_id,
-                )
-                failure_error = _builtin_runtime_client_module._provider_invocation_error_from_failure(
-                    "codex",
-                    invocation_result,
-                )
-                failure_error.continuation = _interruption_continuation(
-                    provider_work_started=(
-                        failure_error.invocation_progress is InvocationProgress.STARTED
-                    ),
-                    provider_session_id=provider_session_id,
-                    build_continuation=lambda active_provider_session_id: (
-                        _provider_state_resolution.build_session_backed_continuation(
-                            codex_continuation_input_facts,
-                            tool_access=request.tool_access,
-                            provider_session_id=active_provider_session_id,
-                        )
-                    ),
-                )
-                raise failure_error
-            else:
-                provider_session_id = _resolve_active_provider_session_id(
-                    stream_interpretation=(
-                        _lifecycle_policy_module.policy_for_service(
-                            "codex"
-                        ).stream_interpretation()
-                    ),
-                    invocation_result=invocation_result,
-                    prepared_or_continuation_provider_session_id=None,
-                )
-                result_text = invocation_result.output
-                usage = invocation_result.usage
-            return _completed_result(
-                output=result_text,
-                usage=usage,
-                continuation=(
-                    _provider_state_resolution.build_session_backed_continuation(
-                        codex_continuation_input_facts,
-                        tool_access=request.tool_access,
-                        provider_session_id=provider_session_id,
-                    )
-                    if provider_session_id is not None
-                    else None
-                ),
-                service="codex",
+        provider_state_dir = outcome.provider_state_dir
+        continuation_input_facts = outcome.continuation_input_facts
+        provider_session_id: str | None = (
+            continuation_input_facts.provider_session_id.value
+            if continuation_input_facts.provider_session_id is not None
+            else None
+        )
+        run_kind = continuation_input_facts.run_kind
+        invocation_result = _invoke_with_interruption_continuations(
+            invoke=lambda: dispatch_built_in_provider_session_invocation(
+                service_name=selected_stage.service,
+                run_kind=run_kind,
+                invocation_dir=request.invocation_dir,
+                prompt=request.prompt,
                 model=selected_stage.model,
                 effort=selected_stage.effort,
-            )
-        elif selected_stage.service == "claude":
-            claude_outcome = _lifecycle_policy_module.policy_for_service(
-                selected_stage.service
-            ).resolve_new_session_facts(
-                runtime_state_dir,
-                is_caller_managed_runtime_state,
-                selected_stage.model,
-                selected_stage.effort,
-            )
-            if isinstance(claude_outcome, _lifecycle_policy_module.NewSessionRedirect):
-                return _run_builtin_resumed_session(
-                    _builtin_runtime_client_module.ResumedSessionRunRequest(
-                        prompt=request.prompt,
-                        invocation_dir=request.invocation_dir,
-                        session_store=runtime_state_dir,
-                        on_live_output=on_live_output,
-                        timeout_seconds=0,
-                        argv_transform=request.argv_transform,
-                        continuation=_provider_state_resolution.build_session_backed_continuation(
-                            claude_outcome.continuation_input_facts,
-                            tool_access=request.tool_access,
-                        ),
-                        provider_auth=selected_stage_auth,
-                        token=request.token,
-                    ),
-                    provider_invocation_adapter=invocation_adapter,
-                    on_live_output=on_live_output,
+                tool_access=request.tool_access,
+                auth=selected_stage_auth,
+                provider_state_dir=provider_state_dir,
+                provider_session_id=provider_session_id,
+                argv_transform=request.argv_transform,
+                on_live_output=on_live_output,
+                timeout_seconds=request.timeout_seconds,
+                token=request.token,
+                provider_invocation_adapter=invocation_adapter,
+            ),
+            provider_session_id=provider_session_id,
+            build_continuation=lambda active_provider_session_id: (
+                _provider_state_resolution.build_session_backed_continuation(
+                    continuation_input_facts,
+                    tool_access=request.tool_access,
+                    provider_session_id=active_provider_session_id,
                 )
-            provider_state_dir = claude_outcome.provider_state_dir
-            continuation_input_facts = claude_outcome.continuation_input_facts
-            _lifecycle_policy_module.policy_for_service(
-                selected_stage.service
-            ).validate_stage(selected_stage)
-            _lifecycle_policy_module.policy_for_service(
-                selected_stage.service
-            ).require_auth(selected_stage_auth)
-        elif selected_stage.service == "opencode":
-            opencode_outcome = _lifecycle_policy_module.policy_for_service(
-                selected_stage.service
-            ).resolve_new_session_facts(
-                runtime_state_dir,
-                is_caller_managed_runtime_state,
-                selected_stage.model,
-                selected_stage.effort,
-            )
-            assert isinstance(
-                opencode_outcome, _lifecycle_policy_module.NewSessionFactsResult
-            )
-            provider_state_dir = opencode_outcome.provider_state_dir
-            _lifecycle_policy_module.policy_for_service(
-                selected_stage.service
-            ).validate_stage(selected_stage)
-            _lifecycle_policy_module.policy_for_service(
-                selected_stage.service
-            ).require_auth(selected_stage_auth)
-            continuation_input_facts = opencode_outcome.continuation_input_facts
-            provider_session_id = cast(
-                str,
-                cast(
-                    _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                    continuation_input_facts.provider_session_id,
-                ).value,
-            )
-            run_kind = continuation_input_facts.run_kind
-        else:
-            raise RuntimeConfigurationError(
-                "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
-            )
-        assert continuation_input_facts is not None
-        active_continuation_input_facts = continuation_input_facts
-        if selected_stage.service == "claude":
-            provider_session_id = cast(
-                str,
-                cast(
-                    _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                    active_continuation_input_facts.provider_session_id,
-                ).value,
-            )
-            run_kind = active_continuation_input_facts.run_kind
-            invocation_result = _invoke_with_interruption_continuations(
-                invoke=lambda: dispatch_built_in_provider_session_invocation(
-                    service_name="claude",
-                    run_kind=run_kind,
-                    invocation_dir=request.invocation_dir,
-                    prompt=request.prompt,
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    auth=selected_stage_auth,
-                    provider_state_dir=provider_state_dir,
-                    provider_session_id=cast(str, provider_session_id),
-                    argv_transform=request.argv_transform,
-                    on_live_output=on_live_output,
-                    timeout_seconds=request.timeout_seconds,
-                    token=request.token,
-                    provider_invocation_adapter=invocation_adapter,
-                ),
-                provider_session_id=provider_session_id,
-                build_continuation=lambda active_provider_session_id: (
-                    _provider_state_resolution.build_session_backed_continuation(
-                        active_continuation_input_facts,
-                        tool_access=request.tool_access,
-                        provider_session_id=active_provider_session_id,
-                    )
-                ),
-            )
-        else:
-            assert provider_session_id is not None
-            invocation_result = _invoke_with_interruption_continuations(
-                invoke=lambda: dispatch_built_in_provider_session_invocation(
-                    service_name="opencode",
-                    run_kind=run_kind,
-                    invocation_dir=request.invocation_dir,
-                    prompt=request.prompt,
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    tool_access=request.tool_access,
-                    auth=selected_stage_auth,
-                    provider_state_dir=provider_state_dir,
-                    provider_session_id=cast(str, provider_session_id),
-                    argv_transform=request.argv_transform,
-                    on_live_output=on_live_output,
-                    timeout_seconds=request.timeout_seconds,
-                    token=request.token,
-                    provider_invocation_adapter=invocation_adapter,
-                ),
-                provider_session_id=provider_session_id,
-                build_continuation=lambda active_provider_session_id: (
-                    _provider_state_resolution.build_session_backed_continuation(
-                        active_continuation_input_facts,
-                        tool_access=request.tool_access,
-                        provider_session_id=active_provider_session_id,
-                    )
-                ),
-            )
-        stream_interpretation = _lifecycle_policy_module.policy_for_service(
-            selected_stage.service
-        ).stream_interpretation()
+            ),
+        )
+        stream_interpretation = policy.stream_interpretation()
         if isinstance(invocation_result, ProviderInvocationFailure):
             provider_session_id = _resolve_active_provider_session_id(
                 stream_interpretation=stream_interpretation,
                 invocation_result=invocation_result,
                 prepared_or_continuation_provider_session_id=provider_session_id,
             )
-            failure_error = (
-                _builtin_runtime_client_module._provider_invocation_error_from_failure(
-                    selected_stage.service,
-                    invocation_result,
-                )
+            failure_error = _provider_invocation_error_from_failure(
+                selected_stage.service, policy, invocation_result
             )
             failure_error.continuation = _interruption_continuation(
                 provider_work_started=(
@@ -479,10 +325,8 @@ def _run_builtin_new_session(
                 provider_session_id=provider_session_id,
                 build_continuation=lambda active_provider_session_id: (
                     _provider_state_resolution.build_session_backed_continuation(
-                        _lifecycle_policy_module.policy_for_service(
-                            selected_stage.service
-                        ).refresh_active_session_facts(
-                            active_continuation_input_facts,
+                        policy.refresh_active_session_facts(
+                            continuation_input_facts,
                             active_provider_session_id,
                         ),
                         tool_access=request.tool_access,
@@ -496,22 +340,21 @@ def _run_builtin_new_session(
             invocation_result=invocation_result,
             prepared_or_continuation_provider_session_id=provider_session_id,
         )
-        active_continuation_input_facts = _lifecycle_policy_module.policy_for_service(
-            selected_stage.service
-        ).refresh_active_session_facts(
-            active_continuation_input_facts,
+        continuation_input_facts = policy.refresh_active_session_facts(
+            continuation_input_facts,
             provider_session_id,
         )
-        assert provider_session_id is not None
-        result_text = invocation_result.output
-        usage = invocation_result.usage
         return _completed_result(
-            output=result_text,
-            usage=usage,
-            continuation=_provider_state_resolution.build_session_backed_continuation(
-                active_continuation_input_facts,
-                tool_access=request.tool_access,
-                provider_session_id=provider_session_id,
+            output=invocation_result.output,
+            usage=invocation_result.usage,
+            continuation=(
+                _provider_state_resolution.build_session_backed_continuation(
+                    continuation_input_facts,
+                    tool_access=request.tool_access,
+                    provider_session_id=provider_session_id,
+                )
+                if provider_session_id is not None
+                else None
             ),
             service=selected_stage.service,
             model=selected_stage.model,
@@ -552,280 +395,77 @@ def _run_builtin_resumed_session(
     _builtin_runtime_client_module._require_portable_continuation_support(
         continuation_service
     )
-    provider_session_id: str | None
-    provider_state_dir_relpath: str | None = None
-    provider_state_dir: Path | None = None
-
-    def _no_cleanup() -> None:
-        return None
-
-    if continuation_service == "codex":
-        _lifecycle_policy_module.policy_for_service(
-            continuation_service
-        ).validate_stage(
-            ProviderSelection(
-                service="codex",
-                model=request.model,
-                effort=request.effort,
-            )
-        )
-        provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
-        provider_session_id = continuation_facts.provider_session_id
-        codex_resumed_outcome = _lifecycle_policy_module.policy_for_service(
-            continuation_service
-        ).resolve_resumed_session_facts(
-            _lifecycle_policy_module.ResumedSessionFactsInput(
-                runtime_state_dir=runtime_state_dir,
-                provider_state_dir_relpath=provider_state_dir_relpath,
-                provider_session_id=provider_session_id,
-                exact_transcript_match=None,
-                model=request.model,
-                effort=request.effort,
-            )
-        )
-        provider_state_dir = codex_resumed_outcome.provider_state_dir
-        continuation_input_facts = codex_resumed_outcome.continuation_input_facts
-        provider_session_id = cast(
-            str,
-            cast(
-                _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                continuation_input_facts.provider_session_id,
-            ).value,
-        )
-        active_provider_session_id: str | None = provider_session_id
-        invocation_result = _invoke_with_interruption_continuations(
-            invoke=lambda: dispatch_built_in_provider_session_invocation(
-                service_name="codex",
-                run_kind=RunKind.RESUME,
-                invocation_dir=request.invocation_dir,
-                prompt=request.prompt,
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                auth=None,
-                provider_state_dir=provider_state_dir,
-                provider_session_id=cast(str, provider_session_id),
-                argv_transform=request.argv_transform,
-                on_live_output=on_live_output,
-                timeout_seconds=request.timeout_seconds,
-                token=request.token,
-                provider_invocation_adapter=invocation_adapter,
-            ),
-            provider_session_id=active_provider_session_id,
-            build_continuation=lambda resumed_provider_session_id: (
-                _provider_state_resolution.build_session_backed_continuation(
-                    continuation_input_facts,
-                    tool_access=request.tool_access,
-                    provider_session_id=resumed_provider_session_id,
-                )
-            ),
-            fallback_continuation=request.continuation,
-        )
-        if isinstance(invocation_result, ProviderInvocationFailure):
-            active_provider_session_id = _resolve_active_provider_session_id(
-                stream_interpretation=(
-                    _lifecycle_policy_module.policy_for_service(
-                        "codex"
-                    ).stream_interpretation()
-                ),
-                invocation_result=invocation_result,
-                prepared_or_continuation_provider_session_id=(
-                    active_provider_session_id
-                ),
-            )
-            failure_error = (
-                _builtin_runtime_client_module._provider_invocation_error_from_failure(
-                    "codex",
-                    invocation_result,
-                )
-            )
-            failure_error.continuation = _interruption_continuation(
-                provider_work_started=(
-                    failure_error.invocation_progress is InvocationProgress.STARTED
-                ),
-                provider_session_id=active_provider_session_id,
-                build_continuation=lambda resumed_provider_session_id: (
-                    _provider_state_resolution.build_session_backed_continuation(
-                        continuation_input_facts,
-                        tool_access=request.tool_access,
-                        provider_session_id=resumed_provider_session_id,
-                    )
-                ),
-            )
-            raise failure_error
-        else:
-            active_provider_session_id = _resolve_active_provider_session_id(
-                stream_interpretation=(
-                    _lifecycle_policy_module.policy_for_service(
-                        "codex"
-                    ).stream_interpretation()
-                ),
-                invocation_result=invocation_result,
-                prepared_or_continuation_provider_session_id=provider_session_id,
-            )
-            result_text = invocation_result.output
-            usage = invocation_result.usage
-        return _completed_result(
-            output=result_text,
-            usage=usage,
-            continuation=(
-                _provider_state_resolution.build_session_backed_continuation(
-                    continuation_input_facts,
-                    tool_access=request.tool_access,
-                    provider_session_id=active_provider_session_id,
-                )
-                if active_provider_session_id is not None
-                else None
-            ),
-            service="codex",
+    policy = _lifecycle_policy_module.policy_for_service(continuation_service)
+    policy.validate_stage(
+        ProviderSelection(
+            service=continuation_service,
             model=request.model,
             effort=request.effort,
         )
-
-    if continuation_service not in {"claude", "opencode"}:
-        raise RuntimeConfigurationError(
-            "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
-        )
-    provider_session_id = cast(
-        str | None,
-        continuation_facts.provider_session_id,
     )
-    if continuation_service == "claude":
-        _lifecycle_policy_module.policy_for_service(continuation_service).require_auth(
-            request.provider_auth
+    policy.require_auth(request.provider_auth)
+    resumed_outcome = policy.resolve_resumed_session_facts(
+        _lifecycle_policy_module.ResumedSessionFactsInput(
+            runtime_state_dir=runtime_state_dir,
+            provider_state_dir_relpath=continuation_facts.provider_state_dir_relpath,
+            provider_session_id=continuation_facts.provider_session_id,
+            exact_transcript_match=continuation_facts.exact_transcript_match,
+            model=request.model,
+            effort=request.effort,
+            continuation=request.continuation,
         )
-        provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
-        claude_resumed_outcome = _lifecycle_policy_module.policy_for_service(
-            continuation_service
-        ).resolve_resumed_session_facts(
-            _lifecycle_policy_module.ResumedSessionFactsInput(
-                runtime_state_dir=runtime_state_dir,
-                provider_state_dir_relpath=provider_state_dir_relpath,
-                provider_session_id=provider_session_id,
-                exact_transcript_match=None,
-                model=request.model,
-                effort=request.effort,
-            )
-        )
-        provider_state_dir = claude_resumed_outcome.provider_state_dir
-        continuation_input_facts = claude_resumed_outcome.continuation_input_facts
-        provider_session_id = cast(
-            str,
-            cast(
-                _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                continuation_input_facts.provider_session_id,
-            ).value,
-        )
-        run_kind = continuation_input_facts.run_kind
-        cleanup_opencode_state_dir = _no_cleanup
-    else:
-        _lifecycle_policy_module.policy_for_service(continuation_service).require_auth(
-            request.provider_auth
-        )
-        opencode_resumed_outcome = _lifecycle_policy_module.policy_for_service(
-            continuation_service
-        ).resolve_resumed_session_facts(
-            _lifecycle_policy_module.ResumedSessionFactsInput(
-                runtime_state_dir=cast(Path, request.session_store),
-                provider_state_dir_relpath=continuation_facts.provider_state_dir_relpath,
-                provider_session_id=continuation_facts.provider_session_id,
-                exact_transcript_match=continuation_facts.exact_transcript_match,
-                model=request.model,
-                effort=request.effort,
-                continuation=request.continuation,
-            )
-        )
-        provider_state_dir = opencode_resumed_outcome.provider_state_dir
-        continuation_input_facts = opencode_resumed_outcome.continuation_input_facts
-        provider_session_id = cast(
-            str,
-            cast(
-                _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                continuation_input_facts.provider_session_id,
-            ).value,
-        )
-        run_kind = continuation_input_facts.run_kind
-        cleanup_opencode_state_dir = _no_cleanup
-    if continuation_service == "claude":
-        invocation_result = _invoke_with_interruption_continuations(
-            invoke=lambda: dispatch_built_in_provider_session_invocation(
-                service_name="claude",
-                run_kind=run_kind,
-                invocation_dir=request.invocation_dir,
-                prompt=request.prompt,
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                auth=request.provider_auth,
-                provider_state_dir=provider_state_dir,
-                provider_session_id=cast(str, provider_session_id),
-                argv_transform=request.argv_transform,
-                on_live_output=on_live_output,
-                timeout_seconds=request.timeout_seconds,
-                token=request.token,
-                provider_invocation_adapter=invocation_adapter,
-            ),
-            provider_session_id=provider_session_id,
-            build_continuation=lambda resumed_provider_session_id: (
-                _provider_state_resolution.build_session_backed_continuation(
-                    continuation_input_facts,
-                    tool_access=request.tool_access,
-                    provider_session_id=resumed_provider_session_id,
-                )
-            ),
-            fallback_continuation=request.continuation,
-        )
-    else:
-        invocation_result = _invoke_with_interruption_continuations(
-            invoke=lambda: dispatch_built_in_provider_session_invocation(
-                service_name="opencode",
-                run_kind=run_kind,
-                invocation_dir=request.invocation_dir,
-                prompt=request.prompt,
-                model=request.model,
-                effort=request.effort,
-                tool_access=request.tool_access,
-                auth=request.provider_auth,
-                provider_state_dir=provider_state_dir,
-                provider_session_id=cast(str, provider_session_id),
-                argv_transform=request.argv_transform,
-                on_live_output=on_live_output,
-                timeout_seconds=request.timeout_seconds,
-                token=request.token,
-                provider_invocation_adapter=invocation_adapter,
-            ),
-            provider_session_id=provider_session_id,
-            build_continuation=lambda resumed_provider_session_id: (
-                _provider_state_resolution.build_session_backed_continuation(
-                    continuation_input_facts,
-                    tool_access=request.tool_access,
-                    provider_session_id=resumed_provider_session_id,
-                )
-            ),
-            fallback_continuation=request.continuation,
-        )
-    active_provider_session_interpretation = (
-        _lifecycle_policy_module.policy_for_service(
-            continuation_service
-        ).stream_interpretation()
     )
+    provider_state_dir = resumed_outcome.provider_state_dir
+    continuation_input_facts = resumed_outcome.continuation_input_facts
+    provider_session_id: str | None = cast(
+        str,
+        cast(
+            _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
+            continuation_input_facts.provider_session_id,
+        ).value,
+    )
+    run_kind = continuation_input_facts.run_kind
+    invocation_result = _invoke_with_interruption_continuations(
+        invoke=lambda: dispatch_built_in_provider_session_invocation(
+            service_name=continuation_service,
+            run_kind=run_kind,
+            invocation_dir=request.invocation_dir,
+            prompt=request.prompt,
+            model=request.model,
+            effort=request.effort,
+            tool_access=request.tool_access,
+            auth=request.provider_auth,
+            provider_state_dir=provider_state_dir,
+            provider_session_id=cast(str, provider_session_id),
+            argv_transform=request.argv_transform,
+            on_live_output=on_live_output,
+            timeout_seconds=request.timeout_seconds,
+            token=request.token,
+            provider_invocation_adapter=invocation_adapter,
+        ),
+        provider_session_id=provider_session_id,
+        build_continuation=lambda resumed_provider_session_id: (
+            _provider_state_resolution.build_session_backed_continuation(
+                continuation_input_facts,
+                tool_access=request.tool_access,
+                provider_session_id=resumed_provider_session_id,
+            )
+        ),
+        fallback_continuation=request.continuation,
+    )
+    stream_interpretation = policy.stream_interpretation()
     if isinstance(invocation_result, ProviderInvocationFailure):
         provider_session_id = _resolve_active_provider_session_id(
-            stream_interpretation=active_provider_session_interpretation,
+            stream_interpretation=stream_interpretation,
             invocation_result=invocation_result,
             prepared_or_continuation_provider_session_id=provider_session_id,
         )
-        continuation_input_facts = _lifecycle_policy_module.policy_for_service(
-            continuation_service
-        ).refresh_active_session_facts(
+        continuation_input_facts = policy.refresh_active_session_facts(
             continuation_input_facts,
             provider_session_id,
         )
-        failure_error = (
-            _builtin_runtime_client_module._provider_invocation_error_from_failure(
-                continuation_service,
-                invocation_result,
-            )
+        failure_error = _provider_invocation_error_from_failure(
+            continuation_service, policy, invocation_result
         )
         failure_error.continuation = _interruption_continuation(
             provider_work_started=(
@@ -840,32 +480,25 @@ def _run_builtin_resumed_session(
                 )
             ),
         )
-        cleanup_opencode_state_dir()
         raise failure_error
     provider_session_id = _resolve_active_provider_session_id(
-        stream_interpretation=active_provider_session_interpretation,
+        stream_interpretation=stream_interpretation,
         invocation_result=invocation_result,
         prepared_or_continuation_provider_session_id=provider_session_id,
     )
-    continuation_input_facts = _lifecycle_policy_module.policy_for_service(
-        continuation_service
-    ).refresh_active_session_facts(
+    continuation_input_facts = policy.refresh_active_session_facts(
         continuation_input_facts,
         provider_session_id,
     )
     assert provider_session_id is not None
-    result_text = invocation_result.output
-    usage = invocation_result.usage
-    result_continuation = _provider_state_resolution.build_session_backed_continuation(
-        continuation_input_facts,
-        tool_access=request.tool_access,
-        provider_session_id=provider_session_id,
-    )
-    cleanup_opencode_state_dir()
     return _completed_result(
-        output=result_text,
-        usage=usage,
-        continuation=result_continuation,
+        output=invocation_result.output,
+        usage=invocation_result.usage,
+        continuation=_provider_state_resolution.build_session_backed_continuation(
+            continuation_input_facts,
+            tool_access=request.tool_access,
+            provider_session_id=provider_session_id,
+        ),
         service=continuation_service,
         model=request.model,
         effort=request.effort,

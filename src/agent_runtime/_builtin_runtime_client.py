@@ -290,48 +290,6 @@ def _opencode_stream_interpretation(
     )
 
 
-def _provider_invocation_error_from_failure(
-    service_name: str,
-    failure: ProviderInvocationFailure,
-) -> UsageLimitError | ProviderUnavailableError:
-    stream_interpretation = policy_for_service(service_name).stream_interpretation()
-    invocation_progress = (
-        InvocationProgress.STARTED
-        if classify_built_in_provider_invocation_progress(
-            stream_interpretation,
-            list(failure.stdout_lines),
-            provider_session_id=failure.provider_session_id,
-        )
-        is InvocationProgress.STARTED
-        else InvocationProgress.NOT_STARTED
-    )
-    if failure.kind is InvocationFailureKind.USAGE_LIMITED:
-        error: UsageLimitError | ProviderUnavailableError = UsageLimitError(
-            reset_time=cast(datetime | None, failure.reset_time),
-            raw_message=(failure.detail if failure.reset_time is None else None),
-            service_name=service_name,
-            invocation_progress=invocation_progress,
-            usage=failure.usage,
-        )
-    else:
-        error = ProviderUnavailableError(
-            failure.detail,
-            reason=(
-                failure.provider_unavailable_reason
-                or (
-                    ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
-                    if failure.detail == _SERVICE_NOT_AVAILABLE_DETAIL
-                    else ProviderUnavailableReason.TRANSIENT_API_ERROR
-                )
-            ),
-            service_name=service_name,
-            invocation_progress=invocation_progress,
-            usage=failure.usage,
-        )
-    setattr(error, "provider_session_id", failure.provider_session_id)
-    return error
-
-
 def _select_builtin_stage(stage: ProviderSelection) -> ProviderSelection:
     candidate = supported_builtin_provider_selection(stage)
     if candidate is not None:
@@ -599,10 +557,48 @@ def _run_builtin_ephemeral(
     finally:
         cleanup_provider_state_dir()
     if isinstance(invocation_result, ProviderInvocationFailure):
-        raise _provider_invocation_error_from_failure(
-            selected_stage.service,
-            invocation_result,
+        _stream_interp = policy_for_service(
+            selected_stage.service
+        ).stream_interpretation()
+        _invocation_progress = (
+            InvocationProgress.STARTED
+            if classify_built_in_provider_invocation_progress(
+                _stream_interp,
+                list(invocation_result.stdout_lines),
+                provider_session_id=invocation_result.provider_session_id,
+            )
+            is InvocationProgress.STARTED
+            else InvocationProgress.NOT_STARTED
         )
+        if invocation_result.kind is InvocationFailureKind.USAGE_LIMITED:
+            _error: UsageLimitError | ProviderUnavailableError = UsageLimitError(
+                reset_time=cast(datetime | None, invocation_result.reset_time),
+                raw_message=(
+                    invocation_result.detail
+                    if invocation_result.reset_time is None
+                    else None
+                ),
+                service_name=selected_stage.service,
+                invocation_progress=_invocation_progress,
+                usage=invocation_result.usage,
+            )
+        else:
+            _error = ProviderUnavailableError(
+                invocation_result.detail,
+                reason=(
+                    invocation_result.provider_unavailable_reason
+                    or (
+                        ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
+                        if invocation_result.detail == _SERVICE_NOT_AVAILABLE_DETAIL
+                        else ProviderUnavailableReason.TRANSIENT_API_ERROR
+                    )
+                ),
+                service_name=selected_stage.service,
+                invocation_progress=_invocation_progress,
+                usage=invocation_result.usage,
+            )
+        setattr(_error, "provider_session_id", invocation_result.provider_session_id)
+        raise _error
     result_text = invocation_result.output
     usage = invocation_result.usage
     return RunResult(
