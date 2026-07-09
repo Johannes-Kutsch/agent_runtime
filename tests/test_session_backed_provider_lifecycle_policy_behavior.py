@@ -7,12 +7,15 @@ import pytest
 from agent_runtime._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
 )
+from agent_runtime._runtime_lifecycle import ProviderAuth
 from agent_runtime._session_backed_provider_lifecycle_policy import policy_for_service
 from agent_runtime.errors import (
+    AgentCredentialFailureError,
     ContinuationUnrecoverableError,
     RuntimeConfigurationError,
     UsageLimitError,
 )
+from agent_runtime.types import ProviderSelection
 
 
 def test_policy_for_service_returns_claude_stream_interpretation() -> None:
@@ -81,3 +84,114 @@ def test_policy_for_service_raises_for_any_unrecognized_service_name(
 ) -> None:
     with pytest.raises(RuntimeConfigurationError):
         policy_for_service(service_name)
+
+
+# validate_stage tests
+
+
+def test_claude_policy_validate_stage_raises_for_unsupported_model() -> None:
+    selection = ProviderSelection(service="claude", model="gpt-5.5", effort="medium")
+    with pytest.raises(RuntimeConfigurationError, match="Unsupported Claude model"):
+        policy_for_service("claude").validate_stage(selection)
+
+
+def test_claude_policy_validate_stage_raises_for_unsupported_effort() -> None:
+    selection = ProviderSelection(service="claude", model="sonnet", effort="turbo")
+    with pytest.raises(RuntimeConfigurationError, match="Unsupported Claude effort"):
+        policy_for_service("claude").validate_stage(selection)
+
+
+def test_claude_policy_validate_stage_passes_for_valid_selection() -> None:
+    selection = ProviderSelection(service="claude", model="sonnet", effort="medium")
+    policy_for_service("claude").validate_stage(selection)
+
+
+def test_codex_policy_validate_stage_raises_for_unsupported_model() -> None:
+    selection = ProviderSelection(
+        service="codex", model="claude-sonnet", effort="medium"
+    )
+    with pytest.raises(RuntimeConfigurationError, match="Unsupported Codex model"):
+        policy_for_service("codex").validate_stage(selection)
+
+
+def test_codex_policy_validate_stage_raises_for_unsupported_effort() -> None:
+    selection = ProviderSelection(service="codex", model="gpt-5.5", effort="max")
+    with pytest.raises(RuntimeConfigurationError, match="Unsupported Codex effort"):
+        policy_for_service("codex").validate_stage(selection)
+
+
+def test_codex_policy_validate_stage_passes_for_valid_selection() -> None:
+    selection = ProviderSelection(service="codex", model="gpt-5.5", effort="medium")
+    policy_for_service("codex").validate_stage(selection)
+
+
+def test_opencode_policy_validate_stage_raises_for_unsupported_model() -> None:
+    selection = ProviderSelection(service="opencode", model="gpt-5.5", effort="medium")
+    with pytest.raises(RuntimeConfigurationError, match="Unsupported OpenCode model"):
+        policy_for_service("opencode").validate_stage(selection)
+
+
+def test_opencode_policy_validate_stage_raises_for_unsupported_effort() -> None:
+    selection = ProviderSelection(service="opencode", model="kimi-k2.6", effort="high")
+    with pytest.raises(RuntimeConfigurationError, match="Unsupported OpenCode effort"):
+        policy_for_service("opencode").validate_stage(selection)
+
+
+def test_opencode_policy_validate_stage_passes_for_valid_selection() -> None:
+    selection = ProviderSelection(
+        service="opencode", model="kimi-k2.6", effort="medium"
+    )
+    policy_for_service("opencode").validate_stage(selection)
+
+
+# require_auth tests
+
+
+def test_claude_policy_require_auth_raises_when_auth_is_none() -> None:
+    with pytest.raises(
+        AgentCredentialFailureError, match="Missing Claude Code OAuth token"
+    ) as exc_info:
+        policy_for_service("claude").require_auth(None)
+    assert exc_info.value.service_name == "claude"
+
+
+def test_claude_policy_require_auth_raises_when_token_is_missing() -> None:
+    with pytest.raises(
+        AgentCredentialFailureError, match="Missing Claude Code OAuth token"
+    ):
+        policy_for_service("claude").require_auth(
+            ProviderAuth(claude_code_oauth_token=None)
+        )
+
+
+def test_claude_policy_require_auth_passes_with_valid_token() -> None:
+    policy_for_service("claude").require_auth(
+        ProviderAuth(claude_code_oauth_token="tok-abc")
+    )
+
+
+def test_codex_policy_require_auth_is_noop_for_none() -> None:
+    policy_for_service("codex").require_auth(None)
+
+
+def test_codex_policy_require_auth_is_noop_for_any_auth_value() -> None:
+    policy_for_service("codex").require_auth(ProviderAuth())
+
+
+def test_opencode_policy_require_auth_raises_when_auth_is_none() -> None:
+    with pytest.raises(
+        AgentCredentialFailureError, match="Missing OpenCode API key"
+    ) as exc_info:
+        policy_for_service("opencode").require_auth(None)
+    assert exc_info.value.service_name == "opencode"
+
+
+def test_opencode_policy_require_auth_raises_when_key_is_missing() -> None:
+    with pytest.raises(AgentCredentialFailureError, match="Missing OpenCode API key"):
+        policy_for_service("opencode").require_auth(ProviderAuth(opencode_api_key=None))
+
+
+def test_opencode_policy_require_auth_passes_with_valid_key() -> None:
+    policy_for_service("opencode").require_auth(
+        ProviderAuth(opencode_api_key="key-xyz")
+    )
