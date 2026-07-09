@@ -16,12 +16,22 @@ from agent_runtime._session_backed_provider_lifecycle_policy import (
     ResumedSessionFactsResult,
     policy_for_service,
 )
+from agent_runtime._session_backed_provider_state_resolution import (
+    ContinuationInputFacts,
+    ExactTranscriptMatch,
+    PreparedOrRecoveredProviderSessionId,
+    ProviderIdentity,
+    ProviderStateDirectory,
+    load_opencode_stored_session_id,
+    opencode_continuation_input_facts,
+)
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     ContinuationUnrecoverableError,
     RuntimeConfigurationError,
     UsageLimitError,
 )
+from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection
 
 
@@ -326,3 +336,158 @@ def test_codex_policy_resolve_resumed_session_facts_skips_auth_check_when_relpat
         )
     )
     assert isinstance(result, ResumedSessionFactsResult)
+
+
+# refresh_active_session_facts tests
+
+
+@pytest.fixture
+def minimal_continuation_input_facts(tmp_path: Path) -> ContinuationInputFacts:
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+    return ContinuationInputFacts(
+        provider_identity=ProviderIdentity(
+            service="opencode", model="kimi-k2.6", effort="medium"
+        ),
+        provider_state_directory=ProviderStateDirectory(path=provider_state_dir),
+        provider_state_relpath=None,
+        provider_session_id=PreparedOrRecoveredProviderSessionId(
+            value="prepared-session-id", recovered=False
+        ),
+        run_kind=RunKind.FRESH,
+        exact_transcript_match=None,
+    )
+
+
+def test_claude_policy_refresh_active_session_facts_returns_input_unchanged(
+    minimal_continuation_input_facts: ContinuationInputFacts,
+) -> None:
+    result = policy_for_service("claude").refresh_active_session_facts(
+        minimal_continuation_input_facts, "obs-session-id"
+    )
+    assert result is minimal_continuation_input_facts
+
+
+def test_claude_policy_refresh_active_session_facts_returns_input_unchanged_when_session_id_is_none(
+    minimal_continuation_input_facts: ContinuationInputFacts,
+) -> None:
+    result = policy_for_service("claude").refresh_active_session_facts(
+        minimal_continuation_input_facts, None
+    )
+    assert result is minimal_continuation_input_facts
+
+
+def test_codex_policy_refresh_active_session_facts_returns_input_unchanged(
+    minimal_continuation_input_facts: ContinuationInputFacts,
+) -> None:
+    result = policy_for_service("codex").refresh_active_session_facts(
+        minimal_continuation_input_facts, "obs-session-id"
+    )
+    assert result is minimal_continuation_input_facts
+
+
+def test_codex_policy_refresh_active_session_facts_returns_input_unchanged_when_session_id_is_none(
+    minimal_continuation_input_facts: ContinuationInputFacts,
+) -> None:
+    result = policy_for_service("codex").refresh_active_session_facts(
+        minimal_continuation_input_facts, None
+    )
+    assert result is minimal_continuation_input_facts
+
+
+def test_opencode_policy_refresh_active_session_facts_returns_input_unchanged_when_session_id_is_none(
+    minimal_continuation_input_facts: ContinuationInputFacts,
+) -> None:
+    result = policy_for_service("opencode").refresh_active_session_facts(
+        minimal_continuation_input_facts, None
+    )
+    assert result is minimal_continuation_input_facts
+
+
+def test_opencode_policy_refresh_active_session_facts_persists_observed_session_id(
+    tmp_path: Path,
+) -> None:
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+    facts = opencode_continuation_input_facts(
+        model="kimi-k2.6",
+        effort="medium",
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=None,
+        provider_session_id="prepared-session-id",
+        run_kind=RunKind.FRESH,
+        exact_transcript_match=False,
+    )
+
+    policy_for_service("opencode").refresh_active_session_facts(
+        facts, "observed-session-id"
+    )
+
+    assert load_opencode_stored_session_id(provider_state_dir) == "observed-session-id"
+
+
+def test_opencode_policy_refresh_active_session_facts_updates_provider_session_id_in_returned_facts(
+    tmp_path: Path,
+) -> None:
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+    facts = opencode_continuation_input_facts(
+        model="kimi-k2.6",
+        effort="medium",
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=None,
+        provider_session_id="prepared-session-id",
+        run_kind=RunKind.FRESH,
+        exact_transcript_match=False,
+    )
+
+    result = policy_for_service("opencode").refresh_active_session_facts(
+        facts, "observed-session-id"
+    )
+
+    assert result.provider_session_id is not None
+    assert result.provider_session_id.value == "observed-session-id"
+
+
+def test_opencode_policy_refresh_active_session_facts_marks_exact_transcript_match_when_observed_matches_prepared(
+    tmp_path: Path,
+) -> None:
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+    facts = opencode_continuation_input_facts(
+        model="kimi-k2.6",
+        effort="medium",
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=None,
+        provider_session_id="same-session-id",
+        run_kind=RunKind.RESUME,
+        exact_transcript_match=True,
+    )
+
+    result = policy_for_service("opencode").refresh_active_session_facts(
+        facts, "same-session-id"
+    )
+
+    assert result.exact_transcript_match == ExactTranscriptMatch(value=True)
+
+
+def test_opencode_policy_refresh_active_session_facts_clears_exact_transcript_match_when_observed_differs_from_prepared(
+    tmp_path: Path,
+) -> None:
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+    facts = opencode_continuation_input_facts(
+        model="kimi-k2.6",
+        effort="medium",
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=None,
+        provider_session_id="prepared-session-id",
+        run_kind=RunKind.RESUME,
+        exact_transcript_match=True,
+    )
+
+    result = policy_for_service("opencode").refresh_active_session_facts(
+        facts, "different-observed-session-id"
+    )
+
+    assert result.exact_transcript_match == ExactTranscriptMatch(value=False)
