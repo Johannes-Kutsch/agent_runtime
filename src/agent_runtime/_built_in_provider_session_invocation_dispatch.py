@@ -5,12 +5,13 @@ from typing import Callable
 
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from ._builtin_runtime_client import (
-    _claude_stream_interpretation,
-    _codex_stream_interpretation,
     _execute_rendered_provider_invocation,
     _opencode_stream_interpretation,
     _with_observed_output,
     _with_session_timeout_state,
+)
+from ._session_backed_provider_lifecycle_policy import (
+    policy_for_service as _policy_for_service,
 )
 from ._provider_invocation import (
     ProviderInvocationAdapter,
@@ -139,12 +140,12 @@ def _dispatch_claude(
         )
     )
     stream_interpretation = _with_observed_output(
-        _claude_stream_interpretation(),
+        _policy_for_service("claude").stream_interpretation(),
         on_live_output,
     )
     stream_interpretation, timeout_state = _with_session_timeout_state(
         stream_interpretation,
-        tracking_interpretation=_claude_stream_interpretation(),
+        tracking_interpretation=_policy_for_service("claude").stream_interpretation(),
         fallback_provider_session_id=provider_session_id,
     )
     try:
@@ -187,12 +188,12 @@ def _dispatch_codex(
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
     stream_interpretation = _with_observed_output(
-        _codex_stream_interpretation(),
+        _policy_for_service("codex").stream_interpretation(),
         on_live_output,
     )
     stream_interpretation, timeout_state = _with_session_timeout_state(
         stream_interpretation,
-        tracking_interpretation=_codex_stream_interpretation(),
+        tracking_interpretation=_policy_for_service("codex").stream_interpretation(),
         fallback_provider_session_id=provider_session_id,
     )
     rendered = _builtin_provider_rendering_module._render_codex_invocation(

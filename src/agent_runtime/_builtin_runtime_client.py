@@ -13,8 +13,6 @@ from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
     resolve_built_in_provider_session_id,
     classify_built_in_provider_invocation_progress,
-    claude_built_in_provider_stream_interpretation,
-    codex_built_in_provider_stream_interpretation,
     emit_built_in_provider_live_output_event,
     opencode_lifecycle_built_in_provider_stream_interpretation,
     opencode_built_in_provider_stream_interpretation,
@@ -56,6 +54,7 @@ from .errors import (
 from .invocation_progress import InvocationProgress
 from .session import RunKind
 from .types import ProviderSelection
+from ._session_backed_provider_lifecycle_policy import policy_for_service
 
 _log = logging.getLogger(__name__)
 subprocess = _subprocess
@@ -295,14 +294,6 @@ def _missing_codex_auth_error() -> AgentCredentialFailureError:
     return _builtin_provider_rendering_module._missing_codex_auth_error()
 
 
-def _claude_stream_interpretation() -> BuiltInProviderStreamInterpretation:
-    return claude_built_in_provider_stream_interpretation()
-
-
-def _codex_stream_interpretation() -> BuiltInProviderStreamInterpretation:
-    return codex_built_in_provider_stream_interpretation()
-
-
 def _opencode_stream_interpretation(
     *,
     on_live_output: Callable[[AgentEvent], None] | None = None,
@@ -329,25 +320,11 @@ def _opencode_stream_interpretation(
     )
 
 
-def _stream_interpretation_for_service(
-    service_name: str,
-) -> BuiltInProviderStreamInterpretation:
-    if service_name == "claude":
-        return _claude_stream_interpretation()
-    if service_name == "codex":
-        return _codex_stream_interpretation()
-    if service_name == "opencode":
-        return _opencode_stream_interpretation()
-    raise RuntimeConfigurationError(
-        "RuntimeClient session-backed execution is only implemented for Claude, Codex, and OpenCode."
-    )
-
-
 def _provider_invocation_error_from_failure(
     service_name: str,
     failure: ProviderInvocationFailure,
 ) -> UsageLimitError | ProviderUnavailableError:
-    stream_interpretation = _stream_interpretation_for_service(service_name)
+    stream_interpretation = policy_for_service(service_name).stream_interpretation()
     invocation_progress = (
         InvocationProgress.STARTED
         if classify_built_in_provider_invocation_progress(
@@ -618,7 +595,7 @@ def _run_builtin_ephemeral(
             )
             stream_interpretation = _with_observed_output(
                 _with_reduce_output(
-                    _codex_stream_interpretation(),
+                    policy_for_service("codex").stream_interpretation(),
                     lambda lines: reduce_codex_stream(lines, None),
                 ),
                 request.on_live_output,
@@ -631,7 +608,7 @@ def _run_builtin_ephemeral(
         else:
             stream_interpretation = _with_observed_output(
                 _with_reduce_output(
-                    _claude_stream_interpretation(),
+                    policy_for_service("claude").stream_interpretation(),
                     lambda lines: reduce_claude_stream(lines, None),
                 ),
                 request.on_live_output,

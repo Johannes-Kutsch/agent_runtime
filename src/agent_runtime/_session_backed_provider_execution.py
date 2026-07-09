@@ -6,6 +6,7 @@ from typing import Any, Callable, TypeVar, cast
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from . import _session_backed_provider_state_resolution as _provider_state_resolution
+from . import _session_backed_provider_lifecycle_policy as _lifecycle_policy_module
 from ._built_in_provider_session_invocation_dispatch import (
     dispatch_built_in_provider_session_invocation,
 )
@@ -276,7 +277,9 @@ def _run_builtin_new_session(
             if isinstance(invocation_result, ProviderInvocationFailure):
                 provider_session_id = _resolve_active_provider_session_id(
                     stream_interpretation=(
-                        _builtin_runtime_client_module._codex_stream_interpretation()
+                        _lifecycle_policy_module.policy_for_service(
+                            "codex"
+                        ).stream_interpretation()
                     ),
                     invocation_result=invocation_result,
                     prepared_or_continuation_provider_session_id=provider_session_id,
@@ -302,7 +305,9 @@ def _run_builtin_new_session(
             else:
                 provider_session_id = _resolve_active_provider_session_id(
                     stream_interpretation=(
-                        _builtin_runtime_client_module._codex_stream_interpretation()
+                        _lifecycle_policy_module.policy_for_service(
+                            "codex"
+                        ).stream_interpretation()
                     ),
                     invocation_result=invocation_result,
                     prepared_or_continuation_provider_session_id=None,
@@ -449,11 +454,9 @@ def _run_builtin_new_session(
                     )
                 ),
             )
-        stream_interpretation = (
-            _builtin_runtime_client_module._stream_interpretation_for_service(
-                selected_stage.service
-            )
-        )
+        stream_interpretation = _lifecycle_policy_module.policy_for_service(
+            selected_stage.service
+        ).stream_interpretation()
         if isinstance(invocation_result, ProviderInvocationFailure):
             provider_session_id = _resolve_active_provider_session_id(
                 stream_interpretation=stream_interpretation,
@@ -628,7 +631,9 @@ def _run_builtin_resumed_session(
         if isinstance(invocation_result, ProviderInvocationFailure):
             active_provider_session_id = _resolve_active_provider_session_id(
                 stream_interpretation=(
-                    _builtin_runtime_client_module._codex_stream_interpretation()
+                    _lifecycle_policy_module.policy_for_service(
+                        "codex"
+                    ).stream_interpretation()
                 ),
                 invocation_result=invocation_result,
                 prepared_or_continuation_provider_session_id=(
@@ -658,7 +663,9 @@ def _run_builtin_resumed_session(
         else:
             active_provider_session_id = _resolve_active_provider_session_id(
                 stream_interpretation=(
-                    _builtin_runtime_client_module._codex_stream_interpretation()
+                    _lifecycle_policy_module.policy_for_service(
+                        "codex"
+                    ).stream_interpretation()
                 ),
                 invocation_result=invocation_result,
                 prepared_or_continuation_provider_session_id=provider_session_id,
@@ -793,9 +800,9 @@ def _run_builtin_resumed_session(
             fallback_continuation=request.continuation,
         )
     active_provider_session_interpretation = (
-        _builtin_runtime_client_module._stream_interpretation_for_service(
+        _lifecycle_policy_module.policy_for_service(
             continuation_service
-        )
+        ).stream_interpretation()
     )
     if isinstance(invocation_result, ProviderInvocationFailure):
         provider_session_id = _resolve_active_provider_session_id(
