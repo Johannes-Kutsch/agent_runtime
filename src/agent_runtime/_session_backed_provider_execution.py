@@ -208,28 +208,22 @@ def _run_builtin_new_session(
             _lifecycle_policy_module.policy_for_service(
                 selected_stage.service
             ).validate_stage(selected_stage)
-            host_auth_path = _builtin_runtime_client_module._codex_host_auth_path()
-            if not host_auth_path.exists():
-                raise _builtin_runtime_client_module._missing_codex_auth_error()
-            codex_resolution = (
-                _provider_state_resolution.resolve_codex_new_session_facts(
-                    runtime_state_dir=runtime_state_dir,
-                    caller_owned_session_store=is_caller_managed_runtime_state,
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                    host_auth_path=host_auth_path,
-                )
+            codex_outcome = _lifecycle_policy_module.policy_for_service(
+                selected_stage.service
+            ).resolve_new_session_facts(
+                runtime_state_dir,
+                is_caller_managed_runtime_state,
+                selected_stage.model,
+                selected_stage.effort,
             )
-            provider_state_dir = codex_resolution.provider_state_dir
-            continuation_input_facts = codex_resolution.continuation_input_facts
-            if continuation_input_facts.run_kind is RunKind.RESUME:
+            if isinstance(codex_outcome, _lifecycle_policy_module.NewSessionRedirect):
                 return _run_builtin_resumed_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
                         prompt=request.prompt,
                         invocation_dir=request.invocation_dir,
                         session_store=runtime_state_dir,
                         continuation=_provider_state_resolution.build_session_backed_continuation(
-                            continuation_input_facts,
+                            codex_outcome.continuation_input_facts,
                             tool_access=request.tool_access,
                         ),
                         provider_auth=selected_stage_auth,
@@ -241,6 +235,8 @@ def _run_builtin_new_session(
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
                 )
+            provider_state_dir = codex_outcome.provider_state_dir
+            continuation_input_facts = codex_outcome.continuation_input_facts
             provider_session_id: str | None = None
             codex_continuation_input_facts = continuation_input_facts
             invocation_result = _invoke_with_interruption_continuations(
@@ -327,17 +323,15 @@ def _run_builtin_new_session(
                 effort=selected_stage.effort,
             )
         elif selected_stage.service == "claude":
-            claude_resolution = (
-                _provider_state_resolution.resolve_claude_new_session_facts(
-                    runtime_state_dir=runtime_state_dir,
-                    caller_owned_session_store=is_caller_managed_runtime_state,
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                )
+            claude_outcome = _lifecycle_policy_module.policy_for_service(
+                selected_stage.service
+            ).resolve_new_session_facts(
+                runtime_state_dir,
+                is_caller_managed_runtime_state,
+                selected_stage.model,
+                selected_stage.effort,
             )
-            provider_state_dir = claude_resolution.provider_state_dir
-            continuation_input_facts = claude_resolution.continuation_input_facts
-            if continuation_input_facts.run_kind is RunKind.RESUME:
+            if isinstance(claude_outcome, _lifecycle_policy_module.NewSessionRedirect):
                 return _run_builtin_resumed_session(
                     _builtin_runtime_client_module.ResumedSessionRunRequest(
                         prompt=request.prompt,
@@ -347,7 +341,7 @@ def _run_builtin_new_session(
                         timeout_seconds=0,
                         argv_transform=request.argv_transform,
                         continuation=_provider_state_resolution.build_session_backed_continuation(
-                            continuation_input_facts,
+                            claude_outcome.continuation_input_facts,
                             tool_access=request.tool_access,
                         ),
                         provider_auth=selected_stage_auth,
@@ -356,6 +350,8 @@ def _run_builtin_new_session(
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
                 )
+            provider_state_dir = claude_outcome.provider_state_dir
+            continuation_input_facts = claude_outcome.continuation_input_facts
             _lifecycle_policy_module.policy_for_service(
                 selected_stage.service
             ).validate_stage(selected_stage)
@@ -363,22 +359,25 @@ def _run_builtin_new_session(
                 selected_stage.service
             ).require_auth(selected_stage_auth)
         elif selected_stage.service == "opencode":
-            opencode_resolution = (
-                _provider_state_resolution.resolve_opencode_new_session_facts(
-                    runtime_state_dir=runtime_state_dir,
-                    caller_owned_session_store=is_caller_managed_runtime_state,
-                    model=selected_stage.model,
-                    effort=selected_stage.effort,
-                )
+            opencode_outcome = _lifecycle_policy_module.policy_for_service(
+                selected_stage.service
+            ).resolve_new_session_facts(
+                runtime_state_dir,
+                is_caller_managed_runtime_state,
+                selected_stage.model,
+                selected_stage.effort,
             )
-            provider_state_dir = opencode_resolution.provider_state_dir
+            assert isinstance(
+                opencode_outcome, _lifecycle_policy_module.NewSessionFactsResult
+            )
+            provider_state_dir = opencode_outcome.provider_state_dir
             _lifecycle_policy_module.policy_for_service(
                 selected_stage.service
             ).validate_stage(selected_stage)
             _lifecycle_policy_module.policy_for_service(
                 selected_stage.service
             ).require_auth(selected_stage_auth)
-            continuation_input_facts = opencode_resolution.continuation_input_facts
+            continuation_input_facts = opencode_outcome.continuation_input_facts
             provider_session_id = cast(
                 str,
                 cast(
@@ -583,21 +582,20 @@ def _run_builtin_resumed_session(
         )
         provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
         provider_session_id = continuation_facts.provider_session_id
-        host_auth_path = _builtin_runtime_client_module._codex_host_auth_path()
-        if provider_state_dir_relpath is not None and not host_auth_path.exists():
-            raise _builtin_runtime_client_module._missing_codex_auth_error()
-        codex_resolution = (
-            _provider_state_resolution.resolve_codex_resumed_session_facts(
+        codex_resumed_outcome = _lifecycle_policy_module.policy_for_service(
+            continuation_service
+        ).resolve_resumed_session_facts(
+            _lifecycle_policy_module.ResumedSessionFactsInput(
                 runtime_state_dir=runtime_state_dir,
                 provider_state_dir_relpath=provider_state_dir_relpath,
+                provider_session_id=provider_session_id,
+                exact_transcript_match=None,
                 model=request.model,
                 effort=request.effort,
-                provider_session_id=provider_session_id,
-                host_auth_path=host_auth_path,
             )
         )
-        provider_state_dir = codex_resolution.provider_state_dir
-        continuation_input_facts = codex_resolution.continuation_input_facts
+        provider_state_dir = codex_resumed_outcome.provider_state_dir
+        continuation_input_facts = codex_resumed_outcome.continuation_input_facts
         provider_session_id = cast(
             str,
             cast(
@@ -708,17 +706,20 @@ def _run_builtin_resumed_session(
             request.provider_auth
         )
         provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
-        claude_resolution = (
-            _provider_state_resolution.resolve_claude_resumed_session_facts(
+        claude_resumed_outcome = _lifecycle_policy_module.policy_for_service(
+            continuation_service
+        ).resolve_resumed_session_facts(
+            _lifecycle_policy_module.ResumedSessionFactsInput(
                 runtime_state_dir=runtime_state_dir,
                 provider_state_dir_relpath=provider_state_dir_relpath,
+                provider_session_id=provider_session_id,
+                exact_transcript_match=None,
                 model=request.model,
                 effort=request.effort,
-                provider_session_id=provider_session_id,
             )
         )
-        provider_state_dir = claude_resolution.provider_state_dir
-        continuation_input_facts = claude_resolution.continuation_input_facts
+        provider_state_dir = claude_resumed_outcome.provider_state_dir
+        continuation_input_facts = claude_resumed_outcome.continuation_input_facts
         provider_session_id = cast(
             str,
             cast(
@@ -732,16 +733,21 @@ def _run_builtin_resumed_session(
         _lifecycle_policy_module.policy_for_service(continuation_service).require_auth(
             request.provider_auth
         )
-        opencode_resolution = (
-            _provider_state_resolution.resolve_opencode_resumed_session_facts(
+        opencode_resumed_outcome = _lifecycle_policy_module.policy_for_service(
+            continuation_service
+        ).resolve_resumed_session_facts(
+            _lifecycle_policy_module.ResumedSessionFactsInput(
                 runtime_state_dir=cast(Path, request.session_store),
-                continuation=cast(Continuation, request.continuation),
+                provider_state_dir_relpath=continuation_facts.provider_state_dir_relpath,
+                provider_session_id=continuation_facts.provider_session_id,
+                exact_transcript_match=continuation_facts.exact_transcript_match,
                 model=request.model,
                 effort=request.effort,
+                continuation=request.continuation,
             )
         )
-        provider_state_dir = opencode_resolution.provider_state_dir
-        continuation_input_facts = opencode_resolution.continuation_input_facts
+        provider_state_dir = opencode_resumed_outcome.provider_state_dir
+        continuation_input_facts = opencode_resumed_outcome.continuation_input_facts
         provider_session_id = cast(
             str,
             cast(
