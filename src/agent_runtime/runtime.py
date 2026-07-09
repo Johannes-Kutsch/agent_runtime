@@ -89,8 +89,6 @@ for _runtime_export in (
 ):
     _runtime_export.__module__ = __name__
 
-_validate_claude_stage = _builtin_runtime_client_module._validate_claude_stage
-_validate_opencode_stage = _builtin_runtime_client_module._validate_opencode_stage
 _select_builtin_stage = _builtin_runtime_client_module._select_builtin_stage
 _supported_builtin_provider_selection = (
     _builtin_runtime_client_module.supported_builtin_provider_selection

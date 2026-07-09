@@ -91,36 +91,6 @@ def supported_builtin_provider_selection(
     return None
 
 
-def _validate_claude_stage(stage: ProviderSelection) -> None:
-    _builtin_provider_rendering_module._validate_claude_selection(
-        _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-            service=stage.service,
-            model=stage.model,
-            effort=stage.effort,
-        )
-    )
-
-
-def _validate_codex_stage(stage: ProviderSelection) -> None:
-    _builtin_provider_rendering_module._validate_codex_selection(
-        _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-            service=stage.service,
-            model=stage.model,
-            effort=stage.effort,
-        )
-    )
-
-
-def _validate_opencode_stage(stage: ProviderSelection) -> None:
-    _builtin_provider_rendering_module._validate_opencode_selection(
-        _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-            service=stage.service,
-            model=stage.model,
-            effort=stage.effort,
-        )
-    )
-
-
 class _ObservedOutputReducer:
     __slots__ = ("reduce_output", "consume_stdout_lines")
 
@@ -657,10 +627,6 @@ def _new_session_runtime_state_dir(
         return runtime_state_dir, lambda: None, True
     temp_dir = tempfile.TemporaryDirectory(prefix=f"{context}-provider-state-")
     return Path(temp_dir.name), temp_dir.cleanup, False
-
-
-def _require_opencode_auth(auth: ProviderAuth | None) -> None:
-    _builtin_provider_rendering_module._require_opencode_auth(auth)
 
 
 def _selection_auth(selection: ProviderSelection) -> ProviderAuth | None:

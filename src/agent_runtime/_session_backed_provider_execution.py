@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar, cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
-from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from . import _session_backed_provider_state_resolution as _provider_state_resolution
 from . import _session_backed_provider_lifecycle_policy as _lifecycle_policy_module
 from ._built_in_provider_session_invocation_dispatch import (
@@ -19,7 +18,6 @@ from ._provider_invocation import (
 from ._runtime_lifecycle import (
     Continuation,
     NewSessionRunRequest,
-    ProviderAuth,
     ProviderUsage,
     ResumedSessionRunRequest,
     RunResult,
@@ -29,10 +27,6 @@ from .errors import AgentCancelledError, AgentTimeoutError
 from .invocation_progress import InvocationProgress
 from .session import RunKind
 from .types import ProviderSelection, ResolvedProvider
-
-
-def _require_claude_auth(auth: ProviderAuth | None) -> None:
-    _builtin_provider_rendering_module._require_claude_auth(auth)
 
 
 def _resolve_active_provider_session_id(
@@ -211,7 +205,9 @@ def _run_builtin_new_session(
         ) = None
 
         if selected_stage.service == "codex":
-            _builtin_runtime_client_module._validate_codex_stage(selected_stage)
+            _lifecycle_policy_module.policy_for_service(
+                selected_stage.service
+            ).validate_stage(selected_stage)
             host_auth_path = _builtin_runtime_client_module._codex_host_auth_path()
             if not host_auth_path.exists():
                 raise _builtin_runtime_client_module._missing_codex_auth_error()
@@ -360,8 +356,12 @@ def _run_builtin_new_session(
                     provider_invocation_adapter=invocation_adapter,
                     on_live_output=on_live_output,
                 )
-            _builtin_runtime_client_module._validate_claude_stage(selected_stage)
-            _require_claude_auth(selected_stage_auth)
+            _lifecycle_policy_module.policy_for_service(
+                selected_stage.service
+            ).validate_stage(selected_stage)
+            _lifecycle_policy_module.policy_for_service(
+                selected_stage.service
+            ).require_auth(selected_stage_auth)
         elif selected_stage.service == "opencode":
             opencode_resolution = (
                 _provider_state_resolution.resolve_opencode_new_session_facts(
@@ -372,8 +372,12 @@ def _run_builtin_new_session(
                 )
             )
             provider_state_dir = opencode_resolution.provider_state_dir
-            _builtin_runtime_client_module._validate_opencode_stage(selected_stage)
-            _builtin_runtime_client_module._require_opencode_auth(selected_stage_auth)
+            _lifecycle_policy_module.policy_for_service(
+                selected_stage.service
+            ).validate_stage(selected_stage)
+            _lifecycle_policy_module.policy_for_service(
+                selected_stage.service
+            ).require_auth(selected_stage_auth)
             continuation_input_facts = opencode_resolution.continuation_input_facts
             provider_session_id = cast(
                 str,
@@ -568,7 +572,9 @@ def _run_builtin_resumed_session(
         return None
 
     if continuation_service == "codex":
-        _builtin_runtime_client_module._validate_codex_stage(
+        _lifecycle_policy_module.policy_for_service(
+            continuation_service
+        ).validate_stage(
             ProviderSelection(
                 service="codex",
                 model=request.model,
@@ -698,7 +704,9 @@ def _run_builtin_resumed_session(
         continuation_facts.provider_session_id,
     )
     if continuation_service == "claude":
-        _require_claude_auth(request.provider_auth)
+        _lifecycle_policy_module.policy_for_service(continuation_service).require_auth(
+            request.provider_auth
+        )
         provider_state_dir_relpath = continuation_facts.provider_state_dir_relpath
         claude_resolution = (
             _provider_state_resolution.resolve_claude_resumed_session_facts(
@@ -721,7 +729,9 @@ def _run_builtin_resumed_session(
         run_kind = continuation_input_facts.run_kind
         cleanup_opencode_state_dir = _no_cleanup
     else:
-        _builtin_runtime_client_module._require_opencode_auth(request.provider_auth)
+        _lifecycle_policy_module.policy_for_service(continuation_service).require_auth(
+            request.provider_auth
+        )
         opencode_resolution = (
             _provider_state_resolution.resolve_opencode_resumed_session_facts(
                 runtime_state_dir=cast(Path, request.session_store),
