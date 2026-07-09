@@ -57,6 +57,7 @@ class SessionBackedProviderLifecyclePolicy:
         "_require_auth_fn",
         "_resolve_new_session_facts_fn",
         "_resolve_resumed_session_facts_fn",
+        "_refresh_active_session_facts_fn",
     )
 
     def __init__(
@@ -70,12 +71,17 @@ class SessionBackedProviderLifecyclePolicy:
         resolve_resumed_session_facts_fn: Callable[
             [ResumedSessionFactsInput], ResumedSessionFactsResult
         ],
+        refresh_active_session_facts_fn: Callable[
+            [_state_res_module.ContinuationInputFacts, str | None],
+            _state_res_module.ContinuationInputFacts,
+        ],
     ) -> None:
         self._stream_interpretation_fn = stream_interpretation_fn
         self._validate_stage_fn = validate_stage_fn
         self._require_auth_fn = require_auth_fn
         self._resolve_new_session_facts_fn = resolve_new_session_facts_fn
         self._resolve_resumed_session_facts_fn = resolve_resumed_session_facts_fn
+        self._refresh_active_session_facts_fn = refresh_active_session_facts_fn
 
     def stream_interpretation(self) -> BuiltInProviderStreamInterpretation:
         return self._stream_interpretation_fn()
@@ -102,6 +108,15 @@ class SessionBackedProviderLifecyclePolicy:
         inp: ResumedSessionFactsInput,
     ) -> ResumedSessionFactsResult:
         return self._resolve_resumed_session_facts_fn(inp)
+
+    def refresh_active_session_facts(
+        self,
+        continuation_input_facts: _state_res_module.ContinuationInputFacts,
+        provider_session_id: str | None,
+    ) -> _state_res_module.ContinuationInputFacts:
+        return self._refresh_active_session_facts_fn(
+            continuation_input_facts, provider_session_id
+        )
 
 
 def _claude_validate_stage(selection: ProviderSelection) -> None:
@@ -269,12 +284,32 @@ def _opencode_resolve_resumed_session_facts(
     )
 
 
+def _noop_refresh_active_session_facts(
+    continuation_input_facts: _state_res_module.ContinuationInputFacts,
+    provider_session_id: str | None,
+) -> _state_res_module.ContinuationInputFacts:
+    return continuation_input_facts
+
+
+def _opencode_refresh_active_session_facts(
+    continuation_input_facts: _state_res_module.ContinuationInputFacts,
+    provider_session_id: str | None,
+) -> _state_res_module.ContinuationInputFacts:
+    from . import _session_backed_provider_state_resolution as _state_resolution
+
+    return _state_resolution.resolve_opencode_active_session_facts(
+        continuation_input_facts,
+        provider_session_id=provider_session_id,
+    )
+
+
 _CLAUDE_POLICY = SessionBackedProviderLifecyclePolicy(
     claude_built_in_provider_stream_interpretation,
     _claude_validate_stage,
     _builtin_provider_rendering_module._require_claude_auth,
     _claude_resolve_new_session_facts,
     _claude_resolve_resumed_session_facts,
+    _noop_refresh_active_session_facts,
 )
 _CODEX_POLICY = SessionBackedProviderLifecyclePolicy(
     codex_built_in_provider_stream_interpretation,
@@ -282,6 +317,7 @@ _CODEX_POLICY = SessionBackedProviderLifecyclePolicy(
     _noop_require_auth,
     _codex_resolve_new_session_facts,
     _codex_resolve_resumed_session_facts,
+    _noop_refresh_active_session_facts,
 )
 _OPENCODE_POLICY = SessionBackedProviderLifecyclePolicy(
     opencode_built_in_provider_stream_interpretation,
@@ -289,6 +325,7 @@ _OPENCODE_POLICY = SessionBackedProviderLifecyclePolicy(
     _builtin_provider_rendering_module._require_opencode_auth,
     _opencode_resolve_new_session_facts,
     _opencode_resolve_resumed_session_facts,
+    _opencode_refresh_active_session_facts,
 )
 
 _POLICIES: dict[str, SessionBackedProviderLifecyclePolicy] = {

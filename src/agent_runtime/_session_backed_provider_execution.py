@@ -479,15 +479,12 @@ def _run_builtin_new_session(
                 provider_session_id=provider_session_id,
                 build_continuation=lambda active_provider_session_id: (
                     _provider_state_resolution.build_session_backed_continuation(
-                        _provider_state_resolution.resolve_opencode_active_session_facts(
+                        _lifecycle_policy_module.policy_for_service(
+                            selected_stage.service
+                        ).refresh_active_session_facts(
                             active_continuation_input_facts,
-                            provider_session_id=active_provider_session_id,
+                            active_provider_session_id,
                         ),
-                        tool_access=request.tool_access,
-                    )
-                    if selected_stage.service == "opencode"
-                    else _provider_state_resolution.build_session_backed_continuation(
-                        active_continuation_input_facts,
                         tool_access=request.tool_access,
                         provider_session_id=active_provider_session_id,
                     )
@@ -499,20 +496,12 @@ def _run_builtin_new_session(
             invocation_result=invocation_result,
             prepared_or_continuation_provider_session_id=provider_session_id,
         )
-        if selected_stage.service == "opencode":
-            active_continuation_input_facts = (
-                _provider_state_resolution.resolve_opencode_active_session_facts(
-                    active_continuation_input_facts,
-                    provider_session_id=provider_session_id,
-                )
-            )
-            provider_session_id = cast(
-                str,
-                cast(
-                    _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                    active_continuation_input_facts.provider_session_id,
-                ).value,
-            )
+        active_continuation_input_facts = _lifecycle_policy_module.policy_for_service(
+            selected_stage.service
+        ).refresh_active_session_facts(
+            active_continuation_input_facts,
+            provider_session_id,
+        )
         assert provider_session_id is not None
         result_text = invocation_result.output
         usage = invocation_result.usage
@@ -826,22 +815,12 @@ def _run_builtin_resumed_session(
             invocation_result=invocation_result,
             prepared_or_continuation_provider_session_id=provider_session_id,
         )
-        if continuation_service == "opencode":
-            continuation_input_facts = (
-                _provider_state_resolution.resolve_opencode_active_session_facts(
-                    continuation_input_facts,
-                    provider_session_id=provider_session_id,
-                )
-            )
-            active_provider_session = cast(
-                _provider_state_resolution.PreparedOrRecoveredProviderSessionId | None,
-                continuation_input_facts.provider_session_id,
-            )
-            provider_session_id = (
-                active_provider_session.value
-                if active_provider_session is not None
-                else None
-            )
+        continuation_input_facts = _lifecycle_policy_module.policy_for_service(
+            continuation_service
+        ).refresh_active_session_facts(
+            continuation_input_facts,
+            provider_session_id,
+        )
         failure_error = (
             _builtin_runtime_client_module._provider_invocation_error_from_failure(
                 continuation_service,
@@ -868,20 +847,12 @@ def _run_builtin_resumed_session(
         invocation_result=invocation_result,
         prepared_or_continuation_provider_session_id=provider_session_id,
     )
-    if continuation_service == "opencode":
-        continuation_input_facts = (
-            _provider_state_resolution.resolve_opencode_active_session_facts(
-                continuation_input_facts,
-                provider_session_id=provider_session_id,
-            )
-        )
-        provider_session_id = cast(
-            str,
-            cast(
-                _provider_state_resolution.PreparedOrRecoveredProviderSessionId,
-                continuation_input_facts.provider_session_id,
-            ).value,
-        )
+    continuation_input_facts = _lifecycle_policy_module.policy_for_service(
+        continuation_service
+    ).refresh_active_session_facts(
+        continuation_input_facts,
+        provider_session_id,
+    )
     assert provider_session_id is not None
     result_text = invocation_result.output
     usage = invocation_result.usage
