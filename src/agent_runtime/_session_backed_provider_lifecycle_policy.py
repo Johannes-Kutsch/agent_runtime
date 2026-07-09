@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Callable
+
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
     claude_built_in_provider_stream_interpretation,
@@ -14,14 +16,12 @@ class SessionBackedProviderLifecyclePolicy:
 
     def __init__(
         self,
-        stream_interpretation_fn: object,
+        stream_interpretation_fn: Callable[[], BuiltInProviderStreamInterpretation],
     ) -> None:
         self._stream_interpretation_fn = stream_interpretation_fn
 
     def stream_interpretation(self) -> BuiltInProviderStreamInterpretation:
-        fn = self._stream_interpretation_fn
-        assert callable(fn)
-        return fn()  # type: ignore[no-any-return]
+        return self._stream_interpretation_fn()
 
 
 _CLAUDE_POLICY = SessionBackedProviderLifecyclePolicy(
