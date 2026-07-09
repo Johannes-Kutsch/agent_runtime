@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -8,7 +9,13 @@ from agent_runtime._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
 )
 from agent_runtime._runtime_lifecycle import ProviderAuth
-from agent_runtime._session_backed_provider_lifecycle_policy import policy_for_service
+from agent_runtime._session_backed_provider_lifecycle_policy import (
+    NewSessionFactsResult,
+    NewSessionRedirect,
+    ResumedSessionFactsInput,
+    ResumedSessionFactsResult,
+    policy_for_service,
+)
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     ContinuationUnrecoverableError,
@@ -195,3 +202,127 @@ def test_opencode_policy_require_auth_passes_with_valid_key() -> None:
     policy_for_service("opencode").require_auth(
         ProviderAuth(opencode_api_key="key-xyz")
     )
+
+
+# resolve_new_session_facts tests
+
+
+def test_codex_policy_resolve_new_session_facts_raises_credential_failure_when_host_auth_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "no-auth-home"
+    host_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    runtime_state_dir = tmp_path / "state"
+    runtime_state_dir.mkdir()
+
+    with pytest.raises(
+        AgentCredentialFailureError, match="Codex authentication missing"
+    ) as exc_info:
+        policy_for_service("codex").resolve_new_session_facts(
+            runtime_state_dir, True, "gpt-5.4", "medium"
+        )
+    assert exc_info.value.service_name == "codex"
+
+
+def test_codex_policy_resolve_new_session_facts_returns_result_when_host_auth_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    auth_path = host_home / ".codex" / "auth.json"
+    auth_path.parent.mkdir(parents=True)
+    auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    runtime_state_dir = tmp_path / "state"
+    runtime_state_dir.mkdir()
+
+    outcome = policy_for_service("codex").resolve_new_session_facts(
+        runtime_state_dir, True, "gpt-5.4", "medium"
+    )
+    assert isinstance(outcome, NewSessionFactsResult)
+
+
+def test_codex_policy_resolve_new_session_facts_returns_redirect_when_existing_session_recovered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import json as _json
+
+    host_home = tmp_path / "host-home"
+    auth_path = host_home / ".codex" / "auth.json"
+    auth_path.parent.mkdir(parents=True)
+    auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    runtime_state_dir = tmp_path / "state"
+    runtime_state_dir.mkdir()
+
+    rollout_dir = runtime_state_dir / "sessions" / "2026" / "05" / "30"
+    rollout_dir.mkdir(parents=True)
+    rollout_path = rollout_dir / "rollout-001.jsonl"
+    session_id = "recovered-thread"
+    rollout_path.write_text(
+        _json.dumps({"type": "session_meta", "payload": {"id": session_id}})
+        + "\n"
+        + _json.dumps({"type": "session_meta", "payload": {"id": session_id}})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    outcome = policy_for_service("codex").resolve_new_session_facts(
+        runtime_state_dir, True, "gpt-5.4", "medium"
+    )
+    assert isinstance(outcome, NewSessionRedirect)
+    assert outcome.continuation_input_facts is not None
+
+
+# resolve_resumed_session_facts tests
+
+
+def test_codex_policy_resolve_resumed_session_facts_raises_credential_failure_when_relpath_set_and_host_auth_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "no-auth-home"
+    host_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    with pytest.raises(
+        AgentCredentialFailureError, match="Codex authentication missing"
+    ) as exc_info:
+        policy_for_service("codex").resolve_resumed_session_facts(
+            ResumedSessionFactsInput(
+                runtime_state_dir=tmp_path / "state",
+                provider_state_dir_relpath="",
+                provider_session_id="some-thread",
+                exact_transcript_match=None,
+                model="gpt-5.4",
+                effort="medium",
+            )
+        )
+    assert exc_info.value.service_name == "codex"
+
+
+def test_codex_policy_resolve_resumed_session_facts_skips_auth_check_when_relpath_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "no-auth-home"
+    host_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    result = policy_for_service("codex").resolve_resumed_session_facts(
+        ResumedSessionFactsInput(
+            runtime_state_dir=tmp_path / "state",
+            provider_state_dir_relpath=None,
+            provider_session_id="some-thread",
+            exact_transcript_match=None,
+            model="gpt-5.4",
+            effort="medium",
+        )
+    )
+    assert isinstance(result, ResumedSessionFactsResult)
