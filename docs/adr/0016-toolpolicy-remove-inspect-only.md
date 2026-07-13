@@ -12,7 +12,7 @@
 
 ## Rationale
 
-Retaining `INSPECT_ONLY` would require a corresponding container-mode variant (see ADR 0017), compounding the surface without meaningful behavioral gain. The policy's defining property — allowlisting Read and Glob while denying bash — renders the agent unable to perform most tasks, collapsing it onto `NONE` in practice. Removing it shrinks the public surface and removes an invisible no-op distinction at the Codex layer.
+Retaining `INSPECT_ONLY` would require a corresponding container-mode variant for sandboxed execution environments, compounding the surface without meaningful behavioral gain. The policy's defining property — allowlisting Read and Glob while denying bash — renders the agent unable to perform most tasks, collapsing it onto `NONE` in practice. Removing it shrinks the public surface and removes an invisible no-op distinction at the Codex layer.
 
 We reject aliasing `INSPECT_ONLY` to `NONE` or `NO_FILE_MUTATION` as a compatibility shim. Runtime Compatibility Aliases are not Runtime Public Surface promises; a clean deletion is consistent with the pattern established in ADRs 0003, 0012, and the session-seam retirements.
 

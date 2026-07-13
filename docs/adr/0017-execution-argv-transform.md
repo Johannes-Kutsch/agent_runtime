@@ -1,14 +1,12 @@
 # Execution Argv Transform replaces Already-Sandboxed Execution
 
-Status: supersedes [0017 - Already-Sandboxed Execution](0017-already-sandboxed-execution.md)
-
 Consumers need to route provider CLI execution into Docker containers without ar gaining a Docker dependency. The prior solution (`already_sandboxed` on the `RuntimeClient` constructor) only addressed Codex's OS sandbox and was constructor-scoped, which breaks when a single client dispatches invocations to different containers.
 
 We add an optional `Execution Argv Transform` callable to all three run request types (`EphemeralRunRequest`, `NewSessionRunRequest`, `ResumedSessionRunRequest`). ar applies it to the fully-rendered canonical argv, Invocation Directory, and rendered environment before executing, then runs the returned argv via its existing subprocess machinery. ar retains full subprocess ownership (stdin, stdout/stderr, idle timeout, exit-code handling); the consumer provides a pure synchronous data transformation only.
 
 Per-request placement is intentional: a single `RuntimeClient` may dispatch to multiple containers, so constructor-level scoping is too coarse.
 
-When `Execution Argv Transform` is present on a Codex invocation, Built-in Provider Rendering automatically applies `--sandbox danger-full-access`. A custom transform implies a non-standard execution environment where Codex's OS sandbox cannot be assumed to work — the same reasoning behind ADR 0017, now triggered per-invocation rather than by a constructor flag.
+When `Execution Argv Transform` is present on a Codex invocation, Built-in Provider Rendering automatically applies `--sandbox danger-full-access`. A custom transform implies a non-standard execution environment where Codex's OS sandbox cannot be assumed to work — triggered per-invocation rather than by a constructor flag.
 
 `already_sandboxed` is removed from the `RuntimeClient` constructor. Its only use case is covered by the per-invocation transform.
 

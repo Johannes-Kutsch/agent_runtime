@@ -1,6 +1,6 @@
 # Runtime public surface narrowing
 
-Status: Refined by [0004 - Runtime session lifecycle entrypoints](0004-runtime-session-lifecycle-entrypoints.md), [0005 - Built-in provider-only runtime](0005-built-in-provider-only-runtime.md), [0008 - Single-candidate provider selection](0008-single-candidate-provider-selection.md), and [0020 - Wiring CancellationToken into invocation execution](0020-cancellation-token-wiring.md). ADR 0008 is the current provider-selection decision; ADR 0020 is the current `CancellationToken` decision.
+Status: Refined by [0004 - Runtime session lifecycle entrypoints](0004-runtime-session-lifecycle-entrypoints.md), [0005 - Built-in provider-only runtime](0005-built-in-provider-only-runtime.md), [0008 - Single-candidate provider selection](0008-single-candidate-provider-selection.md), and [0019 - Wiring CancellationToken into invocation execution](0019-cancellation-token-wiring.md). ADR 0008 is the current provider-selection decision; ADR 0019 is the current `CancellationToken` decision.
 
 Small, clear front-facing surface: one canonical entrypoint per mode, narrow package root, focused seams for work invocation, session planning, provider policy.
 
