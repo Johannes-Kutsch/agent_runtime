@@ -50,7 +50,7 @@ class ResumedSessionFactsInput:
     continuation: Continuation | None = field(default=None)
 
 
-class SessionBackedProviderLifecyclePolicy:
+class BuiltInProviderLifecyclePolicy:
     __slots__ = (
         "_stream_interpretation_fn",
         "_validate_stage_fn",
@@ -303,7 +303,7 @@ def _opencode_refresh_active_session_facts(
     )
 
 
-_CLAUDE_POLICY = SessionBackedProviderLifecyclePolicy(
+_CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     claude_built_in_provider_stream_interpretation,
     _claude_validate_stage,
     _builtin_provider_rendering_module._require_claude_auth,
@@ -311,7 +311,7 @@ _CLAUDE_POLICY = SessionBackedProviderLifecyclePolicy(
     _claude_resolve_resumed_session_facts,
     _noop_refresh_active_session_facts,
 )
-_CODEX_POLICY = SessionBackedProviderLifecyclePolicy(
+_CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     codex_built_in_provider_stream_interpretation,
     _codex_validate_stage,
     _noop_require_auth,
@@ -319,7 +319,7 @@ _CODEX_POLICY = SessionBackedProviderLifecyclePolicy(
     _codex_resolve_resumed_session_facts,
     _noop_refresh_active_session_facts,
 )
-_OPENCODE_POLICY = SessionBackedProviderLifecyclePolicy(
+_OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     opencode_built_in_provider_stream_interpretation,
     _opencode_validate_stage,
     _builtin_provider_rendering_module._require_opencode_auth,
@@ -328,14 +328,14 @@ _OPENCODE_POLICY = SessionBackedProviderLifecyclePolicy(
     _opencode_refresh_active_session_facts,
 )
 
-_POLICIES: dict[str, SessionBackedProviderLifecyclePolicy] = {
+_POLICIES: dict[str, BuiltInProviderLifecyclePolicy] = {
     "claude": _CLAUDE_POLICY,
     "codex": _CODEX_POLICY,
     "opencode": _OPENCODE_POLICY,
 }
 
 
-def policy_for_service(service_name: str) -> SessionBackedProviderLifecyclePolicy:
+def policy_for_service(service_name: str) -> BuiltInProviderLifecyclePolicy:
     policy = _POLICIES.get(service_name)
     if policy is None:
         raise RuntimeConfigurationError(

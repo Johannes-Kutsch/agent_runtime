@@ -54,7 +54,7 @@ from .errors import (
 from .invocation_progress import InvocationProgress
 from .session import RunKind
 from .types import ProviderSelection
-from ._session_backed_provider_lifecycle_policy import policy_for_service
+from ._built_in_provider_lifecycle_policy import policy_for_service
 
 _log = logging.getLogger(__name__)
 subprocess = _subprocess

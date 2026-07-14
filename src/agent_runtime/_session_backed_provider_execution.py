@@ -5,7 +5,7 @@ from typing import Any, Callable, TypeVar, cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from . import _session_backed_provider_state_resolution as _provider_state_resolution
-from . import _session_backed_provider_lifecycle_policy as _lifecycle_policy_module
+from . import _built_in_provider_lifecycle_policy as _lifecycle_policy_module
 from ._built_in_provider_session_invocation_dispatch import (
     dispatch_built_in_provider_session_invocation,
 )
@@ -161,7 +161,7 @@ def _invoke_with_interruption_continuations(
 
 def _provider_invocation_error_from_failure(
     service_name: str,
-    policy: _lifecycle_policy_module.SessionBackedProviderLifecyclePolicy,
+    policy: _lifecycle_policy_module.BuiltInProviderLifecyclePolicy,
     failure: ProviderInvocationFailure,
 ) -> UsageLimitError | ProviderUnavailableError:
     stream_interpretation = policy.stream_interpretation()

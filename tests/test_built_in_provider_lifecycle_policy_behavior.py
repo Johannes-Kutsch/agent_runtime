@@ -9,7 +9,7 @@ from agent_runtime._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
 )
 from agent_runtime._runtime_lifecycle import ProviderAuth
-from agent_runtime._session_backed_provider_lifecycle_policy import (
+from agent_runtime._built_in_provider_lifecycle_policy import (
     NewSessionFactsResult,
     NewSessionRedirect,
     ResumedSessionFactsInput,

@@ -10,7 +10,7 @@ from ._builtin_runtime_client import (
     _with_observed_output,
     _with_session_timeout_state,
 )
-from ._session_backed_provider_lifecycle_policy import (
+from ._built_in_provider_lifecycle_policy import (
     policy_for_service as _policy_for_service,
 )
 from ._provider_invocation import (
