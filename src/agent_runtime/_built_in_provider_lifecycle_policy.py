@@ -61,6 +61,7 @@ class BuiltInProviderLifecyclePolicy:
         "_refresh_active_session_facts_fn",
         "_resolve_ephemeral_provider_state_dir_fn",
         "_resolve_ephemeral_render_invocation_dir_fn",
+        "_apply_ephemeral_pre_invocation_seeding_fn",
     )
 
     def __init__(
@@ -82,6 +83,7 @@ class BuiltInProviderLifecyclePolicy:
             [Path], tuple[Path, Callable[[], None]]
         ],
         resolve_ephemeral_render_invocation_dir_fn: Callable[[Path], Path],
+        apply_ephemeral_pre_invocation_seeding_fn: Callable[[Path], None],
     ) -> None:
         self._stream_interpretation_fn = stream_interpretation_fn
         self._validate_stage_fn = validate_stage_fn
@@ -94,6 +96,9 @@ class BuiltInProviderLifecyclePolicy:
         )
         self._resolve_ephemeral_render_invocation_dir_fn = (
             resolve_ephemeral_render_invocation_dir_fn
+        )
+        self._apply_ephemeral_pre_invocation_seeding_fn = (
+            apply_ephemeral_pre_invocation_seeding_fn
         )
 
     def stream_interpretation(self) -> BuiltInProviderStreamInterpretation:
@@ -142,6 +147,12 @@ class BuiltInProviderLifecyclePolicy:
         invocation_dir: Path,
     ) -> Path:
         return self._resolve_ephemeral_render_invocation_dir_fn(invocation_dir)
+
+    def apply_ephemeral_pre_invocation_seeding(
+        self,
+        provider_state_dir: Path,
+    ) -> None:
+        self._apply_ephemeral_pre_invocation_seeding_fn(provider_state_dir)
 
 
 def _claude_validate_stage(selection: ProviderSelection) -> None:
@@ -330,6 +341,19 @@ def _tmp_ephemeral_render_invocation_dir(invocation_dir: Path) -> Path:
     return Path("/tmp")
 
 
+def _noop_ephemeral_pre_invocation_seeding(provider_state_dir: Path) -> None:
+    pass
+
+
+def _codex_ephemeral_pre_invocation_seeding(provider_state_dir: Path) -> None:
+    from . import _session_backed_provider_state_resolution as _state_resolution
+
+    host_auth_path = _builtin_provider_rendering_module._codex_host_auth_path()
+    if not host_auth_path.exists():
+        raise _builtin_provider_rendering_module._missing_codex_auth_error()
+    _state_resolution._seed_codex_auth(provider_state_dir, host_auth_path)
+
+
 def _noop_refresh_active_session_facts(
     continuation_input_facts: _state_res_module.ContinuationInputFacts,
     provider_session_id: str | None,
@@ -358,6 +382,7 @@ _CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     _noop_refresh_active_session_facts,
     _temp_dir_ephemeral_provider_state_dir,
     _passthrough_ephemeral_render_invocation_dir,
+    _noop_ephemeral_pre_invocation_seeding,
 )
 _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     codex_built_in_provider_stream_interpretation,
@@ -368,6 +393,7 @@ _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     _noop_refresh_active_session_facts,
     _temp_dir_ephemeral_provider_state_dir,
     _passthrough_ephemeral_render_invocation_dir,
+    _codex_ephemeral_pre_invocation_seeding,
 )
 _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     opencode_built_in_provider_stream_interpretation,
@@ -378,6 +404,7 @@ _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     _opencode_refresh_active_session_facts,
     _invocation_dir_ephemeral_provider_state_dir,
     _tmp_ephemeral_render_invocation_dir,
+    _noop_ephemeral_pre_invocation_seeding,
 )
 
 _POLICIES: dict[str, BuiltInProviderLifecyclePolicy] = {

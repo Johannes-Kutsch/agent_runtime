@@ -657,3 +657,74 @@ def test_opencode_policy_resolve_ephemeral_render_invocation_dir_returns_tmp(
     )
 
     assert result == Path("/tmp")
+
+
+# apply_ephemeral_pre_invocation_seeding tests
+
+
+def test_claude_policy_apply_ephemeral_pre_invocation_seeding_leaves_dir_unchanged(
+    tmp_path: Path,
+) -> None:
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+
+    policy_for_service("claude").apply_ephemeral_pre_invocation_seeding(
+        provider_state_dir
+    )
+
+    assert list(provider_state_dir.iterdir()) == []
+
+
+def test_opencode_policy_apply_ephemeral_pre_invocation_seeding_leaves_dir_unchanged(
+    tmp_path: Path,
+) -> None:
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+
+    policy_for_service("opencode").apply_ephemeral_pre_invocation_seeding(
+        provider_state_dir
+    )
+
+    assert list(provider_state_dir.iterdir()) == []
+
+
+def test_codex_policy_apply_ephemeral_pre_invocation_seeding_seeds_auth_when_host_auth_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    auth_path = host_home / ".codex" / "auth.json"
+    auth_path.parent.mkdir(parents=True)
+    auth_path.write_text('{"token":"abc"}', encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+
+    policy_for_service("codex").apply_ephemeral_pre_invocation_seeding(
+        provider_state_dir
+    )
+
+    assert (provider_state_dir / "auth.json").read_text(
+        encoding="utf-8"
+    ) == '{"token":"abc"}'
+
+
+def test_codex_policy_apply_ephemeral_pre_invocation_seeding_raises_credential_failure_when_host_auth_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "no-auth-home"
+    host_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    provider_state_dir = tmp_path / "state"
+    provider_state_dir.mkdir()
+
+    with pytest.raises(
+        AgentCredentialFailureError, match="Codex authentication missing"
+    ) as exc_info:
+        policy_for_service("codex").apply_ephemeral_pre_invocation_seeding(
+            provider_state_dir
+        )
+    assert exc_info.value.service_name == "codex"
