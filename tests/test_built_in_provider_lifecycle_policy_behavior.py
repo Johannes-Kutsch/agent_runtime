@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -557,8 +558,6 @@ def test_claude_policy_resolve_ephemeral_provider_state_dir_cleanup_removes_dire
 def test_claude_policy_resolve_ephemeral_provider_state_dir_uses_correct_prefix(
     tmp_path: Path,
 ) -> None:
-    import tempfile
-
     invocation_dir = tmp_path / "invocation"
     invocation_dir.mkdir()
 
@@ -607,8 +606,6 @@ def test_codex_policy_resolve_ephemeral_provider_state_dir_cleanup_removes_direc
 def test_codex_policy_resolve_ephemeral_provider_state_dir_uses_correct_prefix(
     tmp_path: Path,
 ) -> None:
-    import tempfile
-
     invocation_dir = tmp_path / "invocation"
     invocation_dir.mkdir()
 
