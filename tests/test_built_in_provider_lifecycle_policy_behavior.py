@@ -491,3 +491,133 @@ def test_opencode_policy_refresh_active_session_facts_clears_exact_transcript_ma
     )
 
     assert result.exact_transcript_match == ExactTranscriptMatch(value=False)
+
+
+# resolve_ephemeral_provider_state_dir tests
+
+
+def test_opencode_policy_resolve_ephemeral_provider_state_dir_returns_invocation_dir(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    provider_state_dir, _ = policy_for_service(
+        "opencode"
+    ).resolve_ephemeral_provider_state_dir(invocation_dir)
+
+    assert provider_state_dir == invocation_dir
+
+
+def test_opencode_policy_resolve_ephemeral_provider_state_dir_cleanup_is_noop(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    _, cleanup = policy_for_service("opencode").resolve_ephemeral_provider_state_dir(
+        invocation_dir
+    )
+    cleanup()
+
+    assert invocation_dir.exists()
+
+
+def test_claude_policy_resolve_ephemeral_provider_state_dir_returns_fresh_directory(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    provider_state_dir, cleanup = policy_for_service(
+        "claude"
+    ).resolve_ephemeral_provider_state_dir(invocation_dir)
+
+    try:
+        assert provider_state_dir.exists()
+        assert provider_state_dir != invocation_dir
+    finally:
+        cleanup()
+
+
+def test_claude_policy_resolve_ephemeral_provider_state_dir_cleanup_removes_directory(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    provider_state_dir, cleanup = policy_for_service(
+        "claude"
+    ).resolve_ephemeral_provider_state_dir(invocation_dir)
+    cleanup()
+
+    assert not provider_state_dir.exists()
+
+
+def test_claude_policy_resolve_ephemeral_provider_state_dir_uses_correct_prefix(
+    tmp_path: Path,
+) -> None:
+    import tempfile
+
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    provider_state_dir, cleanup = policy_for_service(
+        "claude"
+    ).resolve_ephemeral_provider_state_dir(invocation_dir)
+
+    try:
+        assert provider_state_dir.parent == Path(tempfile.gettempdir())
+        assert provider_state_dir.name.startswith("ephemeral-provider-state-")
+    finally:
+        cleanup()
+
+
+def test_codex_policy_resolve_ephemeral_provider_state_dir_returns_fresh_directory(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    provider_state_dir, cleanup = policy_for_service(
+        "codex"
+    ).resolve_ephemeral_provider_state_dir(invocation_dir)
+
+    try:
+        assert provider_state_dir.exists()
+        assert provider_state_dir != invocation_dir
+    finally:
+        cleanup()
+
+
+def test_codex_policy_resolve_ephemeral_provider_state_dir_cleanup_removes_directory(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    provider_state_dir, cleanup = policy_for_service(
+        "codex"
+    ).resolve_ephemeral_provider_state_dir(invocation_dir)
+    cleanup()
+
+    assert not provider_state_dir.exists()
+
+
+def test_codex_policy_resolve_ephemeral_provider_state_dir_uses_correct_prefix(
+    tmp_path: Path,
+) -> None:
+    import tempfile
+
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    provider_state_dir, cleanup = policy_for_service(
+        "codex"
+    ).resolve_ephemeral_provider_state_dir(invocation_dir)
+
+    try:
+        assert provider_state_dir.parent == Path(tempfile.gettempdir())
+        assert provider_state_dir.name.startswith("ephemeral-provider-state-")
+    finally:
+        cleanup()

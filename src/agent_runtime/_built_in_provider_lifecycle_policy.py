@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -58,6 +59,7 @@ class BuiltInProviderLifecyclePolicy:
         "_resolve_new_session_facts_fn",
         "_resolve_resumed_session_facts_fn",
         "_refresh_active_session_facts_fn",
+        "_resolve_ephemeral_provider_state_dir_fn",
     )
 
     def __init__(
@@ -75,6 +77,9 @@ class BuiltInProviderLifecyclePolicy:
             [_state_res_module.ContinuationInputFacts, str | None],
             _state_res_module.ContinuationInputFacts,
         ],
+        resolve_ephemeral_provider_state_dir_fn: Callable[
+            [Path], tuple[Path, Callable[[], None]]
+        ],
     ) -> None:
         self._stream_interpretation_fn = stream_interpretation_fn
         self._validate_stage_fn = validate_stage_fn
@@ -82,6 +87,9 @@ class BuiltInProviderLifecyclePolicy:
         self._resolve_new_session_facts_fn = resolve_new_session_facts_fn
         self._resolve_resumed_session_facts_fn = resolve_resumed_session_facts_fn
         self._refresh_active_session_facts_fn = refresh_active_session_facts_fn
+        self._resolve_ephemeral_provider_state_dir_fn = (
+            resolve_ephemeral_provider_state_dir_fn
+        )
 
     def stream_interpretation(self) -> BuiltInProviderStreamInterpretation:
         return self._stream_interpretation_fn()
@@ -117,6 +125,12 @@ class BuiltInProviderLifecyclePolicy:
         return self._refresh_active_session_facts_fn(
             continuation_input_facts, provider_session_id
         )
+
+    def resolve_ephemeral_provider_state_dir(
+        self,
+        invocation_dir: Path,
+    ) -> tuple[Path, Callable[[], None]]:
+        return self._resolve_ephemeral_provider_state_dir_fn(invocation_dir)
 
 
 def _claude_validate_stage(selection: ProviderSelection) -> None:
@@ -284,6 +298,19 @@ def _opencode_resolve_resumed_session_facts(
     )
 
 
+def _temp_dir_ephemeral_provider_state_dir(
+    invocation_dir: Path,
+) -> tuple[Path, Callable[[], None]]:
+    temp_dir = tempfile.TemporaryDirectory(prefix="ephemeral-provider-state-")
+    return Path(temp_dir.name), temp_dir.cleanup
+
+
+def _invocation_dir_ephemeral_provider_state_dir(
+    invocation_dir: Path,
+) -> tuple[Path, Callable[[], None]]:
+    return invocation_dir, lambda: None
+
+
 def _noop_refresh_active_session_facts(
     continuation_input_facts: _state_res_module.ContinuationInputFacts,
     provider_session_id: str | None,
@@ -310,6 +337,7 @@ _CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     _claude_resolve_new_session_facts,
     _claude_resolve_resumed_session_facts,
     _noop_refresh_active_session_facts,
+    _temp_dir_ephemeral_provider_state_dir,
 )
 _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     codex_built_in_provider_stream_interpretation,
@@ -318,6 +346,7 @@ _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     _codex_resolve_new_session_facts,
     _codex_resolve_resumed_session_facts,
     _noop_refresh_active_session_facts,
+    _temp_dir_ephemeral_provider_state_dir,
 )
 _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     opencode_built_in_provider_stream_interpretation,
@@ -326,6 +355,7 @@ _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     _opencode_resolve_new_session_facts,
     _opencode_resolve_resumed_session_facts,
     _opencode_refresh_active_session_facts,
+    _invocation_dir_ephemeral_provider_state_dir,
 )
 
 _POLICIES: dict[str, BuiltInProviderLifecyclePolicy] = {
