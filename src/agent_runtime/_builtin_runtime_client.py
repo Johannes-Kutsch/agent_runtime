@@ -34,12 +34,11 @@ from ._runtime_lifecycle import (
     AgentEvent,
     CancellationToken,
     EphemeralRunRequest,
+    NewSessionRunRequest,
     ProviderAuth,
     ProviderUsage,
-    ResumedSessionRunRequest,
+    ResumedSessionRunRequest,  # noqa: F401 — re-exported for _session_backed_provider_execution
     RunResult,
-    RuntimeOutcome,
-    NewSessionRunRequest,
 )
 from .types import ResolvedProvider
 from .errors import (
@@ -635,29 +634,3 @@ def _require_portable_continuation_support(service_name: str) -> None:
             f"Portable continuation support is required for session-backed "
             f"execution with {service_name!r}."
         )
-
-
-def _run_builtin_new_session(
-    request: NewSessionRunRequest,
-    *,
-    provider_invocation_adapter: ProviderInvocationAdapter | None = None,
-) -> RuntimeOutcome:
-    from . import _session_backed_provider_execution as _module
-
-    return _module._run_builtin_new_session(
-        request,
-        provider_invocation_adapter=provider_invocation_adapter,
-    )
-
-
-def _run_builtin_resumed_session(
-    request: ResumedSessionRunRequest,
-    *,
-    provider_invocation_adapter: ProviderInvocationAdapter | None = None,
-) -> RuntimeOutcome:
-    from . import _session_backed_provider_execution as _module
-
-    return _module._run_builtin_resumed_session(
-        request,
-        provider_invocation_adapter=provider_invocation_adapter,
-    )
