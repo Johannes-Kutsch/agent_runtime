@@ -426,29 +426,11 @@ def _execute_rendered_provider_invocation(
     return provider_invocation_adapter.execute(request, argv_transform=argv_transform)
 
 
-def _ephemeral_provider_state_dir(
-    service_name: str,
-    invocation_dir: Path,
-) -> tuple[Path, Callable[[], None]] | tuple[None, Callable[[], None]]:
-    if service_name == "opencode":
-        return invocation_dir, lambda: None
-    temp_dir = tempfile.TemporaryDirectory(prefix="ephemeral-provider-state-")
-    return Path(temp_dir.name), temp_dir.cleanup
-
-
-def _ephemeral_render_invocation_dir(
-    service_name: str,
-    invocation_dir: Path,
-) -> Path:
-    if service_name == "opencode":
-        return Path("/tmp")
-    return invocation_dir
-
-
 def _render_ephemeral_provider_invocation(
     request: EphemeralRunRequest,
     stage: ProviderSelection,
     provider_state_dir: Path | None,
+    render_invocation_dir: Path,
 ) -> _builtin_provider_rendering_module.BuiltInProviderRenderedInvocation:
     return _builtin_provider_rendering_module.render_built_in_provider_invocation(
         _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
@@ -462,10 +444,7 @@ def _render_ephemeral_provider_invocation(
             run_kind=RunKind.FRESH,
             tool_access=request.tool_access,
             auth=_selection_auth(stage),
-            invocation_dir=_ephemeral_render_invocation_dir(
-                stage.service,
-                request.invocation_dir,
-            ),
+            invocation_dir=render_invocation_dir,
             provider_state_dir=provider_state_dir,
         ),
         argv_transform=request.argv_transform,
@@ -500,46 +479,41 @@ def _run_builtin_ephemeral(
         else provider_invocation_adapter
     )
     selected_stage = select_builtin_stage(request.provider_selection)
-    provider_state_dir, cleanup_provider_state_dir = _ephemeral_provider_state_dir(
-        selected_stage.service,
-        request.invocation_dir,
+    policy = policy_for_service(selected_stage.service)
+    provider_state_dir, cleanup_provider_state_dir = (
+        policy.resolve_ephemeral_provider_state_dir(request.invocation_dir)
     )
     try:
+        render_invocation_dir = policy.resolve_ephemeral_render_invocation_dir(
+            request.invocation_dir
+        )
         rendered = _render_ephemeral_provider_invocation(
             request,
             selected_stage,
             provider_state_dir=provider_state_dir,
+            render_invocation_dir=render_invocation_dir,
         )
-        stream_interpretation: BuiltInProviderStreamInterpretation
-        if selected_stage.service == "codex":
-            from . import (
-                _session_backed_provider_state_resolution as _provider_state_resolution,
-            )
-
-            _provider_state_resolution._seed_codex_auth(
-                cast(Path, provider_state_dir),
-                _codex_host_auth_path(),
-            )
-            stream_interpretation = _with_observed_output(
-                _with_reduce_output(
-                    policy_for_service("codex").stream_interpretation(),
-                    lambda lines: reduce_codex_stream(lines, None),
-                ),
-                request.on_live_output,
-            )
-        elif selected_stage.service == "opencode":
-            stream_interpretation = _opencode_stream_interpretation(
+        policy.apply_ephemeral_pre_invocation_seeding(provider_state_dir)
+        _reduce_fns = {
+            "claude": reduce_claude_stream,
+            "codex": reduce_codex_stream,
+            "opencode": reduce_opencode_stream,
+        }
+        _reduce_fn = _reduce_fns[selected_stage.service]
+        _base = _with_reduce_output(
+            policy.stream_interpretation(),
+            lambda lines: _reduce_fn(lines, None),
+        )
+        _opencode_builders = {
+            "opencode": lambda: _opencode_stream_interpretation(
                 on_live_output=request.on_live_output,
-                reduce_output=lambda lines: reduce_opencode_stream(lines, None),
+                reduce_output=_base.reduce_output,
             )
-        else:
-            stream_interpretation = _with_observed_output(
-                _with_reduce_output(
-                    policy_for_service("claude").stream_interpretation(),
-                    lambda lines: reduce_claude_stream(lines, None),
-                ),
-                request.on_live_output,
-            )
+        }
+        stream_interpretation = _opencode_builders.get(
+            selected_stage.service,
+            lambda: _with_observed_output(_base, request.on_live_output),
+        )()
         invocation_result = _execute_rendered_provider_invocation(
             provider_invocation_adapter=invocation_adapter,
             rendered=rendered,
@@ -556,9 +530,7 @@ def _run_builtin_ephemeral(
     finally:
         cleanup_provider_state_dir()
     if isinstance(invocation_result, ProviderInvocationFailure):
-        _stream_interp = policy_for_service(
-            selected_stage.service
-        ).stream_interpretation()
+        _stream_interp = policy.stream_interpretation()
         _invocation_progress = (
             InvocationProgress.STARTED
             if classify_built_in_provider_invocation_progress(

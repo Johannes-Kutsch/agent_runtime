@@ -4975,7 +4975,7 @@ def test_runtime_client_ephemeral_codex_missing_host_auth_cleans_up_isolated_hom
     ) -> Any:
         nonlocal captured_provider_state_dir
         captured_provider_state_dir = provider_state_dir
-        return original_render(request, stage, provider_state_dir)
+        return original_render(request, stage, provider_state_dir, **_kwargs)
 
     monkeypatch.setattr(
         prompt_runtime._builtin_runtime_client_module.Path,
@@ -6968,6 +6968,7 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
                         effort="medium",
                     ),
                     provider_state_dir=invocation_dir / "provider-state",
+                    render_invocation_dir=invocation_dir,
                 )
             ),
             id="ephemeral-render",
