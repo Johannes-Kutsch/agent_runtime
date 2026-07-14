@@ -2,15 +2,11 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from ._request_normalization import (
-    normalize_continuation_request,
-    normalize_provider_selection_request,
-)
-from .contracts import ToolAccess
+from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .errors import RuntimeConfigurationError
-from .types import ProviderSelection
+from .types import ProviderSelection, validate_provider_selection
 
 
 @dataclasses.dataclass(frozen=True)
@@ -41,6 +37,21 @@ class _ResumedLifecycleRequestFacts(_LifecycleRequestFacts):
     effort: str
     session_store: Path | None
     argv_transform: Any
+
+
+def _normalize_resolved_tool_access(
+    *,
+    tool_access: ToolAccess,
+    workspace: Path | None,
+    context: str,
+    workspace_name: str = "invocation_dir",
+) -> ToolAccess:
+    tool_access.require_workspace(
+        workspace,
+        context=context,
+        workspace_name=workspace_name,
+    )
+    return tool_access
 
 
 def _resolve_invocation_dir(
@@ -79,20 +90,39 @@ def _provider_selection_request_facts(
     missing_message: str,
     workspace_name: str = "invocation_dir",
 ) -> _ProviderSelectionLifecycleRequestFacts:
-    normalized_request = normalize_provider_selection_request(
-        provider_selection=provider_selection,
-        invocation_dir=invocation_dir,
-        tool_access=tool_access,
-        tool_policy=tool_policy,
-        missing_sentinel=missing_sentinel,
+    if provider_selection is None:
+        raise TypeError(f"{context} requires a `provider_selection` value.")
+    validate_provider_selection(provider_selection)
+
+    if isinstance(tool_access, ToolAccess) and tool_policy is not missing_sentinel:
+        raise TypeError(
+            f"{context} received conflicting `tool_access` and `tool_policy` values."
+        )
+    if isinstance(tool_access, ToolAccess):
+        resolved_tool_access = tool_access
+    elif tool_policy is not missing_sentinel:
+        resolved_tool_policy = cast(ToolPolicy | ToolPolicyProfile, tool_policy)
+        if resolved_tool_policy is ToolPolicy.NONE:
+            resolved_tool_access = ToolAccess.no_tools()
+        else:
+            resolved_tool_access = ToolAccess.workspace_backed(
+                invocation_dir,
+                tool_policy=resolved_tool_policy,
+            )
+    else:
+        raise TypeError(missing_message)
+
+    resolved_tool_access = _normalize_resolved_tool_access(
+        tool_access=resolved_tool_access,
+        workspace=invocation_dir,
         context=context,
-        missing_message=missing_message,
         workspace_name=workspace_name,
     )
+
     return _ProviderSelectionLifecycleRequestFacts(
-        invocation_dir=normalized_request.invocation_dir,
-        provider_selection=normalized_request.provider_selection,
-        tool_access=normalized_request.tool_access,
+        invocation_dir=invocation_dir,
+        provider_selection=provider_selection,
+        tool_access=resolved_tool_access,
     )
 
 
@@ -215,15 +245,15 @@ def _resumed_session_run_request_facts(
         continuation_resume_facts = continuation.resume_facts
     except TypeError as exc:
         raise RuntimeConfigurationError(str(exc)) from exc
-    normalized_request = normalize_continuation_request(
-        invocation_dir=resolved_invocation_dir,
+    resolved_tool_access = _normalize_resolved_tool_access(
         tool_access=continuation_resume_facts.tool_access,
+        workspace=resolved_invocation_dir,
         context=context,
         workspace_name=public_invocation_dir_name,
     )
     return _ResumedLifecycleRequestFacts(
-        invocation_dir=normalized_request.invocation_dir,
-        tool_access=normalized_request.tool_access,
+        invocation_dir=resolved_invocation_dir,
+        tool_access=resolved_tool_access,
         model=continuation_resume_facts.selected.model,
         effort=continuation_resume_facts.selected.effort,
         session_store=compatibility_runtime_state_dir,

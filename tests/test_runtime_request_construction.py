@@ -871,8 +871,6 @@ def test_lifecycle_request_construction_rejects_conflicting_invocation_dir_and_l
         request_factory()
 
 
-def test_runtime_public_surface_keeps_request_normalization_module_private() -> None:
-    assert "_request_normalization" not in runtime.__all__
-    assert "_request_normalization" not in prompt_runtime.__all__
+def test_runtime_public_surface_keeps_lifecycle_request_facts_module_private() -> None:
     assert "_lifecycle_request_facts" not in runtime.__all__
     assert "_lifecycle_request_facts" not in prompt_runtime.__all__
