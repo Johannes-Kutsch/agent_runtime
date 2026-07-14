@@ -618,3 +618,42 @@ def test_codex_policy_resolve_ephemeral_provider_state_dir_uses_correct_prefix(
         assert provider_state_dir.name.startswith("ephemeral-provider-state-")
     finally:
         cleanup()
+
+
+def test_claude_policy_resolve_ephemeral_render_invocation_dir_returns_invocation_dir(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    result = policy_for_service("claude").resolve_ephemeral_render_invocation_dir(
+        invocation_dir
+    )
+
+    assert result == invocation_dir
+
+
+def test_codex_policy_resolve_ephemeral_render_invocation_dir_returns_invocation_dir(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    result = policy_for_service("codex").resolve_ephemeral_render_invocation_dir(
+        invocation_dir
+    )
+
+    assert result == invocation_dir
+
+
+def test_opencode_policy_resolve_ephemeral_render_invocation_dir_returns_tmp(
+    tmp_path: Path,
+) -> None:
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+
+    result = policy_for_service("opencode").resolve_ephemeral_render_invocation_dir(
+        invocation_dir
+    )
+
+    assert result == Path("/tmp")

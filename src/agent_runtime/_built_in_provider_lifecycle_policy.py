@@ -60,6 +60,7 @@ class BuiltInProviderLifecyclePolicy:
         "_resolve_resumed_session_facts_fn",
         "_refresh_active_session_facts_fn",
         "_resolve_ephemeral_provider_state_dir_fn",
+        "_resolve_ephemeral_render_invocation_dir_fn",
     )
 
     def __init__(
@@ -80,6 +81,7 @@ class BuiltInProviderLifecyclePolicy:
         resolve_ephemeral_provider_state_dir_fn: Callable[
             [Path], tuple[Path, Callable[[], None]]
         ],
+        resolve_ephemeral_render_invocation_dir_fn: Callable[[Path], Path],
     ) -> None:
         self._stream_interpretation_fn = stream_interpretation_fn
         self._validate_stage_fn = validate_stage_fn
@@ -89,6 +91,9 @@ class BuiltInProviderLifecyclePolicy:
         self._refresh_active_session_facts_fn = refresh_active_session_facts_fn
         self._resolve_ephemeral_provider_state_dir_fn = (
             resolve_ephemeral_provider_state_dir_fn
+        )
+        self._resolve_ephemeral_render_invocation_dir_fn = (
+            resolve_ephemeral_render_invocation_dir_fn
         )
 
     def stream_interpretation(self) -> BuiltInProviderStreamInterpretation:
@@ -131,6 +136,12 @@ class BuiltInProviderLifecyclePolicy:
         invocation_dir: Path,
     ) -> tuple[Path, Callable[[], None]]:
         return self._resolve_ephemeral_provider_state_dir_fn(invocation_dir)
+
+    def resolve_ephemeral_render_invocation_dir(
+        self,
+        invocation_dir: Path,
+    ) -> Path:
+        return self._resolve_ephemeral_render_invocation_dir_fn(invocation_dir)
 
 
 def _claude_validate_stage(selection: ProviderSelection) -> None:
@@ -311,6 +322,14 @@ def _invocation_dir_ephemeral_provider_state_dir(
     return invocation_dir, lambda: None
 
 
+def _passthrough_ephemeral_render_invocation_dir(invocation_dir: Path) -> Path:
+    return invocation_dir
+
+
+def _tmp_ephemeral_render_invocation_dir(invocation_dir: Path) -> Path:
+    return Path("/tmp")
+
+
 def _noop_refresh_active_session_facts(
     continuation_input_facts: _state_res_module.ContinuationInputFacts,
     provider_session_id: str | None,
@@ -338,6 +357,7 @@ _CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     _claude_resolve_resumed_session_facts,
     _noop_refresh_active_session_facts,
     _temp_dir_ephemeral_provider_state_dir,
+    _passthrough_ephemeral_render_invocation_dir,
 )
 _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     codex_built_in_provider_stream_interpretation,
@@ -347,6 +367,7 @@ _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     _codex_resolve_resumed_session_facts,
     _noop_refresh_active_session_facts,
     _temp_dir_ephemeral_provider_state_dir,
+    _passthrough_ephemeral_render_invocation_dir,
 )
 _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     opencode_built_in_provider_stream_interpretation,
@@ -356,6 +377,7 @@ _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     _opencode_resolve_resumed_session_facts,
     _opencode_refresh_active_session_facts,
     _invocation_dir_ephemeral_provider_state_dir,
+    _tmp_ephemeral_render_invocation_dir,
 )
 
 _POLICIES: dict[str, BuiltInProviderLifecyclePolicy] = {
