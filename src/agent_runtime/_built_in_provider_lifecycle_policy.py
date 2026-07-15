@@ -385,15 +385,18 @@ def _claude_build_session_dispatch_interpretation(
     fallback_provider_session_id: str | None,
     on_provider_session_id: Callable[[str], None] | None,
 ) -> tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState]:
-    from ._builtin_runtime_client import _SessionTimeoutState, _with_observed_output
+    from ._builtin_runtime_client import (
+        _with_observed_output,
+        _with_session_timeout_state,
+    )
 
     interpretation = claude_built_in_provider_stream_interpretation()
-    dispatch_interpretation = _with_observed_output(interpretation, on_live_output)
-    timeout_state = _SessionTimeoutState(
+    observed = _with_observed_output(interpretation, on_live_output)
+    return _with_session_timeout_state(
+        observed,
         tracking_interpretation=claude_built_in_provider_stream_interpretation(),
         fallback_provider_session_id=fallback_provider_session_id,
     )
-    return dispatch_interpretation, timeout_state
 
 
 def _codex_build_session_dispatch_interpretation(
@@ -401,15 +404,18 @@ def _codex_build_session_dispatch_interpretation(
     fallback_provider_session_id: str | None,
     on_provider_session_id: Callable[[str], None] | None,
 ) -> tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState]:
-    from ._builtin_runtime_client import _SessionTimeoutState, _with_observed_output
+    from ._builtin_runtime_client import (
+        _with_observed_output,
+        _with_session_timeout_state,
+    )
 
     interpretation = codex_built_in_provider_stream_interpretation()
-    dispatch_interpretation = _with_observed_output(interpretation, on_live_output)
-    timeout_state = _SessionTimeoutState(
+    observed = _with_observed_output(interpretation, on_live_output)
+    return _with_session_timeout_state(
+        observed,
         tracking_interpretation=codex_built_in_provider_stream_interpretation(),
         fallback_provider_session_id=fallback_provider_session_id,
     )
-    return dispatch_interpretation, timeout_state
 
 
 def _opencode_build_session_dispatch_interpretation(
@@ -417,7 +423,7 @@ def _opencode_build_session_dispatch_interpretation(
     fallback_provider_session_id: str | None,
     on_provider_session_id: Callable[[str], None] | None,
 ) -> tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState]:
-    from ._builtin_runtime_client import _SessionTimeoutState
+    from ._builtin_runtime_client import _with_session_timeout_state
 
     dispatch_interpretation = (
         opencode_lifecycle_built_in_provider_stream_interpretation(
@@ -431,11 +437,11 @@ def _opencode_build_session_dispatch_interpretation(
             fallback_provider_session_id=fallback_provider_session_id,
         )
     )
-    timeout_state = _SessionTimeoutState(
+    return _with_session_timeout_state(
+        dispatch_interpretation,
         tracking_interpretation=tracking_interpretation,
         fallback_provider_session_id=fallback_provider_session_id,
     )
-    return dispatch_interpretation, timeout_state
 
 
 def _noop_refresh_active_session_facts(

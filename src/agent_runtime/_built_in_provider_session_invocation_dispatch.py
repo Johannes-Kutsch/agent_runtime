@@ -6,9 +6,6 @@ from typing import Callable
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from ._builtin_runtime_client import (
     _execute_rendered_provider_invocation,
-    _opencode_stream_interpretation,
-    _with_observed_output,
-    _with_session_timeout_state,
 )
 from ._built_in_provider_lifecycle_policy import (
     policy_for_service as _policy_for_service,
@@ -139,14 +136,12 @@ def _dispatch_claude(
             provider_session_id=provider_session_id,
         )
     )
-    stream_interpretation = _with_observed_output(
-        _policy_for_service("claude").stream_interpretation(),
-        on_live_output,
-    )
-    stream_interpretation, timeout_state = _with_session_timeout_state(
-        stream_interpretation,
-        tracking_interpretation=_policy_for_service("claude").stream_interpretation(),
+    stream_interpretation, timeout_state = _policy_for_service(
+        "claude"
+    ).build_session_dispatch_interpretation(
+        on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
+        on_provider_session_id=None,
     )
     try:
         return _execute_rendered_provider_invocation(
@@ -187,14 +182,12 @@ def _dispatch_codex(
     timeout_seconds: int = 300,
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    stream_interpretation = _with_observed_output(
-        _policy_for_service("codex").stream_interpretation(),
-        on_live_output,
-    )
-    stream_interpretation, timeout_state = _with_session_timeout_state(
-        stream_interpretation,
-        tracking_interpretation=_policy_for_service("codex").stream_interpretation(),
+    stream_interpretation, timeout_state = _policy_for_service(
+        "codex"
+    ).build_session_dispatch_interpretation(
+        on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
+        on_provider_session_id=None,
     )
     rendered = _builtin_provider_rendering_module._render_codex_invocation(
         _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
@@ -255,16 +248,12 @@ def _dispatch_opencode(
     timeout_seconds: int = 300,
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    stream_interpretation = _opencode_stream_interpretation(
+    stream_interpretation, timeout_state = _policy_for_service(
+        "opencode"
+    ).build_session_dispatch_interpretation(
         on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
-    )
-    stream_interpretation, timeout_state = _with_session_timeout_state(
-        stream_interpretation,
-        tracking_interpretation=_opencode_stream_interpretation(
-            fallback_provider_session_id=provider_session_id,
-        ),
-        fallback_provider_session_id=provider_session_id,
+        on_provider_session_id=None,
     )
     rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
         _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
