@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from . import _time
-from . import _builtin_provider_stream_interpretation as _stream_interpretation_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from ._session_backed_provider_execution import (
     _run_builtin_new_session,
@@ -95,15 +94,6 @@ _supported_builtin_provider_selection = (
 )
 
 
-def _reduce_opencode_stream(
-    lines: list[str],
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-) -> tuple[str, ProviderUsage | None]:
-    return _stream_interpretation_module.reduce_opencode_stream(
-        lines,
-        on_live_output=on_live_output,
-    )
-
 
 class RuntimeClient:
     async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
@@ -175,7 +165,6 @@ def _run_builtin_ephemeral(
         request,
         provider_invocation_adapter=provider_invocation_adapter,
         select_builtin_stage=select_builtin_stage,
-        reduce_opencode_stream=_reduce_opencode_stream,
     )
 
 
