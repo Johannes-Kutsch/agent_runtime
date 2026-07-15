@@ -228,13 +228,14 @@ def _with_session_timeout_state(
     )
 
     def _consume_with_timeout_state(lines: list[str]) -> None:
-        timeout_state.record(lines)
         if callable(consume_stdout_lines):
             try:
                 consume_stdout_lines(lines)
             except AgentTimeoutError as exc:
+                timeout_state.record(lines)
                 timeout_state.apply_to_timeout(exc)
                 raise
+        timeout_state.record(lines)
 
     return (
         _with_reduce_output(
