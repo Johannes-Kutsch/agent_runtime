@@ -16,9 +16,6 @@ from ._builtin_provider_stream_interpretation import (
     emit_built_in_provider_live_output_event,
     opencode_lifecycle_built_in_provider_stream_interpretation,
     opencode_built_in_provider_stream_interpretation,
-    reduce_codex_stream,
-    reduce_claude_stream,
-    reduce_opencode_stream,
 )
 from ._provider_invocation import (
     InvocationFailureKind,
@@ -458,18 +455,6 @@ def _run_builtin_ephemeral(
     select_builtin_stage: Callable[
         [ProviderSelection], ProviderSelection
     ] = _select_builtin_stage,
-    reduce_claude_stream: Callable[
-        [list[str], Callable[[AgentEvent], None] | None],
-        tuple[str, ProviderUsage | None],
-    ] = reduce_claude_stream,
-    reduce_codex_stream: Callable[
-        [list[str], Callable[[AgentEvent], None] | None],
-        tuple[str, ProviderUsage | None],
-    ] = reduce_codex_stream,
-    reduce_opencode_stream: Callable[
-        [list[str], Callable[[AgentEvent], None] | None],
-        tuple[str, ProviderUsage | None],
-    ] = reduce_opencode_stream,
 ) -> RunResult:
     if request.token is not None and request.token.is_cancelled:
         raise AgentCancelledError()
@@ -494,26 +479,11 @@ def _run_builtin_ephemeral(
             render_invocation_dir=render_invocation_dir,
         )
         policy.apply_ephemeral_pre_invocation_seeding(provider_state_dir)
-        _reduce_fns = {
-            "claude": reduce_claude_stream,
-            "codex": reduce_codex_stream,
-            "opencode": reduce_opencode_stream,
-        }
-        _reduce_fn = _reduce_fns[selected_stage.service]
-        _base = _with_reduce_output(
-            policy.stream_interpretation(),
-            lambda lines: _reduce_fn(lines, None),
+        stream_interpretation, _ = policy.build_session_dispatch_interpretation(
+            request.on_live_output,
+            rendered.provider_session_id,
+            None,
         )
-        _opencode_builders = {
-            "opencode": lambda: _opencode_stream_interpretation(
-                on_live_output=request.on_live_output,
-                reduce_output=_base.reduce_output,
-            )
-        }
-        stream_interpretation = _opencode_builders.get(
-            selected_stage.service,
-            lambda: _with_observed_output(_base, request.on_live_output),
-        )()
         invocation_result = _execute_rendered_provider_invocation(
             provider_invocation_adapter=invocation_adapter,
             rendered=rendered,
