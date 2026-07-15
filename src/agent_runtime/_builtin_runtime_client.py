@@ -14,8 +14,6 @@ from ._builtin_provider_stream_interpretation import (
     resolve_built_in_provider_session_id,
     classify_built_in_provider_invocation_progress,
     emit_built_in_provider_live_output_event,
-    opencode_lifecycle_built_in_provider_stream_interpretation,
-    opencode_built_in_provider_stream_interpretation,
 )
 from ._provider_invocation import (
     InvocationFailureKind,
@@ -259,32 +257,6 @@ def _codex_host_auth_path() -> Path:
 
 def _missing_codex_auth_error() -> AgentCredentialFailureError:
     return _builtin_provider_rendering_module._missing_codex_auth_error()
-
-
-def _opencode_stream_interpretation(
-    *,
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-    on_provider_session_id: Callable[[str], None] | None = None,
-    fallback_provider_session_id: str | None = None,
-    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]]
-    | None = None,
-    extract_provider_session_id: Callable[[list[str]], str | None] | None = None,
-) -> BuiltInProviderStreamInterpretation:
-    if (
-        on_live_output is not None
-        or on_provider_session_id is not None
-        or fallback_provider_session_id is not None
-    ):
-        return opencode_lifecycle_built_in_provider_stream_interpretation(
-            on_live_output=on_live_output,
-            on_provider_session_id=on_provider_session_id,
-            fallback_provider_session_id=fallback_provider_session_id,
-            reduce_output=reduce_output,
-        )
-    return opencode_built_in_provider_stream_interpretation(
-        reduce_output=reduce_output,
-        extract_provider_session_id=extract_provider_session_id,
-    )
 
 
 def _select_builtin_stage(stage: ProviderSelection) -> ProviderSelection:
