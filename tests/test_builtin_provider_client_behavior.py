@@ -4228,7 +4228,7 @@ def test_runtime_client_runs_codex_session_invocations_with_windows_host_process
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
         stdin: Any = None,
     ) -> _Process:
         captured_env.clear()

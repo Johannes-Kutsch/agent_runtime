@@ -286,7 +286,7 @@ class ProductionProviderInvocationAdapter:
                     env=environment,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True,
+                    encoding="utf-8",
                 )
             else:
                 # Resolve argv[0] against PATH/PATHEXT before spawning with
@@ -308,7 +308,7 @@ class ProductionProviderInvocationAdapter:
                         env=environment,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        text=True,
+                        encoding="utf-8",
                     )
                 except TypeError as exc:
                     if "stdin" not in str(exc):
@@ -320,7 +320,7 @@ class ProductionProviderInvocationAdapter:
                         env=environment,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        text=True,
+                        encoding="utf-8",
                     )
             if not use_shell:
                 process_stdin = getattr(process, "stdin", None)

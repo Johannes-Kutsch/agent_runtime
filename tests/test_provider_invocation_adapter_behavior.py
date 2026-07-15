@@ -152,7 +152,7 @@ def test_production_adapter_executes_prepared_invocation_and_returns_reduced_res
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
     ) -> _Process:
         captured["command"] = command
         captured["shell"] = shell
@@ -160,7 +160,7 @@ def test_production_adapter_executes_prepared_invocation_and_returns_reduced_res
         captured["env"] = env
         captured["stdout"] = stdout
         captured["stderr"] = stderr
-        captured["text"] = text
+        captured["encoding"] = encoding
         return process
 
     monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
@@ -208,7 +208,7 @@ def test_production_adapter_executes_prepared_invocation_and_returns_reduced_res
         "env": captured["env"],
         "stdout": provider_invocation_runtime.subprocess.PIPE,
         "stderr": provider_invocation_runtime.subprocess.PIPE,
-        "text": True,
+        "encoding": "utf-8",
         "reduced_lines": ["line 1\n", "line 2\n"],
     }
     _assert_expected_process_env(captured["env"], {"PROVIDER_TOKEN": "secret"})
@@ -254,7 +254,7 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
         stdin: Any,
     ) -> _Process:
         captured["command"] = command
@@ -263,7 +263,7 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
         captured["env"] = env
         captured["stdout"] = stdout
         captured["stderr"] = stderr
-        captured["text"] = text
+        captured["encoding"] = encoding
         captured["stdin"] = stdin
         return process
 
@@ -308,7 +308,7 @@ def test_production_adapter_executes_argv_invocation_with_prompt_on_stdin(
         "env": captured["env"],
         "stdout": provider_invocation_runtime.subprocess.PIPE,
         "stderr": provider_invocation_runtime.subprocess.PIPE,
-        "text": True,
+        "encoding": "utf-8",
         "stdin": provider_invocation_runtime.subprocess.PIPE,
     }
     _assert_expected_process_env(captured["env"], {"PROVIDER_TOKEN": "secret"})
@@ -355,7 +355,7 @@ def test_production_adapter_applies_argv_transform_before_execution_and_forces_s
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
         stdin: Any,
     ) -> _Process:
         captured["command"] = command
@@ -364,7 +364,7 @@ def test_production_adapter_applies_argv_transform_before_execution_and_forces_s
         captured_env.update(env)
         captured["stdout"] = stdout
         captured["stderr"] = stderr
-        captured["text"] = text
+        captured["encoding"] = encoding
         captured["stdin"] = stdin
         return process
 
@@ -465,7 +465,7 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
         stdin: Any,
     ) -> _Process:
         captured["command"] = command
@@ -474,7 +474,7 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
         captured["env"] = env
         captured["stdout"] = stdout
         captured["stderr"] = stderr
-        captured["text"] = text
+        captured["encoding"] = encoding
         captured["stdin"] = stdin
         return process
 
@@ -537,7 +537,7 @@ def test_production_adapter_prefers_argv_over_legacy_command_for_claude_prompt_i
         "env": captured["env"],
         "stdout": provider_invocation_runtime.subprocess.PIPE,
         "stderr": provider_invocation_runtime.subprocess.PIPE,
-        "text": True,
+        "encoding": "utf-8",
         "stdin": provider_invocation_runtime.subprocess.PIPE,
     }
     _assert_expected_process_env(
@@ -591,7 +591,7 @@ def test_production_adapter_resolves_argv_executable_against_path_before_spawnin
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
         stdin: Any,
     ) -> _Process:
         captured["command"] = command
@@ -1905,7 +1905,7 @@ def test_provider_invocation_request_layers_windows_host_process_allowlist_for_b
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
         stdin: Any = None,
     ) -> _Process:
         captured["command"] = command
@@ -1976,7 +1976,7 @@ def test_provider_invocation_request_keeps_provider_environment_values_when_wind
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
         stdin: Any = None,
     ) -> _Process:
         captured["env"] = env
@@ -2035,7 +2035,7 @@ def test_provider_invocation_request_keeps_provider_environment_unchanged_on_pos
         env: dict[str, str],
         stdout: Any,
         stderr: Any,
-        text: bool,
+        encoding: str,
         stdin: Any = None,
     ) -> _Process:
         captured["env"] = env
@@ -2061,6 +2061,59 @@ def test_provider_invocation_request_keeps_provider_environment_unchanged_on_pos
     )
 
     assert captured["env"] == {"TZ": "UTC", "PATH": "provider/path"}
+
+
+def test_production_adapter_passes_utf8_encoding_to_popen(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdin = None
+            self.stdout = iter(["line\n"])
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def wait(self) -> int:
+            return 0
+
+    def _fake_popen(
+        command: str | list[str],
+        *,
+        shell: bool,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: Any,
+        stderr: Any,
+        encoding: str,
+        stdin: Any = None,
+    ) -> _Process:
+        captured["encoding"] = encoding
+        return _Process()
+
+    monkeypatch.setattr(provider_invocation_runtime.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(provider_invocation_runtime.shutil, "which", lambda _name: None)
+
+    provider_invocation_runtime.ProductionProviderInvocationAdapter().execute(
+        provider_invocation_runtime.ProviderInvocationRequest(
+            worktree=tmp_path,
+            environment={},
+            prompt=provider_invocation_runtime.ProviderInvocationPrompt(
+                content="prompt",
+            ),
+            run_kind=RunKind.FRESH,
+            provider_session_id=None,
+            output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
+                reduce_output=lambda lines: ("".join(lines), None),
+            ),
+            argv=("provider", "--run"),
+            prefer_argv=True,
+        )
+    )
+
+    assert captured["encoding"] == "utf-8"
 
 
 def test_production_adapter_resets_idle_timeout_on_stderr_activity(
