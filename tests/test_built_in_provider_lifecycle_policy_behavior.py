@@ -6,10 +6,14 @@ from pathlib import Path
 
 import pytest
 
+from agent_runtime._builtin_provider_agent_event_building import (
+    build_claude_agent_event,
+    build_codex_agent_event,
+)
 from agent_runtime._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
 )
-from agent_runtime._runtime_lifecycle import ProviderAuth
+from agent_runtime._runtime_lifecycle import AgentEvent, ProviderAuth
 from agent_runtime._built_in_provider_lifecycle_policy import (
     NewSessionFactsResult,
     NewSessionRedirect,
@@ -32,6 +36,7 @@ from agent_runtime.errors import (
     RuntimeConfigurationError,
     UsageLimitError,
 )
+from agent_runtime.invocation_progress import InvocationProgress
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection
 
@@ -728,3 +733,273 @@ def test_codex_policy_apply_ephemeral_pre_invocation_seeding_raises_credential_f
             provider_state_dir
         )
     assert exc_info.value.service_name == "codex"
+
+
+# build_session_dispatch_interpretation tests
+
+_CLAUDE_ASSISTANT_LINE = (
+    json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "hello from claude"}],
+                "usage": {"input_tokens": 5},
+            },
+        }
+    )
+    + "\n"
+)
+_CLAUDE_RESULT_LINE = (
+    json.dumps({"type": "result", "subtype": "success", "result": "hello from claude"})
+    + "\n"
+)
+_CLAUDE_LINES = [_CLAUDE_ASSISTANT_LINE, _CLAUDE_RESULT_LINE]
+
+_CODEX_THREAD_LINE = (
+    json.dumps({"type": "thread.started", "thread_id": "thread-abc"}) + "\n"
+)
+_CODEX_ITEM_LINE = (
+    json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": "hello from codex"},
+        }
+    )
+    + "\n"
+)
+_CODEX_USAGE_LINE = (
+    json.dumps(
+        {
+            "type": "turn.completed",
+            "usage": {"input_tokens": 8, "output_tokens": 4},
+        }
+    )
+    + "\n"
+)
+_CODEX_LINES = [_CODEX_THREAD_LINE, _CODEX_ITEM_LINE, _CODEX_USAGE_LINE]
+
+_OPENCODE_TEXT_WITH_SESSION_LINE = (
+    json.dumps(
+        {
+            "type": "text",
+            "sessionID": "sess-obs",
+            "part": {
+                "type": "text",
+                "text": "hello from opencode",
+                "time": {"end": True},
+            },
+        }
+    )
+    + "\n"
+)
+_OPENCODE_IDLE_WITH_SESSION_LINE = (
+    json.dumps(
+        {
+            "type": "session.status",
+            "sessionID": "sess-obs",
+            "status": {"type": "idle"},
+        }
+    )
+    + "\n"
+)
+_OPENCODE_TEXT_NO_SESSION_LINE = (
+    json.dumps(
+        {
+            "type": "text",
+            "part": {
+                "type": "text",
+                "text": "hello from opencode",
+                "time": {"end": True},
+            },
+        }
+    )
+    + "\n"
+)
+_OPENCODE_IDLE_NO_SESSION_LINE = (
+    json.dumps({"type": "session.status", "status": {"type": "idle"}}) + "\n"
+)
+_OPENCODE_LINES_WITH_SESSION = [
+    _OPENCODE_TEXT_WITH_SESSION_LINE,
+    _OPENCODE_IDLE_WITH_SESSION_LINE,
+]
+_OPENCODE_LINES_NO_SESSION = [
+    _OPENCODE_TEXT_NO_SESSION_LINE,
+    _OPENCODE_IDLE_NO_SESSION_LINE,
+]
+
+
+def test_claude_policy_build_session_dispatch_interpretation_reduces_to_expected_output_and_usage() -> (
+    None
+):
+    dispatch_interpretation, _ = policy_for_service(
+        "claude"
+    ).build_session_dispatch_interpretation(
+        on_live_output=None,
+        fallback_provider_session_id=None,
+        on_provider_session_id=None,
+    )
+
+    output, usage = dispatch_interpretation.reduce_output(_CLAUDE_LINES)
+
+    assert output == "hello from claude"
+    assert usage is not None
+    assert usage.input_tokens == 5
+
+
+def test_claude_policy_build_session_dispatch_interpretation_emits_one_event_per_line_to_on_live_output() -> (
+    None
+):
+    live_events: list[AgentEvent] = []
+    dispatch_interpretation, _ = policy_for_service(
+        "claude"
+    ).build_session_dispatch_interpretation(
+        on_live_output=live_events.append,
+        fallback_provider_session_id=None,
+        on_provider_session_id=None,
+    )
+
+    consume = getattr(dispatch_interpretation.reduce_output, "consume_stdout_lines")
+    consume(_CLAUDE_LINES)
+
+    assert live_events == [
+        build_claude_agent_event(_CLAUDE_ASSISTANT_LINE),
+        build_claude_agent_event(_CLAUDE_RESULT_LINE),
+    ]
+
+
+def test_claude_policy_build_session_dispatch_interpretation_timeout_state_record_sets_usage_and_progress() -> (
+    None
+):
+    _, timeout_state = policy_for_service(
+        "claude"
+    ).build_session_dispatch_interpretation(
+        on_live_output=None,
+        fallback_provider_session_id=None,
+        on_provider_session_id=None,
+    )
+
+    timeout_state.record(_CLAUDE_LINES)
+
+    assert timeout_state.usage is not None
+    assert timeout_state.usage.input_tokens == 5
+    assert timeout_state.provider_session_id is None
+    assert timeout_state.invocation_progress is InvocationProgress.STARTED
+
+
+def test_codex_policy_build_session_dispatch_interpretation_reduces_to_expected_output_and_usage() -> (
+    None
+):
+    dispatch_interpretation, _ = policy_for_service(
+        "codex"
+    ).build_session_dispatch_interpretation(
+        on_live_output=None,
+        fallback_provider_session_id=None,
+        on_provider_session_id=None,
+    )
+
+    output, usage = dispatch_interpretation.reduce_output(_CODEX_LINES)
+
+    assert output == "hello from codex"
+    assert usage is not None
+    assert usage.input_tokens == 8
+    assert usage.output_tokens == 4
+
+
+def test_codex_policy_build_session_dispatch_interpretation_emits_one_event_per_line_to_on_live_output() -> (
+    None
+):
+    live_events: list[AgentEvent] = []
+    dispatch_interpretation, _ = policy_for_service(
+        "codex"
+    ).build_session_dispatch_interpretation(
+        on_live_output=live_events.append,
+        fallback_provider_session_id=None,
+        on_provider_session_id=None,
+    )
+
+    consume = getattr(dispatch_interpretation.reduce_output, "consume_stdout_lines")
+    consume(_CODEX_LINES)
+
+    assert live_events == [
+        build_codex_agent_event(_CODEX_THREAD_LINE),
+        build_codex_agent_event(_CODEX_ITEM_LINE),
+        build_codex_agent_event(_CODEX_USAGE_LINE),
+    ]
+
+
+def test_codex_policy_build_session_dispatch_interpretation_timeout_state_record_sets_usage_session_id_and_progress() -> (
+    None
+):
+    _, timeout_state = policy_for_service(
+        "codex"
+    ).build_session_dispatch_interpretation(
+        on_live_output=None,
+        fallback_provider_session_id=None,
+        on_provider_session_id=None,
+    )
+
+    timeout_state.record(_CODEX_LINES)
+
+    assert timeout_state.usage is not None
+    assert timeout_state.usage.input_tokens == 8
+    assert timeout_state.provider_session_id == "thread-abc"
+    assert timeout_state.invocation_progress is InvocationProgress.STARTED
+
+
+def test_opencode_policy_build_session_dispatch_interpretation_uses_fallback_session_id_when_stream_has_none() -> (
+    None
+):
+    dispatch_interpretation, _ = policy_for_service(
+        "opencode"
+    ).build_session_dispatch_interpretation(
+        on_live_output=None,
+        fallback_provider_session_id="fallback-abc",
+        on_provider_session_id=None,
+    )
+
+    assert dispatch_interpretation.extract_provider_session_id is not None
+    provider_session_id = dispatch_interpretation.extract_provider_session_id(
+        _OPENCODE_LINES_NO_SESSION
+    )
+
+    assert provider_session_id == "fallback-abc"
+
+
+def test_opencode_policy_build_session_dispatch_interpretation_fires_on_provider_session_id_when_session_observed() -> (
+    None
+):
+    observed_session_ids: list[str] = []
+    dispatch_interpretation, _ = policy_for_service(
+        "opencode"
+    ).build_session_dispatch_interpretation(
+        on_live_output=lambda _: None,
+        fallback_provider_session_id=None,
+        on_provider_session_id=observed_session_ids.append,
+    )
+
+    consume = getattr(dispatch_interpretation.reduce_output, "consume_stdout_lines")
+    consume(_OPENCODE_LINES_WITH_SESSION)
+
+    assert observed_session_ids == ["sess-obs"]
+
+
+def test_opencode_policy_build_session_dispatch_interpretation_timeout_state_record_uses_fallback_when_no_stream_session() -> (
+    None
+):
+    _, timeout_state = policy_for_service(
+        "opencode"
+    ).build_session_dispatch_interpretation(
+        on_live_output=None,
+        fallback_provider_session_id="fallback-xyz",
+        on_provider_session_id=None,
+    )
+
+    timeout_state.record(_OPENCODE_LINES_NO_SESSION)
+
+    assert timeout_state.provider_session_id == "fallback-xyz"
+    assert timeout_state.invocation_progress is InvocationProgress.STARTED
+
+
+def test_stream_interpretation_method_still_exists_on_claude_policy() -> None:
+    result = policy_for_service("claude").stream_interpretation()
+    assert isinstance(result, BuiltInProviderStreamInterpretation)

@@ -11,13 +11,15 @@ from ._builtin_provider_stream_interpretation import (
     claude_built_in_provider_stream_interpretation,
     codex_built_in_provider_stream_interpretation,
     opencode_built_in_provider_stream_interpretation,
+    opencode_lifecycle_built_in_provider_stream_interpretation,
 )
-from ._runtime_lifecycle import Continuation, ProviderAuth
+from ._runtime_lifecycle import AgentEvent, Continuation, ProviderAuth
 from .errors import RuntimeConfigurationError
 from .types import ProviderSelection
 
 if TYPE_CHECKING:
     from . import _session_backed_provider_state_resolution as _state_res_module
+    from ._builtin_runtime_client import _SessionTimeoutState
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,7 @@ class BuiltInProviderLifecyclePolicy:
         "_resolve_ephemeral_provider_state_dir_fn",
         "_resolve_ephemeral_render_invocation_dir_fn",
         "_apply_ephemeral_pre_invocation_seeding_fn",
+        "_build_session_dispatch_interpretation_fn",
     )
 
     def __init__(
@@ -84,6 +87,14 @@ class BuiltInProviderLifecyclePolicy:
         ],
         resolve_ephemeral_render_invocation_dir_fn: Callable[[Path], Path],
         apply_ephemeral_pre_invocation_seeding_fn: Callable[[Path], None],
+        build_session_dispatch_interpretation_fn: Callable[
+            [
+                Callable[[AgentEvent], None] | None,
+                str | None,
+                Callable[[str], None] | None,
+            ],
+            tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState],
+        ],
     ) -> None:
         self._stream_interpretation_fn = stream_interpretation_fn
         self._validate_stage_fn = validate_stage_fn
@@ -100,9 +111,24 @@ class BuiltInProviderLifecyclePolicy:
         self._apply_ephemeral_pre_invocation_seeding_fn = (
             apply_ephemeral_pre_invocation_seeding_fn
         )
+        self._build_session_dispatch_interpretation_fn = (
+            build_session_dispatch_interpretation_fn
+        )
 
     def stream_interpretation(self) -> BuiltInProviderStreamInterpretation:
         return self._stream_interpretation_fn()
+
+    def build_session_dispatch_interpretation(
+        self,
+        on_live_output: Callable[[AgentEvent], None] | None,
+        fallback_provider_session_id: str | None,
+        on_provider_session_id: Callable[[str], None] | None,
+    ) -> tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState]:
+        return self._build_session_dispatch_interpretation_fn(
+            on_live_output,
+            fallback_provider_session_id,
+            on_provider_session_id,
+        )
 
     def validate_stage(self, selection: ProviderSelection) -> None:
         self._validate_stage_fn(selection)
@@ -354,6 +380,64 @@ def _codex_ephemeral_pre_invocation_seeding(provider_state_dir: Path) -> None:
     _state_resolution._seed_codex_auth(provider_state_dir, host_auth_path)
 
 
+def _claude_build_session_dispatch_interpretation(
+    on_live_output: Callable[[AgentEvent], None] | None,
+    fallback_provider_session_id: str | None,
+    on_provider_session_id: Callable[[str], None] | None,
+) -> tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState]:
+    from ._builtin_runtime_client import _SessionTimeoutState, _with_observed_output
+
+    interpretation = claude_built_in_provider_stream_interpretation()
+    dispatch_interpretation = _with_observed_output(interpretation, on_live_output)
+    timeout_state = _SessionTimeoutState(
+        tracking_interpretation=claude_built_in_provider_stream_interpretation(),
+        fallback_provider_session_id=fallback_provider_session_id,
+    )
+    return dispatch_interpretation, timeout_state
+
+
+def _codex_build_session_dispatch_interpretation(
+    on_live_output: Callable[[AgentEvent], None] | None,
+    fallback_provider_session_id: str | None,
+    on_provider_session_id: Callable[[str], None] | None,
+) -> tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState]:
+    from ._builtin_runtime_client import _SessionTimeoutState, _with_observed_output
+
+    interpretation = codex_built_in_provider_stream_interpretation()
+    dispatch_interpretation = _with_observed_output(interpretation, on_live_output)
+    timeout_state = _SessionTimeoutState(
+        tracking_interpretation=codex_built_in_provider_stream_interpretation(),
+        fallback_provider_session_id=fallback_provider_session_id,
+    )
+    return dispatch_interpretation, timeout_state
+
+
+def _opencode_build_session_dispatch_interpretation(
+    on_live_output: Callable[[AgentEvent], None] | None,
+    fallback_provider_session_id: str | None,
+    on_provider_session_id: Callable[[str], None] | None,
+) -> tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState]:
+    from ._builtin_runtime_client import _SessionTimeoutState
+
+    dispatch_interpretation = (
+        opencode_lifecycle_built_in_provider_stream_interpretation(
+            on_live_output=on_live_output,
+            on_provider_session_id=on_provider_session_id,
+            fallback_provider_session_id=fallback_provider_session_id,
+        )
+    )
+    tracking_interpretation = (
+        opencode_lifecycle_built_in_provider_stream_interpretation(
+            fallback_provider_session_id=fallback_provider_session_id,
+        )
+    )
+    timeout_state = _SessionTimeoutState(
+        tracking_interpretation=tracking_interpretation,
+        fallback_provider_session_id=fallback_provider_session_id,
+    )
+    return dispatch_interpretation, timeout_state
+
+
 def _noop_refresh_active_session_facts(
     continuation_input_facts: _state_res_module.ContinuationInputFacts,
     provider_session_id: str | None,
@@ -383,6 +467,7 @@ _CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     _temp_dir_ephemeral_provider_state_dir,
     _passthrough_ephemeral_render_invocation_dir,
     _noop_ephemeral_pre_invocation_seeding,
+    _claude_build_session_dispatch_interpretation,
 )
 _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     codex_built_in_provider_stream_interpretation,
@@ -394,6 +479,7 @@ _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     _temp_dir_ephemeral_provider_state_dir,
     _passthrough_ephemeral_render_invocation_dir,
     _codex_ephemeral_pre_invocation_seeding,
+    _codex_build_session_dispatch_interpretation,
 )
 _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     opencode_built_in_provider_stream_interpretation,
@@ -405,6 +491,7 @@ _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     _invocation_dir_ephemeral_provider_state_dir,
     _tmp_ephemeral_render_invocation_dir,
     _noop_ephemeral_pre_invocation_seeding,
+    _opencode_build_session_dispatch_interpretation,
 )
 
 _POLICIES: dict[str, BuiltInProviderLifecyclePolicy] = {
