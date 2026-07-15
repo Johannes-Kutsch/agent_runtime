@@ -20,6 +20,10 @@ from .types import ProviderSelection
 if TYPE_CHECKING:
     from . import _session_backed_provider_state_resolution as _state_res_module
     from ._builtin_runtime_client import _SessionTimeoutState
+    from ._builtin_provider_rendering import (
+        BuiltInProviderRenderRequest,
+        BuiltInProviderRenderedInvocation,
+    )
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,7 @@ class BuiltInProviderLifecyclePolicy:
         "_resolve_ephemeral_render_invocation_dir_fn",
         "_apply_ephemeral_pre_invocation_seeding_fn",
         "_build_session_dispatch_interpretation_fn",
+        "_render_invocation_fn",
     )
 
     def __init__(
@@ -95,6 +100,14 @@ class BuiltInProviderLifecyclePolicy:
             ],
             tuple[BuiltInProviderStreamInterpretation, _SessionTimeoutState],
         ],
+        render_invocation_fn: Callable[
+            [
+                BuiltInProviderRenderRequest,
+                Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]]
+                | None,
+            ],
+            BuiltInProviderRenderedInvocation,
+        ],
     ) -> None:
         self._stream_interpretation_fn = stream_interpretation_fn
         self._validate_stage_fn = validate_stage_fn
@@ -114,6 +127,7 @@ class BuiltInProviderLifecyclePolicy:
         self._build_session_dispatch_interpretation_fn = (
             build_session_dispatch_interpretation_fn
         )
+        self._render_invocation_fn = render_invocation_fn
 
     def stream_interpretation(self) -> BuiltInProviderStreamInterpretation:
         return self._stream_interpretation_fn()
@@ -179,6 +193,15 @@ class BuiltInProviderLifecyclePolicy:
         provider_state_dir: Path,
     ) -> None:
         self._apply_ephemeral_pre_invocation_seeding_fn(provider_state_dir)
+
+    def render_invocation(
+        self,
+        request: BuiltInProviderRenderRequest,
+        argv_transform: (
+            Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+        ),
+    ) -> BuiltInProviderRenderedInvocation:
+        return self._render_invocation_fn(request, argv_transform)
 
 
 def _claude_validate_stage(selection: ProviderSelection) -> None:
@@ -463,6 +486,35 @@ def _opencode_refresh_active_session_facts(
     )
 
 
+def _claude_render_invocation(
+    request: BuiltInProviderRenderRequest,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ),
+) -> BuiltInProviderRenderedInvocation:
+    return _builtin_provider_rendering_module._render_claude_invocation(request)
+
+
+def _codex_render_invocation(
+    request: BuiltInProviderRenderRequest,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ),
+) -> BuiltInProviderRenderedInvocation:
+    return _builtin_provider_rendering_module._render_codex_invocation(
+        request, argv_transform=argv_transform
+    )
+
+
+def _opencode_render_invocation(
+    request: BuiltInProviderRenderRequest,
+    argv_transform: (
+        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
+    ),
+) -> BuiltInProviderRenderedInvocation:
+    return _builtin_provider_rendering_module._render_opencode_invocation(request)
+
+
 _CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     claude_built_in_provider_stream_interpretation,
     _claude_validate_stage,
@@ -474,6 +526,7 @@ _CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     _passthrough_ephemeral_render_invocation_dir,
     _noop_ephemeral_pre_invocation_seeding,
     _claude_build_session_dispatch_interpretation,
+    _claude_render_invocation,
 )
 _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     codex_built_in_provider_stream_interpretation,
@@ -486,6 +539,7 @@ _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     _passthrough_ephemeral_render_invocation_dir,
     _codex_ephemeral_pre_invocation_seeding,
     _codex_build_session_dispatch_interpretation,
+    _codex_render_invocation,
 )
 _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     opencode_built_in_provider_stream_interpretation,
@@ -498,6 +552,7 @@ _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     _tmp_ephemeral_render_invocation_dir,
     _noop_ephemeral_pre_invocation_seeding,
     _opencode_build_session_dispatch_interpretation,
+    _opencode_render_invocation,
 )
 
 _POLICIES: dict[str, BuiltInProviderLifecyclePolicy] = {

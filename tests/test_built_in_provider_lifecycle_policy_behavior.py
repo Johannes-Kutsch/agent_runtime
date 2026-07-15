@@ -13,6 +13,13 @@ from agent_runtime._builtin_provider_agent_event_building import (
 from agent_runtime._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
 )
+from agent_runtime._builtin_provider_rendering import (
+    BuiltInProviderRenderRequest,
+    BuiltInProviderSelectionFacts,
+    PromptCleanupChoice,
+    PromptTransportPreference,
+    ProviderSessionIdPlacement,
+)
 from agent_runtime._runtime_lifecycle import AgentEvent, ProviderAuth
 from agent_runtime._built_in_provider_lifecycle_policy import (
     NewSessionFactsResult,
@@ -21,6 +28,7 @@ from agent_runtime._built_in_provider_lifecycle_policy import (
     ResumedSessionFactsResult,
     policy_for_service,
 )
+from agent_runtime.contracts import ToolAccess
 from agent_runtime._session_backed_provider_state_resolution import (
     ContinuationInputFacts,
     ExactTranscriptMatch,
@@ -1003,3 +1011,125 @@ def test_opencode_policy_build_session_dispatch_interpretation_timeout_state_rec
 def test_stream_interpretation_method_still_exists_on_claude_policy() -> None:
     result = policy_for_service("claude").stream_interpretation()
     assert isinstance(result, BuiltInProviderStreamInterpretation)
+
+
+# render_invocation tests
+
+
+def test_claude_policy_render_invocation_produces_expected_argv_environment_prompt_path_and_placement(
+    tmp_path: Path,
+) -> None:
+    request = BuiltInProviderRenderRequest(
+        provider_selection=BuiltInProviderSelectionFacts(
+            service="claude", model="sonnet", effort="medium"
+        ),
+        run_kind=RunKind.FRESH,
+        tool_access=ToolAccess.no_tools(),
+        auth=ProviderAuth(claude_code_oauth_token="tok-abc"),
+        invocation_dir=tmp_path,
+    )
+
+    result = policy_for_service("claude").render_invocation(
+        request, argv_transform=None
+    )
+
+    assert result.canonical_argv[0] == "claude"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in result.environment
+    assert result.environment["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-abc"
+    assert result.prompt_path is not None
+    assert result.prompt_path.parent == tmp_path
+    assert result.prompt_cleanup_choice is PromptCleanupChoice.DELETE_AFTER_INVOCATION
+    assert result.prompt_transport_preference is PromptTransportPreference.STDIN
+    assert result.provider_session_id_placement is ProviderSessionIdPlacement.NONE
+
+
+def test_codex_policy_render_invocation_without_argv_transform_produces_expected_argv_and_placement(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    auth_path = host_home / ".codex" / "auth.json"
+    auth_path.parent.mkdir(parents=True)
+    auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    request = BuiltInProviderRenderRequest(
+        provider_selection=BuiltInProviderSelectionFacts(
+            service="codex", model="gpt-5.5", effort="medium"
+        ),
+        run_kind=RunKind.FRESH,
+        tool_access=ToolAccess.no_tools(),
+        auth=None,
+        invocation_dir=tmp_path,
+    )
+
+    result = policy_for_service("codex").render_invocation(request, argv_transform=None)
+
+    assert result.canonical_argv[0] in {"codex", "codex.cmd"}
+    assert result.canonical_argv[1] == "exec"
+    assert "--sandbox" in result.canonical_argv
+    sandbox_idx = result.canonical_argv.index("--sandbox")
+    assert result.canonical_argv[sandbox_idx + 1] == "read-only"
+    assert result.prompt_cleanup_choice is PromptCleanupChoice.DELETE_AFTER_INVOCATION
+    assert result.prompt_transport_preference is PromptTransportPreference.STDIN
+    assert result.provider_session_id_placement is ProviderSessionIdPlacement.NONE
+
+
+def test_codex_policy_render_invocation_with_argv_transform_forces_danger_full_access_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_home = tmp_path / "host-home"
+    auth_path = host_home / ".codex" / "auth.json"
+    auth_path.parent.mkdir(parents=True)
+    auth_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: host_home)
+
+    request = BuiltInProviderRenderRequest(
+        provider_selection=BuiltInProviderSelectionFacts(
+            service="codex", model="gpt-5.5", effort="medium"
+        ),
+        run_kind=RunKind.FRESH,
+        tool_access=ToolAccess.no_tools(),
+        auth=None,
+        invocation_dir=tmp_path,
+    )
+
+    def identity_transform(
+        argv: tuple[str, ...], prompt_path: Path, env: dict[str, str]
+    ) -> tuple[str, ...]:
+        return argv
+
+    result = policy_for_service("codex").render_invocation(
+        request, argv_transform=identity_transform
+    )
+
+    assert "--sandbox" in result.canonical_argv
+    sandbox_idx = result.canonical_argv.index("--sandbox")
+    assert result.canonical_argv[sandbox_idx + 1] == "danger-full-access"
+
+
+def test_opencode_policy_render_invocation_produces_expected_argv_environment_prompt_path_and_placement(
+    tmp_path: Path,
+) -> None:
+    request = BuiltInProviderRenderRequest(
+        provider_selection=BuiltInProviderSelectionFacts(
+            service="opencode", model="kimi-k2.6", effort="medium"
+        ),
+        run_kind=RunKind.FRESH,
+        tool_access=ToolAccess.no_tools(),
+        auth=ProviderAuth(opencode_api_key="key-xyz"),
+        invocation_dir=tmp_path,
+    )
+
+    result = policy_for_service("opencode").render_invocation(
+        request, argv_transform=None
+    )
+
+    assert result.canonical_argv[0] in {"opencode", "opencode.cmd"}
+    assert "OPENCODE_GO_API_KEY" in result.environment
+    assert result.environment["OPENCODE_GO_API_KEY"] == "key-xyz"
+    assert result.prompt_path is not None
+    assert result.prompt_cleanup_choice is PromptCleanupChoice.DELETE_AFTER_INVOCATION
+    assert result.prompt_transport_preference is PromptTransportPreference.PROMPT_FILE
+    assert result.provider_session_id_placement is ProviderSessionIdPlacement.NONE
