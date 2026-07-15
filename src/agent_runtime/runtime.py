@@ -94,7 +94,6 @@ _supported_builtin_provider_selection = (
 )
 
 
-
 class RuntimeClient:
     async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         selected_provider_selection = _supported_builtin_provider_selection(
