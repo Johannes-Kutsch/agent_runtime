@@ -2030,6 +2030,50 @@ def test_runtime_client_ephemeral_run_emits_claude_tool_call_and_other_agent_eve
     )
 
 
+def test_runtime_client_ephemeral_run_routes_through_policy_not_render_built_in_provider_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="success",
+            stdout_lines=(_claude_result_output_line("success"),),
+        )
+    )
+
+    def _should_not_be_called(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(
+            "render_built_in_provider_invocation must not be called for ephemeral runs"
+        )
+
+    monkeypatch.setattr(
+        builtin_provider_rendering_runtime,
+        "render_built_in_provider_invocation",
+        _should_not_be_called,
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "success"
+
+
 @pytest.mark.parametrize("run_mode", ("ephemeral", "new_session", "resumed_session"))
 def test_runtime_client_claude_live_runtime_output_matches_final_parser_semantics(
     monkeypatch: pytest.MonkeyPatch,
@@ -6724,7 +6768,6 @@ def test_runtime_client_new_session_silent_invocation_timeout_has_no_continuatio
 
 
 def test_runtime_client_ephemeral_silent_invocation_timeout_without_live_runtime_output(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     script_path = tmp_path / "silent_provider_hang.py"
@@ -6743,23 +6786,6 @@ def test_runtime_client_ephemeral_silent_invocation_timeout_without_live_runtime
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(
-        builtin_provider_rendering_runtime,
-        "render_built_in_provider_invocation",
-        lambda _request, *_args, **_kwargs: (
-            builtin_provider_rendering_runtime.BuiltInProviderRenderedInvocation(
-                canonical_argv=(sys.executable, str(script_path)),
-                legacy_command_text=None,
-                environment={},
-                prompt_path=None,
-                prompt_cleanup_choice=builtin_provider_rendering_runtime.PromptCleanupChoice.KEEP,
-                prompt_transport_preference=builtin_provider_rendering_runtime.PromptTransportPreference.STDIN,
-                provider_session_id_placement=builtin_provider_rendering_runtime.ProviderSessionIdPlacement.NONE,
-                prefer_argv=True,
-            )
-        ),
-    )
-
     outcome = asyncio.run(
         runtime.RuntimeClient().run_ephemeral(
             RuntimeClientExecutionHarness.ephemeral_run_request(
@@ -6774,6 +6800,10 @@ def test_runtime_client_ephemeral_silent_invocation_timeout_without_live_runtime
                 ),
                 tool_access=contracts_runtime.ToolAccess.no_tools(),
                 timeout_seconds=1,
+                argv_transform=lambda _argv, _invocation_dir, _env: (
+                    sys.executable,
+                    str(script_path),
+                ),
             )
         )
     )
@@ -6932,30 +6962,6 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
                 )
             ),
             id="opencode-session-run",
-        ),
-        pytest.param(
-            "ephemeral-codex",
-            lambda _adapter, invocation_dir: (
-                builtin_runtime_client_runtime._render_ephemeral_provider_invocation(
-                    RuntimeClientExecutionHarness.ephemeral_run_request(
-                        invocation_dir=invocation_dir,
-                        provider_selection=InternalStageSelection(
-                            service="codex",
-                            model="gpt-5.4",
-                            effort="medium",
-                        ),
-                        tool_access=contracts_runtime.ToolAccess.no_tools(),
-                    ),
-                    InternalStageSelection(
-                        service="codex",
-                        model="gpt-5.4",
-                        effort="medium",
-                    ),
-                    provider_state_dir=invocation_dir / "provider-state",
-                    render_invocation_dir=invocation_dir,
-                )
-            ),
-            id="ephemeral-render",
         ),
     ],
 )
