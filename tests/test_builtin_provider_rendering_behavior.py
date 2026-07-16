@@ -20,6 +20,22 @@ def _posix_host_facts() -> built_in_provider_rendering.BuiltInProviderHostFacts:
     return built_in_provider_rendering.BuiltInProviderHostFacts(os_name="posix")
 
 
+def _render_for_service(
+    request: built_in_provider_rendering.BuiltInProviderRenderRequest,
+    *,
+    argv_transform: Any = None,
+) -> built_in_provider_rendering.BuiltInProviderRenderedInvocation:
+    service = request.provider_selection.service
+    if service == "claude":
+        return built_in_provider_rendering._render_claude_invocation(request)
+    elif service == "codex":
+        return built_in_provider_rendering._render_codex_invocation(
+            request, argv_transform=argv_transform
+        )
+    else:
+        return built_in_provider_rendering._render_opencode_invocation(request)
+
+
 @pytest.mark.parametrize(
     ("module_name", "removed_name"),
     [
@@ -42,6 +58,12 @@ def test_built_in_provider_rendering_values_stay_off_runtime_public_surface(
 
     imported_module = runtime if module_name == "agent_runtime" else runtime_module
     assert not hasattr(imported_module, removed_name)
+
+
+def test_render_built_in_provider_invocation_dispatcher_is_deleted() -> None:
+    assert not hasattr(
+        built_in_provider_rendering, "render_built_in_provider_invocation"
+    )
 
 
 def test_built_in_provider_render_request_preserves_optional_rendering_facts() -> None:
@@ -153,22 +175,20 @@ def test_render_claude_invocation_returns_canonical_argv_and_compatibility_comma
 ):
     invocation_dir = Path("/tmp/invocation")
 
-    rendered_invocation = (
-        built_in_provider_rendering.render_built_in_provider_invocation(
-            built_in_provider_rendering.BuiltInProviderRenderRequest(
-                provider_selection=(
-                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    )
-                ),
-                run_kind=RunKind.FRESH,
-                tool_access=ToolAccess.workspace_backed(invocation_dir),
-                auth=ProviderAuth(claude_code_oauth_token="token"),
-                invocation_dir=invocation_dir,
-                host_facts=_posix_host_facts(),
-            )
+    rendered_invocation = _render_for_service(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=(
+                built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                )
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(invocation_dir),
+            auth=ProviderAuth(claude_code_oauth_token="token"),
+            invocation_dir=invocation_dir,
+            host_facts=_posix_host_facts(),
         )
     )
 
@@ -220,7 +240,7 @@ def test_render_claude_invocation_uses_provider_prompt_path_and_claude_only_envi
     None
 ):
     invocation_dir = Path("/tmp/invocation")
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="claude",
@@ -316,7 +336,7 @@ def test_render_built_in_provider_invocation_keeps_windows_host_environment_out_
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
     provider_state_dir = tmp_path / "provider-state"
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service=service,
@@ -425,7 +445,7 @@ def test_render_built_in_provider_invocation_keeps_posix_environment_provider_on
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
     provider_state_dir = tmp_path / "provider-state"
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service=service,
@@ -478,52 +498,48 @@ def test_render_built_in_provider_invocation_keeps_posix_environment_provider_on
 def test_render_claude_invocation_maps_tool_policy_and_custom_profile_flags() -> None:
     invocation_dir = Path("/tmp/invocation")
 
-    read_only_profile_invocation = (
-        built_in_provider_rendering.render_built_in_provider_invocation(
-            built_in_provider_rendering.BuiltInProviderRenderRequest(
-                provider_selection=(
-                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    )
+    read_only_profile_invocation = _render_for_service(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=(
+                built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                )
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(
+                invocation_dir,
+                tool_policy=ToolPolicyProfile(
+                    allowed_tools=("Read", "Glob"),
+                    disallowed_tools=(),
+                    strict_mcp_config=True,
                 ),
-                run_kind=RunKind.FRESH,
-                tool_access=ToolAccess.workspace_backed(
-                    invocation_dir,
-                    tool_policy=ToolPolicyProfile(
-                        allowed_tools=("Read", "Glob"),
-                        disallowed_tools=(),
-                        strict_mcp_config=True,
-                    ),
-                ),
-                auth=ProviderAuth(claude_code_oauth_token="token"),
-                invocation_dir=invocation_dir,
-            )
+            ),
+            auth=ProviderAuth(claude_code_oauth_token="token"),
+            invocation_dir=invocation_dir,
         )
     )
-    custom_profile_invocation = (
-        built_in_provider_rendering.render_built_in_provider_invocation(
-            built_in_provider_rendering.BuiltInProviderRenderRequest(
-                provider_selection=(
-                    built_in_provider_rendering.BuiltInProviderSelectionFacts(
-                        service="claude",
-                        model="sonnet",
-                        effort="medium",
-                    )
+    custom_profile_invocation = _render_for_service(
+        built_in_provider_rendering.BuiltInProviderRenderRequest(
+            provider_selection=(
+                built_in_provider_rendering.BuiltInProviderSelectionFacts(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                )
+            ),
+            run_kind=RunKind.FRESH,
+            tool_access=ToolAccess.workspace_backed(
+                invocation_dir,
+                tool_policy=ToolPolicyProfile(
+                    allowed_tools=("Read", "Glob", "Bash"),
+                    disallowed_tools=("Edit",),
+                    strict_mcp_config=False,
                 ),
-                run_kind=RunKind.FRESH,
-                tool_access=ToolAccess.workspace_backed(
-                    invocation_dir,
-                    tool_policy=ToolPolicyProfile(
-                        allowed_tools=("Read", "Glob", "Bash"),
-                        disallowed_tools=("Edit",),
-                        strict_mcp_config=False,
-                    ),
-                ),
-                auth=ProviderAuth(claude_code_oauth_token="token"),
-                invocation_dir=invocation_dir,
-            )
+            ),
+            auth=ProviderAuth(claude_code_oauth_token="token"),
+            invocation_dir=invocation_dir,
         )
     )
 
@@ -652,7 +668,7 @@ def test_render_claude_invocation_places_provider_session_ids_for_fresh_and_resu
 ):
     invocation_dir = Path("/tmp/invocation")
 
-    fresh_render = built_in_provider_rendering.render_built_in_provider_invocation(
+    fresh_render = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="claude",
@@ -666,7 +682,7 @@ def test_render_claude_invocation_places_provider_session_ids_for_fresh_and_resu
             provider_session_id="session-fresh",
         )
     )
-    resumed_render = built_in_provider_rendering.render_built_in_provider_invocation(
+    resumed_render = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="claude",
@@ -699,7 +715,7 @@ def test_render_claude_invocation_fails_for_missing_credentials_and_unsupported_
     with pytest.raises(
         AgentCredentialFailureError, match="Missing Claude Code OAuth token."
     ):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -718,7 +734,7 @@ def test_render_claude_invocation_fails_for_missing_credentials_and_unsupported_
     with pytest.raises(
         RuntimeConfigurationError, match=r"Unsupported Claude model 'invalid'\."
     ):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -737,7 +753,7 @@ def test_render_claude_invocation_fails_for_missing_credentials_and_unsupported_
     with pytest.raises(
         RuntimeConfigurationError, match=r"Unsupported Claude effort 'invalid'\."
     ):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -764,7 +780,7 @@ def test_render_codex_fresh_invocation_returns_canonical_argv_environment_and_pr
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="codex",
@@ -832,7 +848,7 @@ def test_render_codex_without_provider_state_dir_uses_host_codex_home_for_auth_r
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="codex",
@@ -862,7 +878,7 @@ def test_render_codex_without_provider_state_dir_keeps_windows_host_allowlist_ou
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="codex",
@@ -906,7 +922,7 @@ def test_render_codex_resumed_invocation_places_and_carries_provider_session_id(
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="codex",
@@ -972,7 +988,7 @@ def test_render_codex_resumed_invocation_uses_expected_sandbox_flag(
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="codex",
@@ -1015,7 +1031,7 @@ def test_render_codex_invocation_uses_danger_full_access_when_argv_transform_pre
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="codex",
@@ -1071,7 +1087,7 @@ def test_render_codex_uses_windows_executable_and_tool_policy_sandbox_mapping(
     host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
     monkeypatch.setattr(built_in_provider_rendering.Path, "home", lambda: host_home)
 
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="codex",
@@ -1110,7 +1126,7 @@ def test_render_codex_fails_for_missing_host_auth_and_unsupported_selection(
         AgentCredentialFailureError,
         match="Codex authentication missing: run `codex login` on the host.",
     ):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -1133,7 +1149,7 @@ def test_render_codex_fails_for_missing_host_auth_and_unsupported_selection(
     with pytest.raises(
         RuntimeConfigurationError, match=r"Unsupported Codex model 'invalid'\."
     ):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -1152,7 +1168,7 @@ def test_render_codex_fails_for_missing_host_auth_and_unsupported_selection(
     with pytest.raises(
         RuntimeConfigurationError, match=r"Unsupported Codex effort 'invalid'\."
     ):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -1172,7 +1188,7 @@ def test_render_codex_fails_for_missing_host_auth_and_unsupported_selection(
 def test_render_opencode_fresh_invocation_returns_canonical_argv_and_current_config(
     tmp_path: Path,
 ) -> None:
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="opencode",
@@ -1228,7 +1244,7 @@ def test_render_opencode_fresh_invocation_returns_canonical_argv_and_current_con
 def test_render_opencode_resumed_invocation_places_and_carries_provider_session_id(
     tmp_path: Path,
 ) -> None:
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="opencode",
@@ -1264,7 +1280,7 @@ def test_render_opencode_fails_for_missing_credentials_and_unsupported_selection
     tmp_path: Path,
 ) -> None:
     with pytest.raises(AgentCredentialFailureError, match="Missing OpenCode API key."):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -1298,7 +1314,7 @@ def test_render_opencode_tool_policy_maps_to_current_permission_content(
     tool_policy: runtime.ToolPolicy,
     expected_permission: object,
 ) -> None:
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="opencode",
@@ -1337,7 +1353,7 @@ def test_render_opencode_tool_policy_profile_maps_to_current_permission_content(
     tool_policy: ToolPolicyProfile,
     expected_permission: object,
 ) -> None:
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="opencode",
@@ -1358,7 +1374,7 @@ def test_render_opencode_tool_policy_profile_maps_to_current_permission_content(
 def test_render_opencode_uses_windows_executable_without_process_launch_allowlist(
     tmp_path: Path,
 ) -> None:
-    rendered_invocation = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered_invocation = _render_for_service(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="opencode",
@@ -1402,7 +1418,7 @@ def test_render_opencode_fails_for_unsupported_model(tmp_path: Path) -> None:
     with pytest.raises(
         RuntimeConfigurationError, match=r"Unsupported OpenCode model 'glm-5'\."
     ):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(
@@ -1423,7 +1439,7 @@ def test_render_opencode_fails_for_unsupported_effort(tmp_path: Path) -> None:
     with pytest.raises(
         RuntimeConfigurationError, match=r"Unsupported OpenCode effort 'high'\."
     ):
-        built_in_provider_rendering.render_built_in_provider_invocation(
+        _render_for_service(
             built_in_provider_rendering.BuiltInProviderRenderRequest(
                 provider_selection=(
                     built_in_provider_rendering.BuiltInProviderSelectionFacts(

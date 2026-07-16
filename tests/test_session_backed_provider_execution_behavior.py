@@ -264,7 +264,7 @@ def test_session_backed_codex_invocation_uses_built_in_provider_rendering_facts_
 
     assert harness.recorded_request_count == 1
     recorded_request = harness.recorded_request()
-    rendered = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered = built_in_provider_rendering._render_codex_invocation(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="codex",
@@ -899,7 +899,7 @@ def test_session_backed_opencode_invocation_uses_built_in_provider_rendering_fac
 
     assert harness.recorded_request_count == 1
     recorded_request = harness.recorded_request()
-    rendered = built_in_provider_rendering.render_built_in_provider_invocation(
+    rendered = built_in_provider_rendering._render_opencode_invocation(
         built_in_provider_rendering.BuiltInProviderRenderRequest(
             provider_selection=built_in_provider_rendering.BuiltInProviderSelectionFacts(
                 service="opencode",

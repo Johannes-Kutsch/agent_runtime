@@ -518,25 +518,3 @@ def _render_opencode_invocation(
         provider_session_id=request.provider_session_id,
         prefer_argv=True,
     )
-
-
-def render_built_in_provider_invocation(
-    request: BuiltInProviderRenderRequest,
-    *,
-    argv_transform: (
-        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
-    ) = None,
-) -> BuiltInProviderRenderedInvocation:
-    if request.provider_selection.service == "claude":
-        rendered_invocation = _render_claude_invocation(request)
-    elif request.provider_selection.service == "codex":
-        rendered_invocation = _render_codex_invocation(
-            request, argv_transform=argv_transform
-        )
-    elif request.provider_selection.service == "opencode":
-        rendered_invocation = _render_opencode_invocation(request)
-    else:
-        raise RuntimeConfigurationError(
-            f"Unsupported built-in provider {request.provider_selection.service!r}."
-        )
-    return rendered_invocation
