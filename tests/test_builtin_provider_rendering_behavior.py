@@ -320,7 +320,7 @@ def test_render_claude_invocation_uses_provider_prompt_path_and_claude_only_envi
         ),
     ],
 )
-def test_render_built_in_provider_invocation_keeps_windows_host_environment_out_of_scope(
+def test_built_in_provider_rendering_keeps_windows_host_environment_out_of_scope(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     service: str,
@@ -429,7 +429,7 @@ def test_render_built_in_provider_invocation_keeps_windows_host_environment_out_
         ),
     ],
 )
-def test_render_built_in_provider_invocation_keeps_posix_environment_provider_only(
+def test_built_in_provider_rendering_keeps_posix_environment_provider_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     service: str,
