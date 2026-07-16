@@ -48,7 +48,10 @@ from .errors import (
 from .invocation_progress import InvocationProgress
 from .session import RunKind
 from .types import ProviderSelection
-from ._built_in_provider_lifecycle_policy import policy_for_service
+from ._built_in_provider_lifecycle_policy import (
+    BuiltInProviderLifecyclePolicy,
+    policy_for_service,
+)
 
 _log = logging.getLogger(__name__)
 subprocess = _subprocess
@@ -401,8 +404,10 @@ def _render_ephemeral_provider_invocation(
     stage: ProviderSelection,
     provider_state_dir: Path | None,
     render_invocation_dir: Path,
+    *,
+    policy: BuiltInProviderLifecyclePolicy,
 ) -> _builtin_provider_rendering_module.BuiltInProviderRenderedInvocation:
-    return _builtin_provider_rendering_module.render_built_in_provider_invocation(
+    return policy.render_invocation(
         _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
             provider_selection=(
                 _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
@@ -450,6 +455,7 @@ def _run_builtin_ephemeral(
             selected_stage,
             provider_state_dir=provider_state_dir,
             render_invocation_dir=render_invocation_dir,
+            policy=policy,
         )
         policy.apply_ephemeral_pre_invocation_seeding(provider_state_dir)
         stream_interpretation, _ = policy.build_session_dispatch_interpretation(
