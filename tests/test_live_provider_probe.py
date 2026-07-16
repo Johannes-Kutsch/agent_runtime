@@ -1215,6 +1215,11 @@ def test_live_probe_resumed_session_case_uses_sandbox_before_resume_token(
         codex_auth_present=True,
     )
     session_store = tmp_path / "session-store"
+    host_home = tmp_path / "codex-auth-home"
+    codex_auth = host_home / ".codex" / "auth.json"
+    codex_auth.parent.mkdir(parents=True)
+    codex_auth.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: host_home)
 
     class _CheckingAdapter(
         provider_invocation_runtime.InMemoryProviderInvocationAdapter

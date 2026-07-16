@@ -25,6 +25,33 @@ from .errors import AgentCancelledError, AgentTimeoutError
 from .session import RunKind
 
 
+def _make_render_request(
+    *,
+    service: str,
+    model: str,
+    effort: str,
+    run_kind: RunKind,
+    tool_access: ToolAccess,
+    auth: ProviderAuth | None,
+    invocation_dir: Path,
+    provider_state_dir: Path | None,
+    provider_session_id: str | None,
+) -> _builtin_provider_rendering_module.BuiltInProviderRenderRequest:
+    return _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
+        provider_selection=_builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
+            service=service,
+            model=model,
+            effort=effort,
+        ),
+        run_kind=run_kind,
+        tool_access=tool_access,
+        auth=auth,
+        invocation_dir=invocation_dir,
+        provider_state_dir=provider_state_dir,
+        provider_session_id=provider_session_id,
+    )
+
+
 def dispatch_built_in_provider_session_invocation(
     *,
     service_name: str,
@@ -119,26 +146,22 @@ def _dispatch_claude(
     timeout_seconds: int = 300,
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
-        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
-            provider_selection=(
-                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-                    service="claude",
-                    model=model,
-                    effort=effort,
-                )
-            ),
+    policy = _policy_for_service("claude")
+    rendered = policy.render_invocation(
+        _make_render_request(
+            service="claude",
+            model=model,
+            effort=effort,
             run_kind=run_kind,
             tool_access=tool_access,
             auth=auth,
             invocation_dir=invocation_dir,
             provider_state_dir=provider_state_dir,
             provider_session_id=provider_session_id,
-        )
+        ),
+        argv_transform=argv_transform,
     )
-    stream_interpretation, timeout_state = _policy_for_service(
-        "claude"
-    ).build_session_dispatch_interpretation(
+    stream_interpretation, timeout_state = policy.build_session_dispatch_interpretation(
         on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
         on_provider_session_id=None,
@@ -182,22 +205,17 @@ def _dispatch_codex(
     timeout_seconds: int = 300,
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    stream_interpretation, timeout_state = _policy_for_service(
-        "codex"
-    ).build_session_dispatch_interpretation(
+    policy = _policy_for_service("codex")
+    stream_interpretation, timeout_state = policy.build_session_dispatch_interpretation(
         on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
         on_provider_session_id=None,
     )
-    rendered = _builtin_provider_rendering_module._render_codex_invocation(
-        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
-            provider_selection=(
-                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-                    service="codex",
-                    model=model,
-                    effort=effort,
-                )
-            ),
+    rendered = policy.render_invocation(
+        _make_render_request(
+            service="codex",
+            model=model,
+            effort=effort,
             run_kind=run_kind,
             tool_access=tool_access,
             auth=None,
@@ -205,7 +223,6 @@ def _dispatch_codex(
             provider_state_dir=provider_state_dir,
             provider_session_id=provider_session_id,
         ),
-        validate_auth=False,
         argv_transform=argv_transform,
     )
     try:
@@ -248,29 +265,25 @@ def _dispatch_opencode(
     timeout_seconds: int = 300,
     token: CancellationToken | None = None,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    stream_interpretation, timeout_state = _policy_for_service(
-        "opencode"
-    ).build_session_dispatch_interpretation(
+    policy = _policy_for_service("opencode")
+    stream_interpretation, timeout_state = policy.build_session_dispatch_interpretation(
         on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
         on_provider_session_id=None,
     )
-    rendered = _builtin_provider_rendering_module.render_built_in_provider_invocation(
-        _builtin_provider_rendering_module.BuiltInProviderRenderRequest(
-            provider_selection=(
-                _builtin_provider_rendering_module.BuiltInProviderSelectionFacts(
-                    service="opencode",
-                    model=model,
-                    effort=effort,
-                )
-            ),
+    rendered = policy.render_invocation(
+        _make_render_request(
+            service="opencode",
+            model=model,
+            effort=effort,
             run_kind=run_kind,
             tool_access=tool_access,
             auth=auth,
             invocation_dir=invocation_dir,
             provider_state_dir=provider_state_dir,
             provider_session_id=provider_session_id,
-        )
+        ),
+        argv_transform=argv_transform,
     )
     try:
         return _execute_rendered_provider_invocation(

@@ -1653,6 +1653,7 @@ def test_runtime_client_resumed_session_run_calls_live_output_observer(
         if turn.type == "agent_message":
             observed.append(turn.display_message)
 
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
     harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1703,6 +1704,7 @@ def test_runtime_client_resumed_session_run_forwards_live_output_observer_except
             reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
         )
 
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
     RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -1749,6 +1751,7 @@ def test_runtime_client_resumed_session_run_propagates_live_output_observer_time
             observed.append(turn.display_message)
         raise observer_failure
 
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
     RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -6819,7 +6822,7 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
 
     monkeypatch.setattr(
         builtin_provider_rendering_runtime,
-        "render_built_in_provider_invocation",
+        "_render_claude_invocation",
         lambda _request: (
             builtin_provider_rendering_runtime.BuiltInProviderRenderedInvocation(
                 canonical_argv=(sys.executable, str(script_path)),
