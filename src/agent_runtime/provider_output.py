@@ -23,7 +23,6 @@ from .errors import (
     ModelNotAvailableError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
-    TransientAgentError,
     UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
@@ -56,9 +55,10 @@ def reduce_text_output_events(
                     service_name=provider,
                     invocation_progress=invocation_progress,
                 )
-            raise TransientAgentError(
+            raise HardAgentError(
                 message=event.raw_message,
-                status_code=event.status_code,
+                service_name=provider,
+                classification=event.classification,
             )
         if isinstance(event, HardError):
             raise HardAgentError(

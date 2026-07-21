@@ -20,7 +20,6 @@ from agent_runtime.errors import (
     HardAgentError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
-    TransientAgentError,
     UsageLimitError,
 )
 from agent_runtime.provider_output import reduce_text_output_events
@@ -100,16 +99,26 @@ def test_provider_output_reduction_keeps_unknown_activity_usage_limits_not_start
     assert exc_info.value.invocation_progress is _InvocationProgress.NOT_STARTED
 
 
-def test_provider_output_reduction_maps_transient_error() -> None:
-    with pytest.raises(TransientAgentError) as exc_info:
+def test_provider_output_reduction_maps_non_retryable_transient_error_to_hard_agent_error() -> (
+    None
+):
+    with pytest.raises(HardAgentError) as exc_info:
         reduce_text_output_events(
-            [TransientError(status_code=503, raw_message="retry")],
+            [
+                TransientError(
+                    status_code=503,
+                    raw_message="hard failure",
+                    classification="permanent",
+                )
+            ],
             lambda _turn, _raw: None,
             provider="codex",
         )
 
-    assert exc_info.value.status_code == 503
-    assert str(exc_info.value) == "retry"
+    assert str(exc_info.value) == "hard failure"
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.classification == "permanent"
+    assert not hasattr(exc_info.value, "status_code")
 
 
 def test_provider_output_reduction_maps_provider_unavailable() -> None:

@@ -32,7 +32,6 @@ from agent_runtime.errors import (
     ProviderUnavailableError,
     ProviderUnavailableReason,
     RuntimeConfigurationError,
-    TransientAgentError,
 )
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
@@ -2446,7 +2445,7 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
         ),
     )
 
-    with pytest.raises(TransientAgentError):
+    with pytest.raises(HardAgentError):
         asyncio.run(
             runtime.RuntimeClient().run_ephemeral(
                 prompt_runtime.EphemeralRunRequest(
@@ -5837,7 +5836,7 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
         ),
     )
 
-    with pytest.raises(TransientAgentError) as exc_info:
+    with pytest.raises(HardAgentError) as exc_info:
         asyncio.run(
             runtime.RuntimeClient().run_ephemeral(
                 prompt_runtime.EphemeralRunRequest(
@@ -5857,7 +5856,8 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
         )
 
     assert str(exc_info.value) == "temporary backend failure"
-    assert exc_info.value.status_code == 503
+    assert exc_info.value.service_name == "opencode"
+    assert not hasattr(exc_info.value, "status_code")
 
 
 def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
@@ -6010,7 +6010,7 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
         ),
     )
 
-    with pytest.raises(TransientAgentError) as exc_info:
+    with pytest.raises(HardAgentError) as exc_info:
         asyncio.run(
             runtime.RuntimeClient().run_ephemeral(
                 prompt_runtime.EphemeralRunRequest(
@@ -6030,7 +6030,8 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
         )
 
     assert "temporary Claude failure" in str(exc_info.value)
-    assert exc_info.value.status_code == 500
+    assert exc_info.value.service_name == "claude"
+    assert not hasattr(exc_info.value, "status_code")
 
 
 def test_runtime_client_preserves_claude_usage_on_usage_limited_stream(

@@ -29,7 +29,6 @@ from agent_runtime.errors import (
     ModelNotAvailableError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
-    TransientAgentError,
     UsageLimitError,
 )
 from agent_runtime.invocation_progress import InvocationProgress
@@ -108,8 +107,8 @@ def test_codex_built_in_provider_stream_interpretation_maps_selected_model_at_ca
 @pytest.mark.parametrize(
     ("event_type", "message", "expected_exception"),
     [
-        ("error", "upstream status 503", TransientAgentError),
-        ("turn.failed", "upstream status 503", TransientAgentError),
+        ("error", "upstream status 503", HardAgentError),
+        ("turn.failed", "upstream status 503", HardAgentError),
         ("error", "basic authentication failed", HardAgentError),
         ("turn.failed", "refresh_token_reused", AgentCredentialFailureError),
         (
@@ -727,7 +726,7 @@ def test_claude_non_session_gone_error_keeps_existing_classification() -> None:
         + "\n"
     )
 
-    with pytest.raises(TransientAgentError):
+    with pytest.raises(HardAgentError):
         interpretation.reduce_output([line])
 
 
