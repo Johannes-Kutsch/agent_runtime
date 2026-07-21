@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from collections.abc import Generator
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
+import time_machine
 
 import agent_runtime as runtime
 import agent_runtime.contracts as contracts_runtime
@@ -48,6 +52,12 @@ def provider_selection_factory() -> Callable[..., runtime.ProviderSelection]:
         )
 
     return _factory
+
+
+@pytest.fixture(autouse=True)
+def frozen_clock() -> Generator[None, None, None]:
+    with time_machine.travel(datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc), tick=True):
+        yield
 
 
 @pytest.fixture

@@ -20,6 +20,7 @@ dev = [
     "ruff",
     "setuptools>=68",
     "setuptools-scm>=8",
+    "time-machine",
 ]
 
 [build-system]
