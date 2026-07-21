@@ -381,23 +381,40 @@ def _run_builtin_new_session(
             selected_stage.effort,
         )
         if isinstance(outcome, _lifecycle_policy_module.NewSessionRedirect):
-            return _run_builtin_resumed_session(
-                _builtin_runtime_client_module.ResumedSessionRunRequest(
-                    prompt=request.prompt,
-                    invocation_dir=request.invocation_dir,
-                    session_store=runtime_state_dir,
-                    continuation=_provider_state_resolution.build_session_backed_continuation(
-                        outcome.continuation_input_facts,
-                        tool_access=request.tool_access,
-                    ),
-                    provider_auth=selected_stage_auth,
-                    on_live_output=on_live_output,
-                    timeout_seconds=0,
-                    argv_transform=request.argv_transform,
-                    token=request.token,
+            redirect_continuation_input_facts = outcome.continuation_input_facts
+            redirect_provider_session_id_obj = (
+                redirect_continuation_input_facts.provider_session_id
+            )
+            redirect_bundle = _SessionLifecycleBundle(
+                service=selected_stage.service,
+                model=selected_stage.model,
+                effort=selected_stage.effort,
+                auth=selected_stage_auth,
+                provider_state_dir=redirect_continuation_input_facts.provider_state_directory.path,
+                continuation_input_facts=redirect_continuation_input_facts,
+                provider_session_id=(
+                    redirect_provider_session_id_obj.value
+                    if redirect_provider_session_id_obj is not None
+                    else None
                 ),
-                provider_invocation_adapter=provider_invocation_adapter,
+                run_kind=redirect_continuation_input_facts.run_kind,
+                fallback_continuation=_provider_state_resolution.build_session_backed_continuation(
+                    redirect_continuation_input_facts,
+                    tool_access=request.tool_access,
+                ),
+                cleanup=lambda: None,
+                policy=policy,
+            )
+            return _run_session_lifecycle_body(
+                redirect_bundle,
+                invocation_dir=request.invocation_dir,
+                prompt=request.prompt,
+                tool_access=request.tool_access,
+                argv_transform=request.argv_transform,
                 on_live_output=on_live_output,
+                timeout_seconds=0,
+                token=request.token,
+                provider_invocation_adapter=provider_invocation_adapter,
             )
         provider_state_dir = outcome.provider_state_dir
         continuation_input_facts = outcome.continuation_input_facts
