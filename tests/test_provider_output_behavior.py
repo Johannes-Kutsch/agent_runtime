@@ -121,6 +121,21 @@ def test_provider_output_reduction_maps_non_retryable_transient_error_to_hard_ag
     assert not hasattr(exc_info.value, "status_code")
 
 
+def test_provider_output_reduction_maps_non_retryable_transient_error_with_no_classification_to_hard_agent_error() -> (
+    None
+):
+    with pytest.raises(HardAgentError) as exc_info:
+        reduce_text_output_events(
+            [TransientError(status_code=503, raw_message="service error")],
+            lambda _turn, _raw: None,
+            provider="codex",
+        )
+
+    assert str(exc_info.value) == "service error"
+    assert exc_info.value.service_name == "codex"
+    assert exc_info.value.classification is None
+
+
 def test_provider_output_reduction_maps_provider_unavailable() -> None:
     with pytest.raises(ProviderUnavailableError) as exc_info:
         reduce_text_output_events(
