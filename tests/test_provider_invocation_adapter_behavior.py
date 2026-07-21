@@ -15,7 +15,9 @@ import pytest
 
 import agent_runtime._builtin_provider_parsed_output as builtin_provider_parsed_output
 import agent_runtime._provider_invocation as provider_invocation_runtime
-from agent_runtime._builtin_provider_stream_interpretation import reduce_codex_stream
+from agent_runtime._builtin_provider_stream_interpretation import (
+    codex_built_in_provider_stream_interpretation,
+)
 from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.errors import (
     AgentCancelledError,
@@ -1159,7 +1161,7 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
         run_kind=RunKind.FRESH,
         provider_session_id=None,
         output_hooks=provider_invocation_runtime.ProviderOutputReductionHooks(
-            reduce_output=reduce_codex_stream,
+            reduce_output=codex_built_in_provider_stream_interpretation().reduce_output,
         ),
     )
 

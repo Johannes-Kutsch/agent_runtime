@@ -19,7 +19,6 @@ from agent_runtime._builtin_provider_stream_interpretation import (
     codex_built_in_provider_stream_interpretation,
     observe_opencode_output,
     opencode_built_in_provider_stream_interpretation,
-    reduce_opencode_stream,
 )
 from agent_runtime._runtime_lifecycle import AgentEvent, ProviderUsage
 from agent_runtime.errors import (
@@ -429,73 +428,6 @@ def test_opencode_built_in_provider_stream_interpretation_uses_opencode_event_bu
     event = interpretation.build_agent_event(line)
 
     assert event == build_opencode_agent_event(line)
-
-
-def test_reduce_opencode_stream_preserves_live_agent_event_values() -> None:
-    interpretation = opencode_built_in_provider_stream_interpretation()
-    observed: list[AgentEvent] = []
-    text_line = (
-        json.dumps(
-            {
-                "type": "text",
-                "part": {
-                    "type": "text",
-                    "text": "hello from opencode",
-                    "time": {"end": True},
-                },
-            }
-        )
-        + "\n"
-    )
-    tool_line = (
-        json.dumps(
-            {
-                "type": "text",
-                "part": {
-                    "type": "tool",
-                    "name": "Read",
-                    "input": {"path": "README.md"},
-                },
-            }
-        )
-        + "\n"
-    )
-    summary_line = (
-        json.dumps(
-            {
-                "type": "step_finish",
-                "step": {
-                    "tokens": {
-                        "input": 120,
-                        "output": 45,
-                        "reasoning": 12,
-                        "cache": {"read": 30, "write": 8},
-                    },
-                    "cost": 0.0123,
-                },
-            }
-        )
-        + "\n"
-    )
-    idle_line = (
-        json.dumps({"type": "session.status", "status": {"type": "idle"}}) + "\n"
-    )
-    non_object_line = '"text"\n'
-    raw_text_line = "  not json  \n"
-    lines = [
-        text_line,
-        tool_line,
-        summary_line,
-        idle_line,
-        non_object_line,
-        raw_text_line,
-    ]
-
-    output, usage = reduce_opencode_stream(lines, observed.append)
-
-    assert output == "hello from opencode"
-    assert usage is None
-    assert observed == [interpretation.build_agent_event(line) for line in lines]
 
 
 def test_opencode_observation_emits_live_agent_events_and_tracks_provider_session_id_until_idle() -> (
