@@ -11,7 +11,6 @@ from .errors import (
     AgentTimeoutError,
     HardAgentError,
     RuntimeConfigurationError,
-    TransientAgentError,
     UsageLimitError,
 )
 from .runtime import (
@@ -56,7 +55,6 @@ __all__ = [
     "RunKind",
     "TimedOut",
     "ToolPolicy",
-    "TransientAgentError",
     "UsageLimited",
     "UsageLimitError",
 ]

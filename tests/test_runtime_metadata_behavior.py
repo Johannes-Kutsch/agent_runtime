@@ -11,7 +11,6 @@ from agent_runtime.errors import (
     HardAgentError,
     ProviderUnavailableError,
     ProviderUnavailableReason,
-    TransientAgentError,
     UsageLimitError,
 )
 
@@ -44,12 +43,6 @@ def test_usage_limit_error_defaults_service_name_metadata_to_none() -> None:
     usage_limit = UsageLimitError(reset_time=None)
 
     assert usage_limit.service_name is None
-
-
-def test_transient_agent_error_exposes_status_code_metadata() -> None:
-    transient = TransientAgentError("transient", status_code=502)
-
-    assert transient.status_code == 502
 
 
 def test_hard_agent_error_exposes_service_name_metadata() -> None:

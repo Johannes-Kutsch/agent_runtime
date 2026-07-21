@@ -130,12 +130,6 @@ class ModelNotAvailableError(AgentRuntimeError):
         super().__init__(message)
 
 
-class TransientAgentError(AgentRuntimeError):
-    def __init__(self, message: str = "", status_code: int | None = None) -> None:
-        self.status_code = status_code
-        super().__init__(message)
-
-
 class HardAgentError(AgentRuntimeError):
     def __init__(
         self,
@@ -200,6 +194,5 @@ __all__ = [
     "ProviderUnavailableError",
     "ProviderUnavailableReason",
     "RuntimeConfigurationError",
-    "TransientAgentError",
     "UsageLimitError",
 ]

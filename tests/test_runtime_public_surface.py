@@ -45,7 +45,6 @@ def test_package_exports_runtime_surface() -> None:
         "RunKind",
         "TimedOut",
         "ToolPolicy",
-        "TransientAgentError",
         "UsageLimited",
         "UsageLimitError",
     ]
