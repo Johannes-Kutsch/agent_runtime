@@ -681,3 +681,66 @@ def test_claude_session_already_in_use_does_not_raise_continuation_unrecoverable
         interpretation.reduce_output([line])
 
     assert not isinstance(exc_info.value, ContinuationUnrecoverableError)
+
+
+def test_claude_built_in_provider_stream_interpretation_propagates_usage_onto_interrupted_outcome() -> (
+    None
+):
+    interpretation = claude_built_in_provider_stream_interpretation()
+    usage_line = (
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [],
+                    "usage": {"input_tokens": 7},
+                },
+            }
+        )
+        + "\n"
+    )
+    error_line = json.dumps({"api_error_status": 429}) + "\n"
+
+    with pytest.raises(UsageLimitError) as exc_info:
+        interpretation.reduce_output([usage_line, error_line])
+
+    assert exc_info.value.usage is not None
+    assert exc_info.value.usage.input_tokens == 7
+
+
+def test_codex_built_in_provider_stream_interpretation_propagates_usage_onto_interrupted_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        time_runtime,
+        "now_local",
+        lambda: datetime(2026, 1, 1, 23, 30, tzinfo=timezone.utc),
+    )
+    interpretation = codex_built_in_provider_stream_interpretation()
+    usage_line = (
+        json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 5,
+                    "output_tokens": 3,
+                },
+            }
+        )
+        + "\n"
+    )
+    error_line = (
+        json.dumps(
+            {
+                "type": "error",
+                "message": "You've hit your usage limit. Try again at 5pm (UTC).",
+            }
+        )
+        + "\n"
+    )
+
+    with pytest.raises(UsageLimitError) as exc_info:
+        interpretation.reduce_output([usage_line, error_line])
+
+    assert exc_info.value.usage is not None
+    assert exc_info.value.usage.input_tokens == 5

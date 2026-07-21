@@ -56,7 +56,9 @@ def provider_selection_factory() -> Callable[..., runtime.ProviderSelection]:
 
 @pytest.fixture(autouse=True)
 def frozen_clock() -> Generator[None, None, None]:
-    with time_machine.travel(datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc), tick=True):
+    with time_machine.travel(
+        datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc), tick=True
+    ):
         yield
 
 

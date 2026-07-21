@@ -222,6 +222,14 @@ def _reduce_provider_stream(
 # ---------------------------------------------------------------------------
 
 
+def _usage_repair(
+    exc: ProviderUnavailableError | UsageLimitError,
+    usage: ProviderUsage | None,
+) -> None:
+    if not is_built_in_provider_live_output_exception(exc) and exc.usage is None:
+        exc.usage = usage
+
+
 def _begin_claude() -> _InvocationContext:
     def _parse(lines: list[str]) -> tuple[list[Any], ProviderUsage | None]:
         usage: ProviderUsage | None = None
@@ -231,14 +239,7 @@ def _begin_claude() -> _InvocationContext:
             events.extend(parse_claude_event(line))
         return events, usage
 
-    def _repair(
-        exc: ProviderUnavailableError | UsageLimitError,
-        usage: ProviderUsage | None,
-    ) -> None:
-        if not is_built_in_provider_live_output_exception(exc) and exc.usage is None:
-            exc.usage = usage
-
-    return _parse, _repair
+    return _parse, _usage_repair
 
 
 _CLAUDE_BUNDLE = _ProviderStreamBundle(
@@ -257,14 +258,7 @@ def _begin_codex() -> _InvocationContext:
             events.extend(parse_codex_event(line))
         return events, usage
 
-    def _repair(
-        exc: ProviderUnavailableError | UsageLimitError,
-        usage: ProviderUsage | None,
-    ) -> None:
-        if not is_built_in_provider_live_output_exception(exc) and exc.usage is None:
-            exc.usage = usage
-
-    return _parse, _repair
+    return _parse, _usage_repair
 
 
 _CODEX_BUNDLE = _ProviderStreamBundle(
