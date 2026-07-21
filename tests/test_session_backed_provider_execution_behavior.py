@@ -1592,3 +1592,126 @@ def test_session_backed_opencode_new_session_cancellation_after_provider_started
         == expected_session_id
     )
     assert _CancelAfterStartedAdapter.recorded_request_count == 1
+
+
+def test_session_backed_codex_new_session_redirect_usage_limit_after_started_returns_continuation_from_observed_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recovered_session_id = "thread-redirect-789"
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationFailure(
+            kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
+            detail="Usage limit reached (reset_time=None)",
+            stdout_lines=(
+                json.dumps(
+                    {
+                        "type": "thread.started",
+                        "thread_id": recovered_session_id,
+                    }
+                )
+                + "\n",
+            ),
+            provider_session_id=None,
+        ),
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
+    RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+        provider_state_dir, recovered_session_id
+    )
+
+    with pytest.raises(UsageLimitError) as exc_info:
+        session_backed_execution._run_builtin_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+
+    assert (
+        exc_info.value.continuation
+        == RuntimeClientExecutionHarness.codex_continuation(
+            provider_session_id=recovered_session_id,
+        )
+    )
+
+
+def test_session_backed_codex_new_session_redirect_cancellation_before_started_uses_fallback_continuation_from_redirect_facts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recovered_session_id = "thread-redirect-789"
+
+    class _CancelBeforeStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _CancelBeforeStartedAdapter.recorded_request_count += 1
+            raise AgentCancelledError()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _CancelBeforeStartedAdapter(),
+    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(
+        monkeypatch,
+        tmp_path,
+        auth_file_content='{"token":"host-auth"}\n',
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    provider_state_dir = RuntimeClientExecutionHarness.provider_state_dir(
+        runtime_state_dir,
+        service="codex",
+    )
+    RuntimeClientExecutionHarness.prepare_codex_rollout_state(
+        provider_state_dir, recovered_session_id
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                token=CancellationToken(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, runtime.Cancelled)
+    assert (
+        outcome.result.continuation
+        == RuntimeClientExecutionHarness.codex_continuation(
+            provider_session_id=recovered_session_id,
+        )
+    )
+    assert _CancelBeforeStartedAdapter.recorded_request_count == 1
