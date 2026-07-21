@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -51,21 +52,17 @@ class ContinuationInputFacts:
 
 
 @dataclass(frozen=True)
-class CodexStartSessionStateResolution:
+class _StartSessionState:
     provider_state_dir: Path
     provider_state_dir_relpath: str | None
 
 
 @dataclass(frozen=True)
-class ClaudeStartSessionStateResolution:
-    provider_state_dir: Path
-    provider_state_dir_relpath: str | None
-
-
-@dataclass(frozen=True)
-class OpenCodeStartSessionStateResolution:
-    provider_state_dir: Path
-    provider_state_dir_relpath: str | None
+class _ServiceStateBundle:
+    service: str
+    start_session_hook: Callable[[Path, Path | None], None]
+    make_exact_transcript_match: Callable[[bool], ExactTranscriptMatch]
+    make_recovered: Callable[[bool], bool]
 
 
 @dataclass(frozen=True)
@@ -198,20 +195,105 @@ def _codex_rollout_paths(provider_state_dir: Path) -> tuple[Path, ...]:
     return tuple(sessions_dir.rglob("rollout-*.jsonl"))
 
 
+def _seed_codex_auth(provider_state_dir: Path, host_auth_path: Path) -> None:
+    provider_auth_path = provider_state_dir / "auth.json"
+    if not provider_auth_path.exists():
+        shutil.copyfile(host_auth_path, provider_auth_path)
+
+
+def _noop_start_session_hook(
+    provider_state_dir: Path, host_auth_path: Path | None
+) -> None:
+    pass
+
+
+def _codex_start_session_hook(
+    provider_state_dir: Path, host_auth_path: Path | None
+) -> None:
+    if host_auth_path is not None:
+        _seed_codex_auth(provider_state_dir, host_auth_path)
+
+
+_CLAUDE_STATE_BUNDLE = _ServiceStateBundle(
+    service="claude",
+    start_session_hook=_noop_start_session_hook,
+    make_exact_transcript_match=lambda _: ExactTranscriptMatch(value=False),
+    make_recovered=lambda _: False,
+)
+
+_CODEX_STATE_BUNDLE = _ServiceStateBundle(
+    service="codex",
+    start_session_hook=_codex_start_session_hook,
+    make_exact_transcript_match=lambda _: ExactTranscriptMatch(value=False),
+    make_recovered=lambda r: r,
+)
+
+_OPENCODE_STATE_BUNDLE = _ServiceStateBundle(
+    service="opencode",
+    start_session_hook=_noop_start_session_hook,
+    make_exact_transcript_match=lambda v: ExactTranscriptMatch(value=v),
+    make_recovered=lambda _: False,
+)
+
+
+def _resolve_start_session_state(
+    bundle: _ServiceStateBundle,
+    *,
+    runtime_state_dir: Path,
+    caller_owned_session_store: bool,
+    host_auth_path: Path | None = None,
+) -> _StartSessionState:
+    provider_state_dir = runtime_state_dir
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+    bundle.start_session_hook(provider_state_dir, host_auth_path)
+    return _StartSessionState(
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=("" if caller_owned_session_store else None),
+    )
+
+
+def _continuation_input_facts(
+    bundle: _ServiceStateBundle,
+    *,
+    model: str,
+    effort: str,
+    provider_state_dir: Path,
+    provider_state_dir_relpath: str | None,
+    provider_session_id: str | None,
+    recovered_provider_session_id: bool = False,
+    run_kind: RunKind,
+    exact_transcript_match: bool = False,
+) -> ContinuationInputFacts:
+    return ContinuationInputFacts(
+        provider_identity=ProviderIdentity(
+            service=bundle.service,
+            model=model,
+            effort=effort,
+        ),
+        provider_state_directory=ProviderStateDirectory(path=provider_state_dir),
+        provider_state_relpath=_provider_state_relpath(provider_state_dir_relpath),
+        provider_session_id=_provider_session_id(
+            provider_session_id,
+            recovered=bundle.make_recovered(recovered_provider_session_id),
+        ),
+        run_kind=run_kind,
+        exact_transcript_match=bundle.make_exact_transcript_match(
+            exact_transcript_match
+        ),
+    )
+
+
 def resolve_codex_start_session_state(
     *,
     runtime_state_dir: Path,
     caller_owned_session_store: bool,
     host_auth_path: Path,
-) -> CodexStartSessionStateResolution:
-    provider_state_dir = runtime_state_dir
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    provider_auth_path = provider_state_dir / "auth.json"
-    if not provider_auth_path.exists():
-        shutil.copyfile(host_auth_path, provider_auth_path)
-    return CodexStartSessionStateResolution(
-        provider_state_dir=provider_state_dir,
-        provider_state_dir_relpath=("" if caller_owned_session_store else None),
+) -> _StartSessionState:
+    return _resolve_start_session_state(
+        _CODEX_STATE_BUNDLE,
+        runtime_state_dir=runtime_state_dir,
+        caller_owned_session_store=caller_owned_session_store,
+        host_auth_path=host_auth_path,
     )
 
 
@@ -219,12 +301,11 @@ def resolve_claude_start_session_state(
     *,
     runtime_state_dir: Path,
     caller_owned_session_store: bool,
-) -> ClaudeStartSessionStateResolution:
-    provider_state_dir = runtime_state_dir
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    return ClaudeStartSessionStateResolution(
-        provider_state_dir=provider_state_dir,
-        provider_state_dir_relpath=("" if caller_owned_session_store else None),
+) -> _StartSessionState:
+    return _resolve_start_session_state(
+        _CLAUDE_STATE_BUNDLE,
+        runtime_state_dir=runtime_state_dir,
+        caller_owned_session_store=caller_owned_session_store,
     )
 
 
@@ -232,12 +313,11 @@ def resolve_opencode_start_session_state(
     *,
     runtime_state_dir: Path,
     caller_owned_session_store: bool,
-) -> OpenCodeStartSessionStateResolution:
-    provider_state_dir = runtime_state_dir
-    provider_state_dir.mkdir(parents=True, exist_ok=True)
-    return OpenCodeStartSessionStateResolution(
-        provider_state_dir=provider_state_dir,
-        provider_state_dir_relpath=("" if caller_owned_session_store else None),
+) -> _StartSessionState:
+    return _resolve_start_session_state(
+        _OPENCODE_STATE_BUNDLE,
+        runtime_state_dir=runtime_state_dir,
+        caller_owned_session_store=caller_owned_session_store,
     )
 
 
@@ -445,12 +525,6 @@ def resolve_opencode_resumed_session_facts(
     )
 
 
-def _seed_codex_auth(provider_state_dir: Path, host_auth_path: Path) -> None:
-    provider_auth_path = provider_state_dir / "auth.json"
-    if not provider_auth_path.exists():
-        shutil.copyfile(host_auth_path, provider_auth_path)
-
-
 def _read_codex_rollout_session_ids(rollout_path: Path) -> set[str]:
     session_ids: set[str] = set()
     if not rollout_path.is_file():
@@ -548,20 +622,15 @@ def codex_continuation_input_facts(
     recovered_provider_session_id: bool = False,
     run_kind: RunKind,
 ) -> ContinuationInputFacts:
-    return ContinuationInputFacts(
-        provider_identity=ProviderIdentity(
-            service="codex",
-            model=model,
-            effort=effort,
-        ),
-        provider_state_directory=ProviderStateDirectory(path=provider_state_dir),
-        provider_state_relpath=_provider_state_relpath(provider_state_dir_relpath),
-        provider_session_id=_provider_session_id(
-            provider_session_id,
-            recovered=recovered_provider_session_id,
-        ),
+    return _continuation_input_facts(
+        _CODEX_STATE_BUNDLE,
+        model=model,
+        effort=effort,
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=provider_state_dir_relpath,
+        provider_session_id=provider_session_id,
+        recovered_provider_session_id=recovered_provider_session_id,
         run_kind=run_kind,
-        exact_transcript_match=ExactTranscriptMatch(value=False),
     )
 
 
@@ -574,17 +643,14 @@ def claude_continuation_input_facts(
     provider_session_id: str | None,
     run_kind: RunKind,
 ) -> ContinuationInputFacts:
-    return ContinuationInputFacts(
-        provider_identity=ProviderIdentity(
-            service="claude",
-            model=model,
-            effort=effort,
-        ),
-        provider_state_directory=ProviderStateDirectory(path=provider_state_dir),
-        provider_state_relpath=_provider_state_relpath(provider_state_dir_relpath),
-        provider_session_id=_provider_session_id(provider_session_id, recovered=False),
+    return _continuation_input_facts(
+        _CLAUDE_STATE_BUNDLE,
+        model=model,
+        effort=effort,
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=provider_state_dir_relpath,
+        provider_session_id=provider_session_id,
         run_kind=run_kind,
-        exact_transcript_match=ExactTranscriptMatch(value=False),
     )
 
 
@@ -598,17 +664,15 @@ def opencode_continuation_input_facts(
     run_kind: RunKind,
     exact_transcript_match: bool,
 ) -> ContinuationInputFacts:
-    return ContinuationInputFacts(
-        provider_identity=ProviderIdentity(
-            service="opencode",
-            model=model,
-            effort=effort,
-        ),
-        provider_state_directory=ProviderStateDirectory(path=provider_state_dir),
-        provider_state_relpath=_provider_state_relpath(provider_state_dir_relpath),
-        provider_session_id=_provider_session_id(provider_session_id, recovered=False),
+    return _continuation_input_facts(
+        _OPENCODE_STATE_BUNDLE,
+        model=model,
+        effort=effort,
+        provider_state_dir=provider_state_dir,
+        provider_state_dir_relpath=provider_state_dir_relpath,
+        provider_session_id=provider_session_id,
         run_kind=run_kind,
-        exact_transcript_match=ExactTranscriptMatch(value=exact_transcript_match),
+        exact_transcript_match=exact_transcript_match,
     )
 
 
