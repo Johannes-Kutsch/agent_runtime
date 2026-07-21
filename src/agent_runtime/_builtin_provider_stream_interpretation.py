@@ -174,71 +174,171 @@ def _merge_provider_usage(
     )
 
 
-def reduce_claude_stream(
+# ---------------------------------------------------------------------------
+# Shared skeleton
+# ---------------------------------------------------------------------------
+
+_ParseLines = Callable[[list[str]], tuple[list[Any], ProviderUsage | None]]
+_Repair = Callable[
+    [ProviderUnavailableError | UsageLimitError, ProviderUsage | None], None
+]
+_InvocationContext = tuple[_ParseLines, _Repair]
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _ProviderStreamBundle:
+    provider: str
+    build_agent_event: Callable[[str], AgentEvent]
+    # Returns fresh (parse_lines, repair) sharing per-invocation mutable state.
+    begin: Callable[[], _InvocationContext]
+
+
+def _reduce_provider_stream(
     lines: list[str],
-    on_live_output: Callable[[AgentEvent], None] | None = None,
+    on_live_output: Callable[[AgentEvent], None] | None,
+    bundle: _ProviderStreamBundle,
 ) -> tuple[str, ProviderUsage | None]:
-    usage: ProviderUsage | None = None
-    parsed_events: list[Any] = []
-    for line in lines:
-        usage = _merge_provider_usage(usage, parse_claude_usage(line))
-        parsed_events.extend(parse_claude_event(line))
+    parse_lines, repair = bundle.begin()
+    parsed_events, usage = parse_lines(lines)
     if on_live_output is not None:
         for line in lines:
             emit_built_in_provider_live_output_event(
-                build_claude_agent_event(line),
-                on_live_output,
+                bundle.build_agent_event(line), on_live_output
             )
     try:
         output = reduce_text_output_events(
             parsed_events,
             lambda _turn, _raw: None,
-            provider="claude",
+            provider=bundle.provider,
         )
     except (ProviderUnavailableError, UsageLimitError) as exc:
-        if is_built_in_provider_live_output_exception(exc):
-            raise
-        if exc.usage is None:
-            exc.usage = usage
+        repair(exc, usage)
         raise
     return output, usage
 
 
-def reduce_codex_stream(
+# ---------------------------------------------------------------------------
+# Per-service bundles
+# ---------------------------------------------------------------------------
+
+
+def _begin_claude() -> _InvocationContext:
+    def _parse(lines: list[str]) -> tuple[list[Any], ProviderUsage | None]:
+        usage: ProviderUsage | None = None
+        events: list[Any] = []
+        for line in lines:
+            usage = _merge_provider_usage(usage, parse_claude_usage(line))
+            events.extend(parse_claude_event(line))
+        return events, usage
+
+    def _repair(
+        exc: ProviderUnavailableError | UsageLimitError,
+        usage: ProviderUsage | None,
+    ) -> None:
+        if not is_built_in_provider_live_output_exception(exc) and exc.usage is None:
+            exc.usage = usage
+
+    return _parse, _repair
+
+
+_CLAUDE_BUNDLE = _ProviderStreamBundle(
+    provider="claude",
+    build_agent_event=build_claude_agent_event,
+    begin=_begin_claude,
+)
+
+
+def _begin_codex() -> _InvocationContext:
+    def _parse(lines: list[str]) -> tuple[list[Any], ProviderUsage | None]:
+        usage: ProviderUsage | None = None
+        events: list[Any] = []
+        for line in lines:
+            usage = _merge_provider_usage(usage, parse_codex_usage(line))
+            events.extend(parse_codex_event(line))
+        return events, usage
+
+    def _repair(
+        exc: ProviderUnavailableError | UsageLimitError,
+        usage: ProviderUsage | None,
+    ) -> None:
+        if not is_built_in_provider_live_output_exception(exc) and exc.usage is None:
+            exc.usage = usage
+
+    return _parse, _repair
+
+
+_CODEX_BUNDLE = _ProviderStreamBundle(
+    provider="codex",
+    build_agent_event=build_codex_agent_event,
+    begin=_begin_codex,
+)
+
+
+def _make_opencode_begin(
+    on_provider_session_id: Callable[[str], None] | None = None,
+) -> Callable[[], _InvocationContext]:
+    def _begin() -> _InvocationContext:
+        observed: list[str | None] = [None]
+
+        def _record(session_id: str) -> None:
+            observed[0] = session_id
+            if on_provider_session_id is not None:
+                on_provider_session_id(session_id)
+
+        def _parse(lines: list[str]) -> tuple[list[Any], ProviderUsage | None]:
+            return (
+                parse_opencode_events(lines, on_provider_session_id=_record),
+                None,
+            )
+
+        def _repair(
+            exc: ProviderUnavailableError | UsageLimitError,
+            _usage: ProviderUsage | None,
+        ) -> None:
+            if observed[0] is not None:
+                exc.invocation_progress = InvocationProgress.STARTED
+
+        return _parse, _repair
+
+    return _begin
+
+
+_OPENCODE_BUNDLE = _ProviderStreamBundle(
+    provider="opencode",
+    build_agent_event=build_opencode_agent_event,
+    begin=_make_opencode_begin(),
+)
+
+
+# ---------------------------------------------------------------------------
+# Private per-service reducer wrappers
+# ---------------------------------------------------------------------------
+
+
+def _reduce_claude_stream(
     lines: list[str],
     on_live_output: Callable[[AgentEvent], None] | None = None,
 ) -> tuple[str, ProviderUsage | None]:
-    usage: ProviderUsage | None = None
-    parsed_events: list[Any] = []
-    for line in lines:
-        usage = _merge_provider_usage(usage, parse_codex_usage(line))
-        parsed_events.extend(parse_codex_event(line))
-    if on_live_output is not None:
-        for line in lines:
-            emit_built_in_provider_live_output_event(
-                build_codex_agent_event(line),
-                on_live_output,
-            )
-    try:
-        output = reduce_text_output_events(
-            parsed_events,
-            lambda _turn, _raw: None,
-            provider="codex",
-        )
-    except (ProviderUnavailableError, UsageLimitError) as exc:
-        if is_built_in_provider_live_output_exception(exc):
-            raise
-        if exc.usage is None:
-            exc.usage = usage
-        raise
-    return output, usage
+    return _reduce_provider_stream(lines, on_live_output, _CLAUDE_BUNDLE)
+
+
+def _reduce_codex_stream(
+    lines: list[str],
+    on_live_output: Callable[[AgentEvent], None] | None = None,
+) -> tuple[str, ProviderUsage | None]:
+    return _reduce_provider_stream(lines, on_live_output, _CODEX_BUNDLE)
+
+
+# ---------------------------------------------------------------------------
+# Public constructor entrypoints
+# ---------------------------------------------------------------------------
 
 
 def codex_built_in_provider_stream_interpretation() -> (
     BuiltInProviderStreamInterpretation
 ):
     return BuiltInProviderStreamInterpretation(
-        reduce_output=reduce_codex_stream,
+        reduce_output=_reduce_codex_stream,
         build_agent_event=build_codex_agent_event,
         classify_invocation_progress=classify_codex_invocation_progress,
         extract_provider_session_id=extract_codex_provider_session_id,
@@ -297,11 +397,16 @@ def opencode_lifecycle_built_in_provider_stream_interpretation(
         if on_provider_session_id is not None:
             on_provider_session_id(session_id)
 
+    _lifecycle_bundle = _ProviderStreamBundle(
+        provider="opencode",
+        build_agent_event=build_opencode_agent_event,
+        begin=_make_opencode_begin(on_provider_session_id=_record_provider_session_id),
+    )
+
     def _reduce_output(lines: list[str]) -> tuple[str, ProviderUsage | None]:
         reducer = reduce_output or (
-            lambda output_lines: reduce_opencode_stream(
-                output_lines,
-                on_provider_session_id=_record_provider_session_id,
+            lambda output_lines: _reduce_provider_stream(
+                output_lines, None, _lifecycle_bundle
             )
         )
         return reducer(lines)
@@ -333,49 +438,14 @@ def opencode_lifecycle_built_in_provider_stream_interpretation(
     )
 
 
-def reduce_opencode_stream(
-    lines: list[str],
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-    *,
-    on_provider_session_id: Callable[[str], None] | None = None,
-) -> tuple[str, ProviderUsage | None]:
-    observed_provider_session_id: str | None = None
-
-    def _record_provider_session_id(session_id: str) -> None:
-        nonlocal observed_provider_session_id
-        observed_provider_session_id = session_id
-        if on_provider_session_id is not None:
-            on_provider_session_id(session_id)
-
-    if on_live_output is not None:
-        for line in lines:
-            emit_built_in_provider_live_output_event(
-                build_opencode_agent_event(line),
-                on_live_output,
-            )
-    try:
-        output = reduce_text_output_events(
-            parse_opencode_events(
-                lines,
-                on_provider_session_id=_record_provider_session_id,
-            ),
-            lambda _turn, _raw: None,
-            provider="opencode",
-        )
-    except (ProviderUnavailableError, UsageLimitError) as exc:
-        if observed_provider_session_id is not None:
-            exc.invocation_progress = InvocationProgress.STARTED
-        raise
-    return output, None
-
-
 def opencode_built_in_provider_stream_interpretation(
     *,
     reduce_output: BuiltInProviderOutputReducer | None = None,
     extract_provider_session_id: BuiltInProviderSessionIdExtractor | None = None,
 ) -> BuiltInProviderStreamInterpretation:
     return BuiltInProviderStreamInterpretation(
-        reduce_output=reduce_output or (lambda lines: reduce_opencode_stream(lines)),
+        reduce_output=reduce_output
+        or (lambda lines: _reduce_provider_stream(lines, None, _OPENCODE_BUNDLE)),
         build_agent_event=build_opencode_agent_event,
         classify_invocation_progress=classify_opencode_invocation_progress,
         extract_provider_session_id=(
@@ -394,7 +464,7 @@ def claude_built_in_provider_stream_interpretation() -> (
         return InvocationProgress.NOT_STARTED
 
     return BuiltInProviderStreamInterpretation(
-        reduce_output=reduce_claude_stream,
+        reduce_output=_reduce_claude_stream,
         build_agent_event=build_claude_agent_event,
         classify_invocation_progress=_classify_progress,
     )
