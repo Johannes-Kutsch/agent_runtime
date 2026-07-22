@@ -85,6 +85,28 @@ from agent_runtime.session import RunKind
                 },
             ),
         ),
+        (
+            provider_state_resolution.opencode_continuation_input_facts(
+                model="glm-5.2",
+                effort="medium",
+                provider_state_dir=Path("/tmp/opencode"),
+                provider_state_dir_relpath="implementer/main/opencode/",
+                provider_session_id="persisted-session-2",
+                run_kind=RunKind.RESUME,
+                exact_transcript_match=False,
+            ),
+            prompt_runtime.Continuation(
+                selected_service="opencode",
+                selected_model="glm-5.2",
+                selected_effort="medium",
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+                provider_resume_state={
+                    "provider_session_id": "persisted-session-2",
+                    "provider_state_dir_relpath": "implementer/main/opencode/",
+                    "exact_transcript_match": False,
+                },
+            ),
+        ),
     ],
 )
 def test_session_backed_provider_state_resolution_builds_current_continuation_payload_through_module_interface(
@@ -97,6 +119,36 @@ def test_session_backed_provider_state_resolution_builds_current_continuation_pa
             tool_access=contracts_runtime.ToolAccess.no_tools(),
         )
         == expected_continuation
+    )
+
+
+def test_session_backed_provider_state_resolution_caller_supplied_provider_session_id_overrides_facts_through_module_interface() -> (
+    None
+):
+    facts = provider_state_resolution.claude_continuation_input_facts(
+        model="sonnet",
+        effort="medium",
+        provider_state_dir=Path("/tmp/claude"),
+        provider_state_dir_relpath="implementer/main/claude/",
+        provider_session_id="facts-session",
+        run_kind=RunKind.FRESH,
+    )
+    result = provider_state_resolution.build_session_backed_continuation(
+        facts,
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_session_id="caller-supplied-session",
+    )
+    assert result == prompt_runtime.Continuation(
+        selected_service="claude",
+        selected_model="sonnet",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state={
+            "run_kind": "resume",
+            "provider_session_id": "caller-supplied-session",
+            "provider_state_dir_relpath": "implementer/main/claude/",
+            "exact_transcript_match": False,
+        },
     )
 
 
