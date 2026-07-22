@@ -5,7 +5,10 @@ import pytest
 import agent_runtime._session_backed_provider_state_resolution as provider_state_resolution
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
-from agent_runtime.errors import ContinuationUnrecoverableError
+from agent_runtime.errors import (
+    ContinuationUnrecoverableError,
+    RuntimeConfigurationError,
+)
 from agent_runtime.session import RunKind
 
 
@@ -945,3 +948,138 @@ def test_session_backed_provider_state_resolution_rejects_absent_local_state_cla
         )
 
     assert exc_info.value.service_name == "claude"
+
+
+def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_new_session_carries_codex_service_name_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    runtime_state_dir = tmp_path / "session-store"
+    rollout_dir = runtime_state_dir / "sessions" / "2026"
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    (rollout_dir / "rollout-001.jsonl").write_text("", encoding="utf-8")
+
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
+        provider_state_resolution.resolve_codex_new_session_facts(
+            runtime_state_dir=runtime_state_dir,
+            caller_owned_session_store=True,
+            model="gpt-5.4",
+            effort="medium",
+            host_auth_path=host_auth_path,
+        )
+
+    assert exc_info.value.service_name == "codex"
+
+
+def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_resumed_session_carries_codex_service_name_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    runtime_state_dir = tmp_path / "session-store"
+    rollout_dir = (
+        runtime_state_dir / "implementer" / "slice422" / "codex" / "sessions" / "2026"
+    )
+    rollout_dir.mkdir(parents=True, exist_ok=True)
+    (rollout_dir / "rollout-001.jsonl").write_text("", encoding="utf-8")
+
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
+        provider_state_resolution.resolve_codex_resumed_session_facts(
+            runtime_state_dir=runtime_state_dir,
+            provider_state_dir_relpath="implementer/slice422/codex/",
+            model="gpt-5.4",
+            effort="medium",
+            provider_session_id=None,
+            host_auth_path=host_auth_path,
+        )
+
+    assert exc_info.value.service_name == "codex"
+
+
+def test_session_backed_provider_state_resolution_rejects_non_resumable_opencode_resumed_session_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    runtime_state_dir = tmp_path / "session-store"
+    provider_state_dir = runtime_state_dir / "implementer" / "slice430" / "opencode"
+    provider_state_dir.mkdir(parents=True, exist_ok=True)
+
+    provider_resume_state: dict[str, object] = {
+        "exact_transcript_match": True,
+        "provider_state_dir_relpath": "implementer/slice430/opencode/",
+        "provider_session_id": "stale-session",
+    }
+    continuation = prompt_runtime.Continuation(
+        selected_service="opencode",
+        selected_model="glm-5.2",
+        selected_effort="medium",
+        tool_access=contracts_runtime.ToolAccess.no_tools(),
+        provider_resume_state=provider_resume_state,
+    )
+
+    with pytest.raises(ContinuationUnrecoverableError) as exc_info:
+        provider_state_resolution.resolve_opencode_resumed_session_facts(
+            runtime_state_dir=runtime_state_dir,
+            continuation=continuation,
+            model="glm-5.2",
+            effort="medium",
+        )
+
+    assert exc_info.value.service_name == "opencode"
+
+
+def test_session_backed_provider_state_resolution_resumes_claude_against_session_store_root_when_relpath_is_none_through_module_interface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "prepared-claude-session",
+    )
+    runtime_state_dir = tmp_path / "session-store"
+
+    resolution = provider_state_resolution.resolve_claude_resumed_session_facts(
+        runtime_state_dir=runtime_state_dir,
+        provider_state_dir_relpath=None,
+        model="sonnet",
+        effort="medium",
+        provider_session_id=None,
+    )
+
+    assert resolution.provider_state_dir == runtime_state_dir
+    assert resolution.continuation_input_facts == (
+        provider_state_resolution.claude_continuation_input_facts(
+            model="sonnet",
+            effort="medium",
+            provider_state_dir=runtime_state_dir,
+            provider_state_dir_relpath=None,
+            provider_session_id="prepared-claude-session",
+            run_kind=RunKind.RESUME,
+        )
+    )
+
+
+def test_session_backed_provider_state_resolution_raises_configuration_error_when_codex_resumed_has_no_provider_session_id_and_no_store_through_module_interface(
+    tmp_path: Path,
+) -> None:
+    host_auth_path = tmp_path / "host-home" / ".codex" / "auth.json"
+    host_auth_path.parent.mkdir(parents=True, exist_ok=True)
+    host_auth_path.write_text('{"token":"host-auth"}\n', encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeConfigurationError,
+        match="Codex continuation is missing `provider_session_id`.",
+    ):
+        provider_state_resolution.resolve_codex_resumed_session_facts(
+            runtime_state_dir=None,
+            provider_state_dir_relpath=None,
+            model="gpt-5.4",
+            effort="medium",
+            provider_session_id=None,
+            host_auth_path=host_auth_path,
+        )
