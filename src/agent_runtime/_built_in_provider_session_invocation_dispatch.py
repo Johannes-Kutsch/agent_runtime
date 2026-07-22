@@ -72,140 +72,7 @@ def dispatch_built_in_provider_session_invocation(
     token: CancellationToken | None = None,
     provider_invocation_adapter: ProviderInvocationAdapter,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
-    if service_name == "claude":
-        return _dispatch_claude(
-            provider_invocation_adapter=provider_invocation_adapter,
-            invocation_dir=invocation_dir,
-            prompt=prompt,
-            model=model,
-            effort=effort,
-            tool_access=tool_access,
-            auth=auth,
-            provider_state_dir=provider_state_dir,
-            run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            argv_transform=argv_transform,
-            on_live_output=on_live_output,
-            timeout_seconds=timeout_seconds,
-            token=token,
-        )
-    if service_name == "codex":
-        return _dispatch_codex(
-            provider_invocation_adapter=provider_invocation_adapter,
-            invocation_dir=invocation_dir,
-            prompt=prompt,
-            model=model,
-            effort=effort,
-            tool_access=tool_access,
-            provider_state_dir=provider_state_dir,
-            run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            argv_transform=argv_transform,
-            on_live_output=on_live_output,
-            timeout_seconds=timeout_seconds,
-            token=token,
-        )
-    if service_name == "opencode":
-        return _dispatch_opencode(
-            provider_invocation_adapter=provider_invocation_adapter,
-            invocation_dir=invocation_dir,
-            prompt=prompt,
-            model=model,
-            effort=effort,
-            tool_access=tool_access,
-            auth=auth,
-            provider_state_dir=provider_state_dir,
-            run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            argv_transform=argv_transform,
-            on_live_output=on_live_output,
-            timeout_seconds=timeout_seconds,
-            token=token,
-        )
-    raise ValueError(
-        f"dispatch_built_in_provider_session_invocation: unknown service {service_name!r}"
-    )
-
-
-def _dispatch_claude(
-    *,
-    provider_invocation_adapter: ProviderInvocationAdapter,
-    invocation_dir: Path,
-    prompt: str,
-    model: str,
-    effort: str,
-    tool_access: ToolAccess,
-    auth: ProviderAuth | None,
-    provider_state_dir: Path | None,
-    run_kind: RunKind,
-    provider_session_id: str | None,
-    argv_transform: (
-        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
-    ) = None,
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-    timeout_seconds: int = 300,
-    token: CancellationToken | None = None,
-) -> ProviderInvocationResult | ProviderInvocationFailure:
-    policy = _policy_for_service("claude")
-    rendered = policy.render_invocation(
-        _make_render_request(
-            service="claude",
-            model=model,
-            effort=effort,
-            run_kind=run_kind,
-            tool_access=tool_access,
-            auth=auth,
-            invocation_dir=invocation_dir,
-            provider_state_dir=provider_state_dir,
-            provider_session_id=provider_session_id,
-        ),
-        argv_transform=argv_transform,
-    )
-    stream_interpretation, timeout_state = policy.build_session_dispatch_interpretation(
-        on_live_output=on_live_output,
-        fallback_provider_session_id=provider_session_id,
-        on_provider_session_id=None,
-    )
-    try:
-        return _execute_rendered_provider_invocation(
-            provider_invocation_adapter=provider_invocation_adapter,
-            rendered=rendered,
-            invocation_dir=invocation_dir,
-            argv_transform=argv_transform,
-            prompt=prompt,
-            run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            stream_interpretation=stream_interpretation,
-            timeout_seconds=timeout_seconds,
-            token=token,
-        )
-    except AgentTimeoutError as exc:
-        timeout_state.apply_to_timeout(exc)
-        raise
-    except AgentCancelledError as exc:
-        timeout_state.apply_to_cancellation(exc)
-        raise
-
-
-def _dispatch_codex(
-    *,
-    provider_invocation_adapter: ProviderInvocationAdapter,
-    invocation_dir: Path,
-    prompt: str,
-    model: str,
-    effort: str,
-    tool_access: ToolAccess,
-    provider_state_dir: Path | None,
-    run_kind: RunKind,
-    provider_session_id: str | None,
-    argv_transform: (
-        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
-    ) = None,
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-    timeout_seconds: int = 300,
-    token: CancellationToken | None = None,
-) -> ProviderInvocationResult | ProviderInvocationFailure:
-    policy = _policy_for_service("codex")
+    policy = _policy_for_service(service_name)
     stream_interpretation, timeout_state = policy.build_session_dispatch_interpretation(
         on_live_output=on_live_output,
         fallback_provider_session_id=provider_session_id,
@@ -213,12 +80,12 @@ def _dispatch_codex(
     )
     rendered = policy.render_invocation(
         _make_render_request(
-            service="codex",
+            service=service_name,
             model=model,
             effort=effort,
             run_kind=run_kind,
             tool_access=tool_access,
-            auth=None,
+            auth=policy.select_auth(auth),
             invocation_dir=invocation_dir,
             provider_state_dir=provider_state_dir,
             provider_session_id=provider_session_id,
@@ -233,67 +100,9 @@ def _dispatch_codex(
             argv_transform=argv_transform,
             prompt=prompt,
             run_kind=run_kind,
-            provider_session_id=provider_session_id,
-            stream_interpretation=stream_interpretation,
-            timeout_seconds=timeout_seconds,
-            token=token,
-        )
-    except AgentTimeoutError as exc:
-        timeout_state.apply_to_timeout(exc)
-        raise
-    except AgentCancelledError as exc:
-        timeout_state.apply_to_cancellation(exc)
-        raise
-
-
-def _dispatch_opencode(
-    *,
-    provider_invocation_adapter: ProviderInvocationAdapter,
-    invocation_dir: Path,
-    prompt: str,
-    model: str,
-    effort: str,
-    tool_access: ToolAccess,
-    auth: ProviderAuth | None,
-    provider_state_dir: Path | None,
-    run_kind: RunKind,
-    provider_session_id: str | None,
-    argv_transform: (
-        Callable[[tuple[str, ...], Path, dict[str, str]], tuple[str, ...]] | None
-    ) = None,
-    on_live_output: Callable[[AgentEvent], None] | None = None,
-    timeout_seconds: int = 300,
-    token: CancellationToken | None = None,
-) -> ProviderInvocationResult | ProviderInvocationFailure:
-    policy = _policy_for_service("opencode")
-    stream_interpretation, timeout_state = policy.build_session_dispatch_interpretation(
-        on_live_output=on_live_output,
-        fallback_provider_session_id=provider_session_id,
-        on_provider_session_id=None,
-    )
-    rendered = policy.render_invocation(
-        _make_render_request(
-            service="opencode",
-            model=model,
-            effort=effort,
-            run_kind=run_kind,
-            tool_access=tool_access,
-            auth=auth,
-            invocation_dir=invocation_dir,
-            provider_state_dir=provider_state_dir,
-            provider_session_id=provider_session_id,
-        ),
-        argv_transform=argv_transform,
-    )
-    try:
-        return _execute_rendered_provider_invocation(
-            provider_invocation_adapter=provider_invocation_adapter,
-            rendered=rendered,
-            invocation_dir=invocation_dir,
-            argv_transform=argv_transform,
-            prompt=prompt,
-            run_kind=run_kind,
-            provider_session_id=rendered.provider_session_id,
+            provider_session_id=policy.execute_provider_session_id(
+                rendered, provider_session_id
+            ),
             stream_interpretation=stream_interpretation,
             timeout_seconds=timeout_seconds,
             token=token,

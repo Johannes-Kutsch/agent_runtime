@@ -70,6 +70,8 @@ class BuiltInProviderLifecyclePolicy:
         "_apply_ephemeral_pre_invocation_seeding_fn",
         "_build_session_dispatch_interpretation_fn",
         "_render_invocation_fn",
+        "_select_auth_fn",
+        "_execute_provider_session_id_fn",
     )
 
     def __init__(
@@ -108,6 +110,10 @@ class BuiltInProviderLifecyclePolicy:
             ],
             BuiltInProviderRenderedInvocation,
         ],
+        select_auth_fn: Callable[[ProviderAuth | None], ProviderAuth | None],
+        execute_provider_session_id_fn: Callable[
+            [BuiltInProviderRenderedInvocation, str | None], str | None
+        ],
     ) -> None:
         self._stream_interpretation_fn = stream_interpretation_fn
         self._validate_stage_fn = validate_stage_fn
@@ -128,6 +134,8 @@ class BuiltInProviderLifecyclePolicy:
             build_session_dispatch_interpretation_fn
         )
         self._render_invocation_fn = render_invocation_fn
+        self._select_auth_fn = select_auth_fn
+        self._execute_provider_session_id_fn = execute_provider_session_id_fn
 
     def stream_interpretation(self) -> BuiltInProviderStreamInterpretation:
         return self._stream_interpretation_fn()
@@ -202,6 +210,18 @@ class BuiltInProviderLifecyclePolicy:
         ),
     ) -> BuiltInProviderRenderedInvocation:
         return self._render_invocation_fn(request, argv_transform)
+
+    def select_auth(self, auth: ProviderAuth | None) -> ProviderAuth | None:
+        return self._select_auth_fn(auth)
+
+    def execute_provider_session_id(
+        self,
+        rendered: BuiltInProviderRenderedInvocation,
+        argument_provider_session_id: str | None,
+    ) -> str | None:
+        return self._execute_provider_session_id_fn(
+            rendered, argument_provider_session_id
+        )
 
 
 def _claude_validate_stage(selection: ProviderSelection) -> None:
@@ -515,6 +535,28 @@ def _opencode_render_invocation(
     return _builtin_provider_rendering_module._render_opencode_invocation(request)
 
 
+def _passthrough_select_auth(auth: ProviderAuth | None) -> ProviderAuth | None:
+    return auth
+
+
+def _none_select_auth(auth: ProviderAuth | None) -> ProviderAuth | None:
+    return None
+
+
+def _argument_execute_provider_session_id(
+    rendered: BuiltInProviderRenderedInvocation,
+    argument_provider_session_id: str | None,
+) -> str | None:
+    return argument_provider_session_id
+
+
+def _rendered_execute_provider_session_id(
+    rendered: BuiltInProviderRenderedInvocation,
+    argument_provider_session_id: str | None,
+) -> str | None:
+    return rendered.provider_session_id
+
+
 _CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     claude_built_in_provider_stream_interpretation,
     _claude_validate_stage,
@@ -527,6 +569,8 @@ _CLAUDE_POLICY = BuiltInProviderLifecyclePolicy(
     _noop_ephemeral_pre_invocation_seeding,
     _claude_build_session_dispatch_interpretation,
     _claude_render_invocation,
+    _passthrough_select_auth,
+    _argument_execute_provider_session_id,
 )
 _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     codex_built_in_provider_stream_interpretation,
@@ -540,6 +584,8 @@ _CODEX_POLICY = BuiltInProviderLifecyclePolicy(
     _codex_ephemeral_pre_invocation_seeding,
     _codex_build_session_dispatch_interpretation,
     _codex_render_invocation,
+    _none_select_auth,
+    _argument_execute_provider_session_id,
 )
 _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     opencode_built_in_provider_stream_interpretation,
@@ -553,6 +599,8 @@ _OPENCODE_POLICY = BuiltInProviderLifecyclePolicy(
     _noop_ephemeral_pre_invocation_seeding,
     _opencode_build_session_dispatch_interpretation,
     _opencode_render_invocation,
+    _passthrough_select_auth,
+    _rendered_execute_provider_session_id,
 )
 
 _POLICIES: dict[str, BuiltInProviderLifecyclePolicy] = {
