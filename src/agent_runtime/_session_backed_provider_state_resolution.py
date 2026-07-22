@@ -98,6 +98,11 @@ class _ServiceStateBundle:
     compute_resumed_exact_transcript_match: Callable[
         [str | None, str | None, bool], bool
     ]
+    # Continuation building
+    continuation_run_kind: str | None
+    compute_continuation_exact_transcript_match: Callable[
+        [ExactTranscriptMatch | None], bool | None
+    ]
 
 
 # ── Utility ───────────────────────────────────────────────────────────────────
@@ -399,6 +404,8 @@ _CLAUDE_STATE_BUNDLE = _ServiceStateBundle(
         _builtin_runtime_client_module._new_provider_session_id()
     ),
     compute_resumed_exact_transcript_match=lambda _a, _r, _s: False,
+    continuation_run_kind=RunKind.RESUME.value,
+    compute_continuation_exact_transcript_match=lambda _: False,
 )
 
 _CODEX_STATE_BUNDLE = _ServiceStateBundle(
@@ -415,6 +422,8 @@ _CODEX_STATE_BUNDLE = _ServiceStateBundle(
     assert_resumed_and_recover_id=_codex_assert_resumed_and_recover_id,
     generate_resumed_session_id_or_raise=_codex_generate_resumed_session_id_or_raise,
     compute_resumed_exact_transcript_match=lambda _a, _r, _s: False,
+    continuation_run_kind=RunKind.RESUME.value,
+    compute_continuation_exact_transcript_match=lambda _: False,
 )
 
 _OPENCODE_STATE_BUNDLE = _ServiceStateBundle(
@@ -435,7 +444,17 @@ _OPENCODE_STATE_BUNDLE = _ServiceStateBundle(
         _builtin_runtime_client_module._new_provider_session_id()
     ),
     compute_resumed_exact_transcript_match=_compute_opencode_resumed_exact_transcript_match,
+    continuation_run_kind=None,
+    compute_continuation_exact_transcript_match=lambda etm: (
+        etm.value if etm is not None else None
+    ),
 )
+
+
+_SERVICE_BUNDLES: dict[str, _ServiceStateBundle] = {
+    b.service: b
+    for b in (_CLAUDE_STATE_BUNDLE, _CODEX_STATE_BUNDLE, _OPENCODE_STATE_BUNDLE)
+}
 
 
 # ── Shared start-session body ─────────────────────────────────────────────────
@@ -848,17 +867,12 @@ def build_session_backed_continuation(
     provider_session_id: str | None = None,
 ) -> Continuation:
     service = continuation_input_facts.provider_identity.service
-    continuation_run_kind: str | None = None
-    exact_transcript_match: bool | None = None
-    if service in {"claude", "codex"}:
-        continuation_run_kind = RunKind.RESUME.value
-        exact_transcript_match = False
-    elif service == "opencode":
-        exact_transcript_match = (
-            continuation_input_facts.exact_transcript_match.value
-            if continuation_input_facts.exact_transcript_match is not None
-            else None
-        )
+    bundle = _SERVICE_BUNDLES[service]
+
+    continuation_run_kind = bundle.continuation_run_kind
+    exact_transcript_match = bundle.compute_continuation_exact_transcript_match(
+        continuation_input_facts.exact_transcript_match
+    )
 
     active_provider_session_id = provider_session_id
     if active_provider_session_id is None:
