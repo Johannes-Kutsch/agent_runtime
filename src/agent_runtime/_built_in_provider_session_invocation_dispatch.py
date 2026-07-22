@@ -72,6 +72,10 @@ def dispatch_built_in_provider_session_invocation(
     token: CancellationToken | None = None,
     provider_invocation_adapter: ProviderInvocationAdapter,
 ) -> ProviderInvocationResult | ProviderInvocationFailure:
+    if service_name not in {"claude", "codex", "opencode"}:
+        raise ValueError(
+            f"dispatch_built_in_provider_session_invocation: unknown service {service_name!r}"
+        )
     policy = _policy_for_service(service_name)
     stream_interpretation, timeout_state = policy.build_session_dispatch_interpretation(
         on_live_output=on_live_output,

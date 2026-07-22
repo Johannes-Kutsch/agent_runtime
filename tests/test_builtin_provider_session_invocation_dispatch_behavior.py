@@ -243,3 +243,24 @@ def test_opencode_dispatch_delivers_opencode_argv_to_provider_invocation_adapter
 
     assert len(adapter.recorded_requests) == 1
     assert adapter.recorded_requests[0].argv[0] in {"opencode", "opencode.cmd"}
+
+
+def test_dispatch_raises_value_error_for_unknown_service_name(
+    tmp_path: Path,
+) -> None:
+    adapter = InMemoryProviderInvocationAdapter()
+
+    with pytest.raises(ValueError, match="unknown service 'bogus'"):
+        dispatch_built_in_provider_session_invocation(
+            service_name="bogus",
+            run_kind=RunKind.FRESH,
+            invocation_dir=tmp_path,
+            prompt="hello",
+            model="some-model",
+            effort="medium",
+            tool_access=ToolAccess.no_tools(),
+            auth=None,
+            provider_state_dir=None,
+            provider_session_id=None,
+            provider_invocation_adapter=adapter,
+        )

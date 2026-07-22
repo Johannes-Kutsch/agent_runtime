@@ -15,6 +15,7 @@ from agent_runtime._builtin_provider_stream_interpretation import (
 )
 from agent_runtime._builtin_provider_rendering import (
     BuiltInProviderRenderRequest,
+    BuiltInProviderRenderedInvocation,
     BuiltInProviderSelectionFacts,
     PromptCleanupChoice,
     PromptTransportPreference,
@@ -1133,3 +1134,83 @@ def test_opencode_policy_render_invocation_produces_expected_argv_environment_pr
     assert result.prompt_cleanup_choice is PromptCleanupChoice.DELETE_AFTER_INVOCATION
     assert result.prompt_transport_preference is PromptTransportPreference.PROMPT_FILE
     assert result.provider_session_id_placement is ProviderSessionIdPlacement.NONE
+
+
+# select_auth tests
+
+
+def test_claude_policy_select_auth_returns_auth_unchanged() -> None:
+    auth = ProviderAuth(claude_code_oauth_token="tok-abc")
+    assert policy_for_service("claude").select_auth(auth) is auth
+
+
+def test_claude_policy_select_auth_returns_none_when_none_given() -> None:
+    assert policy_for_service("claude").select_auth(None) is None
+
+
+def test_opencode_policy_select_auth_returns_auth_unchanged() -> None:
+    auth = ProviderAuth(opencode_api_key="key-xyz")
+    assert policy_for_service("opencode").select_auth(auth) is auth
+
+
+def test_codex_policy_select_auth_returns_none_regardless_of_input() -> None:
+    assert policy_for_service("codex").select_auth(None) is None
+
+
+def test_codex_policy_select_auth_returns_none_when_auth_supplied() -> None:
+    auth = ProviderAuth(claude_code_oauth_token="tok-abc")
+    assert policy_for_service("codex").select_auth(auth) is None
+
+
+# execute_provider_session_id tests
+
+
+_RENDERED_WITH_SESSION_ID = BuiltInProviderRenderedInvocation(
+    canonical_argv=("some-cmd",),
+    legacy_command_text=None,
+    environment={},
+    prompt_path=None,
+    prompt_cleanup_choice=PromptCleanupChoice.DELETE_AFTER_INVOCATION,
+    prompt_transport_preference=PromptTransportPreference.STDIN,
+    provider_session_id_placement=ProviderSessionIdPlacement.NONE,
+    provider_session_id="rendered-sid",
+)
+
+
+def test_claude_policy_execute_provider_session_id_returns_argument() -> None:
+    result = policy_for_service("claude").execute_provider_session_id(
+        _RENDERED_WITH_SESSION_ID, "arg-sid"
+    )
+    assert result == "arg-sid"
+
+
+def test_claude_policy_execute_provider_session_id_returns_none_argument() -> None:
+    result = policy_for_service("claude").execute_provider_session_id(
+        _RENDERED_WITH_SESSION_ID, None
+    )
+    assert result is None
+
+
+def test_codex_policy_execute_provider_session_id_returns_argument() -> None:
+    result = policy_for_service("codex").execute_provider_session_id(
+        _RENDERED_WITH_SESSION_ID, "arg-sid"
+    )
+    assert result == "arg-sid"
+
+
+def test_opencode_policy_execute_provider_session_id_returns_rendered_provider_session_id() -> (
+    None
+):
+    result = policy_for_service("opencode").execute_provider_session_id(
+        _RENDERED_WITH_SESSION_ID, "arg-sid"
+    )
+    assert result == "rendered-sid"
+
+
+def test_opencode_policy_execute_provider_session_id_ignores_argument_when_rendered_has_session_id() -> (
+    None
+):
+    result = policy_for_service("opencode").execute_provider_session_id(
+        _RENDERED_WITH_SESSION_ID, None
+    )
+    assert result == "rendered-sid"
