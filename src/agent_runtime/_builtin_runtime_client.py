@@ -4,9 +4,8 @@ import logging
 import tempfile
 import subprocess as _subprocess
 import uuid
-from datetime import datetime
 from pathlib import Path
-from typing import Callable, cast
+from typing import Callable
 
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from ._builtin_provider_stream_interpretation import (
@@ -16,7 +15,6 @@ from ._builtin_provider_stream_interpretation import (
     emit_built_in_provider_live_output_event,
 )
 from ._provider_invocation import (
-    InvocationFailureKind,
     ProductionProviderInvocationAdapter,
     ProviderInvocationAdapter,
     ProviderInvocationFailure,
@@ -41,7 +39,6 @@ from .errors import (
     AgentCredentialFailureError,
     AgentTimeoutError,
     ProviderUnavailableError,
-    ProviderUnavailableReason,
     RuntimeConfigurationError,
     UsageLimitError,
 )
@@ -52,6 +49,7 @@ from ._built_in_provider_lifecycle_policy import (
     BuiltInProviderLifecyclePolicy,
     policy_for_service,
 )
+from ._provider_invocation_failure_error import provider_invocation_error_from_failure
 
 _log = logging.getLogger(__name__)
 subprocess = _subprocess
@@ -479,46 +477,9 @@ def _run_builtin_ephemeral(
     finally:
         cleanup_provider_state_dir()
     if isinstance(invocation_result, ProviderInvocationFailure):
-        _stream_interp = policy.stream_interpretation()
-        _invocation_progress = (
-            InvocationProgress.STARTED
-            if classify_built_in_provider_invocation_progress(
-                _stream_interp,
-                list(invocation_result.stdout_lines),
-                provider_session_id=invocation_result.provider_session_id,
-            )
-            is InvocationProgress.STARTED
-            else InvocationProgress.NOT_STARTED
+        raise provider_invocation_error_from_failure(
+            policy, invocation_result, selected_stage.service
         )
-        if invocation_result.kind is InvocationFailureKind.USAGE_LIMITED:
-            _error: UsageLimitError | ProviderUnavailableError = UsageLimitError(
-                reset_time=cast(datetime | None, invocation_result.reset_time),
-                raw_message=(
-                    invocation_result.detail
-                    if invocation_result.reset_time is None
-                    else None
-                ),
-                service_name=selected_stage.service,
-                invocation_progress=_invocation_progress,
-                usage=invocation_result.usage,
-            )
-        else:
-            _error = ProviderUnavailableError(
-                invocation_result.detail,
-                reason=(
-                    invocation_result.provider_unavailable_reason
-                    or (
-                        ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
-                        if invocation_result.detail == _SERVICE_NOT_AVAILABLE_DETAIL
-                        else ProviderUnavailableReason.TRANSIENT_API_ERROR
-                    )
-                ),
-                service_name=selected_stage.service,
-                invocation_progress=_invocation_progress,
-                usage=invocation_result.usage,
-            )
-        setattr(_error, "provider_session_id", invocation_result.provider_session_id)
-        raise _error
     result_text = invocation_result.output
     usage = invocation_result.usage
     return RunResult(

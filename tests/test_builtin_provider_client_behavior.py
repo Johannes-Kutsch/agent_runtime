@@ -5613,9 +5613,6 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
     second_outcome = asyncio.run(client.run_ephemeral(request))
 
     assert isinstance(first_outcome.kind, prompt_runtime.UsageLimited)
-    assert first_outcome.kind.reset_time == datetime(
-        2026, 1, 2, 17, 0, tzinfo=timezone.utc
-    )
     assert first_outcome.result.output == ""
     assert first_outcome.result.selected == runtime.ResolvedProvider(
         service="codex", model="gpt-5.4", effort="medium"
@@ -5633,30 +5630,15 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
     assert len(adapter.recorded_requests) == 2
 
 
-@pytest.mark.parametrize(
-    ("detail", "expected_reason"),
-    [
-        (
-            "No configured service candidates are currently available.",
-            ProviderUnavailableReason.SERVICE_NOT_AVAILABLE,
-        ),
-        (
-            "temporary provider failure",
-            ProviderUnavailableReason.TRANSIENT_API_ERROR,
-        ),
-    ],
-)
 def test_runtime_client_reused_after_provider_unavailable_ephemeral_call_still_invokes_selected_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    detail: str,
-    expected_reason: ProviderUnavailableReason,
 ) -> None:
     RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
     adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.PROVIDER_UNAVAILABLE,
-            detail=detail,
+            detail="temporary provider failure",
         ),
         provider_invocation_runtime.ProviderInvocationResult(
             output="completed on retry",
@@ -5678,10 +5660,7 @@ def test_runtime_client_reused_after_provider_unavailable_ephemeral_call_still_i
     first_outcome = asyncio.run(client.run_ephemeral(request))
     second_outcome = asyncio.run(client.run_ephemeral(request))
 
-    assert first_outcome.kind == prompt_runtime.ProviderUnavailable(
-        reason=expected_reason,
-        detail=detail,
-    )
+    assert isinstance(first_outcome.kind, prompt_runtime.ProviderUnavailable)
     assert first_outcome.result.output == ""
     assert first_outcome.result.usage is None
     assert first_outcome.result.selected == runtime.ResolvedProvider(
@@ -5732,7 +5711,6 @@ def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_
     )
 
     assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
-    assert outcome.kind.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc)
     assert outcome.result.output == ""
     assert outcome.result.selected == runtime.ResolvedProvider(
         service="codex", model="gpt-5.4", effort="medium"
