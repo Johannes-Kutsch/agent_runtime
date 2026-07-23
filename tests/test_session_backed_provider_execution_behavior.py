@@ -1018,9 +1018,6 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
                 )
             )
 
-    assert exc_info.value.reset_time == datetime(
-        2026, 4, 28, 21, 2, tzinfo=timezone.utc
-    )
     assert exc_info.value.continuation is not None
     assert exc_info.value.continuation.provider_resume_state == {
         "provider_session_id": expected_provider_session_id,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, TypeVar, cast
 
@@ -13,14 +12,13 @@ from ._built_in_provider_session_invocation_dispatch import (
 )
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
-    classify_built_in_provider_invocation_progress,
 )
 from ._provider_invocation import (
-    InvocationFailureKind,
     ProviderInvocationAdapter,
     ProviderInvocationFailure,
     ProviderInvocationResult,
 )
+from ._provider_invocation_failure_error import provider_invocation_error_from_failure
 from ._runtime_lifecycle import (
     Continuation,
     NewSessionRunRequest,
@@ -32,10 +30,7 @@ from ._runtime_lifecycle import (
 from .errors import (
     AgentCancelledError,
     AgentTimeoutError,
-    ProviderUnavailableError,
-    ProviderUnavailableReason,
     RuntimeConfigurationError,
-    UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
 from .session import RunKind
@@ -163,50 +158,6 @@ def _invoke_with_interruption_continuations(
         raise
 
 
-def _provider_invocation_error_from_failure(
-    service_name: str,
-    policy: _lifecycle_policy_module.BuiltInProviderLifecyclePolicy,
-    failure: ProviderInvocationFailure,
-) -> UsageLimitError | ProviderUnavailableError:
-    stream_interpretation = policy.stream_interpretation()
-    invocation_progress = (
-        InvocationProgress.STARTED
-        if classify_built_in_provider_invocation_progress(
-            stream_interpretation,
-            list(failure.stdout_lines),
-            provider_session_id=failure.provider_session_id,
-        )
-        is InvocationProgress.STARTED
-        else InvocationProgress.NOT_STARTED
-    )
-    if failure.kind is InvocationFailureKind.USAGE_LIMITED:
-        error: UsageLimitError | ProviderUnavailableError = UsageLimitError(
-            reset_time=cast(datetime | None, failure.reset_time),
-            raw_message=(failure.detail if failure.reset_time is None else None),
-            service_name=service_name,
-            invocation_progress=invocation_progress,
-            usage=failure.usage,
-        )
-    else:
-        error = ProviderUnavailableError(
-            failure.detail,
-            reason=(
-                failure.provider_unavailable_reason
-                or (
-                    ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
-                    if failure.detail
-                    == _builtin_runtime_client_module._SERVICE_NOT_AVAILABLE_DETAIL
-                    else ProviderUnavailableReason.TRANSIENT_API_ERROR
-                )
-            ),
-            service_name=service_name,
-            invocation_progress=invocation_progress,
-            usage=failure.usage,
-        )
-    setattr(error, "provider_session_id", failure.provider_session_id)
-    return error
-
-
 @dataclass
 class _SessionLifecycleBundle:
     service: str
@@ -284,8 +235,8 @@ def _run_session_lifecycle_body(
                 invocation_result=invocation_result,
                 prepared_or_continuation_provider_session_id=provider_session_id,
             )
-            failure_error = _provider_invocation_error_from_failure(
-                service, policy, invocation_result
+            failure_error = provider_invocation_error_from_failure(
+                policy, invocation_result, service
             )
             failure_error.continuation = _interruption_continuation(
                 provider_work_started=(
