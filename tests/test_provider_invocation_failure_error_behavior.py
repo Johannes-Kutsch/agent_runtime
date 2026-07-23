@@ -134,7 +134,9 @@ def test_provider_unavailable_with_explicit_reason_preserves_reason(
 def test_provider_unavailable_with_sentinel_detail_yields_service_not_available(
     service: str,
 ) -> None:
-    from agent_runtime._builtin_runtime_client import _SERVICE_NOT_AVAILABLE_DETAIL
+    from agent_runtime._provider_invocation_failure_error import (
+        _SERVICE_NOT_AVAILABLE_DETAIL,
+    )
 
     policy = policy_for_service(service)
     failure = _unavailable_failure(

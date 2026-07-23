@@ -65,9 +65,6 @@ _OPENCODE_GO_MODELS = _builtin_provider_rendering_module._OPENCODE_GO_MODELS
 _OPENCODE_VALID_EFFORTS = _builtin_provider_rendering_module._OPENCODE_VALID_EFFORTS
 _SUPPORTED_BUILTIN_SERVICES = frozenset({"claude", "codex", "opencode"})
 _PORTABLE_CONTINUATION_PROVIDERS = frozenset({"claude", "codex", "opencode"})
-_SERVICE_NOT_AVAILABLE_DETAIL = (
-    "No configured service candidates are currently available."
-)
 
 
 def _builtin_provider_prompt_path(invocation_dir: Path) -> Path:

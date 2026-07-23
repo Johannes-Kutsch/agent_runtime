@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import cast
 
-from . import _builtin_runtime_client as _builtin_runtime_client_module
 from ._built_in_provider_lifecycle_policy import BuiltInProviderLifecyclePolicy
 from ._builtin_provider_stream_interpretation import (
     classify_built_in_provider_invocation_progress,
@@ -19,6 +18,10 @@ from .errors import (
     UsageLimitError,
 )
 from .invocation_progress import InvocationProgress
+
+_SERVICE_NOT_AVAILABLE_DETAIL = (
+    "No configured service candidates are currently available."
+)
 
 
 def provider_invocation_error_from_failure(
@@ -58,8 +61,7 @@ def provider_invocation_error_from_failure(
                 failure.provider_unavailable_reason
                 or (
                     ProviderUnavailableReason.SERVICE_NOT_AVAILABLE
-                    if failure.detail
-                    == _builtin_runtime_client_module._SERVICE_NOT_AVAILABLE_DETAIL
+                    if failure.detail == _SERVICE_NOT_AVAILABLE_DETAIL
                     else ProviderUnavailableReason.TRANSIENT_API_ERROR
                 )
             ),
