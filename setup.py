@@ -4,8 +4,8 @@ import shutil
 from pathlib import Path
 
 from setuptools import setup  # type: ignore[import-untyped]
-from setuptools.command.build_py import (
-    build_py as _build_py,  # type: ignore[import-untyped]
+from setuptools.command.build_py import (  # type: ignore[import-untyped]
+    build_py as _build_py,
 )
 
 

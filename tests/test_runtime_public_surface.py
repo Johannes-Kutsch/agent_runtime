@@ -405,9 +405,9 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
     assert request.output_hooks.reduce_output(["a", "b"]) == ("ab", None)
     assert result.stdout_lines == ("line 1", "line 2")
     with pytest.raises(FrozenInstanceError):
-        request.command = "changed"
+        request.command = "changed"  # type: ignore[misc]
     with pytest.raises(FrozenInstanceError):
-        result.output = "changed"
+        result.output = "changed"  # type: ignore[misc]
 
 
 def test_built_in_provider_invocation_request_signature_excludes_logging_context() -> (
@@ -466,7 +466,7 @@ def test_runtime_surface_exports_agent_event_public_vocabulary() -> None:
     with pytest.raises(FrozenInstanceError):
         runtime.AgentEvent(
             type="agent_message", display_message="hi", raw_provider_output=""
-        ).display_message = "changed"
+        ).display_message = "changed"  # type: ignore[misc]
 
 
 def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_worktree_alias(
@@ -505,7 +505,7 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
         resumed_session_request,
     ):
         with pytest.raises(AttributeError):
-            request.worktree  # noqa: B018
+            request.worktree  # type: ignore[union-attr]  # noqa: B018
 
 
 def test_runtime_lifecycle_values_keep_runtime_module_names_after_extraction() -> None:
@@ -893,7 +893,7 @@ def test_tool_policy_does_not_include_inspect_only_value() -> None:
 
 def test_tool_policy_inspect_only_attribute_is_removed_from_public_surface() -> None:
     with pytest.raises(AttributeError):
-        runtime.ToolPolicy.INSPECT_ONLY  # noqa: B018
+        runtime.ToolPolicy.INSPECT_ONLY  # type: ignore[attr-defined]  # noqa: B018
 
 
 def test_tool_policy_none_resolves_to_closed_no_tools_profile() -> None:

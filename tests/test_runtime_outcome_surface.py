@@ -57,7 +57,7 @@ def test_resolved_provider_is_credential_free_triple() -> None:
     # Credential-free: no auth attribute can leak ProviderAuth.
     assert not hasattr(selected, "auth")
     with pytest.raises(FrozenInstanceError):
-        selected.service = "codex"
+        selected.service = "codex"  # type: ignore[misc]
 
 
 def test_agent_event_collapses_to_three_fields() -> None:
@@ -72,7 +72,7 @@ def test_agent_event_collapses_to_three_fields() -> None:
         raw_provider_output="raw",
     )
     with pytest.raises(FrozenInstanceError):
-        event.display_message = "changed"
+        event.display_message = "changed"  # type: ignore[misc]
 
 
 def test_agent_event_type_includes_turn_summary_public_vocabulary() -> None:

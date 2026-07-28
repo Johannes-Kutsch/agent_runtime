@@ -867,7 +867,7 @@ def test_claude_policy_build_session_dispatch_interpretation_emits_one_event_per
         on_provider_session_id=None,
     )
 
-    consume = dispatch_interpretation.reduce_output.consume_stdout_lines
+    consume = dispatch_interpretation.reduce_output.consume_stdout_lines  # type: ignore[attr-defined]
     consume(_CLAUDE_LINES)
 
     assert live_events == [
@@ -926,7 +926,7 @@ def test_codex_policy_build_session_dispatch_interpretation_emits_one_event_per_
         on_provider_session_id=None,
     )
 
-    consume = dispatch_interpretation.reduce_output.consume_stdout_lines
+    consume = dispatch_interpretation.reduce_output.consume_stdout_lines  # type: ignore[attr-defined]
     consume(_CODEX_LINES)
 
     assert live_events == [
@@ -986,7 +986,7 @@ def test_opencode_policy_build_session_dispatch_interpretation_fires_on_provider
         on_provider_session_id=observed_session_ids.append,
     )
 
-    consume = dispatch_interpretation.reduce_output.consume_stdout_lines
+    consume = dispatch_interpretation.reduce_output.consume_stdout_lines  # type: ignore[attr-defined]
     consume(_OPENCODE_LINES_WITH_SESSION)
 
     assert observed_session_ids == ["sess-obs"]

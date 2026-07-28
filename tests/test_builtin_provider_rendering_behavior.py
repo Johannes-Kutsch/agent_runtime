@@ -132,7 +132,7 @@ def test_built_in_provider_rendering_values_freeze_mutable_inputs() -> None:
     assert rendered_invocation.environment == {"PATH": "/usr/bin"}
 
     with pytest.raises(FrozenInstanceError):
-        host_facts.os_name = "nt"
+        host_facts.os_name = "nt"  # type: ignore[misc]
     with pytest.raises(TypeError):
         cast(Any, rendered_invocation.environment)["NEW_VAR"] = "value"
 

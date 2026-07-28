@@ -11,7 +11,7 @@ from .provider_usage import ProviderUsage
 
 
 class AgentRuntimeError(RuntimeError):
-    pass
+    provider_session_id: str | None = None
 
 
 class RuntimeConfigurationError(AgentRuntimeError):

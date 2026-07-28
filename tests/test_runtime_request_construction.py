@@ -3,7 +3,6 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Callable, Mapping
-from collections.abc import Callable as TypingCallable
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, cast, get_type_hints
@@ -165,7 +164,7 @@ def test_lifecycle_request_values_default_execution_argv_transform_to_none(
 
 def test_lifecycle_request_values_expose_execution_argv_transform_type() -> None:
     expected_type = (
-        TypingCallable[[tuple[str, ...], Path, Mapping[str, str]], tuple[str, ...]]
+        Callable[[tuple[str, ...], Path, Mapping[str, str]], tuple[str, ...]]
         | None
     )
     module_globals = vars(runtime_lifecycle_module)
