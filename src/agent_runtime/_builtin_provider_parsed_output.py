@@ -83,66 +83,7 @@ def is_claude_subscription_access_denial(event: dict[str, Any]) -> bool:
 
 
 def parse_claude_reset_time(retry_text: object) -> datetime | None:
-    if not isinstance(retry_text, str):
-        return None
-
-    claude_reset_pattern = re.compile(
-        r"resets?\s+"
-        r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
-        r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
-        re.IGNORECASE,
-    )
-    match = claude_reset_pattern.search(retry_text)
-    if match is None:
-        return None
-    hour = int(match.group("hour"))
-    if not 1 <= hour <= 12:
-        return None
-    ampm = match.group("ampm").lower()
-    if ampm == "pm" and hour != 12:
-        hour += 12
-    elif ampm == "am" and hour == 12:
-        hour = 0
-    minute = int(match.group("minute") or 0)
-    if not 0 <= minute <= 59:
-        return None
-    now_local = _time_module.now_local()
-    utc_now = now_local.astimezone(UTC)
-    month_text = match.group("month")
-    day_text = match.group("day")
-    if month_text is not None or day_text is not None:
-        if month_text is None or day_text is None:
-            return None
-        month = _MONTH_ABBREVIATIONS.get(month_text.lower())
-        if month is None:
-            return None
-        utc_dt = datetime(
-            utc_now.year,
-            month,
-            int(day_text),
-            hour,
-            minute,
-            tzinfo=UTC,
-        )
-        local_dt = utc_dt.astimezone(now_local.tzinfo)
-        if local_dt < now_local - timedelta(days=31):
-            return datetime(
-                utc_dt.year + 1,
-                month,
-                int(day_text),
-                hour,
-                minute,
-                tzinfo=UTC,
-            ).astimezone(now_local.tzinfo)
-        return local_dt
-    utc_dt = datetime.combine(
-        utc_now.date(),
-        datetime.min.time(),
-        tzinfo=UTC,
-    ).replace(hour=hour, minute=minute)
-    if utc_dt < utc_now - timedelta(minutes=2):
-        utc_dt += timedelta(days=1)
-    return utc_dt.astimezone(now_local.tzinfo)
+    return _parse_ampm_utc_reset_time(retry_text, _CLAUDE_RESET_PATTERN)
 
 
 def parse_claude_event(line: str) -> list[Any]:
@@ -266,6 +207,12 @@ def parse_claude_usage(line: str) -> ProviderUsage | None:
     )
 
 
+_CLAUDE_RESET_PATTERN = re.compile(
+    r"resets?\s+"
+    r"(?:(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s+)?"
+    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)\s+\(UTC\)",
+    re.IGNORECASE,
+)
 _CODEX_USAGE_LIMIT_SUBSTRING = "You've hit your usage limit"
 _CODEX_AT_CAPACITY_SUBSTRING = "selected model is at capacity"
 _CODEX_ACCOUNT_MODEL_RESTRICTION_SUBSTRING = "not available for your account"
@@ -282,6 +229,64 @@ _CODEX_HTTP_STATUS_RE = re.compile(
     r"\bstatus\s+(?P<status>\d{3})\b",
     re.IGNORECASE,
 )
+
+
+def _parse_ampm_utc_reset_time(
+    retry_text: object, pattern: re.Pattern[str]
+) -> datetime | None:
+    if not isinstance(retry_text, str):
+        return None
+    match = pattern.search(retry_text)
+    if match is None:
+        return None
+    hour = int(match.group("hour"))
+    if not 1 <= hour <= 12:
+        return None
+    ampm = match.group("ampm").lower()
+    if ampm == "pm" and hour != 12:
+        hour += 12
+    elif ampm == "am" and hour == 12:
+        hour = 0
+    minute = int(match.group("minute") or 0)
+    if not 0 <= minute <= 59:
+        return None
+    now_local = _time_module.now_local()
+    utc_now = now_local.astimezone(UTC)
+    month_text = match.group("month")
+    day_text = match.group("day")
+    if month_text is not None or day_text is not None:
+        if month_text is None or day_text is None:
+            return None
+        month = _MONTH_ABBREVIATIONS.get(month_text.lower())
+        if month is None:
+            return None
+        utc_dt = datetime(
+            utc_now.year,
+            month,
+            int(day_text),
+            hour,
+            minute,
+            tzinfo=UTC,
+        )
+        local_dt = utc_dt.astimezone(now_local.tzinfo)
+        if local_dt < now_local - timedelta(days=31):
+            return datetime(
+                utc_dt.year + 1,
+                month,
+                int(day_text),
+                hour,
+                minute,
+                tzinfo=UTC,
+            ).astimezone(now_local.tzinfo)
+        return local_dt
+    utc_dt = datetime.combine(
+        utc_now.date(),
+        datetime.min.time(),
+        tzinfo=UTC,
+    ).replace(hour=hour, minute=minute)
+    if utc_dt < utc_now - timedelta(minutes=2):
+        utc_dt += timedelta(days=1)
+    return utc_dt.astimezone(now_local.tzinfo)
 
 
 def _classify_codex_error_message(
@@ -338,59 +343,7 @@ def _classify_codex_error_message(
 
 
 def parse_codex_reset_time(retry_text: object) -> datetime | None:
-    if not isinstance(retry_text, str):
-        return None
-    match = _CODEX_RESET_PATTERN.search(retry_text)
-    if match is None:
-        return None
-    hour = int(match.group("hour"))
-    if not 1 <= hour <= 12:
-        return None
-    ampm = match.group("ampm").lower()
-    if ampm == "pm" and hour != 12:
-        hour += 12
-    elif ampm == "am" and hour == 12:
-        hour = 0
-    minute = int(match.group("minute") or 0)
-    if not 0 <= minute <= 59:
-        return None
-    now_local = _time_module.now_local()
-    utc_now = now_local.astimezone(UTC)
-    month_text = match.group("month")
-    day_text = match.group("day")
-    if month_text is not None or day_text is not None:
-        if month_text is None or day_text is None:
-            return None
-        month = _MONTH_ABBREVIATIONS.get(month_text.lower())
-        if month is None:
-            return None
-        utc_dt = datetime(
-            utc_now.year,
-            month,
-            int(day_text),
-            hour,
-            minute,
-            tzinfo=UTC,
-        )
-        local_dt = utc_dt.astimezone(now_local.tzinfo)
-        if local_dt < now_local - timedelta(days=31):
-            return datetime(
-                utc_dt.year + 1,
-                month,
-                int(day_text),
-                hour,
-                minute,
-                tzinfo=UTC,
-            ).astimezone(now_local.tzinfo)
-        return local_dt
-    utc_dt = datetime.combine(
-        utc_now.date(),
-        datetime.min.time(),
-        tzinfo=UTC,
-    ).replace(hour=hour, minute=minute)
-    if utc_dt < utc_now - timedelta(minutes=2):
-        utc_dt += timedelta(days=1)
-    return utc_dt.astimezone(now_local.tzinfo)
+    return _parse_ampm_utc_reset_time(retry_text, _CODEX_RESET_PATTERN)
 
 
 def _extract_codex_usage_limit(message: str) -> UsageLimit | None:
