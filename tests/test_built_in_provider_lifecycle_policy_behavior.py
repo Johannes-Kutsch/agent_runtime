@@ -6,22 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_runtime._builtin_provider_agent_event_building import (
-    build_claude_agent_event,
-    build_codex_agent_event,
-)
-from agent_runtime._builtin_provider_stream_interpretation import (
-    BuiltInProviderStreamInterpretation,
-)
-from agent_runtime._builtin_provider_rendering import (
-    BuiltInProviderRenderRequest,
-    BuiltInProviderRenderedInvocation,
-    BuiltInProviderSelectionFacts,
-    PromptCleanupChoice,
-    PromptTransportPreference,
-    ProviderSessionIdPlacement,
-)
-from agent_runtime._runtime_lifecycle import AgentEvent, ProviderAuth
 from agent_runtime._built_in_provider_lifecycle_policy import (
     NewSessionFactsResult,
     NewSessionRedirect,
@@ -29,7 +13,22 @@ from agent_runtime._built_in_provider_lifecycle_policy import (
     ResumedSessionFactsResult,
     policy_for_service,
 )
-from agent_runtime.contracts import ToolAccess
+from agent_runtime._builtin_provider_agent_event_building import (
+    build_claude_agent_event,
+    build_codex_agent_event,
+)
+from agent_runtime._builtin_provider_rendering import (
+    BuiltInProviderRenderedInvocation,
+    BuiltInProviderRenderRequest,
+    BuiltInProviderSelectionFacts,
+    PromptCleanupChoice,
+    PromptTransportPreference,
+    ProviderSessionIdPlacement,
+)
+from agent_runtime._builtin_provider_stream_interpretation import (
+    BuiltInProviderStreamInterpretation,
+)
+from agent_runtime._runtime_lifecycle import AgentEvent, ProviderAuth
 from agent_runtime._session_backed_provider_state_resolution import (
     ContinuationInputFacts,
     ExactTranscriptMatch,
@@ -39,6 +38,7 @@ from agent_runtime._session_backed_provider_state_resolution import (
     load_opencode_stored_session_id,
     opencode_continuation_input_facts,
 )
+from agent_runtime.contracts import ToolAccess
 from agent_runtime.errors import (
     AgentCredentialFailureError,
     ContinuationUnrecoverableError,
@@ -867,7 +867,7 @@ def test_claude_policy_build_session_dispatch_interpretation_emits_one_event_per
         on_provider_session_id=None,
     )
 
-    consume = getattr(dispatch_interpretation.reduce_output, "consume_stdout_lines")
+    consume = dispatch_interpretation.reduce_output.consume_stdout_lines
     consume(_CLAUDE_LINES)
 
     assert live_events == [
@@ -926,7 +926,7 @@ def test_codex_policy_build_session_dispatch_interpretation_emits_one_event_per_
         on_provider_session_id=None,
     )
 
-    consume = getattr(dispatch_interpretation.reduce_output, "consume_stdout_lines")
+    consume = dispatch_interpretation.reduce_output.consume_stdout_lines
     consume(_CODEX_LINES)
 
     assert live_events == [
@@ -986,7 +986,7 @@ def test_opencode_policy_build_session_dispatch_interpretation_fires_on_provider
         on_provider_session_id=observed_session_ids.append,
     )
 
-    consume = getattr(dispatch_interpretation.reduce_output, "consume_stdout_lines")
+    consume = dispatch_interpretation.reduce_output.consume_stdout_lines
     consume(_OPENCODE_LINES_WITH_SESSION)
 
     assert observed_session_ids == ["sess-obs"]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -21,14 +21,13 @@ from agent_runtime.errors import (
 )
 from agent_runtime.invocation_progress import InvocationProgress
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 _SERVICES = ["claude", "codex", "opencode"]
 
-_RESET_TIME = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+_RESET_TIME = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 _USAGE = runtime.ProviderUsage(input_tokens=10, output_tokens=5)
 
 
@@ -321,7 +320,7 @@ def test_provider_session_id_attribute_is_set_from_failure_provider_session_id(
 
     error = provider_invocation_error_from_failure(policy, failure, service)
 
-    assert getattr(error, "provider_session_id") == "direct-session-id"
+    assert error.provider_session_id == "direct-session-id"
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +342,7 @@ def test_codex_provider_session_id_attribute_is_resolved_from_thread_started_str
 
     error = provider_invocation_error_from_failure(policy, failure, "codex")
 
-    assert getattr(error, "provider_session_id") == "stream-thread-99"
+    assert error.provider_session_id == "stream-thread-99"
 
 
 def test_opencode_provider_session_id_attribute_is_resolved_from_stream_session_id() -> (
@@ -368,4 +367,4 @@ def test_opencode_provider_session_id_attribute_is_resolved_from_stream_session_
 
     error = provider_invocation_error_from_failure(policy, failure, "opencode")
 
-    assert getattr(error, "provider_session_id") == "oc-stream-session-7"
+    assert error.provider_session_id == "oc-stream-session-7"

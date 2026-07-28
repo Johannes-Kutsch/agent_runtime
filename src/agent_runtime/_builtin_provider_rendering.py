@@ -9,9 +9,9 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import MappingProxyType
 
-from .errors import AgentCredentialFailureError, RuntimeConfigurationError
 from ._runtime_lifecycle import ProviderAuth
 from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
+from .errors import AgentCredentialFailureError, RuntimeConfigurationError
 from .session import RunKind
 
 _CLAUDE_VALID_MODELS = frozenset({"haiku", "sonnet", "opus"})

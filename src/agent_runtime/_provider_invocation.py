@@ -3,9 +3,9 @@ from __future__ import annotations
 import dataclasses
 import os
 import queue
+import shlex
 import shutil
 import subprocess
-import shlex
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
@@ -169,7 +169,7 @@ def _windows_process_base_env() -> dict[str, str]:
     return {
         key: os.environ[key]
         for key in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR")
-        if key in os.environ and os.environ[key]
+        if os.environ.get(key)
     }
 
 
@@ -380,6 +380,7 @@ class ProductionProviderInvocationAdapter:
                             str(process.pid),
                         ],
                         capture_output=True,
+                        check=False,
                     )
                 process.kill()
                 process.wait()
@@ -397,11 +398,7 @@ class ProductionProviderInvocationAdapter:
                     if token is not None and token.is_cancelled:
                         _kill_process()
                         cancel_error = AgentCancelledError()
-                        setattr(
-                            cancel_error,
-                            "provider_session_id",
-                            request.provider_session_id,
-                        )
+                        cancel_error.provider_session_id = request.provider_session_id
                         raise cancel_error
                     if token is not None:
                         if (
@@ -412,10 +409,8 @@ class ProductionProviderInvocationAdapter:
                             timeout_error = ProviderInvocationTimedOutError(
                                 "Provider subprocess exceeded the idle timeout.",
                             )
-                            setattr(
-                                timeout_error,
-                                "provider_session_id",
-                                request.provider_session_id,
+                            timeout_error.provider_session_id = (
+                                request.provider_session_id
                             )
                             raise timeout_error from exc
                         continue
@@ -423,7 +418,7 @@ class ProductionProviderInvocationAdapter:
                     error = ProviderInvocationTimedOutError(
                         "Provider subprocess exceeded the idle timeout.",
                     )
-                    setattr(error, "provider_session_id", request.provider_session_id)
+                    error.provider_session_id = request.provider_session_id
                     raise error from exc
 
                 if token is not None and idle_deadline is not None:
@@ -460,21 +455,13 @@ class ProductionProviderInvocationAdapter:
                 hard_error = HardAgentError(
                     _nonzero_exit_message(returncode, stdout_lines),
                 )
-                setattr(
-                    hard_error,
-                    "provider_session_id",
-                    observed_provider_session_id,
-                )
+                hard_error.provider_session_id = observed_provider_session_id
                 raise hard_error
             if not result.output.strip():
                 hard_error = HardAgentError(
                     "Provider subprocess completed without producing output.",
                 )
-                setattr(
-                    hard_error,
-                    "provider_session_id",
-                    observed_provider_session_id,
-                )
+                hard_error.provider_session_id = observed_provider_session_id
                 raise hard_error
             return result
         finally:

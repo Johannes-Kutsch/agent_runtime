@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
+from agent_runtime import _time as time_runtime
 from agent_runtime._builtin_provider_parsed_output import (
     classify_codex_invocation_progress,
     extract_codex_provider_session_id,
@@ -21,7 +22,6 @@ from agent_runtime.contracts import (
 )
 from agent_runtime.invocation_progress import InvocationProgress
 from agent_runtime.provider_usage import ProviderUsage
-from agent_runtime import _time as time_runtime
 
 
 def _line(event: dict) -> str:
@@ -151,7 +151,7 @@ def test_codex_usage_limit_line_with_reset_date_produces_usage_limit_with_reset_
     monkeypatch.setattr(
         time_runtime,
         "now_local",
-        lambda: datetime(2026, 7, 8, 10, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 7, 8, 10, 0, tzinfo=UTC),
     )
     message = "You've hit your usage limit. Resets at 5pm (UTC)."
     if event_type == "error":
@@ -164,7 +164,7 @@ def test_codex_usage_limit_line_with_reset_date_produces_usage_limit_with_reset_
     assert len(result) == 1
     event = result[0]
     assert isinstance(event, UsageLimit)
-    assert event.reset_time == datetime(2026, 7, 8, 17, 0, tzinfo=timezone.utc)
+    assert event.reset_time == datetime(2026, 7, 8, 17, 0, tzinfo=UTC)
 
 
 # --- At-capacity lines ---

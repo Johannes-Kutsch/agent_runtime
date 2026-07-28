@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Callable, cast
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 
@@ -41,7 +42,7 @@ def test_codex_built_in_provider_stream_interpretation_maps_usage_limit_with_dat
     monkeypatch.setattr(
         time_runtime,
         "now_local",
-        lambda: datetime(2026, 1, 1, 23, 30, tzinfo=timezone.utc),
+        lambda: datetime(2026, 1, 1, 23, 30, tzinfo=UTC),
     )
     interpretation = codex_built_in_provider_stream_interpretation()
 
@@ -72,7 +73,7 @@ def test_codex_built_in_provider_stream_interpretation_maps_usage_limit_with_dat
         )
 
     assert exc_info.value.service_name == "codex"
-    assert exc_info.value.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc)
+    assert exc_info.value.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=UTC)
     assert exc_info.value.invocation_progress is InvocationProgress.NOT_STARTED
 
 
@@ -371,7 +372,7 @@ def test_opencode_built_in_provider_stream_interpretation_maps_usage_limit_and_e
     monkeypatch.setattr(
         time_runtime,
         "now_local",
-        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=UTC),
     )
     interpretation = opencode_built_in_provider_stream_interpretation()
     lines = [
@@ -401,9 +402,7 @@ def test_opencode_built_in_provider_stream_interpretation_maps_usage_limit_and_e
         interpretation.reduce_output(lines)
 
     assert exc_info.value.service_name == "opencode"
-    assert exc_info.value.reset_time == datetime(
-        2026, 4, 28, 21, 2, tzinfo=timezone.utc
-    )
+    assert exc_info.value.reset_time == datetime(2026, 4, 28, 21, 2, tzinfo=UTC)
     assert exc_info.value.invocation_progress is InvocationProgress.STARTED
 
 
@@ -714,7 +713,7 @@ def test_codex_built_in_provider_stream_interpretation_propagates_usage_onto_int
     monkeypatch.setattr(
         time_runtime,
         "now_local",
-        lambda: datetime(2026, 1, 1, 23, 30, tzinfo=timezone.utc),
+        lambda: datetime(2026, 1, 1, 23, 30, tzinfo=UTC),
     )
     interpretation = codex_built_in_provider_stream_interpretation()
     usage_line = (

@@ -22,19 +22,19 @@ from ._builtin_provider_parsed_output import (
     parse_codex_usage,
     parse_opencode_events,
 )
-from .contracts import (
-    AssistantTurn,
-    Result,
-)
-from .errors import ProviderUnavailableError, UsageLimitError
 from ._live_runtime_output_exceptions import (
     is_live_runtime_output_exception,
     is_live_runtime_output_timeout_wrapper,
     mark_live_runtime_output_exception,
 )
-from .provider_output import reduce_text_output_events
 from ._runtime_lifecycle import AgentEvent, ProviderUsage
+from .contracts import (
+    AssistantTurn,
+    Result,
+)
+from .errors import ProviderUnavailableError, UsageLimitError
 from .invocation_progress import InvocationProgress
+from .provider_output import reduce_text_output_events
 
 _log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class BuiltInProviderStreamInterpretation:
 
 
 class _ObservedOutputReducer:
-    __slots__ = ("reduce_output", "consume_stdout_lines")
+    __slots__ = ("consume_stdout_lines", "reduce_output")
 
     def __init__(
         self,

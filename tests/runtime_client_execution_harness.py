@@ -8,8 +8,8 @@ from typing import Any, TypeVar, cast
 
 import pytest
 
-import agent_runtime.contracts as contracts_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 
 ProviderSelectionT = TypeVar("ProviderSelectionT")

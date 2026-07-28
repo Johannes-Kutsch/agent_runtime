@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -233,7 +233,7 @@ def test_opencode_rate_limit_error_with_reset_date_produces_usage_limit_with_res
     assert len(result) == 1
     event = result[0]
     assert isinstance(event, UsageLimit)
-    assert event.reset_time == datetime(2026, 4, 28, 21, 2, tzinfo=timezone.utc)
+    assert event.reset_time == datetime(2026, 4, 28, 21, 2, tzinfo=UTC)
     assert event.raw_message is None
 
 
@@ -484,19 +484,19 @@ def test_opencode_lines_with_only_error_facts_produce_invocation_progress_not_st
     [
         (
             "Try again at Apr 28th, 2026 9:02 PM.",
-            datetime(2026, 4, 28, 21, 2, tzinfo=timezone.utc),
+            datetime(2026, 4, 28, 21, 2, tzinfo=UTC),
         ),
         (
             "Try again at January 1st, 2027 12:00 AM.",
-            datetime(2027, 1, 1, 0, 0, tzinfo=timezone.utc),
+            datetime(2027, 1, 1, 0, 0, tzinfo=UTC),
         ),
         (
             "Try again at December 31st, 2026 12:00 PM.",
-            datetime(2026, 12, 31, 12, 0, tzinfo=timezone.utc),
+            datetime(2026, 12, 31, 12, 0, tzinfo=UTC),
         ),
         (
             "You have reached your limit. Try again at Mar 2nd, 2026 9:00 AM.",
-            datetime(2026, 3, 2, 9, 0, tzinfo=timezone.utc),
+            datetime(2026, 3, 2, 9, 0, tzinfo=UTC),
         ),
     ],
 )
@@ -718,7 +718,7 @@ def test_classify_opencode_output_line_regular_event_is_json_object_not_terminal
 def test_classify_opencode_output_line_missing_session_id_yields_none() -> None:
     line = _line({"type": "text", "part": {"type": "text", "text": "hi"}})
 
-    session_id, is_terminal, is_json_object = classify_opencode_output_line(line)
+    session_id, _is_terminal, is_json_object = classify_opencode_output_line(line)
 
     assert session_id is None
     assert is_json_object is True

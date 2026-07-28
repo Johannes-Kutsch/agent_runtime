@@ -69,5 +69,5 @@ def provider_invocation_error_from_failure(
             invocation_progress=invocation_progress,
             usage=failure.usage,
         )
-    setattr(error, "provider_session_id", provider_session_id)
+    error.provider_session_id = provider_session_id
     return error

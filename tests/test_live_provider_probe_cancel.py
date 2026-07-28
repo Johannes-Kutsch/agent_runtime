@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
-from agent_runtime.contracts import ToolAccess
 from agent_runtime import runtime as pr
+from agent_runtime.contracts import ToolAccess
 
 CANCEL_PROBE_PATH = (
     Path(__file__).resolve().parents[1]

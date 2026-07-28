@@ -4,7 +4,10 @@ import argparse
 import shutil
 from pathlib import Path
 
-from setuptools.build_meta import build_sdist, build_wheel  # type: ignore[import-untyped]
+from setuptools.build_meta import (  # type: ignore[import-untyped]
+    build_sdist,
+    build_wheel,
+)
 
 
 def _parse_args() -> argparse.Namespace:

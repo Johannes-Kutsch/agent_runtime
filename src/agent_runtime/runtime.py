@@ -2,16 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from . import _time
 from . import _builtin_runtime_client as _builtin_runtime_client_module
-from ._session_backed_provider_execution import (
-    _run_builtin_new_session,
-    _run_builtin_resumed_session,
-)
-from .contracts import ToolPolicy
-from .errors import (
-    RuntimeConfigurationError,
-)
+from . import _time
 from ._runtime_lifecycle import (
     AgentEvent,
     Cancelled,
@@ -20,8 +12,8 @@ from ._runtime_lifecycle import (
     EphemeralRunRequest,
     ModelNotAvailable,
     NewSessionRunRequest,
-    ProviderUnavailable,
     ProviderAuth,
+    ProviderUnavailable,
     ProviderUsage,
     ResumedSessionRunRequest,
     RunResult,
@@ -29,10 +21,18 @@ from ._runtime_lifecycle import (
     TimedOut,
     UsageLimited,
 )
-from .types import ProviderSelection, ResolvedProvider
 from ._runtime_outcome_folding import (
     _fold_runtime_outcome,
 )
+from ._session_backed_provider_execution import (
+    _run_builtin_new_session,
+    _run_builtin_resumed_session,
+)
+from .contracts import ToolPolicy
+from .errors import (
+    RuntimeConfigurationError,
+)
+from .types import ProviderSelection, ResolvedProvider
 
 if TYPE_CHECKING:
     from ._provider_invocation import ProviderInvocationAdapter
@@ -47,9 +47,9 @@ __all__ = [
     "EphemeralRunRequest",
     "ModelNotAvailable",
     "NewSessionRunRequest",
-    "ProviderUnavailable",
     "ProviderAuth",
     "ProviderSelection",
+    "ProviderUnavailable",
     "ProviderUsage",
     "ResolvedProvider",
     "ResumedSessionRunRequest",
@@ -57,8 +57,8 @@ __all__ = [
     "RuntimeClient",
     "RuntimeOutcome",
     "TimedOut",
-    "UsageLimited",
     "ToolPolicy",
+    "UsageLimited",
 ]
 
 _REMOVED_RUNTIME_PUBLIC_SURFACE_NAMES = {

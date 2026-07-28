@@ -54,7 +54,7 @@ def test_built_in_provider_rendering_values_stay_off_runtime_public_surface(
     removed_name: str,
 ) -> None:
     with pytest.raises(ImportError):
-        exec(f"from {module_name} import {removed_name}", {}, {})
+        exec(f"from {module_name} import {removed_name}", {}, {})  # noqa: S102
 
     imported_module = runtime if module_name == "agent_runtime" else runtime_module
     assert not hasattr(imported_module, removed_name)
@@ -132,7 +132,7 @@ def test_built_in_provider_rendering_values_freeze_mutable_inputs() -> None:
     assert rendered_invocation.environment == {"PATH": "/usr/bin"}
 
     with pytest.raises(FrozenInstanceError):
-        setattr(host_facts, "os_name", "nt")
+        host_facts.os_name = "nt"
     with pytest.raises(TypeError):
         cast(Any, rendered_invocation.environment)["NEW_VAR"] = "value"
 

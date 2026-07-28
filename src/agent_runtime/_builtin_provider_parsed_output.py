@@ -4,10 +4,11 @@ import json
 import logging
 import re
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from . import _time as _time_module
+from ._runtime_lifecycle import ProviderUsage
 from .contracts import (
     AssistantTurn,
     CredentialFailure,
@@ -20,7 +21,6 @@ from .contracts import (
     UsageLimit,
 )
 from .invocation_progress import InvocationProgress
-from ._runtime_lifecycle import ProviderUsage
 
 _log = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ def parse_claude_reset_time(retry_text: object) -> datetime | None:
     if not 0 <= minute <= 59:
         return None
     now_local = _time_module.now_local()
-    utc_now = now_local.astimezone(timezone.utc)
+    utc_now = now_local.astimezone(UTC)
     month_text = match.group("month")
     day_text = match.group("day")
     if month_text is not None or day_text is not None:
@@ -122,7 +122,7 @@ def parse_claude_reset_time(retry_text: object) -> datetime | None:
             int(day_text),
             hour,
             minute,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         )
         local_dt = utc_dt.astimezone(now_local.tzinfo)
         if local_dt < now_local - timedelta(days=31):
@@ -132,13 +132,13 @@ def parse_claude_reset_time(retry_text: object) -> datetime | None:
                 int(day_text),
                 hour,
                 minute,
-                tzinfo=timezone.utc,
+                tzinfo=UTC,
             ).astimezone(now_local.tzinfo)
         return local_dt
     utc_dt = datetime.combine(
         utc_now.date(),
         datetime.min.time(),
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     ).replace(hour=hour, minute=minute)
     if utc_dt < utc_now - timedelta(minutes=2):
         utc_dt += timedelta(days=1)
@@ -355,7 +355,7 @@ def parse_codex_reset_time(retry_text: object) -> datetime | None:
     if not 0 <= minute <= 59:
         return None
     now_local = _time_module.now_local()
-    utc_now = now_local.astimezone(timezone.utc)
+    utc_now = now_local.astimezone(UTC)
     month_text = match.group("month")
     day_text = match.group("day")
     if month_text is not None or day_text is not None:
@@ -370,7 +370,7 @@ def parse_codex_reset_time(retry_text: object) -> datetime | None:
             int(day_text),
             hour,
             minute,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         )
         local_dt = utc_dt.astimezone(now_local.tzinfo)
         if local_dt < now_local - timedelta(days=31):
@@ -380,13 +380,13 @@ def parse_codex_reset_time(retry_text: object) -> datetime | None:
                 int(day_text),
                 hour,
                 minute,
-                tzinfo=timezone.utc,
+                tzinfo=UTC,
             ).astimezone(now_local.tzinfo)
         return local_dt
     utc_dt = datetime.combine(
         utc_now.date(),
         datetime.min.time(),
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     ).replace(hour=hour, minute=minute)
     if utc_dt < utc_now - timedelta(minutes=2):
         utc_dt += timedelta(days=1)
@@ -533,7 +533,7 @@ def parse_opencode_reset_time(retry_text: object) -> datetime | None:
         int(match.group("day")),
         hour,
         minute,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     ).astimezone()
 
 

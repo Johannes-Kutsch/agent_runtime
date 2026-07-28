@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-
 import pytest
 
-from agent_runtime.invocation_progress import InvocationProgress as _InvocationProgress
 from agent_runtime.contracts import (
     AssistantTurn,
     CredentialFailure,
@@ -22,6 +20,7 @@ from agent_runtime.errors import (
     ProviderUnavailableReason,
     UsageLimitError,
 )
+from agent_runtime.invocation_progress import InvocationProgress as _InvocationProgress
 from agent_runtime.provider_output import reduce_text_output_events
 
 

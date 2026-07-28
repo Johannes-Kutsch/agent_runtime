@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import dataclasses
-import threading
 import inspect
 import json
 import math
+import threading
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
-from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
-from .provider_usage import ProviderUsage
 from . import _lifecycle_request_facts as _lifecycle_request_facts_module
-from .types import ProviderSelection, ResolvedProvider
+from .contracts import ToolAccess, ToolPolicy, ToolPolicyProfile
 from .errors import ProviderUnavailableReason
+from .provider_usage import ProviderUsage
+from .types import ProviderSelection, ResolvedProvider
 
 __all__ = [
     "AgentEvent",
@@ -22,9 +23,9 @@ __all__ = [
     "Continuation",
     "EphemeralRunRequest",
     "NewSessionRunRequest",
+    "ProviderAuth",
     "ProviderUnavailable",
     "ProviderUsage",
-    "ProviderAuth",
     "ResolvedProvider",
     "ResumedSessionRunRequest",
     "RunResult",
@@ -337,7 +338,7 @@ class Continuation:
     def tool_access(self) -> ToolAccess:
         return self.resume_facts.tool_access
 
-    def _payload(self) -> "_PortableContinuationPayload":
+    def _payload(self) -> _PortableContinuationPayload:
         return _PortableContinuationPayload.from_serialized(self.serialized)
 
 

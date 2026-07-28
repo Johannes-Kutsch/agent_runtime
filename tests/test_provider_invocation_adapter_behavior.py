@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1030,7 +1030,7 @@ def test_production_adapter_keeps_first_observed_provider_session_id_on_hard_fai
             request
         )
 
-    assert getattr(exc_info.value, "provider_session_id") == "provider-session-123"
+    assert exc_info.value.provider_session_id == "provider-session-123"
 
 
 @pytest.mark.parametrize("failure_mode", ["start_failure", "reduction_failure"])
@@ -1174,7 +1174,7 @@ def test_production_adapter_classifies_usage_limit_emitted_only_on_stderr(
         2,
         17,
         0,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     ).astimezone(fixed_local_tz)
 
     assert result == provider_invocation_runtime.ProviderInvocationFailure(
@@ -1753,7 +1753,7 @@ def test_provider_invocation_failure_preserves_usage_limit_metadata_after_observ
 ) -> None:
     output_line = '{"session":"provider-session-123"}\n'
     usage = ProviderUsage(input_tokens=13, output_tokens=5)
-    reset_time = datetime(2027, 1, 2, 17, 0, tzinfo=timezone.utc)
+    reset_time = datetime(2027, 1, 2, 17, 0, tzinfo=UTC)
     classified_failure = UsageLimitError(
         reset_time=reset_time,
         usage=usage,
@@ -1827,23 +1827,7 @@ def test_production_adapter_terminates_silent_subprocess_after_idle_timeout(
     marker_path = tmp_path / "child-started"
     script_path = tmp_path / "silent_provider.py"
     script_path.write_text(
-        "\n".join(
-            [
-                "import os",
-                "import signal",
-                "import sys",
-                "import time",
-                "",
-                "marker_path = sys.argv[1]",
-                "with open(marker_path, 'w', encoding='utf-8') as marker:",
-                "    marker.write(str(os.getpid()))",
-                "    marker.flush()",
-                "",
-                "signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))",
-                "while True:",
-                "    time.sleep(60)",
-            ]
-        ),
+        "import os\nimport signal\nimport sys\nimport time\n\nmarker_path = sys.argv[1]\nwith open(marker_path, 'w', encoding='utf-8') as marker:\n    marker.write(str(os.getpid()))\n    marker.flush()\n\nsignal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))\nwhile True:\n    time.sleep(60)",
         encoding="utf-8",
     )
 
@@ -2123,17 +2107,7 @@ def test_production_adapter_resets_idle_timeout_on_stderr_activity(
 ) -> None:
     script_path = tmp_path / "stderr_heartbeat_provider.py"
     script_path.write_text(
-        "\n".join(
-            [
-                "import sys",
-                "import time",
-                "",
-                "for line in ('heartbeat 1', 'heartbeat 2'):",
-                "    print(line, file=sys.stderr, flush=True)",
-                "    time.sleep(0.6)",
-                "print('final output', flush=True)",
-            ]
-        ),
+        "import sys\nimport time\n\nfor line in ('heartbeat 1', 'heartbeat 2'):\n    print(line, file=sys.stderr, flush=True)\n    time.sleep(0.6)\nprint('final output', flush=True)",
         encoding="utf-8",
     )
 
@@ -2172,14 +2146,7 @@ def test_production_adapter_disables_idle_timeout_for_non_positive_timeout_value
 ) -> None:
     script_path = tmp_path / "delayed_output_provider.py"
     script_path.write_text(
-        "\n".join(
-            [
-                "import time",
-                "",
-                "time.sleep(1.2)",
-                "print('final output', flush=True)",
-            ]
-        ),
+        "import time\n\ntime.sleep(1.2)\nprint('final output', flush=True)",
         encoding="utf-8",
     )
 
@@ -2217,20 +2184,7 @@ def test_production_adapter_cancels_running_subprocess_on_token_cancellation(
     marker_path = tmp_path / "child-started"
     script_path = tmp_path / "hanging_provider.py"
     script_path.write_text(
-        "\n".join(
-            [
-                "import os",
-                "import sys",
-                "import time",
-                "",
-                "marker_path = sys.argv[1]",
-                "with open(marker_path, 'w', encoding='utf-8') as f:",
-                "    f.write(str(os.getpid()))",
-                "    f.flush()",
-                "while True:",
-                "    time.sleep(60)",
-            ]
-        ),
+        "import os\nimport sys\nimport time\n\nmarker_path = sys.argv[1]\nwith open(marker_path, 'w', encoding='utf-8') as f:\n    f.write(str(os.getpid()))\n    f.flush()\nwhile True:\n    time.sleep(60)",
         encoding="utf-8",
     )
 
@@ -2309,20 +2263,7 @@ def test_production_adapter_fires_idle_timeout_when_token_present_but_not_cancel
     marker_path = tmp_path / "child-started"
     script_path = tmp_path / "silent_provider.py"
     script_path.write_text(
-        "\n".join(
-            [
-                "import os",
-                "import sys",
-                "import time",
-                "",
-                "marker_path = sys.argv[1]",
-                "with open(marker_path, 'w', encoding='utf-8') as f:",
-                "    f.write(str(os.getpid()))",
-                "    f.flush()",
-                "while True:",
-                "    time.sleep(60)",
-            ]
-        ),
+        "import os\nimport sys\nimport time\n\nmarker_path = sys.argv[1]\nwith open(marker_path, 'w', encoding='utf-8') as f:\n    f.write(str(os.getpid()))\n    f.flush()\nwhile True:\n    time.sleep(60)",
         encoding="utf-8",
     )
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
+from agent_runtime import _time as time_runtime
 from agent_runtime._builtin_provider_parsed_output import (
     parse_claude_event,
     parse_claude_usage,
@@ -20,7 +21,6 @@ from agent_runtime.contracts import (
     UsageLimit,
 )
 from agent_runtime.provider_usage import ProviderUsage
-from agent_runtime import _time as time_runtime
 
 
 def _line(event: dict) -> str:
@@ -194,7 +194,7 @@ def test_claude_usage_limit_line_produces_usage_limit_with_reset_time(
     monkeypatch.setattr(
         time_runtime,
         "now_local",
-        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
     )
     line = _line(
         {
@@ -208,7 +208,7 @@ def test_claude_usage_limit_line_produces_usage_limit_with_reset_time(
     assert len(result) == 1
     event = result[0]
     assert isinstance(event, UsageLimit)
-    assert event.reset_time == datetime(2026, 1, 1, 17, 0, tzinfo=timezone.utc)
+    assert event.reset_time == datetime(2026, 1, 1, 17, 0, tzinfo=UTC)
     assert event.raw_message is None
 
 
@@ -232,7 +232,7 @@ def test_claude_usage_limit_line_with_month_day_reset_time(
     monkeypatch.setattr(
         time_runtime,
         "now_local",
-        lambda: datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 3, 1, 12, 0, tzinfo=UTC),
     )
     line = _line(
         {
@@ -246,7 +246,7 @@ def test_claude_usage_limit_line_with_month_day_reset_time(
     assert len(result) == 1
     event = result[0]
     assert isinstance(event, UsageLimit)
-    assert event.reset_time == datetime(2026, 3, 2, 9, 0, tzinfo=timezone.utc)
+    assert event.reset_time == datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 
 
 # --- Credential failure ---
@@ -491,7 +491,7 @@ def test_claude_usage_limit_month_day_reset_time_rolls_over_to_next_year(
     monkeypatch.setattr(
         time_runtime,
         "now_local",
-        lambda: datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
     )
     line = _line(
         {
@@ -505,7 +505,7 @@ def test_claude_usage_limit_month_day_reset_time_rolls_over_to_next_year(
     assert len(result) == 1
     event = result[0]
     assert isinstance(event, UsageLimit)
-    assert event.reset_time == datetime(2027, 3, 15, 9, 0, tzinfo=timezone.utc)
+    assert event.reset_time == datetime(2027, 3, 15, 9, 0, tzinfo=UTC)
 
 
 # --- Invalid / unrecognized lines ---

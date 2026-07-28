@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
-from ._builtin_runtime_client import (
-    _execute_rendered_provider_invocation,
-)
 from ._built_in_provider_lifecycle_policy import (
     policy_for_service as _policy_for_service,
+)
+from ._builtin_runtime_client import (
+    _execute_rendered_provider_invocation,
 )
 from ._provider_invocation import (
     ProviderInvocationAdapter,

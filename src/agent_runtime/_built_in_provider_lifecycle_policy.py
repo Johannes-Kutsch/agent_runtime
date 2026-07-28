@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
 from ._builtin_provider_stream_interpretation import (
@@ -19,11 +20,11 @@ from .types import ProviderSelection
 
 if TYPE_CHECKING:
     from . import _session_backed_provider_state_resolution as _state_res_module
-    from ._builtin_runtime_client import _SessionTimeoutState
     from ._builtin_provider_rendering import (
-        BuiltInProviderRenderRequest,
         BuiltInProviderRenderedInvocation,
+        BuiltInProviderRenderRequest,
     )
+    from ._builtin_runtime_client import _SessionTimeoutState
 
 
 @dataclass(frozen=True)
@@ -59,19 +60,19 @@ class ResumedSessionFactsInput:
 
 class BuiltInProviderLifecyclePolicy:
     __slots__ = (
-        "_stream_interpretation_fn",
-        "_validate_stage_fn",
-        "_require_auth_fn",
-        "_resolve_new_session_facts_fn",
-        "_resolve_resumed_session_facts_fn",
-        "_refresh_active_session_facts_fn",
-        "_resolve_ephemeral_provider_state_dir_fn",
-        "_resolve_ephemeral_render_invocation_dir_fn",
         "_apply_ephemeral_pre_invocation_seeding_fn",
         "_build_session_dispatch_interpretation_fn",
-        "_render_invocation_fn",
-        "_select_auth_fn",
         "_execute_provider_session_id_fn",
+        "_refresh_active_session_facts_fn",
+        "_render_invocation_fn",
+        "_require_auth_fn",
+        "_resolve_ephemeral_provider_state_dir_fn",
+        "_resolve_ephemeral_render_invocation_dir_fn",
+        "_resolve_new_session_facts_fn",
+        "_resolve_resumed_session_facts_fn",
+        "_select_auth_fn",
+        "_stream_interpretation_fn",
+        "_validate_stage_fn",
     )
 
     def __init__(

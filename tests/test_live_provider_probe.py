@@ -15,16 +15,16 @@ import io
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
-from agent_runtime.contracts import ToolAccess
-from agent_runtime.errors import AgentCredentialFailureError
-from agent_runtime import runtime as pr
 import agent_runtime._provider_invocation as provider_invocation_runtime
-from agent_runtime.errors import ProviderUnavailableReason
+from agent_runtime import runtime as pr
+from agent_runtime.contracts import ToolAccess
+from agent_runtime.errors import AgentCredentialFailureError, ProviderUnavailableReason
 
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[1]
@@ -123,7 +123,7 @@ def _default_handler(method: str, request: Any) -> Any:
             pr.AgentEvent(
                 type="agent_message",
                 display_message="hi there",
-                raw_provider_output='{"raw": "full-payload", "method": "%s"}' % method,
+                raw_provider_output=f'{{"raw": "full-payload", "method": "{method}"}}',
             )
         )
     if method == "run_new_session":

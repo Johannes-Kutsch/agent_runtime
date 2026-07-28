@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, TypeVar, cast
+from typing import Any, TypeVar, cast
 
+from . import _built_in_provider_lifecycle_policy as _lifecycle_policy_module
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from . import _session_backed_provider_state_resolution as _provider_state_resolution
-from . import _built_in_provider_lifecycle_policy as _lifecycle_policy_module
 from ._built_in_provider_session_invocation_dispatch import (
     dispatch_built_in_provider_session_invocation,
 )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -16,7 +16,6 @@ import agent_runtime._session_backed_provider_execution as session_backed_execut
 import agent_runtime._session_backed_provider_state_resolution as provider_state_resolution
 import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
-from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.errors import (
     AgentCancelledError,
@@ -26,6 +25,7 @@ from agent_runtime.errors import (
 )
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
+from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 
 
 @pytest.mark.parametrize("entrypoint", ["new", "resumed"])
@@ -945,7 +945,7 @@ def test_session_backed_opencode_expected_interruptions_keep_started_continuatio
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
-        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=UTC),
     )
     harness = RuntimeClientExecutionHarness.install(monkeypatch)
     if entrypoint == "new":
@@ -1036,7 +1036,7 @@ def test_session_backed_opencode_resumed_session_uses_observed_session_id_for_st
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
-        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=UTC),
     )
     harness = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(

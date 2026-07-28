@@ -3,27 +3,26 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-import re
 from types import SimpleNamespace
-from typing import Any, Callable
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
 import agent_runtime as runtime
-import agent_runtime.contracts as contracts_runtime
-import agent_runtime._builtin_runtime_client as builtin_runtime_client_runtime
+import agent_runtime._built_in_provider_session_invocation_dispatch as builtin_session_invocation_dispatch_runtime
 import agent_runtime._builtin_provider_parsed_output as parsed_output_runtime
 import agent_runtime._builtin_provider_rendering as builtin_provider_rendering_runtime
-import agent_runtime._built_in_provider_session_invocation_dispatch as builtin_session_invocation_dispatch_runtime
+import agent_runtime._builtin_runtime_client as builtin_runtime_client_runtime
 import agent_runtime._provider_invocation as provider_invocation_runtime
+import agent_runtime.contracts as contracts_runtime
 import agent_runtime.runtime as prompt_runtime
 from agent_runtime._runtime_lifecycle import ProviderAuth
-from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 from agent_runtime.errors import (
     AgentCancelledError,
     AgentCredentialFailureError,
@@ -35,6 +34,7 @@ from agent_runtime.errors import (
 )
 from agent_runtime.session import RunKind
 from agent_runtime.types import ProviderSelection as InternalStageSelection
+from tests.runtime_client_execution_harness import RuntimeClientExecutionHarness
 
 
 def _codex_executable() -> str:
@@ -1307,20 +1307,7 @@ def test_runtime_client_ephemeral_run_in_flight_token_cancellation_returns_cance
     marker_path = tmp_path / "child-started"
     script_path = tmp_path / "hanging_provider.py"
     script_path.write_text(
-        "\n".join(
-            [
-                "import os",
-                "import sys",
-                "import time",
-                "",
-                "marker_path = sys.argv[1]",
-                "with open(marker_path, 'w', encoding='utf-8') as f:",
-                "    f.write(str(os.getpid()))",
-                "    f.flush()",
-                "while True:",
-                "    time.sleep(60)",
-            ]
-        ),
+        "import os\nimport sys\nimport time\n\nmarker_path = sys.argv[1]\nwith open(marker_path, 'w', encoding='utf-8') as f:\n    f.write(str(os.getpid()))\n    f.flush()\nwhile True:\n    time.sleep(60)\n",
         encoding="utf-8",
     )
 
@@ -1371,7 +1358,7 @@ def test_runtime_client_ephemeral_run_drops_continuation_from_usage_limited_inte
     tmp_path: Path,
 ) -> None:
     usage_limited = runtime.UsageLimitError(
-        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+        reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=UTC),
         service_name="codex",
         usage=runtime.ProviderUsage(input_tokens=1, output_tokens=2),
         continuation=runtime.Continuation(
@@ -1411,7 +1398,7 @@ def test_runtime_client_ephemeral_run_drops_continuation_from_usage_limited_inte
     )
 
     assert isinstance(outcome.kind, runtime.UsageLimited)
-    assert outcome.kind.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc)
+    assert outcome.kind.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=UTC)
     assert outcome.result == runtime.RunResult(
         output="",
         usage=usage_limited.usage,
@@ -3187,7 +3174,7 @@ def test_runtime_client_does_not_store_provider_credentials_in_codex_continuatio
     assert continuation.provider_resume_state["provider_session_id"] == "thread-123"
 
     assert not any(
-        key.startswith("codex") for key in continuation.provider_resume_state.keys()
+        key.startswith("codex") for key in continuation.provider_resume_state
     )
 
 
@@ -5438,7 +5425,7 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
-        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 4, 28, 20, 0, tzinfo=UTC),
     )
     RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
@@ -5500,7 +5487,7 @@ def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_n
     )
 
     assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
-    assert outcome.kind.reset_time == datetime(2026, 4, 28, 21, 2, tzinfo=timezone.utc)
+    assert outcome.kind.reset_time == datetime(2026, 4, 28, 21, 2, tzinfo=UTC)
     assert outcome.result.output == ""
     assert outcome.result.selected == runtime.ResolvedProvider(
         service="opencode", model="kimi-k2.6", effort="medium"
@@ -5516,7 +5503,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_usage_limited_and_logs_
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
-        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
     )
     adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
@@ -5553,7 +5540,7 @@ def test_runtime_client_maps_codex_usage_limit_stream_to_usage_limited_and_logs_
     )
 
     assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
-    assert outcome.kind.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc)
+    assert outcome.kind.reset_time == datetime(2026, 1, 2, 17, 0, tzinfo=UTC)
     assert outcome.result.output == ""
     assert outcome.result.selected == runtime.ResolvedProvider(
         service="codex", model="gpt-5.4", effort="medium"
@@ -5573,7 +5560,7 @@ def test_runtime_client_reused_after_usage_limited_ephemeral_call_still_invokes_
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
-        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
     )
     adapter = RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
@@ -5692,7 +5679,7 @@ def test_runtime_client_reports_selected_service_for_ephemeral_usage_limit_when_
         provider_invocation_runtime.ProviderInvocationFailure(
             kind=provider_invocation_runtime.InvocationFailureKind.USAGE_LIMITED,
             detail="Usage limit reached (reset_time=2026-01-02T17:00:00+00:00)",
-            reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=timezone.utc),
+            reset_time=datetime(2026, 1, 2, 17, 0, tzinfo=UTC),
         )
     )
 
@@ -5938,7 +5925,7 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
-        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
     )
 
     outcome = asyncio.run(
@@ -6104,7 +6091,7 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
-        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
     )
 
     outcome = asyncio.run(
@@ -6126,7 +6113,7 @@ def test_runtime_client_parses_claude_usage_limit_reset_time(
     )
 
     assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
-    assert outcome.kind.reset_time == datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc)
+    assert outcome.kind.reset_time == datetime(2026, 1, 2, 16, 0, tzinfo=UTC)
     assert outcome.result.output == ""
     assert outcome.result.selected.service == "claude"
 
@@ -6135,7 +6122,7 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    reset_time = datetime(2026, 1, 2, 16, 0, tzinfo=timezone.utc)
+    reset_time = datetime(2026, 1, 2, 16, 0, tzinfo=UTC)
     RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
         provider_invocation_runtime.ProviderInvocationPreparedStream(
             stdout_lines=(
@@ -6154,7 +6141,7 @@ def test_runtime_client_keeps_runtime_reset_time_override_in_usage_limited_outco
     monkeypatch.setattr(
         prompt_runtime._time_module,
         "now_local",
-        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
     )
     monkeypatch.setattr(
         parsed_output_runtime,
@@ -6621,7 +6608,7 @@ def test_runtime_client_resumed_session_silent_invocation_timeout_preserves_cont
             error = provider_invocation_runtime.ProviderInvocationTimedOutError(
                 "Provider subprocess exceeded the idle timeout."
             )
-            setattr(error, "provider_session_id", request.provider_session_id)
+            error.provider_session_id = request.provider_session_id
             raise error
 
     monkeypatch.setattr(
@@ -6664,7 +6651,7 @@ def test_runtime_client_new_session_silent_invocation_timeout_has_no_continuatio
             error = provider_invocation_runtime.ProviderInvocationTimedOutError(
                 "Provider subprocess exceeded the idle timeout."
             )
-            setattr(error, "provider_session_id", request.provider_session_id)
+            error.provider_session_id = request.provider_session_id
             raise error
 
     monkeypatch.setattr(
@@ -6707,17 +6694,7 @@ def test_runtime_client_ephemeral_silent_invocation_timeout_without_live_runtime
 ) -> None:
     script_path = tmp_path / "silent_provider_hang.py"
     script_path.write_text(
-        "\n".join(
-            [
-                "import signal",
-                "import sys",
-                "import time",
-                "",
-                "signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))",
-                "while True:",
-                "    time.sleep(60)",
-            ]
-        ),
+        "import signal\nimport sys\nimport time\n\nsignal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))\nwhile True:\n    time.sleep(60)",
         encoding="utf-8",
     )
 
@@ -6759,29 +6736,7 @@ def test_runtime_client_new_session_invocation_timeout_preserves_observed_usage(
 ) -> None:
     script_path = tmp_path / "claude_partial_then_hang.py"
     script_path.write_text(
-        "\n".join(
-            [
-                "import json",
-                "import signal",
-                "import sys",
-                "import time",
-                "",
-                "signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))",
-                "print(json.dumps({",
-                "    'type': 'assistant',",
-                "    'message': {",
-                "        'content': [{'type': 'text', 'text': 'intermediate'}],",
-                "        'usage': {",
-                "            'input_tokens': 5,",
-                "            'cache_creation_input_tokens': 0,",
-                "            'cache_read_input_tokens': 1",
-                "        }",
-                "    }",
-                "}), flush=True)",
-                "while True:",
-                "    time.sleep(60)",
-            ]
-        ),
+        "import json\nimport signal\nimport sys\nimport time\n\nsignal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))\nprint(json.dumps({\n    'type': 'assistant',\n    'message': {\n        'content': [{'type': 'text', 'text': 'intermediate'}],\n        'usage': {\n            'input_tokens': 5,\n            'cache_creation_input_tokens': 0,\n            'cache_read_input_tokens': 1\n        }\n    }\n}), flush=True)\nwhile True:\n    time.sleep(60)",
         encoding="utf-8",
     )
 

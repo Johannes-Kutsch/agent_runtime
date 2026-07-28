@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import inspect
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from collections.abc import Callable as TypingCallable
 from dataclasses import asdict, fields
 from pathlib import Path
-from typing import Any, Callable as TypingCallable, Mapping, cast, get_type_hints
+from typing import Any, cast, get_type_hints
 
 import pytest
 

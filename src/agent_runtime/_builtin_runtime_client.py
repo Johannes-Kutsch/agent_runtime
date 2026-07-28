@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import logging
-import tempfile
 import subprocess as _subprocess
+import tempfile
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from . import _builtin_provider_rendering as _builtin_provider_rendering_module
+from ._built_in_provider_lifecycle_policy import (
+    BuiltInProviderLifecyclePolicy,
+    policy_for_service,
+)
 from ._builtin_provider_stream_interpretation import (
     BuiltInProviderStreamInterpretation,
-    resolve_built_in_provider_session_id,
     classify_built_in_provider_invocation_progress,
     emit_built_in_provider_live_output_event,
+    resolve_built_in_provider_session_id,
 )
 from ._provider_invocation import (
     ProductionProviderInvocationAdapter,
@@ -23,6 +27,7 @@ from ._provider_invocation import (
     ProviderInvocationResult,
     ProviderOutputReductionHooks,
 )
+from ._provider_invocation_failure_error import provider_invocation_error_from_failure
 from ._runtime_lifecycle import (
     AgentEvent,
     CancellationToken,
@@ -33,7 +38,6 @@ from ._runtime_lifecycle import (
     ResumedSessionRunRequest,  # noqa: F401 — re-exported for _session_backed_provider_execution
     RunResult,
 )
-from .types import ResolvedProvider
 from .errors import (
     AgentCancelledError,
     AgentCredentialFailureError,
@@ -44,12 +48,7 @@ from .errors import (
 )
 from .invocation_progress import InvocationProgress
 from .session import RunKind
-from .types import ProviderSelection
-from ._built_in_provider_lifecycle_policy import (
-    BuiltInProviderLifecyclePolicy,
-    policy_for_service,
-)
-from ._provider_invocation_failure_error import provider_invocation_error_from_failure
+from .types import ProviderSelection, ResolvedProvider
 
 _log = logging.getLogger(__name__)
 subprocess = _subprocess
@@ -84,7 +83,7 @@ def supported_builtin_provider_selection(
 
 
 class _ObservedOutputReducer:
-    __slots__ = ("reduce_output", "consume_stdout_lines")
+    __slots__ = ("consume_stdout_lines", "reduce_output")
 
     def __init__(
         self,
@@ -136,13 +135,13 @@ class _SessionTimeoutState:
         if exc.usage is None:
             exc.usage = self.usage
         exc.invocation_progress = self.invocation_progress
-        setattr(exc, "provider_session_id", self.provider_session_id)
+        exc.provider_session_id = self.provider_session_id
 
     def apply_to_cancellation(self, exc: AgentCancelledError) -> None:
         if exc.usage is None:
             exc.usage = self.usage
         exc.invocation_progress = self.invocation_progress
-        setattr(exc, "provider_session_id", self.provider_session_id)
+        exc.provider_session_id = self.provider_session_id
 
 
 def _observe_output_lines(

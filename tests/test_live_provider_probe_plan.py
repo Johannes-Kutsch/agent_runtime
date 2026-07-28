@@ -37,8 +37,8 @@ def plan() -> Any:
 
 
 def _runtime_outcome(kind_name: str, **result_kwargs: Any) -> Any:
-    from agent_runtime.errors import ProviderUnavailableReason
     from agent_runtime import runtime as pr
+    from agent_runtime.errors import ProviderUnavailableReason
 
     kinds: dict[
         str,

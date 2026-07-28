@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from collections.abc import Generator
-from datetime import datetime
-from datetime import timezone
+from collections.abc import Callable, Generator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -56,9 +54,7 @@ def provider_selection_factory() -> Callable[..., runtime.ProviderSelection]:
 
 @pytest.fixture(autouse=True)
 def frozen_clock() -> Generator[None, None, None]:
-    with time_machine.travel(
-        datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc), tick=True
-    ):
+    with time_machine.travel(datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC), tick=True):
         yield
 
 

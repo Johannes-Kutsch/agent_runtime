@@ -8,7 +8,10 @@ import zipfile
 from email import message_from_bytes
 from pathlib import Path
 
-from setuptools.build_meta import build_sdist, build_wheel  # type: ignore[import-untyped]
+from setuptools.build_meta import (  # type: ignore[import-untyped]
+    build_sdist,
+    build_wheel,
+)
 
 
 def _build_release_artifacts(tmp_path: Path) -> tuple[Path, Path]:

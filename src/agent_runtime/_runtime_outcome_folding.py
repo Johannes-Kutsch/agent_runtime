@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from ._live_runtime_output_exceptions import is_live_runtime_output_exception
 from ._runtime_lifecycle import (

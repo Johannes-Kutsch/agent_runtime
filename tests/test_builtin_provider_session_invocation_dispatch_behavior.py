@@ -17,7 +17,6 @@ from agent_runtime.contracts import ToolAccess
 from agent_runtime.errors import AgentCredentialFailureError
 from agent_runtime.session import RunKind
 
-
 _CLAUDE_ASSISTANT_LINE = (
     json.dumps(
         {

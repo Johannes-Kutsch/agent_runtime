@@ -24,11 +24,12 @@ import argparse
 import os
 import shutil
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from importlib import util as importlib_util
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Mapping, Sequence, TextIO
-from importlib import util as importlib_util
+from typing import Any, TextIO
 
 from agent_runtime.errors import (
     RuntimeConfigurationError,

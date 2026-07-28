@@ -4,23 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from traceback import format_exc
-from typing import Any, Awaitable, Callable, Protocol, TextIO
+from typing import Any, Protocol, TextIO
 
+from agent_runtime._runtime_lifecycle import CancellationToken
+from agent_runtime.errors import AgentCredentialFailureError, ProviderUnavailableReason
 from agent_runtime.runtime import (
     Continuation,
     EphemeralRunRequest,
     NewSessionRunRequest,
     ProviderAuth,
     ResumedSessionRunRequest,
-    RuntimeClient as _PublicRuntimeClient,
     ToolPolicy,
 )
-from agent_runtime.errors import AgentCredentialFailureError
-from agent_runtime.errors import ProviderUnavailableReason
-from agent_runtime._runtime_lifecycle import CancellationToken
+from agent_runtime.runtime import (
+    RuntimeClient as _PublicRuntimeClient,
+)
 
 
 class _LiveProbeOutput(Protocol):
@@ -248,7 +250,7 @@ def _write_result_json(
             json.dumps(payload, indent=2, sort_keys=True, default=str),
             encoding="utf-8",
         )
-    except Exception as exc:  # pragma: no cover - best effort diagnostics only
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover - best effort diagnostics only
         output.line(f"  (failed to write {RESULT_FILENAME}: {exc})")
 
 
@@ -344,7 +346,7 @@ def run_case(
     except AgentCredentialFailureError:
         category = "wrong_credentials"
         traceback = format_exc()
-    except Exception:
+    except Exception:  # noqa: BLE001
         traceback = format_exc()
     finally:
         feed_writer.close()

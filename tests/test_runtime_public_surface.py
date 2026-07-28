@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
-import asyncio
+import unittest.mock
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import Any, cast
-import unittest.mock
 
 import pytest
 
 import agent_runtime as runtime
+import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime._session_backed_provider_state_resolution as provider_state_resolution_runtime
 import agent_runtime.contracts as contracts_runtime
-import agent_runtime._provider_invocation as provider_invocation_runtime
 import agent_runtime.runtime as prompt_runtime
 import agent_runtime.session as session_runtime
 from agent_runtime.errors import AgentRuntimeError
@@ -33,20 +33,20 @@ def test_package_exports_runtime_surface() -> None:
         "Continuation",
         "HardAgentError",
         "ModelNotAvailable",
-        "ProviderUnavailable",
         "ProviderAuth",
         "ProviderSelection",
+        "ProviderUnavailable",
         "ProviderUsage",
         "ResolvedProvider",
+        "RunKind",
         "RunResult",
         "RuntimeClient",
         "RuntimeConfigurationError",
         "RuntimeOutcome",
-        "RunKind",
         "TimedOut",
         "ToolPolicy",
-        "UsageLimited",
         "UsageLimitError",
+        "UsageLimited",
     ]
     assert not hasattr(runtime, "InvocationRecord")
     assert not hasattr(runtime, "InvocationProgress")
@@ -101,7 +101,7 @@ def test_retired_agent_failed_error_is_not_importable_from_runtime_surface(
     removed_name: str,
 ) -> None:
     with pytest.raises(ImportError):
-        exec(f"from {module_name} import {removed_name}", {}, {})
+        exec(f"from {module_name} import {removed_name}", {}, {})  # noqa: S102
 
     imported_module = importlib.import_module(module_name)
     with pytest.raises(AttributeError):
@@ -112,13 +112,13 @@ def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surfa
     None
 ):
     with pytest.raises(ImportError):
-        exec("from agent_runtime import ProviderInvocationRequest", {}, {})
+        exec("from agent_runtime import ProviderInvocationRequest", {}, {})  # noqa: S102
     with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ProviderInvocationRequest", {}, {})
+        exec("from agent_runtime.runtime import ProviderInvocationRequest", {}, {})  # noqa: S102
     with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ProviderInvocationResult", {}, {})
+        exec("from agent_runtime.runtime import ProviderInvocationResult", {}, {})  # noqa: S102
     with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ProviderInvocationAdapter", {}, {})
+        exec("from agent_runtime.runtime import ProviderInvocationAdapter", {}, {})  # noqa: S102
 
 
 def test_session_backed_provider_execution_module_stays_private_to_runtime_public_surface() -> (
@@ -134,11 +134,11 @@ def test_session_backed_provider_state_resolution_module_stays_private_to_runtim
     None
 ):
     with pytest.raises(ImportError):
-        exec("from agent_runtime import ProviderIdentity", {}, {})
+        exec("from agent_runtime import ProviderIdentity", {}, {})  # noqa: S102
     with pytest.raises(ImportError):
-        exec("from agent_runtime.runtime import ProviderIdentity", {}, {})
+        exec("from agent_runtime.runtime import ProviderIdentity", {}, {})  # noqa: S102
     with pytest.raises(ImportError):
-        exec("from agent_runtime.contracts import ProviderIdentity", {}, {})
+        exec("from agent_runtime.contracts import ProviderIdentity", {}, {})  # noqa: S102
 
     assert not hasattr(runtime, "ProviderIdentity")
     assert not hasattr(prompt_runtime, "ProviderIdentity")
@@ -208,7 +208,7 @@ def test_execution_contracts_module_is_absent_without_changing_runtime_public_su
         importlib.import_module("agent_runtime.execution_contracts")
 
     with pytest.raises(ModuleNotFoundError):
-        exec(
+        exec(  # noqa: S102
             "from agent_runtime.execution_contracts import ExecutionProvider",
             {},
             {},
@@ -248,7 +248,7 @@ def test_retired_service_registry_module_is_absent() -> None:
         importlib.import_module("agent_runtime.service_registry")
 
     with pytest.raises(ModuleNotFoundError):
-        exec("from agent_runtime.service_registry import ServiceRegistry", {}, {})
+        exec("from agent_runtime.service_registry import ServiceRegistry", {}, {})  # noqa: S102
 
 
 @pytest.mark.parametrize(
@@ -272,7 +272,7 @@ def test_provider_session_planning_compatibility_module_is_absent(
         importlib.import_module("agent_runtime.session_planning")
 
     with pytest.raises(ModuleNotFoundError):
-        exec(
+        exec(  # noqa: S102
             f"from agent_runtime.session_planning import {imported_name}",
             {},
             {},
@@ -299,14 +299,14 @@ def test_removed_tool_policy_compatibility_names_fail_on_ordinary_runtime_surfac
     removed_name: str,
 ) -> None:
     with pytest.raises(ImportError):
-        exec(f"from {module_name} import {removed_name}", {}, {})
+        exec(f"from {module_name} import {removed_name}", {}, {})  # noqa: S102
 
     imported_module = importlib.import_module(module_name)
     with pytest.raises(AttributeError, match="Runtime Public Surface"):
         getattr(imported_module, removed_name)
 
     compatibility_imports: dict[str, object] = {}
-    exec(
+    exec(  # noqa: S102
         f"from agent_runtime.contracts import {removed_name}",
         {},
         compatibility_imports,
@@ -326,7 +326,7 @@ def test_removed_value_object_compatibility_names_fail_on_ordinary_runtime_surfa
     removed_name: str,
 ) -> None:
     with pytest.raises(ImportError):
-        exec(f"from {module_name} import {removed_name}", {}, {})
+        exec(f"from {module_name} import {removed_name}", {}, {})  # noqa: S102
 
     imported_module = importlib.import_module(module_name)
     with pytest.raises(AttributeError, match="Runtime Public Surface"):
@@ -405,9 +405,9 @@ def test_built_in_provider_invocation_seam_uses_frozen_contract_values() -> None
     assert request.output_hooks.reduce_output(["a", "b"]) == ("ab", None)
     assert result.stdout_lines == ("line 1", "line 2")
     with pytest.raises(FrozenInstanceError):
-        setattr(request, "command", "changed")
+        request.command = "changed"
     with pytest.raises(FrozenInstanceError):
-        setattr(result, "output", "changed")
+        result.output = "changed"
 
 
 def test_built_in_provider_invocation_request_signature_excludes_logging_context() -> (
@@ -435,7 +435,7 @@ def test_built_in_provider_invocation_request_signature_excludes_logging_context
 def test_runtime_star_import_uses_lifecycle_surface() -> None:
     exported_names: dict[str, object] = {}
 
-    exec("from agent_runtime.runtime import *", {}, exported_names)
+    exec("from agent_runtime.runtime import *", {}, exported_names)  # noqa: S102
 
     assert "EphemeralRunRequest" in exported_names
     assert "RuntimeClient" in exported_names
@@ -464,13 +464,9 @@ def test_runtime_surface_exports_agent_event_public_vocabulary() -> None:
         "raw_provider_output",
     }
     with pytest.raises(FrozenInstanceError):
-        setattr(
-            runtime.AgentEvent(
-                type="agent_message", display_message="hi", raw_provider_output=""
-            ),
-            "display_message",
-            "changed",
-        )
+        runtime.AgentEvent(
+            type="agent_message", display_message="hi", raw_provider_output=""
+        ).display_message = "changed"
 
 
 def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_worktree_alias(
@@ -509,7 +505,7 @@ def test_runtime_lifecycle_request_values_expose_invocation_dir_without_public_w
         resumed_session_request,
     ):
         with pytest.raises(AttributeError):
-            getattr(request, "worktree")
+            request.worktree  # noqa: B018
 
 
 def test_runtime_lifecycle_values_keep_runtime_module_names_after_extraction() -> None:
@@ -661,11 +657,11 @@ def test_contracts_expose_only_active_runtime_contracts(
     with pytest.raises(AttributeError):
         getattr(contracts, removed_name)
     with pytest.raises(ImportError):
-        exec(f"from agent_runtime.contracts import {removed_name}", {}, {})
+        exec(f"from agent_runtime.contracts import {removed_name}", {}, {})  # noqa: S102
     with pytest.raises(AttributeError):
         getattr(runtime, removed_name)
     with pytest.raises(ImportError):
-        exec(f"from agent_runtime import {removed_name}", {}, {})
+        exec(f"from agent_runtime import {removed_name}", {}, {})  # noqa: S102
 
 
 @pytest.mark.parametrize(
@@ -685,7 +681,7 @@ def test_runtime_module_omits_retired_provider_protocol_names_from_public_surfac
     with pytest.raises(AttributeError):
         getattr(prompt_runtime, removed_name)
     with pytest.raises(ImportError):
-        exec(f"from agent_runtime.runtime import {removed_name}", {}, {})
+        exec(f"from agent_runtime.runtime import {removed_name}", {}, {})  # noqa: S102
 
 
 @pytest.mark.parametrize(
@@ -871,7 +867,7 @@ def test_provider_session_adapter_public_seam_is_absent() -> None:
         "provider_session_planning_facts",
     ):
         with pytest.raises(ModuleNotFoundError):
-            exec(
+            exec(  # noqa: S102
                 f"from agent_runtime.provider_session_adapter import {removed_name}",
                 {},
                 {},
@@ -897,7 +893,7 @@ def test_tool_policy_does_not_include_inspect_only_value() -> None:
 
 def test_tool_policy_inspect_only_attribute_is_removed_from_public_surface() -> None:
     with pytest.raises(AttributeError):
-        getattr(runtime.ToolPolicy, "INSPECT_ONLY")
+        runtime.ToolPolicy.INSPECT_ONLY  # noqa: B018
 
 
 def test_tool_policy_none_resolves_to_closed_no_tools_profile() -> None:

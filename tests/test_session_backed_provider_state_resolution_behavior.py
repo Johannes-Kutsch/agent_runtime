@@ -847,8 +847,10 @@ def test_session_backed_provider_state_resolution_recovers_codex_new_session_fac
         None,
         "",
         '{not-json\n{"type":"turn.completed"}\n{"type":"session_meta","payload":[]}\n',
-        '{"type":"session_meta","payload":{"id":"thread-a"}}\n'
-        '{"type":"session_meta","payload":{"id":"thread-b"}}\n',
+        (
+            '{"type":"session_meta","payload":{"id":"thread-a"}}\n'
+            '{"type":"session_meta","payload":{"id":"thread-b"}}\n'
+        ),
     ],
 )
 def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_rollout_state_through_module_interface(
@@ -888,8 +890,10 @@ def test_session_backed_provider_state_resolution_rejects_unrecoverable_codex_ro
     [
         "",
         '{not-json\n{"type":"turn.completed"}\n{"type":"session_meta","payload":[]}\n',
-        '{"type":"session_meta","payload":{"id":"thread-a"}}\n'
-        '{"type":"session_meta","payload":{"id":"thread-b"}}\n',
+        (
+            '{"type":"session_meta","payload":{"id":"thread-a"}}\n'
+            '{"type":"session_meta","payload":{"id":"thread-b"}}\n'
+        ),
     ],
 )
 def test_session_backed_provider_state_resolution_rejects_unrecoverable_existing_codex_new_session_rollout_state_through_module_interface(
