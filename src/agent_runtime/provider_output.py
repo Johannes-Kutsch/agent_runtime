@@ -48,17 +48,11 @@ def reduce_text_output_events(
                 invocation_progress=invocation_progress,
             )
         if isinstance(event, TransientError):
-            if event.classification == "retryable":
-                raise ProviderUnavailableError(
-                    message=event.raw_message,
-                    reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
-                    service_name=provider,
-                    invocation_progress=invocation_progress,
-                )
-            raise HardAgentError(
+            raise ProviderUnavailableError(
                 message=event.raw_message,
+                reason=ProviderUnavailableReason.TRANSIENT_API_ERROR,
                 service_name=provider,
-                classification=event.classification,
+                invocation_progress=invocation_progress,
             )
         if isinstance(event, HardError):
             raise HardAgentError(

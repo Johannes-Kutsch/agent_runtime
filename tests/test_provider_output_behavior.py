@@ -98,43 +98,6 @@ def test_provider_output_reduction_keeps_unknown_activity_usage_limits_not_start
     assert exc_info.value.invocation_progress is _InvocationProgress.NOT_STARTED
 
 
-def test_provider_output_reduction_maps_non_retryable_transient_error_to_hard_agent_error() -> (
-    None
-):
-    with pytest.raises(HardAgentError) as exc_info:
-        reduce_text_output_events(
-            [
-                TransientError(
-                    status_code=503,
-                    raw_message="hard failure",
-                    classification="permanent",
-                )
-            ],
-            lambda _turn, _raw: None,
-            provider="codex",
-        )
-
-    assert str(exc_info.value) == "hard failure"
-    assert exc_info.value.service_name == "codex"
-    assert exc_info.value.classification == "permanent"
-    assert not hasattr(exc_info.value, "status_code")
-
-
-def test_provider_output_reduction_maps_non_retryable_transient_error_with_no_classification_to_hard_agent_error() -> (
-    None
-):
-    with pytest.raises(HardAgentError) as exc_info:
-        reduce_text_output_events(
-            [TransientError(status_code=503, raw_message="service error")],
-            lambda _turn, _raw: None,
-            provider="codex",
-        )
-
-    assert str(exc_info.value) == "service error"
-    assert exc_info.value.service_name == "codex"
-    assert exc_info.value.classification is None
-
-
 def test_provider_output_reduction_maps_provider_unavailable() -> None:
     with pytest.raises(ProviderUnavailableError) as exc_info:
         reduce_text_output_events(
@@ -142,7 +105,6 @@ def test_provider_output_reduction_maps_provider_unavailable() -> None:
                 TransientError(
                     status_code=503,
                     raw_message="retry",
-                    classification="retryable",
                 )
             ],
             lambda _turn, _raw: None,
@@ -167,7 +129,6 @@ def test_provider_output_reduction_reports_started_progress_for_provider_unavail
                 TransientError(
                     status_code=503,
                     raw_message="retry",
-                    classification="retryable",
                 ),
             ],
             lambda _turn, _raw: None,
@@ -187,7 +148,6 @@ def test_provider_output_reduction_accepts_explicit_model_activity_for_provider_
                 TransientError(
                     status_code=503,
                     raw_message="retry",
-                    classification="retryable",
                 ),
             ],
             lambda _turn, _raw: None,

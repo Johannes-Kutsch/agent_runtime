@@ -2432,26 +2432,27 @@ def test_runtime_client_opencode_live_runtime_output_stops_after_terminal_error(
         ),
     )
 
-    with pytest.raises(HardAgentError):
-        asyncio.run(
-            runtime.RuntimeClient().run_ephemeral(
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
-                    invocation_dir=tmp_path,
-                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
-                        InternalStageSelection(
-                            service="opencode",
-                            model="kimi-k2.6",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="go-key"),
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
                     ),
-                    on_live_output=on_live_output,
-                    tool_policy=runtime.ToolPolicy.NONE,
-                )
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                on_live_output=on_live_output,
+                tool_policy=runtime.ToolPolicy.NONE,
             )
         )
+    )
 
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
     assert observed == ["hello"]
 
 
@@ -5774,7 +5775,7 @@ def test_runtime_client_maps_opencode_missing_model_without_status_to_hard_error
     assert exc_info.value.service_name == "opencode"
 
 
-def test_runtime_client_maps_opencode_transient_error_stream_to_transient_exception(
+def test_runtime_client_opencode_5xx_stream_returns_provider_unavailable_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5801,28 +5802,27 @@ def test_runtime_client_maps_opencode_transient_error_stream_to_transient_except
         ),
     )
 
-    with pytest.raises(HardAgentError) as exc_info:
-        asyncio.run(
-            runtime.RuntimeClient().run_ephemeral(
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
-                    invocation_dir=tmp_path,
-                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
-                        InternalStageSelection(
-                            service="opencode",
-                            model="kimi-k2.6",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="go-key"),
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
                     ),
-                    tool_access=contracts_runtime.ToolAccess.no_tools(),
-                )
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
+    )
 
-    assert str(exc_info.value) == "temporary backend failure"
-    assert exc_info.value.service_name == "opencode"
-    assert not hasattr(exc_info.value, "status_code")
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert "temporary backend failure" in outcome.kind.detail
 
 
 def test_runtime_client_keeps_completed_opencode_result_after_idle_status(
@@ -5955,7 +5955,7 @@ def test_runtime_client_maps_claude_usage_limit_stream_to_usage_limited_outcome(
     )
 
 
-def test_runtime_client_maps_claude_transient_error_stream_to_transient_exception(
+def test_runtime_client_claude_5xx_stream_returns_provider_unavailable_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5975,28 +5975,27 @@ def test_runtime_client_maps_claude_transient_error_stream_to_transient_exceptio
         ),
     )
 
-    with pytest.raises(HardAgentError) as exc_info:
-        asyncio.run(
-            runtime.RuntimeClient().run_ephemeral(
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
-                    invocation_dir=tmp_path,
-                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
-                        InternalStageSelection(
-                            service="claude",
-                            model="sonnet",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
                     ),
-                    tool_access=contracts_runtime.ToolAccess.no_tools(),
-                )
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
+    )
 
-    assert "temporary Claude failure" in str(exc_info.value)
-    assert exc_info.value.service_name == "claude"
-    assert not hasattr(exc_info.value, "status_code")
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert "temporary Claude failure" in outcome.kind.detail
 
 
 def test_runtime_client_preserves_claude_usage_on_usage_limited_stream(
@@ -6905,3 +6904,226 @@ def test_built_in_runtime_client_keeps_render_requests_without_sandbox_toggle_kw
     assert all(
         not hasattr(request, "already_sandboxed") for request in captured_requests
     )
+
+
+def test_runtime_client_ephemeral_claude_500_returns_provider_unavailable_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # pycastle#2018 verbatim envelope: failed run wearing success markers
+    error_line = (
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": True,
+                "stop_reason": "stop_sequence",
+                "api_error_status": 500,
+                "result": "API Error: 500 Internal server error. This is a server-side issue, usually temporary",
+            }
+        )
+        + "\n"
+    )
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(error_line,),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert "500" in outcome.kind.detail
+    assert outcome.result.continuation is None
+
+
+def test_runtime_client_ephemeral_claude_error_with_no_status_returns_provider_unavailable_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    error_line = (
+        json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "result": "An unexpected error occurred",
+            }
+        )
+        + "\n"
+    )
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(error_line,),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="claude",
+                        model="sonnet",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(claude_code_oauth_token="oauth-token"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert "unexpected error" in outcome.kind.detail
+
+
+def test_runtime_client_ephemeral_codex_500_returns_provider_unavailable_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    error_line = json.dumps({"type": "error", "message": "upstream status 503"}) + "\n"
+    harness = RuntimeClientExecutionHarness.install(monkeypatch)
+    harness.prepare_prepared_stream(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(error_line,),
+        )
+    )
+    RuntimeClientExecutionHarness.install_local_codex_host_auth(monkeypatch, tmp_path)
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            harness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="codex",
+                    model="gpt-5.4",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert "503" in outcome.kind.detail
+
+
+def test_runtime_client_ephemeral_opencode_500_returns_provider_unavailable_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    error_line = (
+        json.dumps(
+            {
+                "type": "error",
+                "sessionID": "sess_123",
+                "error": {
+                    "name": "InternalServerError",
+                    "data": {
+                        "message": "Internal server error",
+                        "statusCode": 503,
+                    },
+                },
+            }
+        )
+        + "\n"
+    )
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(error_line,),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert "Internal server error" in outcome.kind.detail
+
+
+def test_runtime_client_ephemeral_opencode_statusless_error_returns_provider_unavailable_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    error_line = (
+        json.dumps(
+            {
+                "type": "error",
+                "sessionID": "sess_123",
+                "error": {
+                    "name": "NetworkError",
+                    "data": {
+                        "message": "connection timeout",
+                    },
+                },
+            }
+        )
+        + "\n"
+    )
+    RuntimeClientExecutionHarness.install(monkeypatch).prepare_all(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(error_line,),
+        ),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
+    assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert "connection timeout" in outcome.kind.detail

@@ -107,8 +107,6 @@ def test_codex_built_in_provider_stream_interpretation_maps_selected_model_at_ca
 @pytest.mark.parametrize(
     ("event_type", "message", "expected_exception"),
     [
-        ("error", "upstream status 503", HardAgentError),
-        ("turn.failed", "upstream status 503", HardAgentError),
         ("error", "basic authentication failed", HardAgentError),
         ("turn.failed", "refresh_token_reused", AgentCredentialFailureError),
         (
@@ -146,6 +144,31 @@ def test_codex_built_in_provider_stream_interpretation_preserves_error_classific
     assert str(exc_info.value) == message
     if isinstance(exc_info.value, (AgentCredentialFailureError, HardAgentError)):
         assert exc_info.value.service_name == "codex"
+
+
+@pytest.mark.parametrize("event_type", ["error", "turn.failed"])
+def test_codex_built_in_provider_stream_interpretation_maps_5xx_to_provider_unavailable(
+    event_type: str,
+) -> None:
+    interpretation = codex_built_in_provider_stream_interpretation()
+    message = "upstream status 503"
+    line = json.dumps(
+        {
+            "type": event_type,
+            **(
+                {"message": message}
+                if event_type == "error"
+                else {"error": {"message": message}}
+            ),
+        }
+    )
+
+    with pytest.raises(ProviderUnavailableError) as exc_info:
+        interpretation.reduce_output([line + "\n"])
+
+    assert exc_info.value.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert exc_info.value.service_name == "codex"
+    assert str(exc_info.value) == message
 
 
 @pytest.mark.parametrize("event_type", ["error", "turn.failed"])
@@ -643,7 +666,7 @@ def test_claude_session_not_found_signal_is_case_insensitive() -> None:
     assert exc_info.value.classification == "session_not_found"
 
 
-def test_claude_non_session_gone_error_keeps_existing_classification() -> None:
+def test_claude_5xx_error_raises_provider_unavailable_error() -> None:
     interpretation = claude_built_in_provider_stream_interpretation()
     line = (
         json.dumps(
@@ -657,8 +680,11 @@ def test_claude_non_session_gone_error_keeps_existing_classification() -> None:
         + "\n"
     )
 
-    with pytest.raises(HardAgentError):
+    with pytest.raises(ProviderUnavailableError) as exc_info:
         interpretation.reduce_output([line])
+
+    assert exc_info.value.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
+    assert exc_info.value.service_name == "claude"
 
 
 def test_claude_session_already_in_use_does_not_raise_continuation_unrecoverable_error() -> (
