@@ -16,11 +16,11 @@ Only the documented import paths are stable. Internal runtime modules may be reo
 
 ## Consumer Integration
 
-Ordinary consumers should use a caller-owned `RuntimeClient` and the small package vocabulary such as `StageSelection`, `ToolPolicy`, `ProviderAuth`, and `Continuation`.
+Ordinary consumers should use a caller-owned `RuntimeClient` and the small package vocabulary such as `ProviderSelection`, `ToolPolicy`, `ProviderAuth`, and `Continuation`.
 
 The runtime executes prompts and returns data. Callers own persistence for continuations, invocation records, workflow correlation, durable logs, and any usage-limit grouping policy.
 
-Every run receives an `invocation_dir`, the host directory where the provider command is launched. Tool policy is explicit: `ToolPolicy.NONE` forbids provider tools, `ToolPolicy.INSPECT_ONLY` allows workspace inspection, `ToolPolicy.NO_FILE_MUTATION` permits tools while forbidding direct workspace file mutation, and `ToolPolicy.UNRESTRICTED` adds no runtime restriction beyond provider defaults.
+Every run receives an `invocation_dir`, the host directory where the provider command is launched. Tool policy is explicit: `ToolPolicy.NONE` forbids provider tools, `ToolPolicy.NO_FILE_MUTATION` permits tools while forbidding direct workspace file mutation, and `ToolPolicy.UNRESTRICTED` adds no runtime restriction beyond provider defaults.
 
 ### Ephemeral Execution
 
@@ -29,7 +29,7 @@ Use ephemeral execution for an already-rendered prompt when the runtime should n
 ```python
 from pathlib import Path
 
-from agent_runtime import ProviderAuth, StageSelection, ToolPolicy
+from agent_runtime import Completed, ProviderAuth, ProviderSelection, ToolPolicy
 from agent_runtime.runtime import EphemeralRunRequest, RuntimeClient
 
 runtime = RuntimeClient()
@@ -38,21 +38,21 @@ result = await runtime.run_ephemeral(
     EphemeralRunRequest(
         prompt=rendered_prompt,
         invocation_dir=Path("."),
-        stage=StageSelection(
+        provider_selection=ProviderSelection(
             service="claude",
             model="sonnet",
             effort="medium",
-        ),
-        provider_auth=ProviderAuth(
-            claude_code_oauth_token=claude_code_oauth_token,
+            auth=ProviderAuth(
+                claude_code_oauth_token=claude_code_oauth_token,
+            ),
         ),
         tool_policy=ToolPolicy.NONE,
     )
 )
 
-if result.kind == "completed":
-    print(result.output)
-    print(result.usage)
+if isinstance(result.kind, Completed):
+    print(result.result.output)
+    print(result.result.usage)
 ```
 
 Ephemeral execution does not return a continuation and does not require session storage inputs.
@@ -64,7 +64,7 @@ Use new-session execution when the runtime should preserve provider transcript c
 ```python
 from pathlib import Path
 
-from agent_runtime import ProviderAuth, StageSelection, ToolPolicy
+from agent_runtime import Completed, ProviderAuth, ProviderSelection, ToolPolicy
 from agent_runtime.runtime import NewSessionRunRequest, RuntimeClient
 
 runtime = RuntimeClient()
@@ -73,18 +73,18 @@ result = await runtime.run_new_session(
     NewSessionRunRequest(
         prompt=rendered_prompt,
         invocation_dir=Path("."),
-        stage=StageSelection(
+        provider_selection=ProviderSelection(
             service="opencode",
             model="deepseek-v4-flash",
             effort="medium",
+            auth=ProviderAuth(opencode_api_key=opencode_api_key),
         ),
-        provider_auth=ProviderAuth(opencode_api_key=opencode_api_key),
         tool_policy=ToolPolicy.NO_FILE_MUTATION,
     )
 )
 
-if result.kind == "completed":
-    print(result.output)
+if isinstance(result.kind, Completed):
+    print(result.result.output)
     continuation = result.result.continuation
 ```
 
@@ -97,7 +97,7 @@ Use resumed-session execution to continue an existing provider-session continuit
 ```python
 from pathlib import Path
 
-from agent_runtime import ProviderAuth
+from agent_runtime import Completed, ProviderAuth
 from agent_runtime.runtime import ResumedSessionRunRequest, RuntimeClient
 
 runtime = RuntimeClient()
@@ -111,8 +111,8 @@ result = await runtime.run_resumed_session(
     )
 )
 
-if result.kind == "completed":
-    print(result.output)
+if isinstance(result.kind, Completed):
+    print(result.result.output)
     continuation = result.result.continuation
 ```
 
