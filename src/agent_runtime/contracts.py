@@ -43,7 +43,6 @@ class UsageLimit:
 class TransientError:
     status_code: int | None
     raw_message: str
-    classification: str | None = None
 
 
 @dataclasses.dataclass

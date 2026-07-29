@@ -297,7 +297,6 @@ def _classify_codex_error_message(
         return TransientError(
             status_code=None,
             raw_message=message,
-            classification="retryable",
         )
     if "refresh_token_reused" in message:
         return CredentialFailure(
