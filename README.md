@@ -122,10 +122,18 @@ The runtime may return structured invocation records for callers that want trace
 
 ### Runtime Outcomes
 
-Lifecycle entrypoints return `RuntimeOutcome`. Completed work has `kind == "completed"` and carries the completed result on `result.result`. When a provider reports usage, the outcome also carries `usage` with input tokens, output tokens, cache-read input tokens, cache-creation input tokens, optional cost, and optional provider duration.
+Lifecycle entrypoints return `RuntimeOutcome`, whose `kind` is one of a closed set of outcome values: `Completed`, `UsageLimited`, `ProviderUnavailable`, `ModelNotAvailable`, `Cancelled`, `TimedOut`. Discriminate with `isinstance(outcome.kind, Completed)` — `kind` is a value object, not a string. Completed work carries its output on `outcome.result.output`. When a provider reports usage, `outcome.result.usage` carries input tokens, output tokens, cache-read input tokens, cache-creation input tokens, optional cost, and optional provider duration.
 
-Expected interruptions are normal outcomes: `usage_limited`, `no_service_available`, `cancelled`, `timed_out`, and `retryable_provider_failure`. Session-backed interruption outcomes may carry `continuation` only when provider progress made resume meaningful, and they always report `invocation_progress`.
+Expected interruptions are normal outcomes rather than exceptions: `UsageLimited`, `ProviderUnavailable` (carrying a closed `reason` of `TRANSIENT_API_ERROR` or `SERVICE_NOT_AVAILABLE`), `ModelNotAvailable`, `Cancelled`, and `TimedOut`. Session-backed interruption outcomes may carry `continuation` only when provider progress made resume meaningful, and they always report `invocation_progress`.
 
 Usage-limit outcomes expose provider and service facts such as service name, account label, reset time, invocation progress, provider usage, and continuation state. Caller workflow grouping and retry/sleep policy stay outside the runtime package.
 
-Exceptional failures remain errors: malformed runtime inputs, credential problems, hard provider failures, adapter/protocol bugs, unclassified provider failures, and unexpected exceptions.
+#### Retryable versus hard provider failures
+
+A provider failure the runtime judges temporary is **returned**, never raised: server-side 5xx responses, and any failure a service's classifier recognises as transient, arrive as a `ProviderUnavailable` outcome with `reason=TRANSIENT_API_ERROR`. Retrying is your decision — the runtime never waits, retries, or falls back on its own.
+
+A provider failure judged permanent **raises** `HardAgentError`: provider-reported 4xx-class failures, process-level failures (non-zero exit, empty output), and failures a service's classifier cannot identify. Discriminate hard failures by exception type — `AgentCredentialFailureError` is the credential-specific subclass — not by the `classification` field, which is populated only for credential failures and is `None` on a plain `HardAgentError`. Provider HTTP status codes are deliberately not propagated onto exceptions.
+
+Which signals a given service treats as transient is per-service knowledge and may differ between Claude, Codex, and OpenCode.
+
+Other exceptional failures remain errors: malformed runtime inputs, credential problems, adapter or protocol bugs, and unexpected exceptions.

@@ -1,6 +1,6 @@
 # TransientAgentError retired: non-retryable transient signals collapse into HardAgentError
 
-Status: active
+Status: Refined by [0021 - TransientError is retryable by definition](0021-transient-error-is-retryable-by-definition.md), which voids this ADR's routing claim: there are no non-retryable transient signals, so `TransientError` surfaces as `ProviderUnavailableError` unconditionally and `classification` is removed from the contract. The retirement of `TransientAgentError` and the removal of `status_code` from ar's exception surface stand.
 
 `ar` raised `TransientAgentError` for `TransientError` provider events whose `classification` was anything other than `"retryable"`. The retryable path already surfaced as `ProviderUnavailableError` (an outcome-dispatch value per ADR 0012). This left `TransientAgentError` in an awkward middle ground: the type name says "transient" but the classification says "not retryable" — which is a hard failure in disguise. ADR 0012 drew the line clearly: expected temporary failures are return values; hard failures are exceptions. A non-retryable transient signal belongs on the hard-failure side of that line.
 
