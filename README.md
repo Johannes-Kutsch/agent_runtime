@@ -18,7 +18,7 @@ Only the documented import paths are stable. Internal runtime modules may be reo
 
 Ordinary consumers should use a caller-owned `RuntimeClient` and the small package vocabulary such as `ProviderSelection`, `ToolPolicy`, `ProviderAuth`, and `Continuation`.
 
-The runtime executes prompts and returns data. Callers own persistence for continuations, invocation records, workflow correlation, durable logs, and any usage-limit grouping policy.
+The runtime executes prompts and returns data. Callers own persistence for continuations, live output observations, workflow correlation, durable logs, and any usage-limit grouping policy.
 
 Every run receives an `invocation_dir`, the host directory where the provider command is launched. Tool policy is explicit: `ToolPolicy.NONE` forbids provider tools, `ToolPolicy.NO_FILE_MUTATION` permits tools while forbidding direct workspace file mutation, and `ToolPolicy.UNRESTRICTED` adds no runtime restriction beyond provider defaults.
 
@@ -80,6 +80,7 @@ result = await runtime.run_new_session(
             auth=ProviderAuth(opencode_api_key=opencode_api_key),
         ),
         tool_policy=ToolPolicy.NO_FILE_MUTATION,
+        session_store=Path("./sessions"),
     )
 )
 
@@ -108,6 +109,7 @@ result = await runtime.run_resumed_session(
         invocation_dir=Path("."),
         continuation=continuation,
         provider_auth=ProviderAuth(opencode_api_key=opencode_api_key),
+        session_store=Path("./sessions"),
     )
 )
 
@@ -116,17 +118,19 @@ if isinstance(result.kind, Completed):
     continuation = result.result.continuation
 ```
 
-### Invocation Records
+### Live Output
 
-The runtime may return structured invocation records for callers that want traces. Callers decide if, where, and how to persist those records. The runtime does not own durable log file names, directories, retention, or cleanup policy.
+All run requests accept an optional `on_live_output: Callable[[AgentEvent], None]` callback. The runtime calls it synchronously for each `AgentEvent` observed during the run. `AgentEvent` values carry a `type` (`"agent_message"`, `"agent_tool_call"`, `"turn_summary"`, or `"other"`), a `display_message`, and `raw_provider_output`.
+
+Live output is notification-only and does not control runtime flow. Callbacks must not raise; exceptions propagate to the caller as consumer failures. The runtime does not replay prior events from continuations or history. Consumers own buffering, display formatting, persistence, and redaction for observed events.
 
 ### Runtime Outcomes
 
 Lifecycle entrypoints return `RuntimeOutcome`, whose `kind` is one of a closed set of outcome values: `Completed`, `UsageLimited`, `ProviderUnavailable`, `ModelNotAvailable`, `Cancelled`, `TimedOut`. Discriminate with `isinstance(outcome.kind, Completed)` — `kind` is a value object, not a string. Completed work carries its output on `outcome.result.output`. When a provider reports usage, `outcome.result.usage` carries input tokens, output tokens, cache-read input tokens, cache-creation input tokens, optional cost, and optional provider duration.
 
-Expected interruptions are normal outcomes rather than exceptions: `UsageLimited`, `ProviderUnavailable` (carrying a closed `reason` of `TRANSIENT_API_ERROR` or `SERVICE_NOT_AVAILABLE`), `ModelNotAvailable`, `Cancelled`, and `TimedOut`. Session-backed interruption outcomes may carry `continuation` only when provider progress made resume meaningful, and they always report `invocation_progress`.
+Expected interruptions are normal outcomes rather than exceptions: `UsageLimited`, `ProviderUnavailable` (carrying a closed `reason` of `TRANSIENT_API_ERROR` or `SERVICE_NOT_AVAILABLE`), `ModelNotAvailable`, `Cancelled`, and `TimedOut`. Session-backed interruption outcomes may carry a continuation on `result.continuation` only when provider progress made resume meaningful.
 
-Usage-limit outcomes expose provider and service facts such as service name, account label, reset time, `is_permanent`, invocation progress, provider usage, and continuation state. `is_permanent=True` signals that the account is permanently exhausted rather than temporarily rate-limited; consumers use it to decide whether to schedule a retry or mark an account unavailable. Caller workflow grouping and retry/sleep policy stay outside the runtime package.
+`UsageLimited` carries `reset_time` (when the limit resets, or `None` if unknown) and `is_permanent`. Service identity and provider usage are available on `result.selected` and `result.usage` as with all outcomes. `is_permanent=True` signals that the account is permanently exhausted rather than temporarily rate-limited; consumers use it to decide whether to schedule a retry or mark an account unavailable. Caller workflow grouping and retry/sleep policy stay outside the runtime package.
 
 #### Retryable versus hard provider failures
 
