@@ -117,6 +117,7 @@ class ProviderInvocationFailure:
     usage: ProviderUsage | None = None
     reset_time: datetime | None = None
     provider_unavailable_reason: ProviderUnavailableReason | None = None
+    is_permanent: bool = False
 
 
 class ProviderInvocationAdapter(Protocol):
@@ -143,6 +144,7 @@ def _provider_invocation_failure_from_error(
             provider_session_id=provider_session_id,
             usage=error.usage,
             reset_time=error.reset_time,
+            is_permanent=error.is_permanent,
         )
     return ProviderInvocationFailure(
         kind=InvocationFailureKind.PROVIDER_UNAVAILABLE,

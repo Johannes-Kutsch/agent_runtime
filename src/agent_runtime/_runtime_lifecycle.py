@@ -399,6 +399,7 @@ class Completed:
 @dataclasses.dataclass(frozen=True)
 class UsageLimited:
     reset_time: datetime | None
+    is_permanent: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

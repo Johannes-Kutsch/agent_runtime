@@ -61,6 +61,14 @@ def reduce_text_output_events(
                 classification=event.classification,
             )
         if isinstance(event, CredentialFailure):
+            if event.classification == "operator_actionable_agent_credential_failure":
+                raise UsageLimitError(
+                    reset_time=None,
+                    raw_message=event.raw_message,
+                    service_name=event.service_name,
+                    is_permanent=True,
+                    invocation_progress=invocation_progress,
+                )
             raise AgentCredentialFailureError(
                 message=event.raw_message,
                 service_name=event.service_name,

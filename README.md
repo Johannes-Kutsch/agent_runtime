@@ -126,14 +126,14 @@ Lifecycle entrypoints return `RuntimeOutcome`, whose `kind` is one of a closed s
 
 Expected interruptions are normal outcomes rather than exceptions: `UsageLimited`, `ProviderUnavailable` (carrying a closed `reason` of `TRANSIENT_API_ERROR` or `SERVICE_NOT_AVAILABLE`), `ModelNotAvailable`, `Cancelled`, and `TimedOut`. Session-backed interruption outcomes may carry `continuation` only when provider progress made resume meaningful, and they always report `invocation_progress`.
 
-Usage-limit outcomes expose provider and service facts such as service name, account label, reset time, invocation progress, provider usage, and continuation state. Caller workflow grouping and retry/sleep policy stay outside the runtime package.
+Usage-limit outcomes expose provider and service facts such as service name, account label, reset time, `is_permanent`, invocation progress, provider usage, and continuation state. `is_permanent=True` signals that the account is permanently exhausted rather than temporarily rate-limited; consumers use it to decide whether to schedule a retry or mark an account unavailable. Caller workflow grouping and retry/sleep policy stay outside the runtime package.
 
 #### Retryable versus hard provider failures
 
 A provider failure the runtime judges temporary is **returned**, never raised: server-side 5xx responses, and any failure a service's classifier recognises as transient, arrive as a `ProviderUnavailable` outcome with `reason=TRANSIENT_API_ERROR`. Retrying is your decision — the runtime never waits, retries, or falls back on its own.
 
-A provider failure judged permanent **raises** `HardAgentError`: provider-reported 4xx-class failures, process-level failures (non-zero exit, empty output), and failures a service's classifier cannot identify. Discriminate hard failures by exception type — `AgentCredentialFailureError` is the credential-specific subclass — not by the `classification` field, which is populated only for credential failures and is `None` on a plain `HardAgentError`. Provider HTTP status codes are deliberately not propagated onto exceptions.
+A provider failure judged permanent **raises** `HardAgentError`: provider-reported 4xx-class failures, process-level failures (non-zero exit, empty output), and failures a service's classifier cannot identify. Discriminate hard failures by exception type — `AgentCredentialFailureError` is the credential-specific subclass — not by the `classification` field, which is populated only for credential failures and is `None` on a plain `HardAgentError`. Provider HTTP status codes are deliberately not propagated onto exceptions. Exception: OpenCode's `401 invalid api key` signals permanent account exhaustion rather than misconfiguration; the runtime surfaces it as `UsageLimited(is_permanent=True)` rather than raising `AgentCredentialFailureError`.
 
 Which signals a given service treats as transient is per-service knowledge and may differ between Claude, Codex, and OpenCode.
 
-Other exceptional failures remain errors: malformed runtime inputs, credential problems, adapter or protocol bugs, and unexpected exceptions.
+Other exceptional failures remain errors: malformed runtime inputs, most credential problems, adapter or protocol bugs, and unexpected exceptions.

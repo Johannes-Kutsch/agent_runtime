@@ -51,6 +51,7 @@ def provider_invocation_error_from_failure(
             reset_time=cast(datetime | None, failure.reset_time),
             raw_message=(failure.detail if failure.reset_time is None else None),
             service_name=service_name,
+            is_permanent=failure.is_permanent,
             invocation_progress=invocation_progress,
             usage=failure.usage,
         )

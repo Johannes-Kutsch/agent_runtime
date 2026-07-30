@@ -79,6 +79,11 @@ def _fold_runtime_outcome(
         )
     except AgentTimeoutError as exc:
         _raise_if_live_runtime_output_exception(exc)
+        if resolved_provider().service == "opencode":
+            return RuntimeOutcome(
+                kind=UsageLimited(reset_time=None, is_permanent=False),
+                result=interrupted_result(exc, service_name="opencode"),
+            )
         return RuntimeOutcome(
             kind=TimedOut(),
             result=interrupted_result(exc),
@@ -92,7 +97,7 @@ def _fold_runtime_outcome(
     except UsageLimitError as exc:
         _raise_if_live_runtime_output_exception(exc)
         return RuntimeOutcome(
-            kind=UsageLimited(reset_time=exc.reset_time),
+            kind=UsageLimited(reset_time=exc.reset_time, is_permanent=exc.is_permanent),
             result=interrupted_result(exc, service_name=exc.service_name),
         )
     except ModelNotAvailableError as exc:

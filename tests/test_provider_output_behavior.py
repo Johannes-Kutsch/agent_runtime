@@ -178,7 +178,7 @@ def test_provider_output_reduction_maps_credential_failure() -> None:
                 CredentialFailure(
                     raw_message="missing auth",
                     service_name="codex",
-                    classification="operator_actionable_agent_credential_failure",
+                    classification="codex_auth_lineage_exhausted",
                 )
             ],
             lambda _turn, _raw: None,
@@ -186,12 +186,29 @@ def test_provider_output_reduction_maps_credential_failure() -> None:
         )
 
     assert exc_info.value.service_name == "codex"
-    assert exc_info.value.classification == (
-        "operator_actionable_agent_credential_failure"
-    )
+    assert exc_info.value.classification == "codex_auth_lineage_exhausted"
     assert str(exc_info.value) == "missing auth"
     assert not hasattr(exc_info.value, "status_code")
     assert not hasattr(exc_info.value, "observations")
+
+
+def test_provider_output_reduction_maps_opencode_permanent_credential_failure_to_usage_limit() -> None:
+    with pytest.raises(UsageLimitError) as exc_info:
+        reduce_text_output_events(
+            [
+                CredentialFailure(
+                    raw_message="invalid api key",
+                    service_name="opencode",
+                    classification="operator_actionable_agent_credential_failure",
+                )
+            ],
+            lambda _turn, _raw: None,
+            provider="opencode",
+        )
+
+    assert exc_info.value.is_permanent is True
+    assert exc_info.value.service_name == "opencode"
+    assert exc_info.value.reset_time is None
 
 
 def test_provider_output_reduction_joins_assistant_turns_without_result() -> None:

@@ -5420,7 +5420,7 @@ def test_runtime_client_keeps_started_codex_new_session_continuation_from_provid
     assert len(harness.recorded_requests) == 1
 
 
-def test_runtime_client_preserves_opencode_invalid_api_key_classification(
+def test_runtime_client_opencode_invalid_api_key_surfaces_as_permanent_usage_limited(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5447,32 +5447,30 @@ def test_runtime_client_preserves_opencode_invalid_api_key_classification(
         ),
     )
 
-    with pytest.raises(AgentCredentialFailureError) as exc_info:
-        asyncio.run(
-            runtime.RuntimeClient().run_ephemeral(
-                prompt_runtime.EphemeralRunRequest(
-                    prompt="already rendered prompt",
-                    invocation_dir=tmp_path,
-                    provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
-                        InternalStageSelection(
-                            service="opencode",
-                            model="kimi-k2.6",
-                            effort="medium",
-                        ),
-                        runtime.ProviderAuth(opencode_api_key="go-key"),
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="kimi-k2.6",
+                        effort="medium",
                     ),
-                    tool_access=contracts_runtime.ToolAccess.no_tools(),
-                )
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
             )
         )
-
-    assert exc_info.value.service_name == "opencode"
-    assert exc_info.value.classification == (
-        "operator_actionable_agent_credential_failure"
     )
-    assert str(exc_info.value) == "invalid api key"
-    assert not hasattr(exc_info.value, "status_code")
-    assert not hasattr(exc_info.value, "observations")
+
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.is_permanent is True
+    assert outcome.kind.reset_time is None
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="opencode", model="kimi-k2.6", effort="medium"
+    )
 
 
 def test_runtime_client_maps_opencode_usage_limit_after_ignoring_malformed_and_non_text_events(
@@ -7183,3 +7181,50 @@ def test_runtime_client_ephemeral_opencode_statusless_error_returns_provider_una
     assert isinstance(outcome.kind, prompt_runtime.ProviderUnavailable)
     assert outcome.kind.reason is ProviderUnavailableReason.TRANSIENT_API_ERROR
     assert "connection timeout" in outcome.kind.detail
+
+
+def test_runtime_client_opencode_idle_timeout_surfaces_as_usage_limited(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _TimedOutInvocationAdapter:
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            error = provider_invocation_runtime.ProviderInvocationTimedOutError(
+                "Provider subprocess exceeded the idle timeout."
+            )
+            error.provider_session_id = request.provider_session_id
+            raise error
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _TimedOutInvocationAdapter(),
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_ephemeral(
+            prompt_runtime.EphemeralRunRequest(
+                prompt="already rendered prompt",
+                invocation_dir=tmp_path,
+                provider_selection=RuntimeClientExecutionHarness.attach_provider_auth(
+                    InternalStageSelection(
+                        service="opencode",
+                        model="glm-5.2",
+                        effort="medium",
+                    ),
+                    runtime.ProviderAuth(opencode_api_key="go-key"),
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.UsageLimited)
+    assert outcome.kind.reset_time is None
+    assert outcome.kind.is_permanent is False
+    assert outcome.result.selected == runtime.ResolvedProvider(
+        service="opencode", model="glm-5.2", effort="medium"
+    )
