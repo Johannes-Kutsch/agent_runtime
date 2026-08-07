@@ -164,10 +164,11 @@ class RemoteProviderAdapter:
     ) -> ProviderInvocationResult | ProviderInvocationFailure:
         lines = self._remote_run(request.argv, request.worktree, request.environment)
         output, usage = request.output_hooks.reduce_output(list(lines))
-        return ProviderInvocationResult(output=output, usage=usage, stdout_lines=tuple(lines))
+        return ProviderInvocationResult(
+            output=output, usage=usage, stdout_lines=tuple(lines)
+        )
 
-    def _remote_run(self, argv, worktree, env) -> list[str]:
-        ...
+    def _remote_run(self, argv, worktree, env) -> list[str]: ...
 ```
 
 `request.worktree` is the Invocation Directory. `request.output_hooks.reduce_output` is the stream interpreter; call it with all collected stdout lines to get the final output string and optional `ProviderUsage`.
@@ -177,7 +178,7 @@ class RemoteProviderAdapter:
 Pass the adapter to `RuntimeClient` at construction:
 
 ```python
-from agent_runtime.runtime import RuntimeClient
+from agent_runtime import RuntimeClient
 
 adapter = RemoteProviderAdapter()
 runtime = RuntimeClient(provider_invocation_adapter=adapter)
@@ -239,8 +240,7 @@ class StreamingRemoteAdapter:
             stdout_lines=tuple(all_lines),
         )
 
-    def _stream_from_remote(self, argv, worktree):
-        ...
+    def _stream_from_remote(self, argv, worktree): ...
 ```
 
 #### Retryable versus hard provider failures
