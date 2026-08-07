@@ -19,6 +19,7 @@ import agent_runtime.runtime as prompt_runtime
 from agent_runtime._runtime_lifecycle import CancellationToken
 from agent_runtime.errors import (
     AgentCancelledError,
+    AgentTimeoutError,
     ContinuationUnrecoverableError,
     RuntimeConfigurationError,
     UsageLimitError,
@@ -1712,3 +1713,282 @@ def test_session_backed_codex_new_session_redirect_cancellation_before_started_u
         )
     )
     assert _CancelBeforeStartedAdapter.recorded_request_count == 1
+
+
+@pytest.mark.parametrize(
+    ("error_class", "expected_kind"),
+    [
+        (AgentCancelledError, runtime.Cancelled),
+        (AgentTimeoutError, runtime.TimedOut),
+    ],
+)
+def test_session_backed_claude_new_session_interruption_after_provider_started_preserves_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_class: type,
+    expected_kind: type,
+) -> None:
+    expected_session_id = "prepared-session-1"
+
+    class _InterruptAfterStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _InterruptAfterStartedAdapter.recorded_request_count += 1
+            consume = getattr(
+                request.output_hooks.reduce_output, "consume_stdout_lines", None
+            )
+            if callable(consume):
+                consume(["some provider output"])
+            raise error_class()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _InterruptAfterStartedAdapter(),
+    )
+    RuntimeClientExecutionHarness.install_generated_provider_session_id(
+        monkeypatch,
+        expected_session_id,
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, expected_kind)
+    assert outcome.result.continuation is not None
+    assert (
+        outcome.result.continuation.provider_resume_state["provider_session_id"]
+        == expected_session_id
+    )
+    assert _InterruptAfterStartedAdapter.recorded_request_count == 1
+
+
+@pytest.mark.parametrize(
+    ("error_class", "expected_kind"),
+    [
+        (AgentCancelledError, runtime.Cancelled),
+        (AgentTimeoutError, runtime.TimedOut),
+    ],
+)
+def test_session_backed_claude_new_session_interruption_before_provider_started_has_no_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_class: type,
+    expected_kind: type,
+) -> None:
+    class _InterruptBeforeStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _InterruptBeforeStartedAdapter.recorded_request_count += 1
+            raise error_class()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _InterruptBeforeStartedAdapter(),
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, expected_kind)
+    assert outcome.result.continuation is None
+    assert _InterruptBeforeStartedAdapter.recorded_request_count == 1
+
+
+@pytest.mark.parametrize(
+    ("error_class", "expected_kind"),
+    [
+        (AgentCancelledError, runtime.Cancelled),
+        (AgentTimeoutError, runtime.TimedOut),
+    ],
+)
+def test_session_backed_claude_resumed_session_interruption_after_provider_started_preserves_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_class: type,
+    expected_kind: type,
+) -> None:
+    expected_session_id = "resumed-session-1"
+
+    class _InterruptAfterStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _InterruptAfterStartedAdapter.recorded_request_count += 1
+            consume = getattr(
+                request.output_hooks.reduce_output, "consume_stdout_lines", None
+            )
+            if callable(consume):
+                consume(["some provider output"])
+            raise error_class()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _InterruptAfterStartedAdapter(),
+    )
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_claude_resumed_session_facts",
+        lambda **_kwargs: provider_state_resolution.ClaudeResumedSessionResolution(
+            provider_state_dir=tmp_path,
+            continuation_input_facts=provider_state_resolution.claude_continuation_input_facts(
+                model="sonnet",
+                effort="medium",
+                provider_state_dir=tmp_path,
+                provider_state_dir_relpath="",
+                provider_session_id=expected_session_id,
+                run_kind=RunKind.RESUME,
+            ),
+        ),
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    continuation = RuntimeClientExecutionHarness.claude_continuation(
+        provider_session_id=expected_session_id,
+        provider_state_dir_relpath="",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            RuntimeClientExecutionHarness.resume_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, expected_kind)
+    assert outcome.result.continuation is not None
+    assert (
+        outcome.result.continuation.provider_resume_state["provider_session_id"]
+        == expected_session_id
+    )
+    assert _InterruptAfterStartedAdapter.recorded_request_count == 1
+
+
+@pytest.mark.parametrize(
+    ("error_class", "expected_kind"),
+    [
+        (AgentCancelledError, runtime.Cancelled),
+        (AgentTimeoutError, runtime.TimedOut),
+    ],
+)
+def test_session_backed_claude_resumed_session_interruption_before_provider_started_uses_fallback_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_class: type,
+    expected_kind: type,
+) -> None:
+    class _InterruptBeforeStartedAdapter:
+        recorded_request_count = 0
+
+        def execute(
+            self,
+            request: provider_invocation_runtime.ProviderInvocationRequest,
+            argv_transform=None,
+        ) -> provider_invocation_runtime.ProviderInvocationResult:
+            _InterruptBeforeStartedAdapter.recorded_request_count += 1
+            raise error_class()
+
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_default_provider_invocation_adapter",
+        lambda: _InterruptBeforeStartedAdapter(),
+    )
+    session_id = "resumed-session-1"
+    monkeypatch.setattr(
+        session_backed_execution._provider_state_resolution,
+        "resolve_claude_resumed_session_facts",
+        lambda **_kwargs: provider_state_resolution.ClaudeResumedSessionResolution(
+            provider_state_dir=tmp_path,
+            continuation_input_facts=provider_state_resolution.claude_continuation_input_facts(
+                model="sonnet",
+                effort="medium",
+                provider_state_dir=tmp_path,
+                provider_state_dir_relpath="",
+                provider_session_id=session_id,
+                run_kind=RunKind.RESUME,
+            ),
+        ),
+    )
+    runtime_state_dir = RuntimeClientExecutionHarness.prepare_runtime_state_dir(
+        tmp_path
+    )
+    continuation = RuntimeClientExecutionHarness.claude_continuation(
+        provider_session_id=session_id,
+        provider_state_dir_relpath="",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient().run_resumed_session(
+            RuntimeClientExecutionHarness.resume_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, expected_kind)
+    assert outcome.result.continuation == continuation
+    assert _InterruptBeforeStartedAdapter.recorded_request_count == 1
