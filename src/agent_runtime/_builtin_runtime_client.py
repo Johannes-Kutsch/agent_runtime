@@ -131,13 +131,7 @@ class _SessionTimeoutState:
             provider_session_id=self.provider_session_id,
         )
 
-    def apply_to_timeout(self, exc: AgentTimeoutError) -> None:
-        if exc.usage is None:
-            exc.usage = self.usage
-        exc.invocation_progress = self.invocation_progress
-        exc.provider_session_id = self.provider_session_id
-
-    def apply_to_cancellation(self, exc: AgentCancelledError) -> None:
+    def apply(self, exc: AgentTimeoutError | AgentCancelledError) -> None:
         if exc.usage is None:
             exc.usage = self.usage
         exc.invocation_progress = self.invocation_progress
@@ -228,7 +222,7 @@ def _with_session_timeout_state(
                 consume_stdout_lines(lines)
             except AgentTimeoutError as exc:
                 timeout_state.record(lines)
-                timeout_state.apply_to_timeout(exc)
+                timeout_state.apply(exc)
                 raise
         timeout_state.record(lines)
 

@@ -111,9 +111,6 @@ def dispatch_built_in_provider_session_invocation(
             timeout_seconds=timeout_seconds,
             token=token,
         )
-    except AgentTimeoutError as exc:
-        timeout_state.apply_to_timeout(exc)
-        raise
-    except AgentCancelledError as exc:
-        timeout_state.apply_to_cancellation(exc)
+    except (AgentTimeoutError, AgentCancelledError) as exc:
+        timeout_state.apply(exc)
         raise
