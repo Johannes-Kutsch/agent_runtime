@@ -2,6 +2,8 @@
 
 The skills speak in terms of canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
 
+*Which field* carries each role — a label, a native status, a body line — lives in `docs/agents/issue-tracker.md` under **Mechanisms**. This file only names the strings, and applies to whichever axes that file routes to labels.
+
 ## State roles
 
 | Canonical role    | Label in our tracker | Meaning                                  |
@@ -21,7 +23,7 @@ The skills speak in terms of canonical triage roles. This file maps those roles 
 
 ## Slice-mode labels
 
-Used by `to-tickets` and `triage` to mark how an AFK ticket should be implemented. Every issue in `ready-for-agent` carries exactly one of the three mode labels (HITL architectural-decision issues live in `ready-for-human` and are exempt). See `_shared/SLICE-MODES.md` for definitions.
+Used by `to-tickets` and `triage` to mark how an AFK ticket should be implemented. See `_shared/SLICE-MODES.md` for the definitions and the one-mode-per-ticket invariant.
 
 | Canonical label    | Label in our tracker | Meaning                                                                   |
 | ------------------ | -------------------- | ------------------------------------------------------------------------- |
