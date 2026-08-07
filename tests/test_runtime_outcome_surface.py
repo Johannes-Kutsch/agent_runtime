@@ -144,7 +144,10 @@ def test_runtime_outcome_is_kind_plus_result_only() -> None:
 
 
 def test_outcome_kind_variants_carry_only_their_own_data() -> None:
-    assert {f.name for f in fields(runtime.UsageLimited)} == {"reset_time", "is_permanent"}
+    assert {f.name for f in fields(runtime.UsageLimited)} == {
+        "reset_time",
+        "is_permanent",
+    }
     assert {f.name for f in fields(runtime.ProviderUnavailable)} == {
         "reason",
         "detail",
