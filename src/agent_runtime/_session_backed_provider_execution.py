@@ -85,43 +85,21 @@ def _completed_result(
     )
 
 
-def _augment_timeout_interruption(
+def _augment_interruption(
     *,
-    error: AgentTimeoutError,
+    error: AgentTimeoutError | AgentCancelledError,
     provider_session_id: str | None,
     build_continuation: Callable[[str], Continuation],
     fallback_continuation: Continuation | None = None,
 ) -> None:
-    timeout_provider_session_id = cast(
+    active_provider_session_id = cast(
         str | None,
         getattr(error, "provider_session_id", provider_session_id),
     )
     if error.invocation_progress is InvocationProgress.STARTED:
         error.continuation = _interruption_continuation(
             provider_work_started=True,
-            provider_session_id=timeout_provider_session_id,
-            build_continuation=build_continuation,
-        )
-        return
-    if fallback_continuation is not None:
-        error.continuation = fallback_continuation
-
-
-def _augment_cancellation_interruption(
-    *,
-    error: AgentCancelledError,
-    provider_session_id: str | None,
-    build_continuation: Callable[[str], Continuation],
-    fallback_continuation: Continuation | None = None,
-) -> None:
-    cancel_provider_session_id = cast(
-        str | None,
-        getattr(error, "provider_session_id", provider_session_id),
-    )
-    if error.invocation_progress is InvocationProgress.STARTED:
-        error.continuation = _interruption_continuation(
-            provider_work_started=True,
-            provider_session_id=cancel_provider_session_id,
+            provider_session_id=active_provider_session_id,
             build_continuation=build_continuation,
         )
         return
@@ -141,16 +119,8 @@ def _invoke_with_interruption_continuations(
 ) -> _InvocationResultT:
     try:
         return invoke()
-    except AgentTimeoutError as exc:
-        _augment_timeout_interruption(
-            error=exc,
-            provider_session_id=provider_session_id,
-            build_continuation=build_continuation,
-            fallback_continuation=fallback_continuation,
-        )
-        raise
-    except AgentCancelledError as exc:
-        _augment_cancellation_interruption(
+    except (AgentTimeoutError, AgentCancelledError) as exc:
+        _augment_interruption(
             error=exc,
             provider_session_id=provider_session_id,
             build_continuation=build_continuation,
