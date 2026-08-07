@@ -1230,8 +1230,9 @@ def test_runtime_client_ephemeral_run_maps_provider_cancelled_interruption_to_ca
 
     def _cancel_run_ephemeral(
         request: prompt_runtime.EphemeralRunRequest,
+        **kwargs: object,
     ) -> prompt_runtime.RunResult:
-        del request
+        del request, kwargs
         raise provider_cancelled
 
     monkeypatch.setattr(prompt_runtime, "_run_builtin_ephemeral", _cancel_run_ephemeral)
@@ -1372,8 +1373,9 @@ def test_runtime_client_ephemeral_run_drops_continuation_from_usage_limited_inte
 
     def _usage_limit_run_ephemeral(
         request: prompt_runtime.EphemeralRunRequest,
+        **kwargs: object,
     ) -> prompt_runtime.RunResult:
-        del request
+        del request, kwargs
         raise usage_limited
 
     monkeypatch.setattr(
@@ -7228,3 +7230,128 @@ def test_runtime_client_opencode_idle_timeout_surfaces_as_usage_limited(
     assert outcome.result.selected == runtime.ResolvedProvider(
         service="opencode", model="glm-5.2", effort="medium"
     )
+
+
+def test_runtime_client_injected_adapter_used_for_run_ephemeral(
+    tmp_path: Path,
+) -> None:
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter()
+    adapter.prepared_invocations.append(
+        provider_invocation_runtime.ProviderInvocationResult(
+            output="injected ephemeral output",
+            usage=runtime.ProviderUsage(input_tokens=3, output_tokens=1),
+            stdout_lines=(),
+            provider_session_id=None,
+        )
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient(provider_invocation_adapter=adapter).run_ephemeral(
+            RuntimeClientExecutionHarness.ephemeral_run_request(
+                invocation_dir=tmp_path,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "injected ephemeral output"
+    assert len(adapter.recorded_requests) == 1
+
+
+def test_runtime_client_injected_adapter_used_for_run_new_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "injected-session-uuid",
+    )
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter()
+    adapter.prepared_invocations.append(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps({"type": "result", "result": "injected new session output"})
+                + "\n",
+            ),
+        )
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir.mkdir(parents=True, exist_ok=True)
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient(provider_invocation_adapter=adapter).run_new_session(
+            RuntimeClientExecutionHarness.start_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                provider_selection=InternalStageSelection(
+                    service="claude",
+                    model="sonnet",
+                    effort="medium",
+                ),
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+                tool_access=contracts_runtime.ToolAccess.no_tools(),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "injected new session output"
+    assert len(adapter.recorded_requests) == 1
+
+
+def test_runtime_client_injected_adapter_used_for_run_resumed_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prompt_runtime._builtin_runtime_client_module,
+        "_new_provider_session_id",
+        lambda: "injected-resumed-uuid",
+    )
+    adapter = provider_invocation_runtime.InMemoryProviderInvocationAdapter()
+    adapter.prepared_invocations.append(
+        provider_invocation_runtime.ProviderInvocationPreparedStream(
+            stdout_lines=(
+                json.dumps(
+                    {"type": "result", "result": "injected resumed session output"}
+                )
+                + "\n",
+            ),
+        )
+    )
+
+    runtime_state_dir = tmp_path / ".agent-runtime" / "state"
+    runtime_state_dir.mkdir(parents=True, exist_ok=True)
+    continuation = RuntimeClientExecutionHarness.claude_continuation(
+        provider_session_id="claude-session-abc",
+    )
+
+    outcome = asyncio.run(
+        runtime.RuntimeClient(provider_invocation_adapter=adapter).run_resumed_session(
+            RuntimeClientExecutionHarness.resume_session_run_request(
+                invocation_dir=tmp_path,
+                runtime_state_dir=runtime_state_dir,
+                continuation=continuation,
+                provider_auth=runtime.ProviderAuth(
+                    claude_code_oauth_token="oauth-token"
+                ),
+            )
+        )
+    )
+
+    assert isinstance(outcome.kind, prompt_runtime.Completed)
+    assert outcome.result.output == "injected resumed session output"
+    assert len(adapter.recorded_requests) == 1

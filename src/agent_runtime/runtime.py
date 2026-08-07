@@ -4,6 +4,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from . import _builtin_runtime_client as _builtin_runtime_client_module
 from . import _time
+
+if TYPE_CHECKING:
+    from ._provider_invocation import ProviderInvocationAdapter
 from ._runtime_lifecycle import (
     AgentEvent,
     Cancelled,
@@ -33,9 +36,6 @@ from .errors import (
     RuntimeConfigurationError,
 )
 from .types import ProviderSelection, ResolvedProvider
-
-if TYPE_CHECKING:
-    from ._provider_invocation import ProviderInvocationAdapter
 
 _time_module = _time
 
@@ -95,6 +95,12 @@ _supported_builtin_provider_selection = (
 
 
 class RuntimeClient:
+    def __init__(
+        self,
+        provider_invocation_adapter: ProviderInvocationAdapter | None = None,
+    ) -> None:
+        self._provider_invocation_adapter = provider_invocation_adapter
+
     async def run_ephemeral(self, request: EphemeralRunRequest) -> RuntimeOutcome:
         selected_provider_selection = _supported_builtin_provider_selection(
             request.provider_selection
@@ -111,6 +117,7 @@ class RuntimeClient:
         return _fold_runtime_outcome(
             lambda: _run_builtin_ephemeral(
                 request,
+                provider_invocation_adapter=self._provider_invocation_adapter,
             ),
             selected_provider=selected,
             preserve_continuation=False,
@@ -125,6 +132,7 @@ class RuntimeClient:
             lambda: _run_builtin_new_session(
                 request,
                 on_live_output=request.on_live_output,
+                provider_invocation_adapter=self._provider_invocation_adapter,
             ),
             selected_provider=ResolvedProvider(
                 service=request.provider_selection.service,
@@ -145,6 +153,7 @@ class RuntimeClient:
             lambda: _run_builtin_resumed_session(
                 request,
                 on_live_output=request.on_live_output,
+                provider_invocation_adapter=self._provider_invocation_adapter,
             ),
             selected_provider=lambda: (
                 cast(
