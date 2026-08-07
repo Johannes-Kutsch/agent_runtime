@@ -132,6 +132,117 @@ Expected interruptions are normal outcomes rather than exceptions: `UsageLimited
 
 `UsageLimited` carries `reset_time` (when the limit resets, or `None` if unknown) and `is_permanent`. Service identity and provider usage are available on `result.selected` and `result.usage` as with all outcomes. `is_permanent=True` signals that the account is permanently exhausted rather than temporarily rate-limited; consumers use it to decide whether to schedule a retry or mark an account unavailable. Caller workflow grouping and retry/sleep policy stay outside the runtime package.
 
+## Custom Provider Execution
+
+By default, `RuntimeClient` spawns provider CLIs as host subprocesses. A `ProviderInvocationAdapter` replaces that execution step without requiring a Docker or container dependency on `agent_runtime`. Provide one when the consuming project needs to route provider execution to a non-host environment — for example, a container, a remote host, or a test double.
+
+The adapter is infrastructure stable for the lifetime of the client: inject it once at construction, and all three run entry-points (`run_ephemeral`, `run_new_session`, `run_resumed_session`) thread it through automatically.
+
+### Implementing the Protocol
+
+Import everything from `agent_runtime`:
+
+```python
+from agent_runtime import (
+    InvocationFailureKind,
+    ProviderInvocationAdapter,
+    ProviderInvocationFailure,
+    ProviderInvocationRequest,
+    ProviderInvocationResult,
+    consume_provider_stdout_lines,
+)
+```
+
+A minimal adapter that delegates to a remote executor:
+
+```python
+class RemoteProviderAdapter:
+    def execute(
+        self,
+        request: ProviderInvocationRequest,
+        argv_transform=None,
+    ) -> ProviderInvocationResult | ProviderInvocationFailure:
+        lines = self._remote_run(request.argv, request.worktree, request.environment)
+        output, usage = request.output_hooks.reduce_output(list(lines))
+        return ProviderInvocationResult(output=output, usage=usage, stdout_lines=tuple(lines))
+
+    def _remote_run(self, argv, worktree, env) -> list[str]:
+        ...
+```
+
+`request.worktree` is the Invocation Directory. `request.output_hooks.reduce_output` is the stream interpreter; call it with all collected stdout lines to get the final output string and optional `ProviderUsage`.
+
+### Injecting the Adapter
+
+Pass the adapter to `RuntimeClient` at construction:
+
+```python
+from agent_runtime.runtime import RuntimeClient
+
+adapter = RemoteProviderAdapter()
+runtime = RuntimeClient(provider_invocation_adapter=adapter)
+
+# All three run kinds use the adapter automatically:
+result = await runtime.run_ephemeral(ephemeral_request)
+result = await runtime.run_new_session(new_session_request)
+result = await runtime.run_resumed_session(resumed_session_request)
+```
+
+### Returning a Classified Failure
+
+Return `ProviderInvocationFailure` instead of raising when the remote executor reports a recognised failure. Use `InvocationFailureKind` to classify it; the runtime turns the failure into the appropriate `RuntimeOutcome` (`UsageLimited` or `ProviderUnavailable`):
+
+```python
+from datetime import datetime
+
+# Usage limit — temporary rate limit with a known reset time:
+return ProviderInvocationFailure(
+    kind=InvocationFailureKind.USAGE_LIMITED,
+    detail="rate limit exceeded",
+    reset_time=datetime(2026, 8, 8, 0, 0, 0),
+    is_permanent=False,
+)
+
+# Usage limit — permanent account exhaustion:
+return ProviderInvocationFailure(
+    kind=InvocationFailureKind.USAGE_LIMITED,
+    detail="account permanently exhausted",
+    is_permanent=True,
+)
+
+# Transient provider unavailability:
+return ProviderInvocationFailure(
+    kind=InvocationFailureKind.PROVIDER_UNAVAILABLE,
+    detail="upstream 503",
+)
+```
+
+### Streaming Live Runtime Output Incrementally
+
+Adapters that receive output line-by-line should call `consume_provider_stdout_lines` per batch so that `Live Runtime Output` is delivered incrementally rather than after the full run completes. The call is a no-op when the stream interpreter does not support incremental delivery, so it is always safe:
+
+```python
+class StreamingRemoteAdapter:
+    def execute(
+        self,
+        request: ProviderInvocationRequest,
+        argv_transform=None,
+    ) -> ProviderInvocationResult | ProviderInvocationFailure:
+        all_lines: list[str] = []
+        for line in self._stream_from_remote(request.argv, request.worktree):
+            all_lines.append(line)
+            consume_provider_stdout_lines(request.output_hooks.reduce_output, [line])
+        output, usage = request.output_hooks.reduce_output(all_lines)
+        return ProviderInvocationResult(
+            output=output,
+            usage=usage,
+            stdout_lines=tuple(all_lines),
+        )
+
+    def _stream_from_remote(self, argv, worktree):
+        ...
+```
+
 #### Retryable versus hard provider failures
 
 A provider failure the runtime judges temporary is **returned**, never raised: server-side 5xx responses, and any failure a service's classifier recognises as transient, arrive as a `ProviderUnavailable` outcome with `reason=TRANSIENT_API_ERROR`. Retrying is your decision — the runtime never waits, retries, or falls back on its own.
