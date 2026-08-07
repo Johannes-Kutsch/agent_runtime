@@ -192,7 +192,9 @@ def test_provider_output_reduction_maps_credential_failure() -> None:
     assert not hasattr(exc_info.value, "observations")
 
 
-def test_provider_output_reduction_maps_opencode_permanent_credential_failure_to_usage_limit() -> None:
+def test_provider_output_reduction_maps_opencode_permanent_credential_failure_to_usage_limit() -> (
+    None
+):
     with pytest.raises(UsageLimitError) as exc_info:
         reduce_text_output_events(
             [

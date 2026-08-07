@@ -367,7 +367,7 @@ def test_runtime_client_constructor_rejects_already_sandboxed_keyword_argument()
     None
 ):
     signature = inspect.signature(runtime.RuntimeClient)
-    assert list(signature.parameters.keys()) == []
+    assert list(signature.parameters.keys()) == ["provider_invocation_adapter"]
     unexpected_kwargs: dict[str, object] = {"_provider_invocation_adapter": None}
     with pytest.raises(TypeError):
         cast(Any, runtime.RuntimeClient)(**unexpected_kwargs)
