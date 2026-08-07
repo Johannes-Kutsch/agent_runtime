@@ -32,8 +32,13 @@ def test_package_exports_runtime_surface() -> None:
         "Completed",
         "Continuation",
         "HardAgentError",
+        "InvocationFailureKind",
         "ModelNotAvailable",
         "ProviderAuth",
+        "ProviderInvocationAdapter",
+        "ProviderInvocationFailure",
+        "ProviderInvocationRequest",
+        "ProviderInvocationResult",
         "ProviderSelection",
         "ProviderUnavailable",
         "ProviderUsage",
@@ -47,6 +52,7 @@ def test_package_exports_runtime_surface() -> None:
         "ToolPolicy",
         "UsageLimitError",
         "UsageLimited",
+        "consume_provider_stdout_lines",
     ]
     assert not hasattr(runtime, "InvocationRecord")
     assert not hasattr(runtime, "InvocationProgress")
@@ -112,13 +118,37 @@ def test_built_in_provider_invocation_seam_stays_private_to_runtime_public_surfa
     None
 ):
     with pytest.raises(ImportError):
-        exec("from agent_runtime import ProviderInvocationRequest", {}, {})  # noqa: S102
-    with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ProviderInvocationRequest", {}, {})  # noqa: S102
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ProviderInvocationResult", {}, {})  # noqa: S102
     with pytest.raises(ImportError):
         exec("from agent_runtime.runtime import ProviderInvocationAdapter", {}, {})  # noqa: S102
+
+
+def test_provider_invocation_adapter_names_exported_from_agent_runtime() -> None:
+    names: dict[str, object] = {}
+    exec(  # noqa: S102
+        "from agent_runtime import ("
+        "ProviderInvocationAdapter, ProviderInvocationRequest, ProviderInvocationResult,"
+        " ProviderInvocationFailure, InvocationFailureKind, consume_provider_stdout_lines"
+        ")",
+        {},
+        names,
+    )
+    assert "ProviderInvocationAdapter" in names
+    assert "ProviderInvocationRequest" in names
+    assert "ProviderInvocationResult" in names
+    assert "ProviderInvocationFailure" in names
+    assert "InvocationFailureKind" in names
+    assert "consume_provider_stdout_lines" in names
+    for name in (
+        "InvocationFailureKind",
+        "ProviderInvocationAdapter",
+        "ProviderInvocationFailure",
+        "ProviderInvocationRequest",
+        "ProviderInvocationResult",
+    ):
+        assert names[name].__module__ == "agent_runtime", name  # type: ignore[union-attr]
 
 
 def test_session_backed_provider_execution_module_stays_private_to_runtime_public_surface() -> (
@@ -875,6 +905,31 @@ def test_provider_session_adapter_public_seam_is_absent() -> None:
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("agent_runtime._provider_session_adapter")
+
+
+def test_consume_provider_stdout_lines_forwards_to_consume_stdout_lines_when_callable() -> (
+    None
+):
+    calls: list[list[str]] = []
+
+    class _Reducer:
+        def __call__(self, lines: list[str]) -> tuple[str, None]:
+            return "".join(lines), None
+
+        def consume_stdout_lines(self, lines: list[str]) -> None:
+            calls.append(lines)
+
+    reducer = _Reducer()
+    runtime.consume_provider_stdout_lines(reducer, ["line1\n", "line2\n"])
+
+    assert calls == [["line1\n", "line2\n"]]
+
+
+def test_consume_provider_stdout_lines_does_nothing_when_attribute_absent() -> None:
+    def plain_reducer(lines: list[str]) -> tuple[str, None]:
+        return "".join(lines), None
+
+    runtime.consume_provider_stdout_lines(plain_reducer, ["line\n"])
 
 
 def test_tool_policy_has_three_members_on_public_surface() -> None:

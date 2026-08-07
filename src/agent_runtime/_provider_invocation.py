@@ -46,6 +46,13 @@ def _consume_new_stdout_lines(
         consume_stdout_lines(new_lines)
 
 
+def consume_provider_stdout_lines(
+    reduce_output: Callable[[list[str]], tuple[str, ProviderUsage | None]],
+    new_lines: list[str],
+) -> None:
+    _consume_new_stdout_lines(reduce_output, new_lines)
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class ProviderInvocationPrompt:
     content: str

@@ -3,6 +3,14 @@ from __future__ import annotations
 from ._import_isolation import (
     assert_runtime_import_isolation as _assert_runtime_import_isolation,
 )
+from ._provider_invocation import (
+    InvocationFailureKind,
+    ProviderInvocationAdapter,
+    ProviderInvocationFailure,
+    ProviderInvocationRequest,
+    ProviderInvocationResult,
+    consume_provider_stdout_lines,
+)
 from .contracts import ToolPolicy
 from .errors import (
     AgentCredentialFailureError,
@@ -31,6 +39,12 @@ from .runtime import (
 from .session import RunKind
 from .types import ClaudeCodeOAuthToken, ResolvedProvider
 
+InvocationFailureKind.__module__ = __name__
+ProviderInvocationAdapter.__module__ = __name__
+ProviderInvocationFailure.__module__ = __name__
+ProviderInvocationRequest.__module__ = __name__
+ProviderInvocationResult.__module__ = __name__
+
 __all__ = [
     "AgentCredentialFailureError",
     "AgentEvent",
@@ -41,8 +55,13 @@ __all__ = [
     "Completed",
     "Continuation",
     "HardAgentError",
+    "InvocationFailureKind",
     "ModelNotAvailable",
     "ProviderAuth",
+    "ProviderInvocationAdapter",
+    "ProviderInvocationFailure",
+    "ProviderInvocationRequest",
+    "ProviderInvocationResult",
     "ProviderSelection",
     "ProviderUnavailable",
     "ProviderUsage",
@@ -56,6 +75,7 @@ __all__ = [
     "ToolPolicy",
     "UsageLimitError",
     "UsageLimited",
+    "consume_provider_stdout_lines",
 ]
 
 
